@@ -22,7 +22,7 @@
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800">Instruction</span><span class="block text-[10px] text-gray-400">A rule, skill or note for your agents</span></span>
               </button>
-              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="showAddConnection = true; close()">
+              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="connTargetAgentId = null; showAddConnection = true; close()">
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800">Agent</span><span class="block text-[10px] text-gray-400">Connect data, tools and tables</span></span>
               </button>
@@ -148,7 +148,7 @@
             </button>
           </UTooltip>
           <UTooltip v-if="canCreateDataSource" text="New connection">
-            <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="showAddConnection = true">
+            <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
@@ -297,8 +297,8 @@
                 :ds-id="panelView.agentId"
                 :connections="panelConnections"
                 :can-update="panelCanUpdate"
-                @add-mcp="showAddMCP = true"
-                @add-custom-api="showAddConnection = true"
+                @add-mcp="openAddMcp(panelView.agentId)"
+                @add-custom-api="openAddCustomApi(panelView.agentId)"
                 @edit-connection="openConnectionDetail"
                 @delete-connection="onToolsConnectionChanged"
               />
@@ -380,13 +380,6 @@
             <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
             <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
 
-            <!-- View-mode property chips -->
-            <div v-if="!editing" class="flex flex-wrap items-center gap-2 mb-5">
-              <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
-              <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
-              <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getSourceTooltip(detail) }}</span>
-            </div>
-
             <!-- Body -->
             <div class="prose-instruction">
               <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
@@ -421,17 +414,37 @@
               </div>
             </div>
 
-            <!-- View-mode reach -->
-            <div v-if="!editing && detail" class="mt-6 pt-5 border-t border-gray-100">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Used by</div>
-              <div v-if="(detail.data_sources || []).length === 0" class="flex items-center gap-1.5 text-xs text-gray-500"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" /> All agents (global)</div>
-              <div v-else class="flex flex-wrap gap-1.5">
-                <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" /> {{ ds.name }}</span>
+            <!-- View-mode metadata (badges + author/timestamps + reach) -->
+            <div v-if="!editing && detail" class="mt-6 pt-5 border-t border-gray-100 space-y-4">
+              <!-- Property badges -->
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
+                <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
+                <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getSourceTooltip(detail) }}</span>
               </div>
+
+              <!-- Author + timestamps -->
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-400">
+                <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3.5 h-3.5" />Created by <span class="text-gray-600 font-medium">{{ detail.user.name || detail.user.email }}</span></span>
+                <span v-if="detail.created_at">Created {{ fmtDate(detail.created_at) }}</span>
+                <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">Updated {{ fmtDate(detail.updated_at) }}</span>
+              </div>
+
+              <!-- Used by -->
+              <div>
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Used by</div>
+                <div v-if="(detail.data_sources || []).length === 0" class="flex items-center gap-1.5 text-xs text-gray-500"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" /> All agents (global)</div>
+                <div v-else class="flex flex-wrap gap-1.5">
+                  <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" /> {{ ds.name }}</span>
+                </div>
+              </div>
+
               <template v-if="(detail.references || []).length">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mt-4 mb-2">Attached to</div>
-                <div class="flex flex-wrap gap-1.5">
-                  <span v-for="(ref, i) in detail.references" :key="i" class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono"><UIcon :name="h.getRefIcon(ref.object_type)" class="w-3 h-3 text-gray-400" /> {{ refLabel(ref) }}</span>
+                <div>
+                  <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Attached to</div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <span v-for="(ref, i) in detail.references" :key="i" class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono"><UIcon :name="h.getRefIcon(ref.object_type)" class="w-3 h-3 text-gray-400" /> {{ refLabel(ref) }}</span>
+                  </div>
                 </div>
               </template>
             </div>
@@ -499,8 +512,8 @@
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
-    <AddConnectionModal v-model="showAddConnection" @created="onConnectionChanged" />
-    <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onToolsConnectionChanged" />
+    <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
+    <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
 
     <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
@@ -859,7 +872,25 @@ const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showAddMCP = ref(false)
 const toolsRefreshKey = ref(0)
+// When a connection is created from an agent's Tools panel, link it to that agent.
+// Null when creating a brand-new agent (header "New › Agent").
+const connTargetAgentId = ref<string | null>(null)
+const openAddMcp = (agentId: string) => { connTargetAgentId.value = agentId; showAddMCP.value = true }
+const openAddCustomApi = (agentId: string) => { connTargetAgentId.value = agentId; showAddConnection.value = true }
 const mcpExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'mcp'))
+// New connection created: link it to the target agent (if any) and refresh its tools.
+const onConnCreated = async (conn?: any) => {
+  const aid = connTargetAgentId.value
+  if (aid && conn?.id) {
+    try { await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' }) } catch {}
+    try { await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' }) } catch {}
+  }
+  showAddMCP.value = false; showAddConnection.value = false
+  if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid); if (agentView.value?.agentId === aid) await refreshAgentDetail() }
+  await fetchAgents(); toolsRefreshKey.value++
+  connTargetAgentId.value = null
+}
+// Connection deleted from the Tools panel: just refresh the agent's tools.
 const onToolsConnectionChanged = async () => {
   showAddMCP.value = false
   const aid = panelView.value?.agentId
@@ -1206,4 +1237,8 @@ onMounted(async () => {
 
 <style scoped>
 .prose-instruction :deep(.tiptap-prose) { min-height: 80px; }
+/* Slightly larger instruction body text for readability. */
+.prose-instruction :deep(.tiptap-prose),
+.prose-instruction :deep(.tiptap-prose p),
+.prose-instruction :deep(.tiptap-prose li) { font-size: 0.9375rem; line-height: 1.6; }
 </style>

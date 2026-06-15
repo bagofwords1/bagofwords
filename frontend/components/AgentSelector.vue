@@ -52,13 +52,23 @@
           collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
         ]"
       >
-        <!-- Nav mode trigger content: cube icon + "Agents" label -->
+        <!-- Nav mode trigger content: stacked agent icons (up to 3) + "Agents" label -->
         <template v-if="nav">
           <UTooltip v-if="collapsed" text="Agents" :popper="{ placement: 'right' }">
-            <span class="flex items-center justify-center w-5 h-5"><UIcon name="heroicons-cube" class="w-[18px] h-[18px]" /></span>
+            <span class="flex items-center justify-center w-5 h-5">
+              <span v-if="navIconTypes.length" class="flex -space-x-1.5 items-center">
+                <DataSourceIcon v-for="(t, i) in navIconTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
+              </span>
+              <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
+            </span>
           </UTooltip>
           <template v-else>
-            <span class="flex items-center justify-center w-[18px] h-[18px]"><UIcon name="heroicons-cube" /></span>
+            <span class="flex items-center justify-center">
+              <span v-if="navIconTypes.length" class="flex -space-x-1.5 items-center">
+                <DataSourceIcon v-for="(t, i) in navIconTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
+              </span>
+              <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
+            </span>
             <span v-if="showText" class="font-medium">Agents</span>
           </template>
         </template>
@@ -222,6 +232,16 @@ const isRouteActive = (path: string) => {
 const onNavClick = (e: MouseEvent) => { e.preventDefault(); router.push('/agents') }
 const goToAgents = () => router.push('/agents')
 const goToAgent = (id: string) => router.push(`/agents?agent=${id}`)
+// First 3 agents' connection types, for the stacked nav icons.
+const navIconTypes = computed(() => {
+  const types: string[] = []
+  for (const a of (agents.value || [])) {
+    const t = a.connections?.[0]?.type
+    if (t) types.push(t)
+    if (types.length >= 3) break
+  }
+  return types
+})
 
 // Agent management
 const {
