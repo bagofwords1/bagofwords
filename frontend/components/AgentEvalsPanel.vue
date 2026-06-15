@@ -113,11 +113,9 @@
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-xs text-gray-500">Every eval run — manual checks and automation.</div>
-                    <UButton v-if="canManage" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
-                        :loading="triggering" :disabled="agentCases.length === 0"
-                        :title="agentCases.length === 0 ? 'Add a test case first — there is nothing to evaluate yet.' : ''"
-                        @click="runAutomationNow">
-                        Run reliability check
+                    <UButton v-if="canManage && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
+                        :loading="triggering" @click="runAutomationNow">
+                        Run evals now
                     </UButton>
                 </div>
                 <div v-if="canManage && autoEnabled === false" class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -168,30 +166,16 @@
                 </table>
             </div>
 
-            <!-- Automation tab (minimal: master switch + one autonomy preset) -->
+            <!-- Automation tab (minimal: one autonomy menu + Advanced) -->
             <div v-else-if="activeTab === 'automation'" class="max-w-xl space-y-5">
-                <!-- Master switch -->
-                <div class="flex items-center justify-between">
+                <!-- Automation mode = master switch + autonomy in one control -->
+                <div class="flex items-start justify-between">
                     <div class="pe-4">
-                        <div class="text-sm font-medium text-gray-900">Enable automation</div>
-                        <div class="text-xs text-gray-500">Let this agent measure and improve itself.</div>
+                        <div class="text-sm font-medium text-gray-900">Automation</div>
+                        <div class="text-xs text-gray-500 mt-0.5 max-w-sm">{{ modeHelp }}</div>
                     </div>
-                    <UToggle v-model="form.enabled" :disabled="!canManage" @update:model-value="onEnableChange" />
-                </div>
-
-                <!-- Autonomy preset -->
-                <div class="flex items-start justify-between" :class="{ 'opacity-50 pointer-events-none': !form.enabled }">
-                    <div class="pe-4">
-                        <div class="text-sm font-medium text-gray-900">Autonomy</div>
-                        <div class="text-xs text-gray-500 mt-0.5 max-w-sm">{{ presetHelp }}</div>
-                    </div>
-                    <select v-model="preset" :disabled="!canManage || !form.enabled" @change="applyPreset"
-                        class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400 shrink-0">
-                        <option value="manual">Manual</option>
-                        <option value="assisted">Assisted</option>
-                        <option value="autonomous">Autonomous</option>
-                        <option v-if="preset === 'custom'" value="custom">Custom</option>
-                    </select>
+                    <USelectMenu v-model="mode" :options="modeOptions" value-attribute="value" option-attribute="label"
+                        :disabled="!canManage" size="sm" class="w-44 shrink-0" @update:model-value="applyMode" />
                 </div>
 
                 <!-- Advanced: per-stage control -->
@@ -661,27 +645,39 @@ const advancedDials = [
 
 const showAdvanced = ref(false)
 
-// One autonomy preset bundles the per-stage dials. "Custom" appears when the
-// Advanced dials don't match any preset. Presets don't touch on_repeated_failure
-// or max_iterations — those stay independent knobs under Advanced.
+// One control bundles the master switch + autonomy. "Off" is simply
+// enabled=false (a manual "Run evals now" still works regardless). "Manual" is
+// folded into Off for that reason. Presets don't touch on_repeated_failure or
+// max_iterations — those stay independent knobs under Advanced.
 const PRESETS: Record<string, { trigger: string; train_on_failure: string; approve_instructions: string; auto_promote_evals: string }> = {
-    manual:     { trigger: 'off',  train_on_failure: 'off',  approve_instructions: 'suggest', auto_promote_evals: 'off' },
     assisted:   { trigger: 'auto', train_on_failure: 'auto', approve_instructions: 'suggest', auto_promote_evals: 'off' },
     autonomous: { trigger: 'auto', train_on_failure: 'auto', approve_instructions: 'auto',    auto_promote_evals: 'auto' },
 }
-const preset = ref<'manual' | 'assisted' | 'autonomous' | 'custom'>('assisted')
-const presetHelp = computed(() => ({
-    manual: 'Runs only when you click “Run reliability check”. Nothing changes on its own.',
+type Mode = 'off' | 'assisted' | 'autonomous' | 'custom'
+const mode = ref<Mode>('off')
+const modeOptions = computed(() => {
+    const base: { value: Mode; label: string }[] = [
+        { value: 'off', label: 'Off' },
+        { value: 'assisted', label: 'Assisted' },
+        { value: 'autonomous', label: 'Autonomous' },
+    ]
+    // 'Custom' is only ever reached by diverging the Advanced dials, never picked.
+    if (mode.value === 'custom') base.push({ value: 'custom', label: 'Custom' })
+    return base
+})
+const modeHelp = computed(() => ({
+    off: 'Paused. Nothing runs automatically — use “Run evals now” to check on demand.',
     assisted: 'Runs evals on changes and drafts fixes — you approve before anything goes live.',
     autonomous: 'Measures, fixes, and promotes end to end. No human in the loop.',
     custom: 'Custom per-stage settings — see Advanced below.',
-} as Record<string, string>)[preset.value])
+} as Record<string, string>)[mode.value])
 
-function detectPreset(): 'manual' | 'assisted' | 'autonomous' | 'custom' {
+function detectMode(): Mode {
+    if (!form.value.enabled) return 'off'
     const f = form.value
     const triggersEqual = f.eval_on_table_change === f.eval_on_change && f.eval_on_change === f.eval_on_global_change
     if (triggersEqual) {
-        for (const name of ['manual', 'assisted', 'autonomous'] as const) {
+        for (const name of ['assisted', 'autonomous'] as const) {
             const p = PRESETS[name]
             if (f.eval_on_change === p.trigger && f.train_on_failure === p.train_on_failure
                 && f.approve_instructions === p.approve_instructions && f.auto_promote_evals === p.auto_promote_evals) {
@@ -691,15 +687,20 @@ function detectPreset(): 'manual' | 'assisted' | 'autonomous' | 'custom' {
     }
     return 'custom'
 }
-function applyPreset() {
-    const p = PRESETS[preset.value]
-    if (!p) return  // 'custom' isn't directly selectable
-    form.value.eval_on_table_change = p.trigger
-    form.value.eval_on_change = p.trigger
-    form.value.eval_on_global_change = p.trigger
-    form.value.train_on_failure = p.train_on_failure
-    form.value.approve_instructions = p.approve_instructions
-    form.value.auto_promote_evals = p.auto_promote_evals
+function applyMode(next?: Mode) {
+    const m = next ?? mode.value
+    mode.value = m
+    if (m === 'off') { form.value.enabled = false; markDirty(); return }
+    form.value.enabled = true
+    const p = PRESETS[m]
+    if (p) {  // 'custom' isn't directly selectable, so nothing to apply
+        form.value.eval_on_table_change = p.trigger
+        form.value.eval_on_change = p.trigger
+        form.value.eval_on_global_change = p.trigger
+        form.value.train_on_failure = p.train_on_failure
+        form.value.approve_instructions = p.approve_instructions
+        form.value.auto_promote_evals = p.auto_promote_evals
+    }
     markDirty()
 }
 // Single control standing in for the three eval-trigger dials.
@@ -712,8 +713,7 @@ const evalTrigger = computed<string>({
         onAdvancedChange()
     },
 })
-function onAdvancedChange() { markDirty(); preset.value = detectPreset() }
-function onEnableChange() { markDirty() }
+function onAdvancedChange() { markDirty(); mode.value = detectMode() }
 
 const defaultForm = () => ({
     enabled: false,
@@ -820,7 +820,7 @@ async function loadAutomation() {
         storedOverride.value = data.override || {}
         // form = effective, so unset rows show the inherited value
         form.value = { ...defaultForm(), ...(data.effective || {}) }
-        preset.value = detectPreset()
+        mode.value = detectMode()
         dirty.value = false
         savedOk.value = false
     } catch (e) { /* noop */ }
@@ -860,7 +860,7 @@ async function runAutomationNow() {
     triggering.value = true
     try {
         await useMyFetch(`/data_sources/${id}/automation/run`, { method: 'POST' })
-        toast.add({ title: 'Reliability check started', color: 'green' })
+        toast.add({ title: 'Eval run started', color: 'green' })
         // Give the background loop a moment, then refresh history.
         setTimeout(() => { loadAutoRuns(); loadAutomation() }, 1500)
     } catch (e) {
