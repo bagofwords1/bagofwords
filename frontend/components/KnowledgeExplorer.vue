@@ -213,16 +213,16 @@
               </div>
               <div class="flex items-center gap-2 shrink-0">
                 <!-- Per-agent activity sparkline + task total -->
-                <NuxtLink v-if="activitySeries.length" to="/monitoring" class="flex items-center gap-2.5 pr-1 group/spark" title="Tasks over the last 14 days">
+                <div v-if="activitySeries.length" class="flex items-center gap-2.5 pr-1" title="Tasks over the last 14 days">
                   <span class="flex flex-col items-center leading-none">
                     <svg width="78" height="20" viewBox="0 0 96 26" preserveAspectRatio="none" class="overflow-visible"><path :d="sparkPath" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /></svg>
                     <span class="mt-1 text-[10px] text-gray-400">Activity</span>
                   </span>
                   <span class="flex flex-col items-start leading-none">
-                    <span class="text-sm font-semibold text-gray-900 tabular-nums group-hover/spark:text-blue-600">{{ totalTasks.toLocaleString() }}</span>
+                    <span class="text-sm font-semibold text-gray-900 tabular-nums">{{ totalTasks.toLocaleString() }}</span>
                     <span class="mt-1 text-[10px] text-gray-400">tasks</span>
                   </span>
-                </NuxtLink>
+                </div>
                 <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
