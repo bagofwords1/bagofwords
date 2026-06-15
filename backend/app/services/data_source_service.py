@@ -598,6 +598,7 @@ class DataSourceService:
             conversation_starters=final_data_source.conversation_starters,
             is_active=final_data_source.is_active,
             is_public=final_data_source.is_public,
+            publish_status=getattr(final_data_source, "publish_status", "published") or "published",
             use_llm_sync=final_data_source.use_llm_sync,
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
             git_repository=final_data_source.git_repository,
@@ -886,6 +887,7 @@ class DataSourceService:
             conversation_starters=data_source.conversation_starters,
             is_active=data_source.is_active,
             is_public=data_source.is_public,
+            publish_status=getattr(data_source, "publish_status", "published") or "published",
             use_llm_sync=data_source.use_llm_sync,
             owner_user_id=data_source.owner_user_id,
             git_repository=data_source.git_repository,
@@ -906,7 +908,35 @@ class DataSourceService:
 
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
-    
+
+    async def _publish_visibility(self, db: AsyncSession, current_user: User, organization: Organization):
+        """Returns (is_governance, manageable_ds_ids).
+
+        Used to decide whether a non-published agent (draft/disabled) is visible
+        to the caller. Managers — org-wide governance (full_admin_access /
+        manage_connections) or a per-DS ``manage`` grant — can see their drafts;
+        everyone else only sees ``published`` agents.
+        """
+        if current_user is None:
+            return False, set()
+        try:
+            from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+            resolved = await resolve_permissions(
+                db, str(current_user.id), str(organization.id)
+            )
+            is_gov = (
+                FULL_ADMIN in resolved.org_permissions
+                or resolved.has_org_permission("manage_connections")
+            )
+            manage_ids = {
+                str(rid)
+                for (rtype, rid), perms in resolved.resource_permissions.items()
+                if rtype == "data_source" and "manage" in perms
+            }
+            return is_gov, manage_ids
+        except Exception:
+            return False, set()
+
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization, show_all: bool = False) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
@@ -957,9 +987,14 @@ class DataSourceService:
             query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
+        # Non-published agents (draft/disabled) are only visible to managers.
+        is_gov, manage_ids = await self._publish_visibility(db, current_user, organization)
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            publish_status = getattr(d, "publish_status", "published") or "published"
+            if publish_status != "published" and not (is_gov or str(d.id) in manage_ids):
+                continue
             # Build connections list
             connections_list = await self._build_connections_list(
                 db=db,
@@ -976,6 +1011,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                publish_status=publish_status,
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1026,6 +1062,8 @@ class DataSourceService:
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
         has_update_perm = False
+        is_gov = False
+        manage_ids: set = set()
         if current_user:
             try:
                 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
@@ -1036,11 +1074,31 @@ class DataSourceService:
                     FULL_ADMIN in resolved.org_permissions
                     or resolved.has_org_permission("create_data_source")
                 )
+                # Managers (governance or per-DS `manage`) may also see/use their
+                # own draft agents in the selector; everyone else gets published.
+                is_gov = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_org_permission("manage_connections")
+                )
+                manage_ids = {
+                    str(rid)
+                    for (rtype, rid), perms in resolved.resource_permissions.items()
+                    if rtype == "data_source" and "manage" in perms
+                }
             except Exception:
                 has_update_perm = False
-        
+
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            # Publishing-lifecycle visibility:
+            #   disabled → never usable, hidden from everyone
+            #   draft    → only managers (governance / per-DS manage)
+            #   published → everyone with access
+            publish_status = getattr(d, "publish_status", "published") or "published"
+            if publish_status == "disabled":
+                continue
+            if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
+                continue
             # Build connections list
             connections_list = await self._build_connections_list(
                 db=db,
@@ -1057,6 +1115,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                publish_status=publish_status,
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1094,7 +1153,10 @@ class DataSourceService:
             .where(
                 DataSource.organization_id == organization.id,
                 DataSource.is_active == True,
-                DataSource.is_public == True  # Only public data sources
+                DataSource.is_public == True,  # Only public data sources
+                # Slack channel mentions have no manager context — only ever
+                # expose published agents (never draft/disabled).
+                DataSource.publish_status == "published",
             )
         )
 
@@ -1124,6 +1186,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                publish_status=getattr(d, "publish_status", "published") or "published",
                 connections=connections_list,
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,

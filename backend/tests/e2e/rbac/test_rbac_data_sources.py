@@ -440,3 +440,106 @@ def test_demo_installer_gets_manage_grant(
         f"installer should hold manage on the demo they created; got "
         f"{put_resp.status_code}: {put_resp.text}"
     )
+
+
+# ────────────────────────────────────────────────────────────────────
+# publish_status (publishing lifecycle) — visibility + validation
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_publish_status_visibility_and_validation(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    sqlite_data_source,
+    grant_resource,
+):
+    """publish_status gates who sees an agent, independent of access grants.
+
+    - published → visible to every principal with access (default)
+    - draft     → visible only to managers (full_admin / per-DS manage)
+    - disabled  → never appears in the selector (/data_sources/active)
+    """
+    admin = bootstrap_admin("admin")
+    org_id = admin["org_id"]
+
+    # Public so a plain member would otherwise see it — isolates the
+    # publish_status filter from the access/membership filter.
+    ds = sqlite_data_source(
+        name="published_agent", user_token=admin["token"], org_id=org_id, is_public=True
+    )
+    ds_id = ds["id"]
+
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    manager = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    grant = grant_resource(
+        resource_type="data_source",
+        resource_id=ds_id,
+        principal_type="user",
+        principal_id=manager["user_id"],
+        permissions=["manage"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert grant.status_code == 200, grant.json()
+
+    def active_ids(token):
+        r = test_client.get(
+            "/api/data_sources/active?include_unconnected=true",
+            headers=_hdr(token, org_id),
+        )
+        assert r.status_code == 200, r.text
+        return {d["id"] for d in r.json()}
+
+    def detail(token):
+        return test_client.get(f"/api/data_sources/{ds_id}", headers=_hdr(token, org_id))
+
+    # Default is published, exposed on the read schema.
+    assert detail(admin["token"]).json()["publish_status"] == "published"
+
+    # published → everyone with access sees it.
+    assert ds_id in active_ids(admin["token"])
+    assert ds_id in active_ids(manager["token"])
+    assert ds_id in active_ids(member["token"])
+
+    # Flip to draft (manage-gated). Member can't; admin can.
+    assert (
+        test_client.put(
+            f"/api/data_sources/{ds_id}",
+            json={"publish_status": "draft"},
+            headers=_hdr(member["token"], org_id),
+        ).status_code == 403
+    )
+    put = test_client.put(
+        f"/api/data_sources/{ds_id}",
+        json={"publish_status": "draft"},
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert put.status_code == 200, put.text
+    assert put.json()["publish_status"] == "draft"
+
+    # draft → only managers (admin + per-DS manage) see it; member does not.
+    assert ds_id in active_ids(admin["token"])
+    assert ds_id in active_ids(manager["token"])
+    assert ds_id not in active_ids(member["token"])
+
+    # disabled → nobody sees it in the selector, not even admin.
+    assert (
+        test_client.put(
+            f"/api/data_sources/{ds_id}",
+            json={"publish_status": "disabled"},
+            headers=_hdr(admin["token"], org_id),
+        ).status_code == 200
+    )
+    assert ds_id not in active_ids(admin["token"])
+    assert ds_id not in active_ids(manager["token"])
+    assert ds_id not in active_ids(member["token"])
+
+    # Invalid value is rejected by the schema validator.
+    bad = test_client.put(
+        f"/api/data_sources/{ds_id}",
+        json={"publish_status": "bogus"},
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert bad.status_code == 422, bad.text
