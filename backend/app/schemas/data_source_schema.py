@@ -8,6 +8,8 @@ class DataSourceSummarySchema(BaseModel):
     name: str
     type: Optional[str] = None  # Computed from connection
     context: Optional[str] = None
+    # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
+    publish_status: Optional[str] = None
 
     class Config:
         from_attributes = True
