@@ -87,7 +87,7 @@ async def _build_settings_response(
         org_defaults = {}
     return AutomationSettingsResponse(
         data_source_id=str(ds.id),
-        reliability_status=ds.reliability_status or "ok",
+        reliability_status=ds.reliability_status or "training",
         publish_status=ds.publish_status or "published",
         override=ds.automation_settings or {},
         org_defaults=org_defaults if isinstance(org_defaults, dict) else {},

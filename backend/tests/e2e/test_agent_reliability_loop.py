@@ -222,7 +222,7 @@ async def test_regression_guard_blocks_promotion():
     settings = {
         "enabled": True, "eval_on_table_change": "auto",
         "train_on_failure": "auto", "approve_instructions": "auto",
-        "max_iterations": 2, "on_repeated_failure": "under_review",
+        "max_iterations": 2, "on_repeated_failure": "training",
     }
     org_id, ds_id, cases = await _seed(settings, n_cases=2)
     # baseline: case0 pass, case1 fail.
@@ -234,26 +234,27 @@ async def test_regression_guard_blocks_promotion():
     ])
     run, ds = await _run(stub, org_id, ds_id)
     assert run.status == STATUS_GAVE_UP
-    assert ds.reliability_status == "under_review"
+    assert ds.reliability_status == "training"
     assert stub.promoted_builds == []
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_gives_up_and_disables():
-    """Training never fixes the failure; on_repeated_failure=disable → agent is
-    taken offline (publish_status=disabled, reliability_status=under_review)."""
+async def test_gives_up_and_moves_to_development():
+    """Training never fixes the failure; on_repeated_failure=development → agent
+    is pulled from regular users (reliability_status=development) while
+    publish_status is left untouched (admins keep access)."""
     settings = {
         "enabled": True, "eval_on_table_change": "auto",
         "train_on_failure": "auto", "max_iterations": 2,
-        "on_repeated_failure": "disable",
+        "on_repeated_failure": "development",
     }
     org_id, ds_id, cases = await _seed(settings)
     stub = _StubReliability(eval_script=[([cases[0]], [cases[1]])])  # always fails
     run, ds = await _run(stub, org_id, ds_id)
     assert run.status == STATUS_GAVE_UP
-    assert ds.publish_status == "disabled"
-    assert ds.reliability_status == "under_review"
+    assert ds.publish_status != "disabled"  # publish_status stays human-owned
+    assert ds.reliability_status == "development"
     assert stub.train_calls == 2  # used both iterations
 
 
@@ -264,14 +265,14 @@ async def test_train_off_reports_only():
     outcome still applied per policy."""
     settings = {
         "enabled": True, "eval_on_table_change": "auto",
-        "train_on_failure": "off", "on_repeated_failure": "under_review",
+        "train_on_failure": "off", "on_repeated_failure": "training",
     }
     org_id, ds_id, cases = await _seed(settings)
     stub = _StubReliability(eval_script=[([cases[0]], [cases[1]])])
     run, ds = await _run(stub, org_id, ds_id)
     assert run.status == STATUS_GAVE_UP
     assert stub.train_calls == 0
-    assert ds.reliability_status == "under_review"
+    assert ds.reliability_status == "training"
 
 
 @pytest.mark.e2e

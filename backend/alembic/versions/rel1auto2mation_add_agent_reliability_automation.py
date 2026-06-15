@@ -34,7 +34,7 @@ def upgrade() -> None:
                 'reliability_status',
                 sa.String(),
                 nullable=False,
-                server_default='ok',
+                server_default='training',
             )
         )
 

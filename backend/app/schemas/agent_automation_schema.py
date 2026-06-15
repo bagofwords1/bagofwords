@@ -35,9 +35,9 @@ AUTONOMY_LEVELS = (AUTONOMY_OFF, AUTONOMY_SUGGEST, AUTONOMY_AUTO)
 
 # What to do when training can't make the evals pass within ``max_iterations``.
 ON_FAILURE_NONE = "none"            # leave the agent as-is, just record the run
-ON_FAILURE_UNDER_REVIEW = "under_review"  # flag it; keep serving last-good build
-ON_FAILURE_DISABLE = "disable"     # take the agent offline (publish_status=disabled)
-ON_FAILURE_ACTIONS = (ON_FAILURE_NONE, ON_FAILURE_UNDER_REVIEW, ON_FAILURE_DISABLE)
+ON_FAILURE_TRAINING = "training"   # flag it; keep serving to everyone (last-good build)
+ON_FAILURE_DEVELOPMENT = "development"  # pull from regular users; only agent admins see it
+ON_FAILURE_ACTIONS = (ON_FAILURE_NONE, ON_FAILURE_TRAINING, ON_FAILURE_DEVELOPMENT)
 
 
 class AgentAutomationPolicy(BaseModel):
@@ -67,7 +67,7 @@ class AgentAutomationPolicy(BaseModel):
     auto_promote_evals: str = AUTONOMY_OFF
 
     # Outcome when the loop gives up.
-    on_repeated_failure: str = ON_FAILURE_UNDER_REVIEW
+    on_repeated_failure: str = ON_FAILURE_TRAINING
 
     # Bound on the train -> re-eval loop. The single most important cost guard.
     max_iterations: int = Field(default=3, ge=1, le=10)

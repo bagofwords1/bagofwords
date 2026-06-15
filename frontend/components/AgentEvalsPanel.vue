@@ -641,10 +641,10 @@ const dials = [
     { key: 'train_on_failure', label: 'Train on failure', help: 'When evals fail, repair references and propose fixing instructions.', options: AUTONOMY_OPTS },
     { key: 'approve_instructions', label: 'Approve instructions', help: 'Push a candidate (passing) instruction build live. Auto = no human in the loop.', options: AUTONOMY_OPTS },
     { key: 'auto_promote_evals', label: 'Auto-promote thumbs-up evals', help: 'Promote auto-drafted evals (from a thumbs-up) straight to active.', options: AUTONOMY_OPTS },
-    { key: 'on_repeated_failure', label: 'On repeated failure', help: "When the loop can't reach green: flag for review or take the agent offline.", options: [
+    { key: 'on_repeated_failure', label: 'On repeated failure', help: "When the loop can't reach green: keep it in training (still visible to users) or move it to development (only agent admins can see it).", options: [
         { value: 'none', label: 'Do nothing' },
-        { value: 'under_review', label: 'Mark under review' },
-        { value: 'disable', label: 'Disable agent' },
+        { value: 'training', label: 'Keep in training' },
+        { value: 'development', label: 'Move to development (admin-only)' },
     ] },
 ]
 
@@ -656,7 +656,7 @@ const defaultForm = () => ({
     train_on_failure: 'suggest',
     approve_instructions: 'suggest',
     auto_promote_evals: 'off',
-    on_repeated_failure: 'under_review',
+    on_repeated_failure: 'training',
     max_iterations: 3,
 })
 const form = ref<Record<string, any>>(defaultForm())
@@ -665,7 +665,7 @@ const dirty = ref(false)
 const savingSettings = ref(false)
 const savedOk = ref(false)
 const autoEnabled = ref<boolean | null>(null)
-const reliabilityStatus = ref('ok')
+const reliabilityStatus = ref('training')
 const publishStatus = ref('published')
 
 const autoRuns = ref<any[]>([])
@@ -676,17 +676,20 @@ function markDirty() { dirty.value = true; savedOk.value = false }
 
 const reliabilityLabel = computed(() => {
     if (publishStatus.value === 'disabled') return 'Disabled'
-    if (reliabilityStatus.value === 'under_review') return 'Under review'
-    return 'OK'
+    if (reliabilityStatus.value === 'development') return 'Development'
+    if (reliabilityStatus.value === 'training') return 'Training'
+    return 'Healthy'
 })
 const reliabilityBadgeClass = computed(() => {
     if (publishStatus.value === 'disabled') return 'bg-red-100 text-red-800'
-    if (reliabilityStatus.value === 'under_review') return 'bg-amber-100 text-amber-800'
+    if (reliabilityStatus.value === 'development') return 'bg-amber-100 text-amber-800'
+    if (reliabilityStatus.value === 'training') return 'bg-blue-100 text-blue-800'
     return 'bg-green-100 text-green-800'
 })
 const reliabilityIcon = computed(() => {
     if (publishStatus.value === 'disabled') return 'i-heroicons-no-symbol'
-    if (reliabilityStatus.value === 'under_review') return 'i-heroicons-exclamation-triangle'
+    if (reliabilityStatus.value === 'development') return 'i-heroicons-wrench-screwdriver'
+    if (reliabilityStatus.value === 'training') return 'i-heroicons-academic-cap'
     return 'i-heroicons-check-circle'
 })
 
@@ -723,7 +726,7 @@ async function loadAutomation() {
         const res = await useMyFetch<any>(`/data_sources/${id}/automation`, { method: 'GET' })
         const data: any = res.data.value
         if (!data) return
-        reliabilityStatus.value = data.reliability_status || 'ok'
+        reliabilityStatus.value = data.reliability_status || 'training'
         publishStatus.value = data.publish_status || 'published'
         autoEnabled.value = !!(data.effective?.enabled)
         storedOverride.value = data.override || {}

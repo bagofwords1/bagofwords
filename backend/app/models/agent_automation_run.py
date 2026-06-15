@@ -68,7 +68,7 @@ class AgentAutomationRun(BaseSchema):
     test_run_ids_json = Column(JSON, nullable=True, default=list)
 
     # Free-form structured trace: per-iteration pass/fail counts, the action
-    # taken on give-up (under_review / disable), human-readable reason, etc.
+    # taken on give-up (training / development), human-readable reason, etc.
     detail_json = Column(JSON, nullable=True, default=dict)
 
     # Who/what initiated it (a user id for manual runs; None for system triggers).

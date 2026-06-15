@@ -56,15 +56,20 @@ class DataSource(BaseSchema):
     # empty means "fully inherit the org default".
     automation_settings = Column(JSON, nullable=True)
 
-    # Outcome of the reliability loop, orthogonal to publish_status. The
+    # Lifecycle of the reliability loop, orthogonal to publish_status. The
     # automation system writes this; humans set publish_status. Keeping them
-    # separate lets an agent stay "published" while flagged "under_review"
-    # (still serving the last-good build), instead of forcing it offline.
-    #   ok            — healthy / not flagged
-    #   under_review  — repeated eval failures the loop couldn't fix; needs eyes
-    # The "disable" outcome instead sets publish_status='disabled'.
+    # separate lets an agent stay "published" while still in "training", instead
+    # of forcing it offline.
+    #   training     — default for new agents; still fully accessible to users
+    #                  while the loop measures / improves it.
+    #   development  — repeated eval failures the loop couldn't fix; pulled from
+    #                  regular users and hidden from the selector + AI context.
+    #                  Only agent admins (manage_evals on this agent) can see or
+    #                  use it, so they can keep fixing it. publish_status is left
+    #                  untouched — this never disables the agent for admins.
+    #   ok           — verified healthy by a passing reliability run.
     reliability_status = Column(
-        String, nullable=False, default="ok", server_default="ok"
+        String, nullable=False, default="training", server_default="training"
     )
 
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)

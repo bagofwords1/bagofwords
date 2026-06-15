@@ -914,15 +914,18 @@ class DataSourceService:
         return list_available_data_sources()
 
     async def _publish_visibility(self, db: AsyncSession, current_user: User, organization: Organization):
-        """Returns (is_governance, manageable_ds_ids).
+        """Returns (is_governance, manageable_ds_ids, resolved).
 
         Used to decide whether a non-published agent (draft/disabled) is visible
         to the caller. Managers — org-wide governance (full_admin_access /
         manage_connections) or a per-DS ``manage`` grant — can see their drafts;
-        everyone else only sees ``published`` agents.
+        everyone else only sees ``published`` agents. ``resolved`` is returned so
+        callers can also gate ``development`` agents on ``manage_evals`` (agent
+        admin) without resolving permissions twice. It may be ``None`` when there
+        is no user or resolution fails.
         """
         if current_user is None:
-            return False, set()
+            return False, set(), None
         try:
             from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
             resolved = await resolve_permissions(
@@ -937,9 +940,26 @@ class DataSourceService:
                 for (rtype, rid), perms in resolved.resource_permissions.items()
                 if rtype == "data_source" and "manage" in perms
             }
-            return is_gov, manage_ids
+            return is_gov, manage_ids, resolved
         except Exception:
-            return False, set()
+            return False, set(), None
+
+    @staticmethod
+    def _development_hidden(reliability_status, ds_id, is_gov, resolved) -> bool:
+        """Is this ``development`` agent hidden from the current caller?
+
+        ``development`` agents are pulled from regular users entirely — they only
+        stay visible to agent admins (``manage_evals`` on this agent, which
+        org-level manage_evals / full_admin imply) and to org governance.
+        """
+        if (reliability_status or "training") != "development":
+            return False
+        if is_gov:
+            return False
+        return not (
+            resolved is not None
+            and resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
+        )
 
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization, show_all: bool = False) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
@@ -992,12 +1012,17 @@ class DataSourceService:
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Non-published agents (draft/disabled) are only visible to managers.
-        is_gov, manage_ids = await self._publish_visibility(db, current_user, organization)
+        is_gov, manage_ids, resolved = await self._publish_visibility(db, current_user, organization)
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
             publish_status = getattr(d, "publish_status", "published") or "published"
             if publish_status != "published" and not (is_gov or str(d.id) in manage_ids):
+                continue
+            # `development` agents are hidden from everyone but agent admins.
+            if self._development_hidden(
+                getattr(d, "reliability_status", "training"), d.id, is_gov, resolved
+            ):
                 continue
             # Build connections list
             connections_list = await self._build_connections_list(
@@ -1094,6 +1119,7 @@ class DataSourceService:
         has_update_perm = False
         is_gov = False
         manage_ids: set = set()
+        resolved = None
         if current_user:
             try:
                 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
@@ -1117,6 +1143,7 @@ class DataSourceService:
                 }
             except Exception:
                 has_update_perm = False
+                resolved = None
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1128,6 +1155,12 @@ class DataSourceService:
             if publish_status == "disabled":
                 continue
             if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
+                continue
+            # `development` agents are hidden from the selector for everyone but
+            # agent admins (manage_evals on this agent).
+            if self._development_hidden(
+                getattr(d, "reliability_status", "training"), d.id, is_gov, resolved
+            ):
                 continue
             # Channel availability gating (external channels only).
             if not d.is_available_in(channel):

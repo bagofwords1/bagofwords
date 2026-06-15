@@ -8,7 +8,7 @@ Implements the bounded loop:
                              re-run evals against the *candidate* build ->
                                  pass & no regression -> approve/promote (or leave pending)
                                  still fail           -> retry up to max_iterations
-        gave up           -> apply on_repeated_failure (under_review | disable | none)
+        gave up           -> apply on_repeated_failure (training | development | none)
 
 Design notes
 ------------
@@ -60,8 +60,8 @@ from app.schemas.agent_automation_schema import (
     AUTONOMY_OFF,
     AUTONOMY_SUGGEST,
     AUTONOMY_AUTO,
-    ON_FAILURE_DISABLE,
-    ON_FAILURE_UNDER_REVIEW,
+    ON_FAILURE_DEVELOPMENT,
+    ON_FAILURE_TRAINING,
 )
 
 logger = logging.getLogger(__name__)
@@ -371,17 +371,19 @@ class AgentReliabilityService:
     async def _apply_failure_outcome(self, db, organization, data_source, policy) -> str:
         """On give-up, apply on_repeated_failure. Returns the action taken."""
         action = policy.on_repeated_failure
-        if action == ON_FAILURE_DISABLE:
-            data_source.publish_status = "disabled"
-            data_source.reliability_status = "under_review"
+        if action == ON_FAILURE_DEVELOPMENT:
+            # Pull the agent from regular users (hidden from selector + AI
+            # context); agent admins keep access to keep fixing it. We do NOT
+            # touch publish_status — that stays a purely human-owned dial.
+            data_source.reliability_status = "development"
             db.add(data_source)
             await db.commit()
-            return "disabled"
-        if action == ON_FAILURE_UNDER_REVIEW:
-            data_source.reliability_status = "under_review"
+            return "development"
+        if action == ON_FAILURE_TRAINING:
+            data_source.reliability_status = "training"
             db.add(data_source)
             await db.commit()
-            return "under_review"
+            return "training"
         return "none"
 
     async def _set_reliability_status(self, db, data_source_id: str, status: str) -> None:
@@ -633,6 +635,10 @@ class AgentReliabilityService:
         if apply_outcome is not None and organization is not None and data_source is not None:
             action = await self._apply_failure_outcome(db, organization, data_source, apply_outcome)
             detail = {**(detail or {}), "outcome_action": action}
+        if status == STATUS_PASSED:
+            # A passing run verifies the agent is healthy — clear any prior
+            # training/development flag. (New agents start in "training".)
+            await self._set_reliability_status(db, run.data_source_id, "ok")
         run.status = status
         run.iterations = iterations
         run.build_id = str(build_id) if build_id else None
