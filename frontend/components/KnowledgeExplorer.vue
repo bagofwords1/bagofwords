@@ -77,7 +77,15 @@
 
           <div class="h-px bg-gray-100 my-2 mx-1"></div>
 
-          <div class="px-2 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</div>
+          <div class="px-2 pt-1 pb-1 flex items-center justify-between">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</span>
+            <UTooltip v-if="canViewAllAgents" text="Show every agent in the org, including ones you're not a member of">
+              <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">
+                <UToggle v-model="showAllAgents" size="2xs" />
+                <span>Show all</span>
+              </label>
+            </UTooltip>
+          </div>
 
           <template v-for="agent in agents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
@@ -187,6 +195,13 @@
                   </UPopover>
                   <span v-else class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
                   <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" @updated="onAgentPublishUpdated" />
+                  <!-- Auth badges (parity with the legacy agents page) -->
+                  <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" text="Runs via the connection's service account (admin/owner fallback) — no personal sign-in needed">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-emerald-50 text-emerald-700"><UIcon name="i-heroicons-cpu-chip" class="w-2.5 h-2.5" />Service account</span>
+                  </UTooltip>
+                  <UTooltip v-if="agentListItem?.admin_only" text="Visible to you via admin access — you are not a member of this agent">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-amber-100 text-amber-700 uppercase tracking-wide font-medium"><UIcon name="i-heroicons-shield-check" class="w-2.5 h-2.5" />Admin</span>
+                  </UTooltip>
                 </div>
                 <div class="mt-1.5 group">
                   <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
@@ -533,6 +548,7 @@
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
+    <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="credsAgent" @saved="onCredsSaved" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
 
     <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
@@ -579,9 +595,11 @@ import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
+import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 
 const h = useInstructionHelpers()
@@ -590,6 +608,10 @@ const toast = useToast()
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
 const agents = ref<any[]>([])
+// Admin-only "show all" toggle: include every agent in the org, not just the
+// caller's memberships. Re-fetches the agent list when flipped.
+const showAllAgents = ref(false)
+watch(showAllAgents, () => { fetchAgents() })
 const labels = ref<{ id: string; name: string }[]>([])
 const categories = ref<string[]>([])
 const search = ref('')
@@ -682,6 +704,9 @@ const onPanelRowClick = (kind: 'tables' | 'tools', agentId: string) => {
 // ── Agent overview ──────────────────────────────────────
 const agentView = ref<null | { agentId: string }>(null)
 const agentDetail = ref<any | null>(null)
+// The lightweight list entry for the open agent — carries list-only fields
+// (admin_only) the full detail payload doesn't.
+const agentListItem = computed(() => agents.value.find(a => a.id === agentView.value?.agentId) || null)
 const agentReportCount = ref(0)
 const agentViewName = computed(() => agentView.value ? (agents.value.find(a => a.id === agentView.value!.agentId)?.name || 'Agent') : '')
 const agentCanUpdate = computed(() => canManageAgent(agentView.value?.agentId))
@@ -903,6 +928,43 @@ const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showNewAgent = ref(false)
 const showAddMCP = ref(false)
+
+// ── Per-user OAuth / OBO sign-in (user_required agents) ──────────────────────
+// Replaces the old behaviour of popping the legacy /old_agents connection page.
+// Mirrors the legacy /agents index: for OAuth-only connections jump straight to
+// the provider; otherwise fall back to the credentials modal.
+const signIn = useConnectionSignIn()
+const showCredsModal = ref(false)
+const credsAgent = ref<any>(null)
+const connectingAgentId = ref<string | null>(null)
+// The first user_required connection on an agent that still lacks credentials.
+const pendingSignInConnection = (a: any) => (a?.connections || []).find((c: any) => c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials) || null
+const connectAgent = async (agentId: string) => {
+  const a = agents.value.find(x => x.id === agentId) || (agentDetail.value?.id === agentId ? agentDetail.value : null)
+  if (!a) return
+  const pending = pendingSignInConnection(a)
+  if (pending) {
+    connectingAgentId.value = agentId
+    const result = await signIn.triggerUserSignIn(pending)
+    if (result.redirecting) return // keep spinning; the page is navigating to the provider
+    connectingAgentId.value = null
+    if (result.error) toast.add({ title: 'Could not start sign-in', description: result.error, color: 'red' })
+  }
+  // Non-OAuth (or OAuth that couldn't auto-redirect): collect creds in-app.
+  credsAgent.value = a
+  showCredsModal.value = true
+}
+// After credentials are saved, refresh the agent + repopulate its per-user table
+// overlay (the shared-catalog reload now backfills it server-side).
+const onCredsSaved = async () => {
+  showCredsModal.value = false
+  const id = credsAgent.value?.id
+  await fetchAgents()
+  if (id) {
+    if (agentView.value?.agentId === id) await refreshAgentDetail()
+    await reloadTables(id)
+  }
+}
 // New agent wizard finished: refresh the agent list and open the new agent's page.
 const onNewAgentFinished = async (id: string) => {
   showNewAgent.value = false
@@ -940,6 +1002,17 @@ const onToolsConnectionChanged = async () => {
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))
+// Org-wide data-source governance gates the "show all" toggle (mirrors the
+// legacy agents page; full_admin_access bypasses, manage_connections qualifies).
+const canViewAllAgents = computed(() => useCan('create_data_source') || useCan('manage_connections'))
+// True when the user runs a user_required agent via the connection's system
+// (service-principal) creds — admin/owner fallback, no personal sign-in needed.
+const usesServiceAccount = (a: any) => {
+  if (!a) return false
+  const conns = a.connections || []
+  if (conns.length) return conns.some((c: any) => c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials && c.user_status?.effective_auth === 'system')
+  return a.user_status?.has_user_credentials !== true && a.user_status?.effective_auth === 'system'
+}
 // Editing tables/tools requires manage on the data source (org-wide or on this resource).
 const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || useCan('update_data_source', { type: 'data_source', id })) : false
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
@@ -1000,7 +1073,8 @@ const needsSignIn = (a: any) => {
   }
   return false
 }
-const openAgentTab = (id: string) => { window.open(`/old_agents/${id}/connection`, '_blank') }
+// In-app OBO/user sign-in (was: window.open the legacy /old_agents page).
+const openAgentTab = (id: string) => { connectAgent(id) }
 
 // ── Expansion ───────────────────────────────────────────
 const isOpen = (key: string) => expanded.value.has(key)
@@ -1017,7 +1091,16 @@ const fetchAll = async () => {
   try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) }
 }
 const fetchAgents = async () => {
-  try { const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET' }); agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, description: d.description, conversation_starters: d.conversation_starters || [] })) } catch (e) { console.error(e) }
+  try {
+    // include_unconnected=true so members also see user_required (OBO) agents
+    // they haven't connected yet — otherwise they can never reach the Connect
+    // flow (parity with the legacy /agents page). show_all is an admin-only
+    // toggle that surfaces every agent in the org (admin_only entries flagged).
+    const query: Record<string, any> = { include_unconnected: true }
+    if (showAllAgents.value) query.show_all = true
+    const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, description: d.description, conversation_starters: d.conversation_starters || [], auth_policy: d.auth_policy, admin_only: d.admin_only }))
+  } catch (e) { console.error(e) }
 }
 const agentStatusDot = (a: any) => a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300'
 // Group an agent's tools by their connection (MCP server / custom API), resolving

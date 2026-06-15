@@ -114,7 +114,7 @@
                                     <!-- Permissions -->
                                     <div class="mt-1.5">
                                         <UDropdown
-                                            v-if="canManageDsMembers && isEnterprise"
+                                            v-if="canManageDsMembers"
                                             :items="[dsPermOptions.map(p => ({
                                                 label: formatPermission(p),
                                                 icon: m.permissions.includes(p) ? 'i-heroicons-check' : undefined,
@@ -219,8 +219,8 @@
                     class="w-full"
                 />
 
-                <!-- Permission picker (enterprise only) -->
-                <div v-if="isEnterprise" class="mt-3">
+                <!-- Permission picker (granular per-agent grants) -->
+                <div class="mt-3">
                     <div class="text-[11px] text-gray-400 mb-1">Permissions</div>
                     <div class="flex flex-wrap gap-2">
                         <label
@@ -646,9 +646,21 @@ async function addSelected() {
                 })
             )
         )
+        // Membership POST mints a grant with default (query-only) permissions;
+        // apply any picked granular permissions via the resource-grant PUT.
+        await loadMembers()
+        if (addPermissions.value.length) {
+            const targetIds = new Set(principals.map(p => p.principal_id))
+            await Promise.all(
+                members.value
+                    .filter(m => targetIds.has(m.principal_id))
+                    .map(m => updateMemberPermissions(m, [...addPermissions.value]))
+            )
+        }
         toast?.add?.({ title: 'Members added' })
         selectedUsers.value = []
         selectedGroups.value = []
+        addPermissions.value = []
         showAddModal.value = false
         await loadMembers()
     } catch {
