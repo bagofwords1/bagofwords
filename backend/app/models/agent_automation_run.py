@@ -59,9 +59,12 @@ class AgentAutomationRun(BaseSchema):
     # How many train -> re-eval iterations were performed.
     iterations = Column(Integer, nullable=False, default=0)
 
-    # The candidate instruction build this loop created/used, if any.
+    # The candidate instruction build this loop created/used, if any. This is a
+    # soft reference (no DB FK): the reliability loop can record transient/stub
+    # build ids that don't correspond to a persisted instruction_builds row —
+    # same pattern as MetadataIndexingJob.build_id. A hard FK breaks on Postgres.
     build_id = Column(
-        String(36), ForeignKey("instruction_builds.id"), nullable=True, index=True
+        String(36), nullable=True, index=True
     )
 
     # Ordered list of TestRun ids spawned by this loop (baseline first).
