@@ -45,12 +45,12 @@
           ]">
             <UTooltip v-if="isCollapsed" :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-4 h-4 text-sm">
-                <UIcon name="heroicons-chevron-right" class="rtl-flip" />
+                <SidebarIcon class="w-4 h-4 rtl-flip" />
               </span>
             </UTooltip>
             <template v-else>
               <span class="flex items-center justify-center w-4 h-4 text-sm">
-                <UIcon name="heroicons-chevron-left" class="rtl-flip" />
+                <SidebarIcon class="w-4 h-4 rtl-flip" />
               </span>
               <span v-if="showText" class="text-xs opacity-75"></span>
             </template>
@@ -234,6 +234,9 @@
   </div>
 
   <McpModal v-if="showMcpModal" v-model="showMcpModal" />
+
+  <!-- Global ⌘K / Ctrl+K command palette -->
+  <CommandPalette />
   </div>
 </template>
 
@@ -243,6 +246,7 @@
   import LibraryIcon from '~/components/icons/LibraryIcon.vue'
   import ActivityIcon from '~/components/icons/ActivityIcon.vue'
   import AgentIcon from '~/components/icons/AgentIcon.vue'
+  import SidebarIcon from '~/components/icons/SidebarIcon.vue'
   import McpModal from '~/components/McpModal.vue'
   import AgentSelector from '~/components/AgentSelector.vue'
   import { useCan } from '~/composables/usePermissions'

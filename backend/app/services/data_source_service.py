@@ -598,6 +598,7 @@ class DataSourceService:
             conversation_starters=final_data_source.conversation_starters,
             is_active=final_data_source.is_active,
             is_public=final_data_source.is_public,
+            publish_status=getattr(final_data_source, "publish_status", "published") or "published",
             use_llm_sync=final_data_source.use_llm_sync,
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
             git_repository=final_data_source.git_repository,
@@ -886,6 +887,7 @@ class DataSourceService:
             conversation_starters=data_source.conversation_starters,
             is_active=data_source.is_active,
             is_public=data_source.is_public,
+            publish_status=getattr(data_source, "publish_status", "published") or "published",
             use_llm_sync=data_source.use_llm_sync,
             owner_user_id=data_source.owner_user_id,
             git_repository=data_source.git_repository,
@@ -906,7 +908,35 @@ class DataSourceService:
 
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
-    
+
+    async def _publish_visibility(self, db: AsyncSession, current_user: User, organization: Organization):
+        """Returns (is_governance, manageable_ds_ids).
+
+        Used to decide whether a non-published agent (draft/disabled) is visible
+        to the caller. Managers — org-wide governance (full_admin_access /
+        manage_connections) or a per-DS ``manage`` grant — can see their drafts;
+        everyone else only sees ``published`` agents.
+        """
+        if current_user is None:
+            return False, set()
+        try:
+            from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+            resolved = await resolve_permissions(
+                db, str(current_user.id), str(organization.id)
+            )
+            is_gov = (
+                FULL_ADMIN in resolved.org_permissions
+                or resolved.has_org_permission("manage_connections")
+            )
+            manage_ids = {
+                str(rid)
+                for (rtype, rid), perms in resolved.resource_permissions.items()
+                if rtype == "data_source" and "manage" in perms
+            }
+            return is_gov, manage_ids
+        except Exception:
+            return False, set()
+
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization, show_all: bool = False) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
@@ -957,9 +987,14 @@ class DataSourceService:
             query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
+        # Non-published agents (draft/disabled) are only visible to managers.
+        is_gov, manage_ids = await self._publish_visibility(db, current_user, organization)
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            publish_status = getattr(d, "publish_status", "published") or "published"
+            if publish_status != "published" and not (is_gov or str(d.id) in manage_ids):
+                continue
             # Build connections list
             connections_list = await self._build_connections_list(
                 db=db,
@@ -977,6 +1012,7 @@ class DataSourceService:
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
                 is_public=bool(d.is_public),
+                publish_status=publish_status,
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1027,6 +1063,8 @@ class DataSourceService:
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
         has_update_perm = False
+        is_gov = False
+        manage_ids: set = set()
         if current_user:
             try:
                 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
@@ -1037,11 +1075,31 @@ class DataSourceService:
                     FULL_ADMIN in resolved.org_permissions
                     or resolved.has_org_permission("create_data_source")
                 )
+                # Managers (governance or per-DS `manage`) may also see/use their
+                # own draft agents in the selector; everyone else gets published.
+                is_gov = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_org_permission("manage_connections")
+                )
+                manage_ids = {
+                    str(rid)
+                    for (rtype, rid), perms in resolved.resource_permissions.items()
+                    if rtype == "data_source" and "manage" in perms
+                }
             except Exception:
                 has_update_perm = False
-        
+
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            # Publishing-lifecycle visibility:
+            #   disabled → never usable, hidden from everyone
+            #   draft    → only managers (governance / per-DS manage)
+            #   published → everyone with access
+            publish_status = getattr(d, "publish_status", "published") or "published"
+            if publish_status == "disabled":
+                continue
+            if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
+                continue
             # Build connections list
             connections_list = await self._build_connections_list(
                 db=db,
@@ -1059,6 +1117,7 @@ class DataSourceService:
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
                 is_public=bool(d.is_public),
+                publish_status=publish_status,
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1096,7 +1155,10 @@ class DataSourceService:
             .where(
                 DataSource.organization_id == organization.id,
                 DataSource.is_active == True,
-                DataSource.is_public == True  # Only public data sources
+                DataSource.is_public == True,  # Only public data sources
+                # Slack channel mentions have no manager context — only ever
+                # expose published agents (never draft/disabled).
+                DataSource.publish_status == "published",
             )
         )
 
@@ -1126,6 +1188,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                publish_status=getattr(d, "publish_status", "published") or "published",
                 connections=connections_list,
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
@@ -1248,12 +1311,32 @@ class DataSourceService:
         # Apply deletions before removing the data source to avoid NULLing non-nullable FKs
         await db.commit()
 
-        # 6) Delete schema tables associated with this data source (commits internally)
-        await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
-
-        # 7) Finally delete the data source
-        await db.delete(data_source)
-        await db.commit()
+        # 6) Delete schema tables and the data source, retrying if a concurrent
+        #    connection-indexing job re-creates datasource_tables rows in between.
+        #    Creating a domain from an existing connection can start background
+        #    indexing that syncs DataSourceTable for every linked data source, so
+        #    rows may reappear after we clear them but before the data source is
+        #    removed, causing a foreign-key violation. Re-clear and retry until
+        #    the indexer stops producing rows.
+        max_attempts = 8
+        for attempt in range(max_attempts):
+            # Delete (possibly re-created) schema tables for this data source
+            await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+            try:
+                await db.delete(data_source)
+                await db.commit()
+                break
+            except IntegrityError:
+                await db.rollback()
+                if attempt == max_attempts - 1:
+                    raise
+                # The data source object is expired after rollback; re-fetch it.
+                result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+                data_source = result.scalar_one_or_none()
+                if not data_source:
+                    # Already removed elsewhere; nothing left to delete.
+                    break
+                await asyncio.sleep(min(0.2 * (attempt + 1), 1.0))
 
         # Audit log
         try:
@@ -3113,6 +3196,9 @@ class DataSourceService:
                         db, data_source, conn, max_auto_select=None
                     )
                 if not per_user_conns:
+                    user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                    if user_scoped is not None:
+                        return user_scoped
                     schemas = await data_source.get_schemas(db=db, include_inactive=True)
                     return schemas
 
@@ -3123,13 +3209,50 @@ class DataSourceService:
 
             # Mixed (shared + per-user) already refreshed the shared side above.
             if shared_conns:
+                user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                if user_scoped is not None:
+                    return user_scoped
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
                 return schemas
 
         # No connections at all: legacy direct fetch (nothing to link against).
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas or []
-    
+
+    async def _refresh_shared_user_overlay(self, db: AsyncSession, data_source: DataSource, current_user: User):
+        """On an explicit reload of a SHARED-catalog, user_required (delegated/OBO,
+        e.g. Fabric/PowerBI) source, also refresh the CALLER's per-user overlay.
+
+        The shared-catalog refresh above only updates the canonical catalog
+        (ConnectionTable -> DataSourceTable). But the tables selector is
+        overlay-scoped for a caller running with their own delegated token
+        (effective_auth == "user"), so without this the caller sees ZERO tables
+        right after reloading and only sees them later, once an unrelated path
+        (sign-in, OAuth connect, credential upsert) lazily warms the overlay.
+
+        Returns the caller's user-scoped schema list when the overlay applies, or
+        None to signal the caller should get the full canonical catalog (admin via
+        service account, or a non-delegated source).
+        """
+        conns = getattr(data_source, "connections", None) or []
+        auth_policy = (conns[0].auth_policy if conns else "system_only") or "system_only"
+        if auth_policy != "user_required" or current_user is None:
+            return None
+        effective_auth = await self._resolve_effective_auth(db, data_source, current_user)
+        if effective_auth == "user":
+            # Caller runs with their own token: populate + return their overlay so
+            # the reload reflects exactly the tables they can query.
+            try:
+                schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                return schemas or []
+            except Exception:
+                return []
+        if effective_auth == "none":
+            # No proven access (disconnected/expired) → nothing to show.
+            return []
+        # effective_auth == "system": admin via service account → full catalog.
+        return None
+
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()

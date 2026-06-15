@@ -1,4 +1,20 @@
 {
+  "commandPalette": {
+    "placeholder": "Search reports, agents, instructions…",
+    "actions": "Actions",
+    "newReport": "New report",
+    "newReportWithQuery": "New report “{query}”",
+    "newInstruction": "New instruction",
+    "newInstructionWithQuery": "New instruction “{query}”",
+    "suggestInstruction": "Suggest instruction",
+    "suggestInstructionWithQuery": "Suggest instruction “{query}”",
+    "suggestionHint": "sent for review",
+    "reports": "Recent reports",
+    "agents": "Agents",
+    "instructions": "Instructions",
+    "emptyLabel": "Start typing to search",
+    "emptyQueryLabel": "No results found"
+  },
   "smoke": {
     "hello": "Hello",
     "subtitle": "i18n plumbing is live"
@@ -965,8 +981,9 @@
     "subtitle": "Manage workspace identity and preferences",
     "general": "General",
     "license": "License",
-    "membersTab": "Members",
+    "membersTab": "Access",
     "identityProviderTab": "Identity Provider",
+    "smtpTab": "SMTP",
     "identityProvider": {
       "scimTitle": "SCIM Provisioning",
       "scimSubtitle": "Automatically provision and deprovision users from your identity provider",
@@ -1023,7 +1040,7 @@
     },
     "auditLogs": "Audit Logs",
     "integrations": {
-      "title": "Integrations",
+      "title": "Channels",
       "subtitle": "Configure external platforms like Slack and Microsoft Teams for your organization.",
       "connected": "Connected",
       "notConnected": "Not connected",
@@ -1037,7 +1054,19 @@
       "excelAddinName": "Excel Add-in",
       "excelAddinDescription": "Sideload the Bag of Words add-in directly from this instance",
       "mcpName": "BOW MCP Server",
-      "mcpDescription": "Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others"
+      "mcpDescription": "Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others",
+      "emptyTitle": "Make Bag of Words work with your tools",
+      "emptySubtitle": "Connect Slack, Teams, email and more so your team can reach the AI analyst where they already work. Pick an integration to get started.",
+      "selectHint": "Select an integration",
+      "slackDescription": "Let your team chat with the AI analyst from Slack channels and DMs.",
+      "teamsDescription": "Bring the AI analyst into Microsoft Teams chats and channels.",
+      "whatsappDescription": "Reach the AI analyst over WhatsApp Business.",
+      "emailName": "AI Mailbox",
+      "emailDescription": "A mailbox the AI analyst sends replies from and (optionally) receives questions at.",
+      "oauthName": "OAuth Clients",
+      "oauthDescription": "Register external apps that access this workspace via OAuth 2.1 (e.g. Claude Web).",
+      "manage": "Manage",
+      "add": "Add"
     },
     "aiSettings": "AI Settings",
     "llm": "LLM",
@@ -2086,6 +2115,19 @@
       "sources": "Sources",
       "scope": "Scope:"
     },
+    "sidebar": {
+      "details": "Details",
+      "status": "Status",
+      "category": "Category",
+      "loading": "AI Context Loading",
+      "labels": "Labels",
+      "visibility": "Visibility",
+      "scope": "Scope",
+      "dataSources": "Data Sources",
+      "references": "References",
+      "createdBy": "Created by",
+      "approvedBy": "Approved by"
+    },
     "status": {
       "synced": "Synced",
       "unlinked": "Unlinked",
@@ -2281,7 +2323,8 @@
     "toastUpdated": "Scheduled prompt updated",
     "toastScheduled": "Prompt scheduled",
     "toastError": "Error",
-    "toastSaveFailed": "Failed to save scheduled prompt"
+    "toastSaveFailed": "Failed to save scheduled prompt",
+    "viewReport": "View report"
   },
   "errorPage": {
     "notFoundTitle": "404",

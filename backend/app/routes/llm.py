@@ -12,6 +12,7 @@ from app.schemas.llm_schema import (
     LLMProviderSchema,
     LLMProviderCreate,
     LLMProviderUpdate,
+    LLMProviderTestConnection,
     LLMModelSchema,
     LLMModelCreate,
     LLMModelUpdate,
@@ -45,7 +46,7 @@ async def get_available_models(
 @router.post("/llm/test_connection", response_model=dict)
 @requires_permission('manage_llm')
 async def test_connection(
-    provider: LLMProviderCreate,
+    provider: LLMProviderTestConnection,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)

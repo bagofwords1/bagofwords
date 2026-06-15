@@ -16,9 +16,12 @@
         @mouseenter="$emit('mouseenter')"
         @mouseleave="$emit('mouseleave')"
       >
-        <div class="w-max min-w-[400px] max-w-[520px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
+        <div
+          class="w-max min-w-[400px] max-w-[min(520px,calc(100vw-24px))] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+          :style="panelStyle"
+        >
           <!-- Header with connection info -->
-          <div class="px-4 py-3 border-b border-gray-100">
+          <div class="px-4 py-3 border-b border-gray-100 flex-shrink-0">
             <!-- Title row -->
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0 flex-1">
@@ -74,7 +77,7 @@
                agentDetails comes from /data_sources/{id} (populates per-user
                status), so this correctly stays hidden for the service-account
                fallback. -->
-          <div v-if="locked" class="px-4 py-4">
+          <div v-if="locked" class="px-4 py-4 flex-shrink-0">
             <p class="text-xs text-gray-500 mb-3">{{ $t('agentFlyout.connectToPreview') }}</p>
             <button
               @click.stop="emit('connect', agentDetails)"
@@ -86,7 +89,7 @@
           </div>
 
           <!-- Tabs (underline / border-bottom style like Settings) -->
-          <div v-else class="border-b border-gray-200 px-4">
+          <div v-else class="border-b border-gray-200 px-4 flex-shrink-0">
             <nav class="-mb-px flex space-x-4">
               <button
                 @click="flyoutTab = 'overview'"
@@ -138,7 +141,7 @@
             </nav>
           </div>
 
-          <div v-if="!locked" class="p-4">
+          <div v-if="!locked" class="p-4 flex-1 min-h-0 overflow-y-auto">
             <div v-if="loadingDetails" class="flex items-center justify-center py-8">
               <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
             </div>
@@ -147,7 +150,7 @@
               <!-- Overview tab -->
               <div v-if="flyoutTab === 'overview'" class="space-y-4">
                 <!-- Primary Instruction -->
-                <div v-if="agentDetails?.primary_instruction">
+                <div v-if="agentDetails?.primary_instruction" class="max-h-[40vh] overflow-y-auto pe-1">
                   <InstructionText
                     :text="agentDetails.primary_instruction.text"
                     :references="agentDetails.primary_instruction.references || []"
@@ -366,7 +369,7 @@ const { t } = useI18n()
 const props = defineProps<{
   agentId: string | null
   visible: boolean
-  position: { top?: number; bottom?: number; left: number }
+  position: { top?: number; bottom?: number; left: number; maxHeight?: number }
 }>()
 
 // Compute position style - prefer bottom if provided (grows upward)
@@ -380,6 +383,13 @@ const positionStyle = computed(() => {
     style.top = `${props.position.top}px`
   }
   return style
+})
+
+// Cap the panel to the space available above its anchor so it never grows off
+// the top of the viewport — the content area scrolls internally instead.
+const panelStyle = computed(() => {
+  const h = props.position.maxHeight
+  return h ? { maxHeight: `${h}px` } : {}
 })
 
 const emit = defineEmits<{

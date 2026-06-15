@@ -55,6 +55,39 @@ class LLMProviderCreate(LLMProviderBase):
         
         return schema(**v).dict()
 
+class LLMProviderTestConnection(LLMProviderBase):
+    # When set, the test targets an already-saved provider. Blank credential
+    # fields then fall back to the stored (encrypted) values.
+    provider_id: Optional[str] = None
+    credentials: dict = {}
+    models: list[dict] = []
+
+    @validator('credentials')
+    def validate_credentials(cls, v, values):
+        if 'provider_type' not in values:
+            raise ValueError('Provider type must be specified')
+
+        credential_schemas = {
+            'anthropic': AnthropicCredentials,
+            'openai': OpenAICredentials,
+            'google': GoogleCredentials,
+            'azure': AzureCredentials,
+            'custom': CustomCredentials,
+            'bedrock': BedrockCredentials,
+        }
+
+        schema = credential_schemas.get(values['provider_type'])
+        if not schema:
+            raise ValueError(f'Unknown provider type: {values["provider_type"]}')
+
+        # For an existing provider, the payload may omit/blank required secrets
+        # (they fall back to stored values), so skip strict schema validation
+        # and pass the raw partial credentials through.
+        if values.get('provider_id'):
+            return v
+
+        return schema(**v).dict()
+
 class LLMProviderUpdate(BaseModel):
     name: Optional[str] = None
     config: Optional[Dict[str, Any]] = None

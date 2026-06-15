@@ -94,8 +94,13 @@
                         </template>
                     </div>
 
-                    <!-- New Report CTA -->
-                    <div v-if="!isLoading && !fetchError && integration" class="shrink-0 mt-1">
+                    <!-- Publish status + New Report CTA -->
+                    <div v-if="!isLoading && !fetchError && integration" class="shrink-0 mt-1 flex items-center gap-3">
+                        <PublishStatusControl
+                            :data-source-id="id"
+                            :status="integration.publish_status || 'published'"
+                            @updated="onPublishStatusUpdated"
+                        />
                         <UButton
                             color="blue"
                             size="sm"
@@ -166,6 +171,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import {
     getEffectiveStatus,
     hasAnyActiveIndexing,
@@ -285,6 +291,12 @@ async function saveDesc() {
         toast?.add?.({ title: 'Description updated' })
         await fetchIntegration()
     }
+}
+
+function onPublishStatusUpdated(value: string) {
+    // Optimistic local update; refetch keeps derived views in sync.
+    if (integration.value) integration.value.publish_status = value
+    fetchIntegration()
 }
 
 async function startChat() {

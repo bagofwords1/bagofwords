@@ -45,7 +45,7 @@
           v-for="task in tasks"
           :key="task.id"
           class="border border-gray-100 bg-white rounded-lg p-4 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer"
-          @click="navigateToReport(task.report_id)"
+          @click="openTask(task)"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
@@ -96,9 +96,10 @@
 
     <!-- Scheduled Prompt Modal -->
     <ScheduledPromptModal
-      v-if="newTaskReportId"
+      v-if="modalReportId"
       v-model="showModal"
-      :report-id="newTaskReportId"
+      :report-id="modalReportId"
+      :scheduled-prompt="editingTask"
       @saved="onTaskSaved"
     />
   </div>
@@ -111,7 +112,6 @@ import ScheduledPromptModal from '~/components/ScheduledPromptModal.vue'
 
 definePageMeta({ auth: true })
 
-const router = useRouter()
 const toast = useToast()
 const { t } = useI18n()
 const { isExcel } = useExcel()
@@ -124,10 +124,17 @@ const currentPage = ref(1)
 const pagination = ref({ total: 0, page: 1, limit: 20, total_pages: 0, has_next: false, has_prev: false })
 const searchTerm = ref('')
 
-// New task modal
+// Scheduled prompt modal (shared for create + edit)
 const showModal = ref(false)
-const newTaskReportId = ref<string | null>(null)
+const modalReportId = ref<string | null>(null)
+const editingTask = ref<any | null>(null)
 const creatingTask = ref(false)
+
+const openTask = (task: any) => {
+  editingTask.value = task
+  modalReportId.value = task.report_id
+  showModal.value = true
+}
 
 const openNewTask = async () => {
   if (creatingTask.value) return
@@ -144,7 +151,8 @@ const openNewTask = async () => {
     })
     if ((response as any).error?.value) throw new Error('Report creation failed')
     const data = ((response as any).data?.value) as any
-    newTaskReportId.value = data.id
+    editingTask.value = null
+    modalReportId.value = data.id
     showModal.value = true
   } catch {
     toast.add({ title: t('common.error'), description: t('scheduled.createFailed'), color: 'red' })
@@ -195,10 +203,6 @@ const loadMore = async () => {
   isLoadingMore.value = true
   currentPage.value++
   await fetchTasks(currentPage.value, searchTerm.value)
-}
-
-const navigateToReport = (reportId: string) => {
-  router.push(`/reports/${reportId}`)
 }
 
 function formatRelativeTime(dateStr: string): string {
