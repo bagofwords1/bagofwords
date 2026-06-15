@@ -3,6 +3,12 @@
         <div class="px-6 py-5">
             <!-- Inline stat row -->
             <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 mb-4">
+                <span class="inline-flex items-center gap-1.5">
+                    Status:
+                    <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', reliabilityBadgeClass]">
+                        <UIcon :name="reliabilityIcon" class="w-3 h-3" />{{ reliabilityLabel }}
+                    </span>
+                </span>
                 <span><span class="font-semibold text-gray-900">{{ agentCases.length }}</span> test cases</span>
                 <span><span class="font-semibold text-gray-900">{{ agentRuns.length }}</span> runs</span>
                 <span class="inline-flex items-center gap-1.5">
@@ -17,8 +23,10 @@
             <!-- Sub-tabs + toolbar -->
             <div class="flex items-center gap-2 mb-4">
                 <div class="flex items-center gap-1">
+                    <button type="button" :class="tabClass('overview')" @click="activeTab = 'overview'">Overview</button>
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                     <button type="button" :class="tabClass('runs')" @click="activeTab = 'runs'">{{ $t('evals.tabs.runs') }}</button>
+                    <button v-if="canManage" type="button" :class="tabClass('automation')" @click="activeTab = 'automation'">Automation</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
                     <input
@@ -39,8 +47,47 @@
                 </div>
             </div>
 
+            <!-- Overview tab -->
+            <div v-if="activeTab === 'overview'">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-xs text-gray-500">Recent automation activity</div>
+                    <UButton v-if="canManage" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt" :loading="triggering" @click="runAutomationNow">
+                        Run reliability check
+                    </UButton>
+                </div>
+                <div v-if="autoEnabled === false" class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Automation is off for this agent. Turn it on in the Automation tab to auto-run evals and self-heal instructions when tables or instructions change.
+                </div>
+                <table class="min-w-full text-xs">
+                    <thead>
+                        <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                            <th class="py-2 pe-4 text-start">When</th>
+                            <th class="py-2 pe-4 text-start">Trigger</th>
+                            <th class="py-2 pe-4 text-start">Outcome</th>
+                            <th class="py-2 pe-4 text-start">Iters</th>
+                            <th class="py-2 text-start">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-50">
+                        <tr v-if="loadingAutoRuns"><td colspan="5" class="text-center text-gray-400 py-8">{{ $t('common.loading') }}</td></tr>
+                        <tr v-for="r in autoRuns" :key="r.id" class="hover:bg-gray-50 align-top">
+                            <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ formatDate(r.finished_at || r.started_at) }}</td>
+                            <td class="py-2 pe-4 text-gray-600">{{ triggerLabel(r.trigger) }}</td>
+                            <td class="py-2 pe-4">
+                                <span class="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full" :class="autoStatusClass(r.status)">{{ autoStatusLabel(r.status) }}</span>
+                            </td>
+                            <td class="py-2 pe-4 text-gray-600">{{ r.iterations }}</td>
+                            <td class="py-2 text-gray-500 max-w-[280px] truncate" :title="autoDetailText(r)">{{ autoDetailText(r) }}</td>
+                        </tr>
+                        <tr v-if="!loadingAutoRuns && autoRuns.length === 0">
+                            <td colspan="5" class="text-center text-gray-400 py-8">No automation runs yet.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
             <!-- Tests tab -->
-            <div v-if="activeTab === 'tests'">
+            <div v-else-if="activeTab === 'tests'">
                 <table class="min-w-full text-xs">
                     <thead>
                         <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -103,7 +150,7 @@
             </div>
 
             <!-- Runs tab -->
-            <div v-else>
+            <div v-else-if="activeTab === 'runs'">
                 <table class="min-w-full text-xs">
                     <thead>
                         <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -142,6 +189,57 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Automation tab -->
+            <div v-else-if="activeTab === 'automation'" class="max-w-2xl">
+                <p class="text-xs text-gray-500 mb-4">
+                    Control how this agent self-improves. Each stage runs at the level you choose:
+                    <span class="font-medium">Off</span> (never), <span class="font-medium">Suggest</span> (run, but stop for review),
+                    or <span class="font-medium">Auto</span> (end to end). Unset rows inherit the org default.
+                </p>
+
+                <div class="rounded-md border border-gray-200 divide-y divide-gray-100">
+                    <!-- Master switch -->
+                    <div class="flex items-center justify-between px-4 py-3">
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">Enable automation</div>
+                            <div class="text-xs text-gray-500">Master switch. When off, no stage runs regardless of the dials below.</div>
+                        </div>
+                        <UToggle v-model="form.enabled" :disabled="!canManage" @update:model-value="markDirty" />
+                    </div>
+
+                    <div v-for="dial in dials" :key="dial.key" class="flex items-center justify-between px-4 py-3" :class="{ 'opacity-50': !form.enabled }">
+                        <div class="pe-4">
+                            <div class="text-sm font-medium text-gray-900">{{ dial.label }}</div>
+                            <div class="text-xs text-gray-500">{{ dial.help }}</div>
+                        </div>
+                        <select
+                            v-model="(form as any)[dial.key]"
+                            :disabled="!canManage || !form.enabled"
+                            class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400"
+                            @change="markDirty"
+                        >
+                            <option v-for="o in dial.options" :key="o.value" :value="o.value">{{ o.label }}</option>
+                        </select>
+                    </div>
+
+                    <!-- max iterations -->
+                    <div class="flex items-center justify-between px-4 py-3" :class="{ 'opacity-50': !form.enabled }">
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">Max training iterations</div>
+                            <div class="text-xs text-gray-500">Cap on the train → re-eval loop before giving up. Guards cost.</div>
+                        </div>
+                        <input v-model.number="form.max_iterations" type="number" min="1" max="10" :disabled="!canManage || !form.enabled"
+                            class="h-7 w-16 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 disabled:bg-gray-50" @change="markDirty" />
+                    </div>
+                </div>
+
+                <div v-if="canManage" class="flex items-center gap-2 mt-4">
+                    <UButton color="blue" size="xs" :disabled="!dirty" :loading="savingSettings" @click="saveSettings">Save</UButton>
+                    <UButton color="gray" variant="ghost" size="xs" :disabled="!dirty" @click="loadAutomation">Reset</UButton>
+                    <span v-if="savedOk" class="text-xs text-green-600">Saved</span>
+                </div>
             </div>
         </div>
         <AddTestCaseModal
@@ -184,7 +282,7 @@ interface RunItem {
     status?: string
 }
 
-const activeTab = ref<'tests' | 'runs'>('tests')
+const activeTab = ref<'overview' | 'tests' | 'runs' | 'automation'>('overview')
 const loadingCases = ref(false)
 const loadingRuns = ref(false)
 const allCases = ref<TestCaseRow[]>([])
@@ -523,5 +621,162 @@ async function loadRuns() {
 
 watch(agentId, (id) => {
     if (id) { loadSuites().then(loadCases); loadRuns() }
+}, { immediate: true })
+
+// ===== Reliability automation =====
+
+const canManage = computed(() =>
+    agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false,
+)
+
+const AUTONOMY_OPTS = [
+    { value: 'off', label: 'Off' },
+    { value: 'suggest', label: 'Suggest' },
+    { value: 'auto', label: 'Auto' },
+]
+const dials = [
+    { key: 'eval_on_table_change', label: 'Evals on table change', help: 'Re-run evals when a table is activated or its columns change.', options: AUTONOMY_OPTS },
+    { key: 'eval_on_change', label: "Evals on this agent's instruction change", help: "Re-run evals when this agent's instructions change.", options: AUTONOMY_OPTS },
+    { key: 'eval_on_global_change', label: 'Evals on global instruction change', help: 'Re-run evals when a global instruction build is promoted.', options: AUTONOMY_OPTS },
+    { key: 'train_on_failure', label: 'Train on failure', help: 'When evals fail, repair references and propose fixing instructions.', options: AUTONOMY_OPTS },
+    { key: 'approve_instructions', label: 'Approve instructions', help: 'Push a candidate (passing) instruction build live. Auto = no human in the loop.', options: AUTONOMY_OPTS },
+    { key: 'auto_promote_evals', label: 'Auto-promote thumbs-up evals', help: 'Promote auto-drafted evals (from a thumbs-up) straight to active.', options: AUTONOMY_OPTS },
+    { key: 'on_repeated_failure', label: 'On repeated failure', help: "When the loop can't reach green: flag for review or take the agent offline.", options: [
+        { value: 'none', label: 'Do nothing' },
+        { value: 'under_review', label: 'Mark under review' },
+        { value: 'disable', label: 'Disable agent' },
+    ] },
+]
+
+const defaultForm = () => ({
+    enabled: false,
+    eval_on_table_change: 'suggest',
+    eval_on_change: 'suggest',
+    eval_on_global_change: 'suggest',
+    train_on_failure: 'suggest',
+    approve_instructions: 'suggest',
+    auto_promote_evals: 'off',
+    on_repeated_failure: 'under_review',
+    max_iterations: 3,
+})
+const form = ref<Record<string, any>>(defaultForm())
+const storedOverride = ref<Record<string, any>>({})
+const dirty = ref(false)
+const savingSettings = ref(false)
+const savedOk = ref(false)
+const autoEnabled = ref<boolean | null>(null)
+const reliabilityStatus = ref('ok')
+const publishStatus = ref('published')
+
+const autoRuns = ref<any[]>([])
+const loadingAutoRuns = ref(false)
+const triggering = ref(false)
+
+function markDirty() { dirty.value = true; savedOk.value = false }
+
+const reliabilityLabel = computed(() => {
+    if (publishStatus.value === 'disabled') return 'Disabled'
+    if (reliabilityStatus.value === 'under_review') return 'Under review'
+    return 'OK'
+})
+const reliabilityBadgeClass = computed(() => {
+    if (publishStatus.value === 'disabled') return 'bg-red-100 text-red-800'
+    if (reliabilityStatus.value === 'under_review') return 'bg-amber-100 text-amber-800'
+    return 'bg-green-100 text-green-800'
+})
+const reliabilityIcon = computed(() => {
+    if (publishStatus.value === 'disabled') return 'i-heroicons-no-symbol'
+    if (reliabilityStatus.value === 'under_review') return 'i-heroicons-exclamation-triangle'
+    return 'i-heroicons-check-circle'
+})
+
+function triggerLabel(t?: string) {
+    return ({
+        table_change: 'Table change',
+        instruction_change: 'Instruction change',
+        global_change: 'Global change',
+        manual: 'Manual',
+    } as Record<string, string>)[t || ''] || t || '—'
+}
+function autoStatusClass(s?: string) {
+    if (s === 'passed') return 'bg-green-100 text-green-800'
+    if (s === 'passed_pending') return 'bg-blue-100 text-blue-800'
+    if (s === 'gave_up' || s === 'error') return 'bg-red-100 text-red-800'
+    if (s === 'running') return 'bg-gray-100 text-gray-700'
+    return 'bg-gray-100 text-gray-600'
+}
+function autoStatusLabel(s?: string) {
+    return ({
+        passed: 'Passed', passed_pending: 'Awaiting approval', gave_up: 'Gave up',
+        no_evals: 'No evals', skipped: 'Skipped', running: 'Running', error: 'Error',
+    } as Record<string, string>)[s || ''] || s || '—'
+}
+function autoDetailText(r: any) {
+    const d = r?.detail || {}
+    return d.reason || d.outcome_action || d.hint || ''
+}
+
+async function loadAutomation() {
+    const id = agentId.value
+    if (!id) return
+    try {
+        const res = await useMyFetch<any>(`/data_sources/${id}/automation`, { method: 'GET' })
+        const data: any = res.data.value
+        if (!data) return
+        reliabilityStatus.value = data.reliability_status || 'ok'
+        publishStatus.value = data.publish_status || 'published'
+        autoEnabled.value = !!(data.effective?.enabled)
+        storedOverride.value = data.override || {}
+        // form = effective, so unset rows show the inherited value
+        form.value = { ...defaultForm(), ...(data.effective || {}) }
+        dirty.value = false
+        savedOk.value = false
+    } catch (e) { /* noop */ }
+}
+
+async function loadAutoRuns() {
+    const id = agentId.value
+    if (!id) return
+    loadingAutoRuns.value = true
+    try {
+        const res = await useMyFetch<any[]>(`/data_sources/${id}/automation/runs?limit=20`, { method: 'GET' })
+        autoRuns.value = (res.data.value as any[]) || []
+    } catch (e) { autoRuns.value = [] }
+    finally { loadingAutoRuns.value = false }
+}
+
+async function saveSettings() {
+    const id = agentId.value
+    if (!id) return
+    savingSettings.value = true
+    savedOk.value = false
+    try {
+        // Send the full form as the override (explicit is clearer than diffing
+        // against the inherited org default for v1).
+        await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value } })
+        savedOk.value = true
+        dirty.value = false
+        await loadAutomation()
+    } catch (e) {
+        toast.add({ title: 'Failed to save automation settings', color: 'red' })
+    } finally { savingSettings.value = false }
+}
+
+async function runAutomationNow() {
+    const id = agentId.value
+    if (!id) return
+    triggering.value = true
+    try {
+        await useMyFetch(`/data_sources/${id}/automation/run`, { method: 'POST' })
+        toast.add({ title: 'Reliability check started', color: 'green' })
+        // Give the background loop a moment, then refresh history.
+        setTimeout(() => { loadAutoRuns(); loadAutomation() }, 1500)
+    } catch (e) {
+        toast.add({ title: 'Failed to start reliability check', color: 'red' })
+    } finally { triggering.value = false }
+}
+
+watch(agentId, (id) => {
+    if (id) { loadAutomation(); loadAutoRuns() }
 }, { immediate: true })
 </script>

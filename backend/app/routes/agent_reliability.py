@@ -144,14 +144,25 @@ async def update_automation_settings(
 @requires_resource_permission('data_source', 'manage')
 async def trigger_automation_run(
     data_source_id: str,
+    wait: bool = Query(False, description="Run the loop inline and return the completed run instead of scheduling it in the background."),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
 ):
-    """Manually kick the reliability loop for this agent. Runs in the
-    background; returns the placeholder run row so the UI can poll."""
+    """Manually kick the reliability loop for this agent.
+
+    Default: schedule in the background and return a placeholder so the UI can
+    poll ``/automation/runs``. ``wait=true``: run inline and return the
+    completed AgentAutomationRun (used by tests and callers that want the
+    result synchronously)."""
     from app.models.agent_automation_run import TRIGGER_MANUAL
     ds = await _get_agent(db, organization, data_source_id)
+    if wait:
+        run = await rel_service.run_automation(
+            db, organization, ds, TRIGGER_MANUAL,
+            user=current_user, changed_hint="manual run",
+        )
+        return AutomationRunSchema.from_model(run)
     rel_service.schedule(
         organization_id=str(organization.id),
         data_source_id=str(ds.id),
