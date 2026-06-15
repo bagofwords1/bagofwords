@@ -55,11 +55,10 @@
         <!-- Nav mode trigger content: stacked agent icons (up to 3) + "Agents" label -->
         <template v-if="nav">
           <UTooltip v-if="collapsed" text="Agents" :popper="{ placement: 'right' }">
-            <span class="flex items-center justify-center w-5 h-5">
-              <span v-if="navIconTypes.length" class="flex -space-x-1.5 items-center">
-                <DataSourceIcon v-for="(t, i) in navIconTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
-              </span>
+            <span class="relative flex items-center justify-center w-5 h-5">
+              <DataSourceIcon v-if="navIconTypes.length" :type="navIconTypes[0]" class="w-[18px] h-[18px] rounded" />
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
+              <span v-if="agents.length > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ agents.length > 9 ? '9+' : agents.length }}</span>
             </span>
           </UTooltip>
           <template v-else>

@@ -186,6 +186,7 @@
                     </template>
                   </UPopover>
                   <span v-else class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
+                  <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" @updated="onAgentPublishUpdated" />
                 </div>
                 <div class="mt-1.5 group">
                   <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
@@ -559,6 +560,7 @@ import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
+import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
@@ -689,6 +691,10 @@ const refreshAgentDetail = async () => {
 const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
   try { const { data } = await useMyFetch<any>('/reports', { method: 'GET', query: { data_source_id: id, limit: 1, filter: 'published' } }); agentReportCount.value = (data.value as any)?.total ?? 0 } catch {}
+}
+const onAgentPublishUpdated = (val: string) => {
+  if (agentDetail.value) agentDetail.value.publish_status = val
+  const a = agents.value.find(x => x.id === agentView.value?.agentId); if (a) { a.publish_status = val; agents.value = [...agents.value] }
 }
 const setAgentPublic = async (val: boolean) => {
   const id = agentView.value?.agentId; if (!id) return
@@ -1283,8 +1289,8 @@ onMounted(async () => {
 
 <style scoped>
 .prose-instruction :deep(.tiptap-prose) { min-height: 80px; }
-/* Slightly larger instruction body text for readability. */
+/* Instruction body text size. */
 .prose-instruction :deep(.tiptap-prose),
 .prose-instruction :deep(.tiptap-prose p),
-.prose-instruction :deep(.tiptap-prose li) { font-size: 0.9375rem; line-height: 1.6; }
+.prose-instruction :deep(.tiptap-prose li) { font-size: 13px; line-height: 1.6; }
 </style>
