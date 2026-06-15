@@ -687,6 +687,48 @@ class CompletionFeedbackService:
         except Exception as e:
             logger.debug(f"_maybe_schedule_eval_draft failed: {e}")
 
+    async def _maybe_auto_promote_eval(
+        self,
+        db,
+        organization,
+        user,
+        *,
+        case_id: Optional[str],
+        data_source_ids: Optional[list],
+    ) -> bool:
+        """Promote a just-drafted auto-eval to ``active`` when the resolved
+        agent automation policy sets ``auto_promote_evals == auto``.
+
+        Policy is resolved per data source the case is scoped to; if ANY scoped
+        agent opts in we promote (the case applies to it). Returns True if
+        promoted.
+        """
+        if not case_id or not data_source_ids:
+            return False
+        from app.services.agent_reliability_service import AgentReliabilityService
+        from app.schemas.agent_automation_schema import AUTONOMY_AUTO
+        from app.models.data_source import DataSource as _DS
+        from app.models.eval import TEST_CASE_STATUS_ACTIVE
+
+        rel = AgentReliabilityService()
+        opted_in = False
+        for ds_id in data_source_ids:
+            ds = await db.get(_DS, str(ds_id))
+            if ds is None:
+                continue
+            policy = await rel.resolve_policy(db, organization, ds)
+            if policy.stage("auto_promote_evals") == AUTONOMY_AUTO:
+                opted_in = True
+                break
+        if not opted_in:
+            return False
+
+        from app.services.test_case_service import TestCaseService
+        await TestCaseService().update_case_status(
+            db, str(organization.id), user, str(case_id), TEST_CASE_STATUS_ACTIVE,
+        )
+        return True
+
     async def maybe_draft_eval_from_feedback(
         self,
         *,
@@ -972,6 +1014,20 @@ class CompletionFeedbackService:
 
         if not created_summary:
             return None
+
+        # Auto-promote the freshly-drafted eval to ``active`` when the agent's
+        # resolved automation policy opts in (auto_promote_evals == auto). The
+        # duplicate-classifier gate already ran upstream, so this only promotes
+        # a case we considered novel. Best-effort and scoped to the case's data
+        # sources; on any error we leave it as a draft for human review.
+        try:
+            await self._maybe_auto_promote_eval(
+                db, organization, user,
+                case_id=created_summary.get("case_id"),
+                data_source_ids=data_source_ids,
+            )
+        except Exception:
+            logger.debug("draft_eval_from_feedback: auto-promote skipped", exc_info=True)
 
         try:
             await telemetry.capture(

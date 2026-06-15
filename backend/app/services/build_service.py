@@ -961,6 +961,20 @@ class BuildService:
         except Exception:
             pass
 
+        # Trigger the agent-reliability loop for agents affected by this build.
+        # Skip AI-sourced builds: those are produced *by* the reliability loop
+        # (and the knowledge harness), so re-triggering on their promotion would
+        # recurse. User/git instruction edits are what we want to validate.
+        try:
+            if getattr(build, "source", None) != "ai":
+                from app.services.agent_reliability_service import AgentReliabilityService
+                AgentReliabilityService().schedule_for_build(
+                    organization_id=str(build.organization_id),
+                    build_id=str(build.id),
+                )
+        except Exception:
+            pass
+
         return build
     
     async def publish_build(
