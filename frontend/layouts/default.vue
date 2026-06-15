@@ -64,10 +64,27 @@
             </button>
         </li>
 
-        <!-- Agents (top-level) — AgentSelector in nav mode: hover opens the
-             agent dropdown, click goes to the explorer, agent click deep-links. -->
+        <!-- Agents (top-level) — plain link: cube on the left, stacked agent icons on the right. -->
         <li class="mt-4">
-          <AgentSelector nav :collapsed="isCollapsed" :show-text="showText" />
+          <NuxtLink to="/agents" :class="[
+            'flex items-center w-full rounded-lg border transition-all duration-200',
+            isRouteActive('/agents') ? 'border-gray-300 bg-white shadow-sm text-gray-900 font-semibold' : 'border-gray-200 bg-white shadow-sm text-gray-700 hover:border-gray-300 hover:shadow',
+            isCollapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2'
+          ]">
+            <UTooltip v-if="isCollapsed" text="Agents" :popper="{ placement: tooltipPlacement }">
+              <span class="relative flex items-center justify-center w-5 h-5">
+                <UIcon name="heroicons-cube" class="w-[18px] h-[18px]" />
+                <span v-if="navAgentCount > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ navAgentCount > 9 ? '9+' : navAgentCount }}</span>
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-[18px] h-[18px] shrink-0"><UIcon name="heroicons-cube" /></span>
+              <span v-if="showText" class="font-medium">Agents</span>
+              <span v-if="showText && navAgentTypes.length" class="ml-auto flex -space-x-1.5 items-center shrink-0">
+                <DataSourceIcon v-for="(t, i) in navAgentTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
+              </span>
+            </template>
+          </NuxtLink>
         </li>
 
         <li>
@@ -237,7 +254,6 @@
   import AgentIcon from '~/components/icons/AgentIcon.vue'
   import SidebarIcon from '~/components/icons/SidebarIcon.vue'
   import McpModal from '~/components/McpModal.vue'
-  import AgentSelector from '~/components/AgentSelector.vue'
   import { useCan } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
@@ -309,6 +325,18 @@
   
   // Agent management - use selectedAgentObjects for new report creation
   const { initAgent, selectedAgentObjects, agents, hasAgents } = useAgent()
+
+  // Stacked agent icons (first 3 connection types) for the Agents nav item.
+  const navAgentCount = computed(() => (agents.value || []).length)
+  const navAgentTypes = computed(() => {
+    const types: string[] = []
+    for (const a of (agents.value || [])) {
+      const t = (a as any).connections?.[0]?.type
+      if (t) types.push(t)
+      if (types.length >= 3) break
+    }
+    return types
+  })
 
   
   const workspaceIconUrl = computed<string | null>(() => {

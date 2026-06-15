@@ -39,7 +39,7 @@
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input v-model="search" type="text" placeholder="Search everything…" class="w-full h-8 pl-8 pr-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400" />
+            <input v-model="search" type="text" placeholder="Search everything…" class="w-full h-9 pl-8 pr-2 text-[13px] bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400" />
           </div>
           <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
             <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50" title="Filters">
@@ -78,7 +78,7 @@
           <div class="h-px bg-gray-100 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
-            <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</span>
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Agents</span>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
               <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-600 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
@@ -103,9 +103,9 @@
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
                   <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 shrink-0" /></template>
-                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:62px;padding-right:8px">
+                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600" style="padding-left:62px;padding-right:8px">
                     <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
-                    <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
+                    <span class="flex-1 text-left truncate font-mono text-xs">{{ tool.name }}</span>
                     <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 text-gray-400">off</span>
                     <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 text-gray-500">{{ tool.policy }}</span>
                   </div>
@@ -116,7 +116,7 @@
               <TreeGroup label="Files" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" addable :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)" @add="triggerUpload(agent.id)">
                 <div
                   v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
-                  class="group/file w-full flex items-center gap-2 h-7 rounded-md text-xs transition-colors min-w-0 cursor-pointer"
+                  class="group/file w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer"
                   :class="previewFile && previewFile.id === f.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'"
                   style="padding-left:48px;padding-right:8px" @click="openFile(f, agent.id)"
                 >
@@ -133,14 +133,14 @@
                 <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
               </TreeGroup>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
                 <span class="w-3 shrink-0"></span>
                 <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 shrink-0" />
                 <span class="flex-1 text-left truncate">Evals</span>
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
               </button>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('settings', agent.id)">
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('settings', agent.id)">
                 <span class="w-3 shrink-0"></span>
                 <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400 shrink-0" />
                 <span class="flex-1 text-left truncate">Settings</span>
@@ -152,7 +152,7 @@
 
         <!-- Connections footer -->
         <div class="border-t border-gray-200 px-3 py-2 flex items-center gap-2">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mr-1">Connections</span>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mr-1">Connections</span>
           <UTooltip v-for="c in connections" :key="c.id" :text="`${c.name} · ${c.type}`">
             <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 hover:bg-gray-50" @click="openConnectionDetail(c)">
               <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
@@ -278,7 +278,7 @@
             <!-- Conversation starters (editable) -->
             <div class="mt-6">
               <div class="flex items-center gap-2 mb-2">
-                <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Conversation starters</span>
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Conversation starters</span>
                 <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
               </div>
               <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
@@ -508,7 +508,7 @@
           <!-- Suggested changes (pending builds) -->
           <template v-if="pendingBuilds.length">
             <div class="h-9 px-3 flex items-center border-b border-gray-100 bg-amber-50/40">
-              <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-600">Suggested changes</span>
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-amber-600">Suggested changes</span>
             </div>
             <div class="p-2 space-y-1 border-b border-gray-100">
               <div v-for="pb in pendingBuilds" :key="pb.build_id"
@@ -530,7 +530,7 @@
           </template>
 
           <!-- Version history -->
-          <div class="h-9 px-3 flex items-center border-b border-gray-100"><span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Version history</span></div>
+          <div class="h-9 px-3 flex items-center border-b border-gray-100"><span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Version history</span></div>
           <div class="p-2 space-y-0.5">
             <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
             <div v-else-if="versions.length === 0" class="p-3 text-center text-[11px] text-gray-300">No history yet.</div>
@@ -1378,20 +1378,20 @@ const TreeGroup = defineComponent({
     // label text opens the panel (`@label`); otherwise the whole row toggles.
     return () => createElement('div', {}, [
       createElement('div', {
-        class: ['group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0', props.active ? 'bg-gray-100 text-gray-900' : 'text-gray-600', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 cursor-pointer'],
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0', props.active ? 'bg-gray-100 text-gray-900' : 'text-gray-600', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 cursor-pointer'],
         style: { paddingLeft: (6 + props.indent * 14) + 'px', paddingRight: '8px' },
         onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
       }, [
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200' : 'text-gray-300', props.open ? 'rotate-90' : '', props.labelClickable ? 'cursor-pointer hover:text-gray-500' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: 'Status' }) : null,
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 shrink-0' }) : null),
-        createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-[11px]' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
+        createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-xs' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
         props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-gray-400 shrink-0', title: 'Private' }) : null,
         props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium hover:bg-blue-100', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
         (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Reload', onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Manage', onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
         (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
-        (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-[11px] tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
+        (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
       ]),
       (props.open && !props.disabled) ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, slots.default ? slots.default() : []) : null,
     ])
@@ -1405,7 +1405,7 @@ const InstrLeaf = defineComponent({
       const ins = props.ins
       const sel = selectedId.value === ins.id
       return createElement('button', {
-        class: ['group w-full flex items-center gap-2 h-7 rounded-md text-xs transition-colors min-w-0', sel ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'],
+        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'],
         style: { paddingLeft: (20 + props.indent * 14) + 'px', paddingRight: '8px' },
         onClick: () => openInstruction(ins),
       }, [
@@ -1413,8 +1413,8 @@ const InstrLeaf = defineComponent({
         createElement('span', { class: 'flex-1 text-left truncate' }, displayTitle(ins)),
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.getSourceTooltip(ins) }),
-        createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
-        (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
+        createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 text-gray-500 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
+        (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 text-gray-500 text-[11px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
       ])
     }
   },
@@ -1437,7 +1437,7 @@ const FilterSection = defineComponent({
   setup(props, { emit }) {
     const toggle = (v: string) => { const cur = [...(props.modelValue || [])]; const i = cur.indexOf(v); i >= 0 ? cur.splice(i, 1) : cur.push(v); emit('update:modelValue', cur) }
     return () => createElement('div', {}, [
-      createElement('div', { class: 'text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1' }, props.label),
+      createElement('div', { class: 'text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1' }, props.label),
       createElement('div', { class: 'flex flex-wrap gap-1' }, props.options.map(o => createElement('button', { key: o.value, type: 'button', class: ['px-2 h-6 rounded-md text-[11px] font-medium transition-colors', (props.modelValue || []).includes(o.value) ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'], onClick: () => toggle(o.value) }, o.label))),
     ])
   },
