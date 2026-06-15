@@ -86,7 +86,7 @@
                             class="block p-4 rounded-lg border border-gray-100 bg-white transition-all group"
                             :class="userHasAccess(ds) ? 'hover:border-gray-200 hover:shadow-md' : 'opacity-75'"
                         >
-                            <component :is="userHasAccess(ds) ? NuxtLink : 'div'" :to="userHasAccess(ds) ? `/agents/${ds.id}` : undefined" class="block">
+                            <component :is="userHasAccess(ds) ? NuxtLink : 'div'" :to="userHasAccess(ds) ? `/old_agents/${ds.id}` : undefined" class="block">
                                 <!-- Card header -->
                                 <div class="flex items-center gap-1.5 mb-1">
                                     <span class="font-medium text-gray-900 text-sm leading-tight">{{ ds.name }}</span>
@@ -575,11 +575,11 @@ onMounted(async () => {
         const toast = useToast()
         toast.add({ title: t('data.connectedSuccess'), color: 'green', icon: 'i-heroicons-check-circle' })
         // Clean up query params
-        navigateTo('/agents', { replace: true })
+        navigateTo('/old_agents', { replace: true })
     } else if (route.query.oauth === 'error') {
         const toast = useToast()
         toast.add({ title: t('data.connectionFailed'), description: route.query.message as string || '', color: 'red', icon: 'i-heroicons-x-circle' })
-        navigateTo('/agents', { replace: true })
+        navigateTo('/old_agents', { replace: true })
     }
 })
 </script>

@@ -26,6 +26,9 @@ class Instruction(BaseSchema):
     
     # Categorization
     category = Column(String(50), nullable=False, default="general")
+
+    # Instruction kind: 'instruction' (normal) | 'skill'
+    kind = Column(String(50), nullable=False, server_default="instruction", default="instruction")
     
     # User who created the instruction (always the original creator)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)

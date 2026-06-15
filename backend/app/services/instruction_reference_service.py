@@ -1,7 +1,7 @@
 from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, delete
+from sqlalchemy import and_, delete, func
 
 from app.models.instruction_reference import InstructionReference
 from app.models.instruction import Instruction
@@ -118,6 +118,39 @@ class InstructionReferenceService:
             q = select(DataSourceTable).where(DataSourceTable.id == ref.object_id)
             res = await db.execute(q)
             obj = res.scalar_one_or_none()
+
+            # Fallback: the UI doesn't always pass a real DataSourceTable.id —
+            # the `object_id` can be a connection-table id or a bare table name
+            # (with or without a `schema.` prefix), depending on the data source
+            # / connection type. If the id lookup missed, resolve the table by
+            # name within the instruction's data sources.
+            if not obj and data_source_ids:
+                # Candidate names to match: object_id and display_text, each
+                # tolerating a `schema.table` -> `table` reduction.
+                candidates = []
+                for raw in (ref.object_id, ref.display_text):
+                    if not raw:
+                        continue
+                    raw = str(raw).strip()
+                    candidates.append(raw)
+                    if "." in raw:
+                        candidates.append(raw.rsplit(".", 1)[-1])
+                # De-dup, lowercase for case-insensitive comparison.
+                lowered = list({c.lower() for c in candidates if c})
+                if lowered:
+                    name_q = select(DataSourceTable).where(
+                        and_(
+                            DataSourceTable.datasource_id.in_(data_source_ids),
+                            func.lower(DataSourceTable.name).in_(lowered),
+                        )
+                    )
+                    name_res = await db.execute(name_q)
+                    obj = name_res.scalars().first()
+                    if obj:
+                        # Rewrite the reference so the persisted FK points at the
+                        # real DataSourceTable.id.
+                        ref.object_id = obj.id
+
             if not obj:
                 raise ValueError("datasource_table not found")
 

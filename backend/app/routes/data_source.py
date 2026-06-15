@@ -50,6 +50,17 @@ async def get_active_data_sources(
 ):
     return await data_source_service.get_active_data_sources(db, organization, current_user, include_unconnected=include_unconnected)
 
+@router.get("/data_sources/connected_channels", response_model=list[dict])
+async def get_connected_channels(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """List the org's channels (Slack/Teams/WhatsApp/email/MCP) annotated with
+    whether each is connected. Drives the per-agent channel-availability toggles
+    in the new-agent and agent-settings UI."""
+    return await data_source_service.get_connected_channels(db, organization)
+
 @router.get("/data_sources/{data_source_id}", response_model=DataSourceSchema)
 @requires_resource_permission('data_source', 'view')
 async def get_data_source(

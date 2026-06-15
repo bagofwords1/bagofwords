@@ -384,6 +384,8 @@ class SchemaContextBuilder:
                         type=getattr(ds, 'type', None) or (ds.connections[0].type if getattr(ds, 'connections', None) else None),
                         # Prefer the richer human-written description when available; fallback to context
                         context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
+                        # Manager-set publishing lifecycle (published/draft/disabled).
+                        publish_status=getattr(ds, 'publish_status', None),
                     ),
                     tables=tables,
                     mcp_tools=mcp_tools,

@@ -310,6 +310,7 @@ class DataSourceService:
         config = data_source_dict.pop("config", None)
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
+        channel_availability = data_source_dict.pop("channel_availability", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
@@ -439,6 +440,7 @@ class DataSourceService:
             "organization_id": organization.id,
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
+            "channel_availability": channel_availability,
             "owner_user_id": current_user.id
         }
         
@@ -600,6 +602,7 @@ class DataSourceService:
             is_public=final_data_source.is_public,
             publish_status=getattr(final_data_source, "publish_status", "published") or "published",
             use_llm_sync=final_data_source.use_llm_sync,
+            channel_availability=getattr(final_data_source, "channel_availability", None),
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
             git_repository=final_data_source.git_repository,
             memberships=final_data_source.data_source_memberships,
@@ -889,6 +892,7 @@ class DataSourceService:
             is_public=data_source.is_public,
             publish_status=getattr(data_source, "publish_status", "published") or "published",
             use_llm_sync=data_source.use_llm_sync,
+            channel_availability=getattr(data_source, "channel_availability", None),
             owner_user_id=data_source.owner_user_id,
             git_repository=data_source.git_repository,
             memberships=data_source.data_source_memberships,
@@ -1011,6 +1015,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                is_public=bool(d.is_public),
                 publish_status=publish_status,
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
@@ -1028,8 +1033,14 @@ class DataSourceService:
             schemas.append(s)
         return schemas
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False) -> List[DataSourceListItemSchema]:
-        """Get all active data sources for an organization that the user has access to, compact list shape"""
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
+        """Get all active data sources for an organization that the user has access to, compact list shape.
+
+        When ``channel`` is provided (an external channel type such as ``"slack"``,
+        ``"teams"`` or ``"mcp"``), agents that have been configured as unavailable
+        in that channel are excluded. ``None`` (internal/web) applies no channel
+        gating.
+        """
         # See get_data_sources above for the lazyload("*") rationale — same
         # cascade applies here. The list schema doesn't expose
         # data_source_memberships, so we don't eager-load it.
@@ -1099,6 +1110,9 @@ class DataSourceService:
                 continue
             if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
                 continue
+            # Channel availability gating (external channels only).
+            if not d.is_available_in(channel):
+                continue
             # Build connections list
             connections_list = await self._build_connections_list(
                 db=db,
@@ -1115,6 +1129,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                is_public=bool(d.is_public),
                 publish_status=publish_status,
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
@@ -1138,11 +1153,14 @@ class DataSourceService:
             items.append(s)
         return items
 
-    async def get_public_data_sources(self, db: AsyncSession, organization: Organization) -> List[DataSourceListItemSchema]:
+    async def get_public_data_sources(self, db: AsyncSession, organization: Organization, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """
         Get only public active data sources with system_only auth for an organization.
         Used for Slack channel mentions where we can't rely on individual user credentials.
         Only includes data sources that use system-level credentials (auth_policy="system_only").
+
+        When ``channel`` is provided, agents configured as unavailable in that
+        channel are excluded.
         """
         stmt = (
             select(DataSource)
@@ -1165,6 +1183,9 @@ class DataSourceService:
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            # Channel availability gating (external channels only).
+            if not d.is_available_in(channel):
+                continue
             conn = d.connections[0] if d.connections else None
             # Only include data sources with system_only auth policy
             # Skip user_required data sources since channel mentions can't use individual user credentials
@@ -1194,6 +1215,49 @@ class DataSourceService:
             )
             items.append(s)
         return items
+
+    # Channels an agent can be made available in. Keeping this catalog here (vs.
+    # hard-coded in the route/UI) keeps the backend the single source of truth.
+    CHANNEL_CATALOG = [
+        {"key": "slack", "name": "Slack"},
+        {"key": "teams", "name": "Microsoft Teams"},
+        {"key": "whatsapp", "name": "WhatsApp"},
+        {"key": "email", "name": "Email"},
+        {"key": "mcp", "name": "MCP"},
+    ]
+
+    async def get_connected_channels(self, db: AsyncSession, organization: Organization) -> List[dict]:
+        """Return the channel catalog annotated with whether each channel is
+        connected for this organization.
+
+        A platform channel (Slack/Teams/WhatsApp/email) is "connected" when an
+        active ``ExternalPlatform`` row exists; MCP is "connected" when the
+        ``mcp_enabled`` org setting is on. The new-agent UI uses this to render a
+        channel-availability toggle for each connected channel.
+        """
+        from app.models.external_platform import ExternalPlatform
+
+        result = await db.execute(
+            select(ExternalPlatform.platform_type).where(
+                ExternalPlatform.organization_id == organization.id,
+                ExternalPlatform.is_active == True,
+            )
+        )
+        active_types = {row for row in result.scalars().all()}
+
+        mcp_enabled = False
+        try:
+            if organization.settings:
+                cfg = organization.settings.get_config("mcp_enabled")
+                mcp_enabled = bool(cfg and getattr(cfg, "value", False))
+        except Exception:
+            mcp_enabled = False
+
+        channels = []
+        for c in self.CHANNEL_CATALOG:
+            connected = (c["key"] == "mcp" and mcp_enabled) or (c["key"] in active_types)
+            channels.append({**c, "connected": connected})
+        return channels
 
     async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User, auth_type: str | None = None, auth_policy: str | None = None):
         try:

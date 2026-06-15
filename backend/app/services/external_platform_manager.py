@@ -338,11 +338,12 @@ class ExternalPlatformManager:
         # If no recent report, create a new one
         # For channel mentions, only use public data sources (visible to everyone in the channel)
         # For DMs, use all data sources the user has access to (public + private with membership)
+        platform_type = user_mapping.platform_type
         if channel_type == "channel":
-            data_sources = await self.data_source_service.get_public_data_sources(db, organization)
+            data_sources = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)
         else:
             # DM: user gets public + private data sources they have access to
-            data_sources = await self.data_source_service.get_active_data_sources(db, organization, user)
+            data_sources = await self.data_source_service.get_active_data_sources(db, organization, user, channel=platform_type)
 
         data_source_ids = [data_source.id for data_source in data_sources]
         report_create_data = ReportCreate(
@@ -509,9 +510,9 @@ class ExternalPlatformManager:
         if platform_type == "teams" and report is not None and not created:
             from app.services.report_service import ReportService
             if channel_type == "channel":
-                fresh = await self.data_source_service.get_public_data_sources(db, organization)
+                fresh = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)
             else:
-                fresh = await self.data_source_service.get_active_data_sources(db, organization, user)
+                fresh = await self.data_source_service.get_active_data_sources(db, organization, user, channel=platform_type)
             fresh_ids = [str(ds.id) for ds in fresh]
             await ReportService().set_data_sources_for_report(
                 db, report, fresh_ids, user, organization

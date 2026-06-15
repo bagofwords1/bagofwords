@@ -8,8 +8,9 @@ test('can view settings page', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Settings', exact: true }))
     .toBeVisible({ timeout: 15000 });
 
-  // Verify settings tabs are present (redirects to /settings/members)
-  await expect(page.getByRole('link', { name: 'Members' }))
+  // Verify settings tabs are present (redirects to /settings/members).
+  // The members tab is now labelled "Access" (settings.membersTab).
+  await expect(page.getByRole('link', { name: 'Access' }))
     .toBeVisible({ timeout: 10000 });
   await expect(page.getByRole('link', { name: 'LLM' }))
     .toBeVisible({ timeout: 10000 });

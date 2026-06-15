@@ -47,6 +47,30 @@ class TablesSchemaContext(ContextSection):
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []
 
+        # Short, human-readable explanations of each agent (data source)
+        # publishing-status value so the planner understands what the status
+        # MEANS, not just the bare token. Kept terse — goes into every block.
+        _PUBLISH_STATUS_DESCRIPTIONS: ClassVar[dict] = {
+            "published": "live and available to everyone with access",
+            "draft": "still being configured by builders; not yet released to consumers",
+            "disabled": "turned off and excluded from normal use",
+        }
+
+        def _render_status_xml(self) -> str:
+            """Render the agent's publishing-status block.
+
+            Surfaces the manager-set publishing lifecycle (published/draft/
+            disabled) paired with a short explanation so the planner knows what
+            the status means and can caveat its answers (e.g. note when a source
+            is still a draft rather than finalized).
+            """
+            publish = (getattr(self.info, 'publish_status', None) or '').strip().lower()
+            if not publish:
+                return ""
+            desc = self._PUBLISH_STATUS_DESCRIPTIONS.get(publish, "")
+            inner = xml_tag("publishing", xml_escape(desc), {"value": publish})
+            return xml_tag("status", inner)
+
         def _group_tables_by_connection(self) -> dict:
             """Group tables by connection_id. Tables without connection_id go under 'default'."""
             from collections import defaultdict
@@ -180,6 +204,9 @@ class TablesSchemaContext(ContextSection):
             conn_groups = self._group_tables_by_connection()
 
             content_parts = []
+            status_xml = self._render_status_xml()
+            if status_xml:
+                content_parts.append(status_xml)
             if self.info.context:
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
 
@@ -445,6 +472,9 @@ class TablesSchemaContext(ContextSection):
             has_multi_connection = '<connection ' in sample_xml if sample_xml else False
 
             inner_parts: List[str] = []
+            status_xml = ds._render_status_xml()
+            if status_xml:
+                inner_parts.append(status_xml)
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
             if sample_xml:

@@ -1787,7 +1787,7 @@ class InstructionService:
         """Handle owner editing their own private instruction"""
 
         # Owner can only edit text/title/category/toggles. Ignore any status changes silently.
-        allowed_fields = ['text', 'title', 'category', 'is_seen', 'can_user_toggle']
+        allowed_fields = ['text', 'title', 'category', 'kind', 'is_seen', 'can_user_toggle']
         
         # Apply allowed changes only (ignore status/private/global fields if present)
         for field in allowed_fields:
@@ -2107,6 +2107,7 @@ class InstructionService:
                     source_git_commit_sha=getattr(inst, "source_git_commit_sha", None),
                     source_sync_enabled=getattr(inst, "source_sync_enabled", True) if getattr(inst, "source_sync_enabled", None) is not None else True,
                     load_mode=getattr(inst, "load_mode", "always") or "always",
+                    kind=getattr(inst, "kind", "instruction") or "instruction",
                     title=getattr(inst, "title", None),
                     structured_data=getattr(inst, "structured_data", None),
                     formatted_content=getattr(inst, "formatted_content", None),

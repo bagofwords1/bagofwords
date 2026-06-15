@@ -64,9 +64,10 @@
             </button>
         </li>
 
-        <!-- Agent Selector - Context for all navigation below -->
-        <li class="mt-4 mb-2">
-          <AgentSelector :collapsed="isCollapsed" :show-text="showText" />
+        <!-- Agents (top-level) — AgentSelector in nav mode: hover opens the
+             agent dropdown, click goes to the explorer, agent click deep-links. -->
+        <li class="mt-4">
+          <AgentSelector nav :collapsed="isCollapsed" :show-text="showText" />
         </li>
 
         <li>
@@ -286,16 +287,13 @@
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
-    { href: '/instructions', icon: 'heroicons-cube', label: 'nav.instructions' },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
     { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true, section: 'nav.manage' },
     { href: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals' },
   ]
 
   const bottomNavItems = computed<NavItem[]>(() => {
-    const items: NavItem[] = [
-      { href: '/agents', component: AgentIcon, label: 'nav.dataAgents' },
-    ]
+    const items: NavItem[] = []
     // The Settings entry was always shown but hard-linked to /settings/members,
     // which requires `view_members`. A user on a custom role without that perm
     // would click it and get silently bounced to '/' by permissions.global.ts —

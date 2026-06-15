@@ -8,6 +8,8 @@ class DataSourceSummarySchema(BaseModel):
     name: str
     type: Optional[str] = None  # Computed from connection
     context: Optional[str] = None
+    # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
+    publish_status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -153,6 +155,9 @@ class DataSourceSchema(DataSourceBase):
     # Distinct from is_active (connection health).
     publish_status: str = "published"
     use_llm_sync: bool = False
+    # Per-channel availability map ({channel_type: bool}). None = available in
+    # every connected channel.
+    channel_availability: Optional[Dict[str, bool]] = None
     owner_user_id: Optional[str] = None
     git_repository: Optional[GitRepositorySchema] = None
     memberships: Optional[List[DataSourceMembershipSchema]] = []
@@ -192,6 +197,7 @@ class DataSourceListItemSchema(BaseModel):
     created_at: UTCDatetime
     # Connection-health derived state, kept for backward compatibility.
     status: str  # "active" | "inactive" (mirrors is_active)
+    is_public: bool = False
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     publish_status: str = "published"
 
@@ -238,6 +244,9 @@ class DataSourceCreate(DataSourceBase):
     generate_ai_rules: bool = False
     is_public: bool = False
     use_llm_sync: bool = False
+    # Per-channel availability map ({channel_type: bool}). None = available in
+    # every connected channel.
+    channel_availability: Optional[Dict[str, bool]] = None
     member_user_ids: Optional[List[str]] = []  # User IDs to grant access to
 
     @validator('credentials')
@@ -288,6 +297,8 @@ class DataSourceUpdate(DataSourceBase):
     conversation_starters: Optional[list] = None
     is_public: Optional[bool] = None
     use_llm_sync: Optional[bool] = None
+    # Per-channel availability map ({channel_type: bool}). None = leave unchanged.
+    channel_availability: Optional[Dict[str, bool]] = None
     # Manager-set publishing lifecycle. Guarded by the 'manage' resource
     # permission on the data source (see routes/data_source.py).
     publish_status: Optional[str] = None
