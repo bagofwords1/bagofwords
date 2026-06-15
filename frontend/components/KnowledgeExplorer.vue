@@ -1105,7 +1105,7 @@ const approveSuggestion = async (pb: any) => {
     await useMyFetch(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
     toast.add({ title: 'Approved & published', color: 'green' })
     closeDiff()
-    await fetchAll()
+    await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
   } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { approving.value = null }
@@ -1119,7 +1119,7 @@ const discardSuggestion = async (pb: any) => {
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Reject failed')
     toast.add({ title: 'Suggestion discarded', color: 'gray' })
     if (diff.value?.buildId === pb.build_id) closeDiff()
-    await fetchAll()
+    await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
   } catch (e: any) { toast.add({ title: 'Couldn’t discard', description: e?.message, color: 'red' }) } finally { discarding.value = null }
@@ -1225,6 +1225,11 @@ const expand = (key: string, force?: boolean) => {
 const fetchAll = async () => {
   try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) }
 }
+// Refresh BOTH the instruction list and the pending-builds map so the left tree
+// (Pending review count, top "N pending" badge, per-row amber dots) stays in
+// sync after a mutation (approve / discard / save). fetchAll alone only updates
+// instruction statuses; pendingInstrIds is what drives the pending signals.
+const refreshLists = async () => { await Promise.all([fetchAll(), fetchPendingMap()]) }
 const fetchAgents = async () => {
   try {
     // include_unconnected=true so members also see user_required (OBO) agents
@@ -1386,7 +1391,7 @@ const save = async () => {
       if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
       toast.add({ title: 'Created', color: 'green' })
       creating.value = false; editing.value = false; draft.references = []
-      await fetchAll()
+      await refreshLists()
       const created = (data.value as any)?.id ? allInstructions.value.find(i => i.id === (data.value as any).id) : null
       if (created) openInstruction(created)
     } else if (detail.value) {
@@ -1394,7 +1399,7 @@ const save = async () => {
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
       toast.add({ title: 'Saved', color: 'green' }); editing.value = false
       if (data.value) detail.value = { ...detail.value, ...data.value }
-      await fetchAll()
+      await refreshLists()
       const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
       if (fresh) { detail.value = fresh; syncDraft(fresh) }
       loadVersions(detail.value!.id)
@@ -1419,7 +1424,7 @@ const saveMeta = async () => {
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
     if (data.value) detail.value = { ...detail.value, ...(data.value as any) }
-    await fetchAll()
+    await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh && !editing.value) { detail.value = fresh; syncDraft(fresh) }
     toast.add({ title: 'Saved', color: 'green' })
@@ -1466,7 +1471,7 @@ const loadVersions = async (id: string) => {
 const restore = async (v: any) => {
   if (!detail.value) return
   if (!window.confirm(`Restore version v${v.version_number}? This creates a new version.`)) return
-  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: `Restored v${v.version_number}`, color: 'green' }); await fetchAll(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: `Restored v${v.version_number}`, color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
 }
 
 // ── Display helpers ─────────────────────────────────────
@@ -1592,7 +1597,7 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus()])
+  await Promise.all([fetchAgents(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus()])
   openAgentFromRoute()
 })
 </script>
