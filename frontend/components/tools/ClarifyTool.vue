@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-1 mb-6">
+  <div class="mt-1 mb-6" dir="auto">
     <!-- Header: spinner while running, checkmark when done -->
     <div class="flex items-center text-xs text-gray-500 mb-3">
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
@@ -12,7 +12,7 @@
     <div v-if="questions.length && status !== 'running'" class="space-y-4 ms-4">
 
       <div v-for="(q, i) in questions" :key="i" class="space-y-1.5">
-        <p class="text-sm font-medium text-gray-900">{{ q.text }}</p>
+        <p class="text-sm font-medium text-gray-900" dir="auto">{{ q.text }}</p>
 
         <!-- Lettered options -->
         <div v-if="q.options?.length" class="space-y-1">
@@ -23,7 +23,7 @@
             :disabled="isLocked"
             @click="!isLocked && selectOption(i, opt)"
             :class="[
-              'flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-lg border transition-all duration-100',
+              'flex items-center gap-2.5 w-full text-start px-3 py-2 rounded-lg border transition-all duration-100',
               selectedChips[i] === opt
                 ? 'border-sky-200 bg-sky-50'
                 : isLocked
@@ -40,6 +40,7 @@
               {{ String.fromCharCode(65 + j) }}
             </span>
             <span
+              dir="auto"
               :class="[
                 'text-sm transition-colors duration-100',
                 selectedChips[i] === opt ? 'text-sky-700 font-medium' : 'text-gray-600',
@@ -59,6 +60,7 @@
                 ref="otherInputRefs"
                 v-model="otherTexts[i]"
                 type="text"
+                dir="auto"
                 placeholder="Describe…"
                 class="w-full text-sm bg-transparent outline-none placeholder-sky-300 text-sky-700"
                 @keydown.enter.prevent="allAnswered && submit()"
@@ -75,12 +77,13 @@
           <input
             v-model="freeTexts[i]"
             type="text"
+            dir="auto"
             :placeholder="$t('tools.clarify.placeholder')"
             class="w-full text-sm bg-transparent outline-none placeholder-gray-400 text-gray-900"
             @keydown.enter.prevent="allAnswered && submit()"
           />
         </div>
-        <p v-else class="text-sm text-gray-700 px-1">{{ freeTexts[i] || '—' }}</p>
+        <p v-else class="text-sm text-gray-700 px-1" dir="auto">{{ freeTexts[i] || '—' }}</p>
       </div>
 
       <!-- Submit -->
