@@ -33,6 +33,7 @@ from app.ee.audit.service import audit_service
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
+from app.models.scheduled_prompt import ScheduledPrompt
 from app.core.otel import get_tracer
 
 logger = getLogger(__name__)
@@ -677,6 +678,34 @@ class ReportService:
         logger.info(f"Completed scheduled report run for report_id: {report_id}")
         return report
 
+    async def _delete_scheduled_prompts_for_reports(self, db: AsyncSession, report_ids: list[str]) -> None:
+        """Soft-delete any active scheduled prompts attached to the given reports and
+        remove their APScheduler jobs. Used when reports are archived so that nested
+        scheduled tasks no longer fire."""
+        if not report_ids:
+            return
+
+        result = await db.execute(
+            select(ScheduledPrompt)
+            .filter(ScheduledPrompt.report_id.in_(report_ids))
+            .filter(ScheduledPrompt.deleted_at == None)
+        )
+        scheduled_prompts = result.scalars().all()
+        if not scheduled_prompts:
+            return
+
+        now = datetime.utcnow()
+        for sp in scheduled_prompts:
+            sp.deleted_at = now
+            try:
+                scheduler.remove_job(job_id=f"scheduled_prompt_{sp.id}")
+            except JobLookupError:
+                pass
+            except Exception:
+                logger.warning(f"Failed to remove scheduler job for scheduled prompt {sp.id}", exc_info=True)
+
+        logger.info(f"Deleted {len(scheduled_prompts)} scheduled prompt(s) for archived report(s): {report_ids}")
+
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -684,6 +713,7 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Report not found")
 
         report.status = 'archived'
+        await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
         await db.refresh(report)
 
@@ -1346,6 +1376,7 @@ class ReportService:
             count += 1
 
         if count:
+            await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
 
             # Audit log

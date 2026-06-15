@@ -173,6 +173,50 @@ def test_delete_scheduled_prompt(
 
 
 @pytest.mark.e2e
+def test_archiving_report_deletes_scheduled_prompts(
+    create_scheduled_prompt,
+    list_scheduled_prompts,
+    delete_report,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Archiving a report should soft-delete its nested scheduled prompts."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    report = create_report(title="SP Archive Report", user_token=user_token, org_id=org_id)
+
+    create_scheduled_prompt(
+        report_id=report["id"],
+        prompt={"content": "Prompt A"},
+        cron_schedule="0 8 * * *",
+        user_token=user_token,
+        org_id=org_id,
+    )
+    create_scheduled_prompt(
+        report_id=report["id"],
+        prompt={"content": "Prompt B"},
+        cron_schedule="0 12 * * *",
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Sanity check: both prompts exist before archiving
+    prompts = list_scheduled_prompts(report_id=report["id"], user_token=user_token, org_id=org_id)
+    assert len(prompts) == 2
+
+    # Archiving is exposed via DELETE /reports/{id}
+    delete_report(report_id=report["id"], user_token=user_token, org_id=org_id)
+
+    # After archiving, the nested scheduled prompts should be gone
+    prompts = list_scheduled_prompts(report_id=report["id"], user_token=user_token, org_id=org_id)
+    assert len(prompts) == 0
+
+
+@pytest.mark.e2e
 def test_create_scheduled_prompt_with_subscribers(
     create_scheduled_prompt,
     create_report,
