@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_resource_permission
+from app.core.permissions_decorator import requires_resource_permission, requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.data_source import DataSource
@@ -174,6 +174,27 @@ async def trigger_automation_run(
         id="pending", trigger=TRIGGER_MANUAL, status="running", iterations=0,
         detail={"reason": "scheduled"},
     )
+
+
+@router.get("/automation/runs", response_model=List[AutomationRunSchema])
+@requires_permission('manage_evals')
+async def list_org_automation_runs(
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Org-wide recent automation runs across all of this org's agents. Used by the
+    main /evals Test Runs view to badge eval runs with their automation outcome
+    (which self-heal loop a run belonged to, and how it ended)."""
+    rows = (await db.execute(
+        select(AgentAutomationRun)
+        .join(DataSource, DataSource.id == AgentAutomationRun.data_source_id)
+        .where(DataSource.organization_id == str(organization.id))
+        .order_by(AgentAutomationRun.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+    return [AutomationRunSchema.from_model(r) for r in rows]
 
 
 @router.get("/data_sources/{data_source_id}/automation/runs", response_model=List[AutomationRunSchema])

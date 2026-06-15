@@ -218,7 +218,12 @@
                                             </NuxtLink>
                                         </td>
                                         <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
-                                        <td class="px-6 py-3 capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
+                                        <td class="px-6 py-3">
+                                            <span class="capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</span>
+                                            <span v-if="runOutcome(r.id)" class="ms-1.5 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium align-middle" :class="runOutcome(r.id).cls" :title="runOutcome(r.id).title">
+                                                {{ runOutcome(r.id).label }}
+                                            </span>
+                                        </td>
                                         <td class="px-6 py-3">
                                             <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600">
                                                 <Icon name="heroicons:cube" class="w-3 h-3" />
@@ -521,6 +526,46 @@ async function loadCases() {
     selectedIds.value = new Set()
 }
 
+// Automation runs (org-wide) → badge each eval run with the self-heal loop it
+// belonged to and how that loop ended. Mirrors AgentEvalsPanel's Runs tab.
+const automationRuns = ref<any[]>([])
+async function loadAutomationOutcomes() {
+    try {
+        const res = await useMyFetch<any[]>(`/api/automation/runs?limit=200`)
+        automationRuns.value = (res.data.value as any[]) || []
+    } catch { automationRuns.value = [] }
+}
+const runOutcomeMap = computed<Record<string, any>>(() => {
+    const m: Record<string, any> = {}
+    for (const ar of automationRuns.value) {
+        for (const tid of (ar.test_run_ids || [])) m[String(tid)] = ar
+    }
+    return m
+})
+function autoStatusLabel(s?: string) {
+    return ({
+        passed: 'Passed', passed_pending: 'Awaiting approval', gave_up: 'Gave up',
+        no_evals: 'No evals', skipped: 'Skipped', running: 'Running', error: 'Error',
+    } as Record<string, string>)[s || ''] || s || '—'
+}
+function autoStatusClass(s?: string) {
+    if (s === 'passed') return 'bg-green-100 text-green-800'
+    if (s === 'passed_pending') return 'bg-blue-100 text-blue-800'
+    if (s === 'gave_up' || s === 'error') return 'bg-red-100 text-red-800'
+    return 'bg-gray-100 text-gray-600'
+}
+function runOutcome(runId: string) {
+    const ar = runOutcomeMap.value[String(runId)]
+    if (!ar) return null
+    const action = ar.detail?.outcome_action
+    const extra = action === 'development' ? ' → Development' : action === 'training' ? ' → Training' : ''
+    return {
+        label: autoStatusLabel(ar.status) + extra,
+        cls: autoStatusClass(ar.status),
+        title: ar.detail?.reason || 'Automation run',
+    }
+}
+
 async function loadRuns() {
     try {
         const params = new URLSearchParams()
@@ -529,6 +574,7 @@ async function loadRuns() {
         params.set('limit', String(runsLimit.value))
         const res = await useMyFetch<RunItem[]>(`/api/tests/runs?${params.toString()}`)
         runs.value = (res.data.value as any[]) || []
+        loadAutomationOutcomes()
         // fetch results per run to compute summary
         const fetches = (runs.value || []).map(r => useMyFetch<any[]>(`/api/tests/runs/${r.id}/results`))
         const responses = await Promise.all(fetches)

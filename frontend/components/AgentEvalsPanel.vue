@@ -23,9 +23,8 @@
             <!-- Sub-tabs + toolbar -->
             <div class="flex items-center gap-2 mb-4">
                 <div class="flex items-center gap-1">
-                    <button type="button" :class="tabClass('overview')" @click="activeTab = 'overview'">Overview</button>
-                    <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                     <button type="button" :class="tabClass('runs')" @click="activeTab = 'runs'">{{ $t('evals.tabs.runs') }}</button>
+                    <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                     <button v-if="canManage" type="button" :class="tabClass('automation')" @click="activeTab = 'automation'">Automation</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
@@ -47,47 +46,8 @@
                 </div>
             </div>
 
-            <!-- Overview tab -->
-            <div v-if="activeTab === 'overview'">
-                <div class="flex items-center justify-between mb-3">
-                    <div class="text-xs text-gray-500">Recent automation activity</div>
-                    <UButton v-if="canManage" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt" :loading="triggering" @click="runAutomationNow">
-                        Run reliability check
-                    </UButton>
-                </div>
-                <div v-if="autoEnabled === false" class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    Automation is off for this agent. Turn it on in the Automation tab to auto-run evals and self-heal instructions when tables or instructions change.
-                </div>
-                <table class="min-w-full text-xs">
-                    <thead>
-                        <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                            <th class="py-2 pe-4 text-start">When</th>
-                            <th class="py-2 pe-4 text-start">Trigger</th>
-                            <th class="py-2 pe-4 text-start">Outcome</th>
-                            <th class="py-2 pe-4 text-start">Iters</th>
-                            <th class="py-2 text-start">Detail</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-50">
-                        <tr v-if="loadingAutoRuns"><td colspan="5" class="text-center text-gray-400 py-8">{{ $t('common.loading') }}</td></tr>
-                        <tr v-for="r in autoRuns" :key="r.id" class="hover:bg-gray-50 align-top">
-                            <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ formatDate(r.finished_at || r.started_at) }}</td>
-                            <td class="py-2 pe-4 text-gray-600">{{ triggerLabel(r.trigger) }}</td>
-                            <td class="py-2 pe-4">
-                                <span class="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full" :class="autoStatusClass(r.status)">{{ autoStatusLabel(r.status) }}</span>
-                            </td>
-                            <td class="py-2 pe-4 text-gray-600">{{ r.iterations }}</td>
-                            <td class="py-2 text-gray-500 max-w-[280px] truncate" :title="autoDetailText(r)">{{ autoDetailText(r) }}</td>
-                        </tr>
-                        <tr v-if="!loadingAutoRuns && autoRuns.length === 0">
-                            <td colspan="5" class="text-center text-gray-400 py-8">No automation runs yet.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
             <!-- Tests tab -->
-            <div v-else-if="activeTab === 'tests'">
+            <div v-if="activeTab === 'tests'">
                 <table class="min-w-full text-xs">
                     <thead>
                         <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -149,8 +109,20 @@
                 </div>
             </div>
 
-            <!-- Runs tab -->
+            <!-- Runs tab (manual checks + automation, one list) -->
             <div v-else-if="activeTab === 'runs'">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-xs text-gray-500">Every eval run — manual checks and automation.</div>
+                    <UButton v-if="canManage" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
+                        :loading="triggering" :disabled="agentCases.length === 0"
+                        :title="agentCases.length === 0 ? 'Add a test case first — there is nothing to evaluate yet.' : ''"
+                        @click="runAutomationNow">
+                        Run reliability check
+                    </UButton>
+                </div>
+                <div v-if="canManage && autoEnabled === false" class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Automation is off for this agent. Turn it on in the Automation tab to auto-run evals and self-heal instructions when tables or instructions change.
+                </div>
                 <table class="min-w-full text-xs">
                     <thead>
                         <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -172,8 +144,13 @@
                                     {{ r.title || $t('evals.runs.fallbackTitle') }}
                                 </NuxtLink>
                             </td>
-                            <td class="py-2 pe-4 text-gray-600">{{ formatDate(r.started_at) }}</td>
-                            <td class="py-2 pe-4 capitalize text-gray-600">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
+                            <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ formatDate(r.started_at) }}</td>
+                            <td class="py-2 pe-4">
+                                <span class="capitalize text-gray-600">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</span>
+                                <span v-if="runOutcome(r.id)" class="ms-1.5 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium align-middle" :class="runOutcome(r.id).cls" :title="runOutcome(r.id).title">
+                                    {{ runOutcome(r.id).label }}
+                                </span>
+                            </td>
                             <td class="py-2 pe-4">
                                 <span class="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full" :class="runStatusClass(r)">
                                     {{ localizedStatus(derivedRunStatus(r)) || '—' }}
@@ -191,51 +168,90 @@
                 </table>
             </div>
 
-            <!-- Automation tab -->
-            <div v-else-if="activeTab === 'automation'" class="max-w-2xl">
-                <p class="text-xs text-gray-500 mb-4">
-                    Control how this agent self-improves. Each stage runs at the level you choose:
-                    <span class="font-medium">Off</span> (never), <span class="font-medium">Suggest</span> (run, but stop for review),
-                    or <span class="font-medium">Auto</span> (end to end). Unset rows inherit the org default.
-                </p>
-
-                <div class="rounded-md border border-gray-200 divide-y divide-gray-100">
-                    <!-- Master switch -->
-                    <div class="flex items-center justify-between px-4 py-3">
-                        <div>
-                            <div class="text-sm font-medium text-gray-900">Enable automation</div>
-                            <div class="text-xs text-gray-500">Master switch. When off, no stage runs regardless of the dials below.</div>
-                        </div>
-                        <UToggle v-model="form.enabled" :disabled="!canManage" @update:model-value="markDirty" />
+            <!-- Automation tab (minimal: master switch + one autonomy preset) -->
+            <div v-else-if="activeTab === 'automation'" class="max-w-xl space-y-5">
+                <!-- Master switch -->
+                <div class="flex items-center justify-between">
+                    <div class="pe-4">
+                        <div class="text-sm font-medium text-gray-900">Enable automation</div>
+                        <div class="text-xs text-gray-500">Let this agent measure and improve itself.</div>
                     </div>
+                    <UToggle v-model="form.enabled" :disabled="!canManage" @update:model-value="onEnableChange" />
+                </div>
 
-                    <div v-for="dial in dials" :key="dial.key" class="flex items-center justify-between px-4 py-3" :class="{ 'opacity-50': !form.enabled }">
-                        <div class="pe-4">
-                            <div class="text-sm font-medium text-gray-900">{{ dial.label }}</div>
-                            <div class="text-xs text-gray-500">{{ dial.help }}</div>
-                        </div>
-                        <select
-                            v-model="(form as any)[dial.key]"
-                            :disabled="!canManage || !form.enabled"
-                            class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400"
-                            @change="markDirty"
-                        >
-                            <option v-for="o in dial.options" :key="o.value" :value="o.value">{{ o.label }}</option>
-                        </select>
+                <!-- Autonomy preset -->
+                <div class="flex items-start justify-between" :class="{ 'opacity-50 pointer-events-none': !form.enabled }">
+                    <div class="pe-4">
+                        <div class="text-sm font-medium text-gray-900">Autonomy</div>
+                        <div class="text-xs text-gray-500 mt-0.5 max-w-sm">{{ presetHelp }}</div>
                     </div>
+                    <select v-model="preset" :disabled="!canManage || !form.enabled" @change="applyPreset"
+                        class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400 shrink-0">
+                        <option value="manual">Manual</option>
+                        <option value="assisted">Assisted</option>
+                        <option value="autonomous">Autonomous</option>
+                        <option v-if="preset === 'custom'" value="custom">Custom</option>
+                    </select>
+                </div>
 
-                    <!-- max iterations -->
-                    <div class="flex items-center justify-between px-4 py-3" :class="{ 'opacity-50': !form.enabled }">
-                        <div>
-                            <div class="text-sm font-medium text-gray-900">Max training iterations</div>
-                            <div class="text-xs text-gray-500">Cap on the train → re-eval loop before giving up. Guards cost.</div>
+                <!-- Advanced: per-stage control -->
+                <div :class="{ 'opacity-50 pointer-events-none': !form.enabled }">
+                    <button type="button" class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800" @click="showAdvanced = !showAdvanced">
+                        <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
+                        Advanced
+                    </button>
+                    <div v-if="showAdvanced" class="mt-2">
+                        <p class="text-[11px] text-gray-400 mb-2">Each stage: <span class="font-medium">Off</span> · <span class="font-medium">Suggest</span> (stop for review) · <span class="font-medium">Auto</span> (end to end).</p>
+                        <div class="rounded-md border border-gray-200 divide-y divide-gray-100">
+                            <!-- Merged eval triggers -->
+                            <div class="flex items-center justify-between px-3 py-2.5">
+                                <div class="pe-4">
+                                    <div class="text-xs font-medium text-gray-800">Re-run evals when things change</div>
+                                    <div class="text-[11px] text-gray-500">Tables activated/changed, this agent's instructions, or a global build promoted.</div>
+                                </div>
+                                <select v-model="evalTrigger" :disabled="!canManage"
+                                    class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
+                                    <option v-for="o in AUTONOMY_OPTS" :key="o.value" :value="o.value">{{ o.label }}</option>
+                                </select>
+                            </div>
+                            <!-- Per-stage dials -->
+                            <div v-for="dial in advancedDials" :key="dial.key" class="flex items-center justify-between px-3 py-2.5">
+                                <div class="pe-4">
+                                    <div class="text-xs font-medium text-gray-800">{{ dial.label }}</div>
+                                    <div class="text-[11px] text-gray-500">{{ dial.help }}</div>
+                                </div>
+                                <select v-model="(form as any)[dial.key]" :disabled="!canManage" @change="onAdvancedChange"
+                                    class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
+                                    <option v-for="o in dial.options" :key="o.value" :value="o.value">{{ o.label }}</option>
+                                </select>
+                            </div>
+                            <!-- On repeated failure -->
+                            <div class="flex items-center justify-between px-3 py-2.5">
+                                <div class="pe-4">
+                                    <div class="text-xs font-medium text-gray-800">On repeated failure</div>
+                                    <div class="text-[11px] text-gray-500">When the loop can't reach green: keep it in training (still visible to users) or move it to development (only agent admins can see it).</div>
+                                </div>
+                                <select v-model="form.on_repeated_failure" :disabled="!canManage" @change="markDirty"
+                                    class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
+                                    <option value="none">Do nothing</option>
+                                    <option value="training">Keep in training</option>
+                                    <option value="development">Move to development</option>
+                                </select>
+                            </div>
+                            <!-- Max iterations -->
+                            <div class="flex items-center justify-between px-3 py-2.5">
+                                <div class="pe-4">
+                                    <div class="text-xs font-medium text-gray-800">Max training iterations</div>
+                                    <div class="text-[11px] text-gray-500">Cap on the train → re-eval loop before giving up. Guards cost.</div>
+                                </div>
+                                <input v-model.number="form.max_iterations" type="number" min="1" max="10" :disabled="!canManage" @change="markDirty"
+                                    class="h-7 w-16 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0" />
+                            </div>
                         </div>
-                        <input v-model.number="form.max_iterations" type="number" min="1" max="10" :disabled="!canManage || !form.enabled"
-                            class="h-7 w-16 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 disabled:bg-gray-50" @change="markDirty" />
                     </div>
                 </div>
 
-                <div v-if="canManage" class="flex items-center gap-2 mt-4">
+                <div v-if="canManage" class="flex items-center gap-2">
                     <UButton color="blue" size="xs" :disabled="!dirty" :loading="savingSettings" @click="saveSettings">Save</UButton>
                     <UButton color="gray" variant="ghost" size="xs" :disabled="!dirty" @click="loadAutomation">Reset</UButton>
                     <span v-if="savedOk" class="text-xs text-green-600">Saved</span>
@@ -282,7 +298,7 @@ interface RunItem {
     status?: string
 }
 
-const activeTab = ref<'overview' | 'tests' | 'runs' | 'automation'>('overview')
+const activeTab = ref<'tests' | 'runs' | 'automation'>('runs')
 const loadingCases = ref(false)
 const loadingRuns = ref(false)
 const allCases = ref<TestCaseRow[]>([])
@@ -634,19 +650,70 @@ const AUTONOMY_OPTS = [
     { value: 'suggest', label: 'Suggest' },
     { value: 'auto', label: 'Auto' },
 ]
-const dials = [
-    { key: 'eval_on_table_change', label: 'Evals on table change', help: 'Re-run evals when a table is activated or its columns change.', options: AUTONOMY_OPTS },
-    { key: 'eval_on_change', label: "Evals on this agent's instruction change", help: "Re-run evals when this agent's instructions change.", options: AUTONOMY_OPTS },
-    { key: 'eval_on_global_change', label: 'Evals on global instruction change', help: 'Re-run evals when a global instruction build is promoted.', options: AUTONOMY_OPTS },
-    { key: 'train_on_failure', label: 'Train on failure', help: 'When evals fail, repair references and propose fixing instructions.', options: AUTONOMY_OPTS },
-    { key: 'approve_instructions', label: 'Approve instructions', help: 'Push a candidate (passing) instruction build live. Auto = no human in the loop.', options: AUTONOMY_OPTS },
+// Per-stage dials shown under "Advanced". The three eval triggers are collapsed
+// into a single control (see `evalTrigger`); on_repeated_failure + max_iterations
+// are rendered explicitly in the template.
+const advancedDials = [
+    { key: 'train_on_failure', label: 'Train on failure', help: 'When evals fail, draft instructions that fix them.', options: AUTONOMY_OPTS },
+    { key: 'approve_instructions', label: 'Approve instructions', help: 'Push a passing build live. Auto = no human in the loop.', options: AUTONOMY_OPTS },
     { key: 'auto_promote_evals', label: 'Auto-promote thumbs-up evals', help: 'Promote auto-drafted evals (from a thumbs-up) straight to active.', options: AUTONOMY_OPTS },
-    { key: 'on_repeated_failure', label: 'On repeated failure', help: "When the loop can't reach green: keep it in training (still visible to users) or move it to development (only agent admins can see it).", options: [
-        { value: 'none', label: 'Do nothing' },
-        { value: 'training', label: 'Keep in training' },
-        { value: 'development', label: 'Move to development (admin-only)' },
-    ] },
 ]
+
+const showAdvanced = ref(false)
+
+// One autonomy preset bundles the per-stage dials. "Custom" appears when the
+// Advanced dials don't match any preset. Presets don't touch on_repeated_failure
+// or max_iterations — those stay independent knobs under Advanced.
+const PRESETS: Record<string, { trigger: string; train_on_failure: string; approve_instructions: string; auto_promote_evals: string }> = {
+    manual:     { trigger: 'off',  train_on_failure: 'off',  approve_instructions: 'suggest', auto_promote_evals: 'off' },
+    assisted:   { trigger: 'auto', train_on_failure: 'auto', approve_instructions: 'suggest', auto_promote_evals: 'off' },
+    autonomous: { trigger: 'auto', train_on_failure: 'auto', approve_instructions: 'auto',    auto_promote_evals: 'auto' },
+}
+const preset = ref<'manual' | 'assisted' | 'autonomous' | 'custom'>('assisted')
+const presetHelp = computed(() => ({
+    manual: 'Runs only when you click “Run reliability check”. Nothing changes on its own.',
+    assisted: 'Runs evals on changes and drafts fixes — you approve before anything goes live.',
+    autonomous: 'Measures, fixes, and promotes end to end. No human in the loop.',
+    custom: 'Custom per-stage settings — see Advanced below.',
+} as Record<string, string>)[preset.value])
+
+function detectPreset(): 'manual' | 'assisted' | 'autonomous' | 'custom' {
+    const f = form.value
+    const triggersEqual = f.eval_on_table_change === f.eval_on_change && f.eval_on_change === f.eval_on_global_change
+    if (triggersEqual) {
+        for (const name of ['manual', 'assisted', 'autonomous'] as const) {
+            const p = PRESETS[name]
+            if (f.eval_on_change === p.trigger && f.train_on_failure === p.train_on_failure
+                && f.approve_instructions === p.approve_instructions && f.auto_promote_evals === p.auto_promote_evals) {
+                return name
+            }
+        }
+    }
+    return 'custom'
+}
+function applyPreset() {
+    const p = PRESETS[preset.value]
+    if (!p) return  // 'custom' isn't directly selectable
+    form.value.eval_on_table_change = p.trigger
+    form.value.eval_on_change = p.trigger
+    form.value.eval_on_global_change = p.trigger
+    form.value.train_on_failure = p.train_on_failure
+    form.value.approve_instructions = p.approve_instructions
+    form.value.auto_promote_evals = p.auto_promote_evals
+    markDirty()
+}
+// Single control standing in for the three eval-trigger dials.
+const evalTrigger = computed<string>({
+    get: () => form.value.eval_on_change,
+    set: (v: string) => {
+        form.value.eval_on_table_change = v
+        form.value.eval_on_change = v
+        form.value.eval_on_global_change = v
+        onAdvancedChange()
+    },
+})
+function onAdvancedChange() { markDirty(); preset.value = detectPreset() }
+function onEnableChange() { markDirty() }
 
 const defaultForm = () => ({
     enabled: false,
@@ -719,6 +786,27 @@ function autoDetailText(r: any) {
     return d.reason || d.outcome_action || d.hint || ''
 }
 
+// Map each eval (test) run id -> the automation loop it belonged to, so the
+// merged Runs tab can badge a run with the loop's outcome (e.g. "Gave up → Dev").
+const runOutcomeMap = computed<Record<string, any>>(() => {
+    const m: Record<string, any> = {}
+    for (const ar of autoRuns.value) {
+        for (const tid of (ar.test_run_ids || [])) m[String(tid)] = ar
+    }
+    return m
+})
+function runOutcome(runId: string) {
+    const ar = runOutcomeMap.value[String(runId)]
+    if (!ar) return null
+    const action = ar.detail?.outcome_action
+    const extra = action === 'development' ? ' → Development' : action === 'training' ? ' → Training' : ''
+    return {
+        label: autoStatusLabel(ar.status) + extra,
+        cls: autoStatusClass(ar.status),
+        title: autoDetailText(ar) || 'Automation run',
+    }
+}
+
 async function loadAutomation() {
     const id = agentId.value
     if (!id) return
@@ -732,6 +820,7 @@ async function loadAutomation() {
         storedOverride.value = data.override || {}
         // form = effective, so unset rows show the inherited value
         form.value = { ...defaultForm(), ...(data.effective || {}) }
+        preset.value = detectPreset()
         dirty.value = false
         savedOk.value = false
     } catch (e) { /* noop */ }
