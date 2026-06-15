@@ -68,7 +68,7 @@
             <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" gearable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)" @gear="openPanel('tables', agent.id)">
+              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" gearable reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)" @gear="openPanel('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -76,7 +76,7 @@
                 <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" text="No accessible tables." :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" gearable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)" @gear="openPanel('tools', agent.id)">
+              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" gearable reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)" @gear="openPanel('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <div v-for="tool in (agentTools[agent.id] || [])" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:48px;padding-right:8px">
                   <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
                   <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
@@ -130,50 +130,85 @@
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
-        <!-- Agent overview (primary instruction) -->
+        <!-- Agent overview -->
         <template v-if="agentView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-2 min-w-0">
               <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" class="w-4 h-4 shrink-0" />
               <span class="text-sm font-semibold text-gray-900 truncate">{{ agentDetail?.name || agentViewName }}</span>
-              <span v-if="agentDetail" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded shrink-0" :class="agentDetail.is_public ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'">{{ agentDetail.is_public ? 'Public' : 'Private' }}</span>
+              <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded font-medium shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'"><span class="w-1.5 h-1.5 rounded-full" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-400'"></span>{{ (agentDetail?.status || 'active') === 'active' ? 'Published' : 'Draft' }}</span>
+              <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="openAgentTab(agentView.agentId)">Open agent</button>
+              <button class="h-7 px-2.5 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
               <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closeAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
             </div>
           </div>
           <div class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
-            <div class="flex flex-wrap items-center gap-2 mb-5 text-[11px] text-gray-500">
-              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-table-cells" class="w-3 h-3 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
-              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-400" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
-              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-paper-clip" class="w-3 h-3 text-gray-400" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
-              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-document-text" class="w-3 h-3 text-gray-400" />{{ agentCount(agentView.agentId) }} instructions</span>
+            <!-- Description (inline edit) -->
+            <div v-if="agentDetail" class="group mb-3">
+              <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
+              <div v-else class="flex items-center gap-2">
+                <p class="text-sm text-gray-500 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail.description || (agentCanUpdate ? 'Add a description…' : '') }}</p>
+                <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 shrink-0" @click="startEditDesc">Edit</button>
+              </div>
             </div>
-            <p v-if="agentDetail?.description" class="text-sm text-gray-500 mb-6">{{ agentDetail.description }}</p>
 
-            <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Primary instruction</div>
-            <template v-if="agentDetail?.primary_instruction">
-              <button class="w-full text-left rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors p-4" @click="openInstruction(agentDetail.primary_instruction)">
-                <div class="text-sm font-medium text-gray-900 mb-1">{{ agentDetail.primary_instruction.title || displayTitle(agentDetail.primary_instruction) }}</div>
-                <p class="text-xs text-gray-500 line-clamp-4 whitespace-pre-wrap">{{ agentDetail.primary_instruction.text }}</p>
-                <span class="inline-flex items-center gap-1 mt-2 text-[11px] text-gray-500 font-medium">Open &amp; edit <UIcon name="i-heroicons-arrow-up-right" class="w-3 h-3" /></span>
+            <!-- Counts (clean) -->
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mb-3">
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400" />{{ agentCount(agentView.agentId) }} instructions</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-chat-bubble-left-right" class="w-3.5 h-3.5 text-gray-400" />{{ agentReportCount }} reports</span>
+            </div>
+
+            <!-- Connections / Connect -->
+            <div class="flex flex-wrap items-center gap-1.5 mb-6 pb-5 border-b border-gray-100">
+              <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 text-gray-600 text-[11px] hover:bg-gray-50" @click="openConnectionDetail(c)">
+                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />{{ c.name }}
+                <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
+              <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-medium hover:bg-blue-100" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
+            </div>
+
+            <!-- Primary instruction (inline, no label/border) -->
+            <div v-if="creatingPrimary || editingPrimary" class="border border-gray-200 rounded-xl overflow-hidden bg-white" style="height:min(560px,68vh)">
+              <InstructionGlobalCreateComponent
+                :key="agentDetail?.primary_instruction?.id || 'new-primary'"
+                :instruction="editingPrimary ? agentDetail?.primary_instruction : undefined"
+                :agent-id="agentView.agentId"
+                :initial-title="agentDetail?.name ? agentDetail.name + ' - Main' : 'Main'"
+                :uppercase-title="false"
+                :start-in-edit-mode="editingPrimary"
+                default-status="published"
+                @instruction-saved="onPrimarySaved"
+                @cancel="creatingPrimary = false; editingPrimary = false"
+              />
+            </div>
+            <template v-else-if="agentDetail?.primary_instruction">
+              <div class="flex items-center justify-between gap-2 mb-1.5">
+                <span class="text-sm font-medium text-gray-800">{{ agentDetail.primary_instruction.title || 'Primary instruction' }}</span>
+                <button v-if="agentCanUpdate" class="text-[11px] text-blue-600 hover:underline" @click="editingPrimary = true">Edit</button>
+              </div>
+              <InstructionText :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" :prose="true" :markdown="true" />
             </template>
             <div v-else class="rounded-lg border border-dashed border-gray-200 p-6 text-center">
               <p class="text-xs text-gray-400">No primary instruction set for this agent.</p>
-              <button class="mt-2 text-[11px] font-medium text-gray-700 hover:text-gray-900" @click="openCreate({ agentId: agentView.agentId })">+ Add an instruction</button>
+              <button v-if="agentCanUpdate" class="mt-2 text-[11px] font-medium text-gray-700 hover:text-gray-900" @click="creatingPrimary = true">+ Add a primary instruction</button>
             </div>
 
-            <template v-if="(agentDetail?.conversation_starters || []).length">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mt-6 mb-2">Conversation starters</div>
-              <div class="space-y-1.5">
-                <div v-for="(cs, i) in agentDetail.conversation_starters" :key="i" class="flex items-start gap-2 rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-700">
-                  <UIcon name="i-heroicons-chat-bubble-left-right" class="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
-                  <span>{{ typeof cs === 'string' ? cs : (cs.prompt || cs.title || cs.text || '') }}</span>
-                </div>
+            <!-- Conversation starters (editable) -->
+            <div class="mt-6">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Conversation starters</span>
+                <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
               </div>
-            </template>
+              <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
+                <div v-for="(cs, i) in agentDetail.conversation_starters" :key="i" class="bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-700">{{ starterTitle(cs) }}</div>
+              </div>
+              <p v-else class="text-[11px] text-gray-300 italic">No conversation starters.</p>
+            </div>
           </div>
         </template>
 
@@ -409,12 +444,38 @@
     <AddConnectionModal v-model="showAddConnection" @created="onConnectionChanged" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onToolsConnectionChanged" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
+
+    <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
+      <div class="p-5">
+        <div class="text-sm font-medium text-gray-900">Edit conversation starters</div>
+        <div class="text-xs text-gray-500 mt-1">Short prompts users can click to start a conversation with this agent.</div>
+        <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
+          <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 p-2">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-wide text-gray-400">Starter {{ idx + 1 }}</span>
+              <button class="text-[11px] text-gray-500 hover:text-red-600" @click="removeStarter(idx)">Remove</button>
+            </div>
+            <div class="space-y-1">
+              <input v-model="item.title" type="text" placeholder="Title" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+              <textarea v-model="item.prompt" rows="2" placeholder="Prompt" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+            </div>
+          </div>
+          <button class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50" @click="addStarter">Add starter</button>
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg" @click="showEditStarters = false">Cancel</button>
+          <button class="px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-black disabled:opacity-50" :disabled="savingStarters" @click="saveStarters">{{ savingStarters ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </div>
+    </UModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { h as createElement } from 'vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
+import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
@@ -513,21 +574,93 @@ const openPanel = (kind: 'tables' | 'tools', agentId: string) => {
   panelView.value = { kind, agentId }
 }
 
-// ── Agent overview (primary instruction) ────────────────
+// ── Agent overview ──────────────────────────────────────
 const agentView = ref<null | { agentId: string }>(null)
 const agentDetail = ref<any | null>(null)
+const agentReportCount = ref(0)
 const agentViewName = computed(() => agentView.value ? (agents.value.find(a => a.id === agentView.value!.agentId)?.name || 'Agent') : '')
-const closeAgentView = () => { agentView.value = null; agentDetail.value = null }
+const agentCanUpdate = computed(() => canManageAgent(agentView.value?.agentId))
+// inline-edit state
+const editingDesc = ref(false); const descForm = ref(''); const descInputRef = ref<HTMLInputElement | null>(null)
+const creatingPrimary = ref(false); const editingPrimary = ref(false)
+const showEditStarters = ref(false); const editStarters = ref<{ title: string; prompt: string }[]>([]); const savingStarters = ref(false)
+
+const closeAgentView = () => { agentView.value = null; agentDetail.value = null; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false }
+const refreshAgentDetail = async () => {
+  const id = agentView.value?.agentId; if (!id) return
+  try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {}
+}
+const fetchAgentReports = async (id: string) => {
+  agentReportCount.value = 0
+  try { const { data } = await useMyFetch<any>('/reports', { method: 'GET', query: { data_source_id: id, limit: 1, filter: 'published' } }); agentReportCount.value = (data.value as any)?.total ?? 0 } catch {}
+}
 const openAgent = async (id: string) => {
   clearRightPane()
-  agentView.value = { agentId: id }
-  agentDetail.value = null
-  try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {}
+  agentView.value = { agentId: id }; agentDetail.value = null
+  creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
+  loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail()
 }
 const onAgentClick = (agent: any) => {
   if (needsSignIn(agent)) { openAgentTab(agent.id); return }
+  // Re-clicking the already-open agent just collapses its tree node; keeps the pane.
+  if (agentView.value?.agentId === agent.id) { expand('agent:' + agent.id); return }
   if (!isOpen('agent:' + agent.id)) expand('agent:' + agent.id)
   openAgent(agent.id)
+}
+const createReportForAgent = async (id: string) => {
+  try {
+    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'New report', data_sources: [id] } })
+    const rid = (data.value as any)?.id
+    if (error.value || !rid) throw new Error('Failed to create report')
+    navigateTo(`/reports/${rid}`)
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+}
+// description inline edit
+const startEditDesc = () => { descForm.value = agentDetail.value?.description || ''; editingDesc.value = true; nextTick(() => descInputRef.value?.focus()) }
+const cancelDesc = () => { editingDesc.value = false }
+const saveDesc = async () => {
+  if (!editingDesc.value) return
+  editingDesc.value = false
+  const id = agentView.value?.agentId; if (!id) return
+  const v = descForm.value
+  if (v === (agentDetail.value?.description || '')) return
+  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { description: v } }); if (agentDetail.value) agentDetail.value.description = v; toast.add({ title: 'Saved', color: 'green' }) } catch { toast.add({ title: 'Failed to save description', color: 'red' }) }
+}
+// primary instruction inline edit
+const onPrimarySaved = async (saved: any) => {
+  const id = agentView.value?.agentId
+  if (creatingPrimary.value && saved?.id && id) { try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { primary_instruction_id: saved.id } }) } catch {} }
+  creatingPrimary.value = false; editingPrimary.value = false
+  await refreshAgentDetail()
+}
+// conversation starters edit
+const starterTitle = (cs: any) => typeof cs === 'string' ? (cs.split('\n')[0] || '') : (cs?.title || cs?.prompt || '')
+const openEditStarters = () => {
+  const arr = agentDetail.value?.conversation_starters || []
+  editStarters.value = arr.map((s: any) => typeof s === 'string'
+    ? { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
+    : { title: s.title || '', prompt: s.prompt || '' })
+  if (!editStarters.value.length) editStarters.value = [{ title: '', prompt: '' }]
+  showEditStarters.value = true
+}
+const addStarter = () => editStarters.value.push({ title: '', prompt: '' })
+const removeStarter = (i: number) => editStarters.value.splice(i, 1)
+const saveStarters = async () => {
+  if (savingStarters.value) return
+  savingStarters.value = true
+  const id = agentView.value?.agentId
+  const conversation_starters = editStarters.value.map(s => `${(s.title || '').trim()}${s.prompt?.trim() ? '\n' + s.prompt.trim() : ''}`).filter(s => s.trim().length > 0)
+  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { conversation_starters } }); await refreshAgentDetail(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' }) }
+  catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
+}
+// reload tables / tools from the tree
+const reloadTables = async (id: string) => {
+  try { await useMyFetch(`/data_sources/${id}/refresh_schema`, { method: 'GET' }) } catch {}
+  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: 'Tables reloaded', color: 'green' })
+}
+const reloadTools = async (id: string) => {
+  for (const c of (agents.value.find(a => a.id === id)?.connections || [])) { try { await useMyFetch(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch {} }
+  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: 'Tools reloaded', color: 'green' })
 }
 
 // ── File upload (per agent) ─────────────────────────────
@@ -853,8 +986,8 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).to
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, gearable: Boolean, badge: String, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean },
-  emits: ['toggle', 'add', 'gear', 'badge', 'label'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, gearable: Boolean, reloadable: Boolean, badge: String, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean },
+  emits: ['toggle', 'add', 'gear', 'reload', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
@@ -870,6 +1003,7 @@ const TreeGroup = defineComponent({
         createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-[11px]' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
         props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-gray-400 shrink-0', title: 'Private' }) : null,
         props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium hover:bg-blue-100', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
+        (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Reload', onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Manage', onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
         (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-[11px] tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
