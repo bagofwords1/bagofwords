@@ -92,12 +92,16 @@
               </TreeGroup>
 
               <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
-                <div v-for="tool in (agentTools[agent.id] || [])" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:48px;padding-right:8px">
-                  <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
-                  <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
-                  <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 text-gray-400">off</span>
-                  <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 text-gray-500">{{ tool.policy }}</span>
-                </div>
+                <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
+                <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
+                  <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 shrink-0" /></template>
+                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:62px;padding-right:8px">
+                    <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
+                    <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
+                    <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 text-gray-400">off</span>
+                    <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 text-gray-500">{{ tool.policy }}</span>
+                  </div>
+                </TreeGroup>
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" text="No tools connected." :pad="48" />
               </TreeGroup>
 
@@ -193,7 +197,7 @@
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
                 <button class="h-7 px-2.5 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
-                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closeAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
           </div>
@@ -388,6 +392,8 @@
             <!-- Edit-mode properties (below a separator, like the agent panel) -->
             <div v-if="editing" class="mt-6 pt-5 border-t border-gray-100">
               <div class="grid grid-cols-[84px_1fr] gap-x-3 gap-y-2.5 items-center">
+                <span class="text-[11px] text-gray-400">Kind</span>
+                <div><KSelect v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" /></div>
                 <span class="text-[11px] text-gray-400">Status</span>
                 <div><KSelect v-model="draft.status" :options="statusEditOpts" /></div>
                 <span class="text-[11px] text-gray-400">Loading</span>
@@ -457,7 +463,11 @@
             <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
               <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400" /></div>
               <h3 class="mt-3 text-[15px] font-medium text-gray-900">Your agents &amp; their knowledge</h3>
-              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">Pick an agent on the left, then an instruction to view, edit, and track its versions.</p>
+              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ agents.length ? 'Pick an agent on the left, then an instruction to view, edit, and track its versions.' : 'Connect your data to create your first agent.' }}</p>
+              <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New agent</button>
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white/70 text-gray-700 text-xs font-medium hover:bg-gray-50 transition-colors" @click="navigateTo('/agents/new')"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />Connect data</button>
+              </div>
             </div>
           </div>
         </div>
@@ -591,9 +601,10 @@ const detail = ref<Instruction | null>(null)
 const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
-const draft = reactive<{ title: string; text: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
-  { title: '', text: '', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
+const draft = reactive<{ title: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
+  { title: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
 )
+const kindOpts = [{ value: 'instruction', label: 'Instruction' }, { value: 'skill', label: 'Skill' }]
 // Reference options come from the selected agents' tables (valid datasource_table ids).
 const refOptions = computed(() => {
   const opts: { value: string; label: string; type?: string }[] = []
@@ -690,8 +701,12 @@ const openAgent = async (id: string) => {
   clearRightPane()
   agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
+  // Reflect the agent in the URL (/agents/<id>) without remounting the explorer.
+  if (String(route.params.id || '') !== id) router.replace(`/agents/${id}`)
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail()
 }
+// Close button: clear the view and drop the agent id from the URL.
+const exitAgentView = () => { closeAgentView(); if (route.params.id) router.replace('/agents') }
 const onAgentClick = (agent: any) => {
   if (needsSignIn(agent)) { openAgentTab(agent.id); return }
   // Re-clicking the already-open agent just collapses its tree node; keeps the pane.
@@ -980,6 +995,21 @@ const fetchAgents = async () => {
   try { const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET' }); agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, description: d.description, conversation_starters: d.conversation_starters || [] })) } catch (e) { console.error(e) }
 }
 const agentStatusDot = (a: any) => a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300'
+// Group an agent's tools by their connection (MCP server / custom API), resolving
+// the connection name + type from the agent's connections for the tree headers.
+const toolGroups = (agentId: string) => {
+  const tools = agentTools.value[agentId] || []
+  const a = agents.value.find(x => x.id === agentId)
+  const connMap: Record<string, any> = {}
+  for (const c of (a?.connections || [])) connMap[c.id] = c
+  const groups: Record<string, { connId: string; name: string; type?: string; tools: any[] }> = {}
+  for (const t of tools) {
+    const cid = String(t.connection_id ?? t.connection?.id ?? 'tools')
+    if (!groups[cid]) groups[cid] = { connId: cid, name: connMap[cid]?.name || t.connection_name || 'Tools', type: connMap[cid]?.type || t.connection_type, tools: [] }
+    groups[cid].tools.push(t)
+  }
+  return Object.values(groups)
+}
 const fetchLabels = async () => { try { const { data } = await useMyFetch<any[]>('/instructions/labels', { method: 'GET' }); labels.value = data.value || [] } catch {} }
 const fetchCategories = async () => { try { const { data } = await useMyFetch<string[]>('/instructions/categories', { method: 'GET' }); categories.value = data.value || [] } catch {} }
 const fetchGitStatus = async () => {
@@ -1084,6 +1114,7 @@ const openInstruction = async (ins: Instruction) => {
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.text = ins.text || ''
+  draft.kind = (ins as any).kind || 'instruction'
   draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
   draft.category = ins.category || 'general'
   draft.data_source_ids = (ins.data_sources || []).map(d => d.id)
@@ -1094,7 +1125,7 @@ const syncDraft = (ins: Instruction) => {
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
-  draft.title = ''; draft.text = ''; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
+  draft.title = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -1105,7 +1136,7 @@ const cancelEdit = () => { if (creating.value) { creating.value = false; editing
 const save = async () => {
   saving.value = true
   try {
-    const body: any = { title: draft.title || null, text: draft.text, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
     if (creating.value) {
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
@@ -1218,20 +1249,24 @@ const FilterSection = defineComponent({
   },
 })
 
-// Deep-link: /agents?agent=<id> opens that agent's overview in the explorer.
+// Deep-link: /agents/<id> opens that agent's overview in the explorer.
+// Uses an optional dynamic route ([[id]].vue) so /agents ↔ /agents/<id> share
+// the same component — navigation updates the URL without a remount (stays fast).
 const route = useRoute()
-const openAgentFromQuery = () => {
-  const qid = route.query.agent
-  const id = Array.isArray(qid) ? qid[0] : qid
+const router = useRouter()
+const openAgentFromRoute = () => {
+  const pid = route.params.id
+  const id = Array.isArray(pid) ? pid[0] : pid
   if (!id) return
+  if (agentView.value?.agentId === id) return
   const agent = agents.value.find(a => a.id === id)
   if (agent) { expand('agent:' + agent.id, true); openAgent(agent.id) }
 }
-watch(() => route.query.agent, () => openAgentFromQuery())
+watch(() => route.params.id, () => openAgentFromRoute())
 
 onMounted(async () => {
   await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus()])
-  openAgentFromQuery()
+  openAgentFromRoute()
 })
 </script>
 

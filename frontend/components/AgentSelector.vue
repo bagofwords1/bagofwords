@@ -108,9 +108,7 @@
               <template v-else>
                 <!-- All Agents -->
                 <button
-                  @click="nav ? goToAgents() : toggleAgent(null)"
-                  @mouseenter="hoveredAgentId = null"
-                  @mouseleave="onAgentHoverLeave()"
+                  @click="toggleAgent(null)"
                   :class="[
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
                     isAllAgents ? 'bg-indigo-50' : 'hover:bg-gray-50'
@@ -128,9 +126,7 @@
                   <button
                     v-for="a in agents"
                     :key="a.id"
-                    @click="nav ? goToAgent(a.id) : toggleAgent(a.id)"
-                    @mouseenter="onAgentHover(a.id, $event)"
-                    @mouseleave="onAgentHoverLeave()"
+                    @click="toggleAgent(a.id)"
                     :class="[
                       'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
                       isAgentSelected(a.id) ? 'bg-indigo-50' : 'hover:bg-gray-50'
@@ -182,17 +178,6 @@
         </div>
       </template>
     </UPopover>
-
-    <!-- Agent flyout component -->
-    <AgentFlyout
-      v-if="flyout.visible && hoveredAgentId"
-      :agent-id="hoveredAgentId"
-      :visible="flyout.visible"
-      :position="flyout"
-      @mouseenter="onFlyoutEnter"
-      @mouseleave="onFlyoutLeave"
-      @connect="onConnect"
-    />
 
     <!-- User credentials / OAuth modal for connecting user_required agents -->
     <UserDataSourceCredentialsModal

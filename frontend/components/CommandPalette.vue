@@ -194,7 +194,7 @@ const agentsGroup = computed(() => {
       label: a.name,
       dsType: a.type,
       suffix: a.status === 'active' ? 'active' : 'inactive',
-      to: `/agents?agent=${a.id}`,
+      to: `/agents/${a.id}`,
     })),
   }
 })

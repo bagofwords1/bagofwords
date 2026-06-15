@@ -391,7 +391,7 @@ async function handleSave() {
       })
     }
 
-    router.replace(`/agents?agent=${dsId.value}`)
+    router.replace(`/agents/${dsId.value}`)
   } finally {
     saving.value = false
   }
