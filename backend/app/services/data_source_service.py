@@ -976,6 +976,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                is_public=bool(d.is_public),
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1057,6 +1058,7 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                is_public=bool(d.is_public),
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,

@@ -188,6 +188,7 @@ class DataSourceListItemSchema(BaseModel):
     conversation_starters: Optional[list] = None
     created_at: UTCDatetime
     status: str  # "active" | "inactive"
+    is_public: bool = False
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
