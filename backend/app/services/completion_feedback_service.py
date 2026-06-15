@@ -707,8 +707,23 @@ class CompletionFeedbackService:
             return False
         from app.services.agent_reliability_service import AgentReliabilityService
         from app.schemas.agent_automation_schema import AUTONOMY_AUTO
+        from app.core.permission_resolver import resolve_permissions
         from app.models.data_source import DataSource as _DS
         from app.models.eval import TEST_CASE_STATUS_ACTIVE
+
+        # Agent-scoped gate (defense in depth): only promote when the user holds
+        # manage_evals on every agent the eval is scoped to — agent admin and
+        # above. Promotion to ``active`` makes the case a real pass/fail gate, so
+        # it's at least as privileged as drafting.
+        try:
+            resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        except Exception:
+            return False
+        if not all(
+            resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
+            for ds_id in data_source_ids
+        ):
+            return False
 
         rel = AgentReliabilityService()
         opted_in = False
@@ -837,11 +852,12 @@ class CompletionFeedbackService:
         except Exception:
             return None
 
-        # Gate 3: user has manage_evals.
+        # Gate 3: resolve permissions. The agent-scoped check happens below,
+        # once we know which data source(s) the eval is scoped to (line ~869) —
+        # see Gate 3b. We don't reject on org-level manage_evals here, because a
+        # user may hold manage_evals only on the specific agent (resource grant).
         try:
             resolved = await resolve_permissions(db, user_id, organization_id)
-            if not resolved.has_org_permission("manage_evals"):
-                return None
         except Exception:
             return None
 
@@ -867,6 +883,21 @@ class CompletionFeedbackService:
 
         # Deterministic data-source ids from create_data inputs.
         data_source_ids = self._extract_data_source_ids(create_data_tes)
+
+        # Gate 3b: agent-scoped permission. Auto-drafting an eval for an agent
+        # is an admin action on THAT agent — require manage_evals on every
+        # resolved agent (agent admin and above). Org-level manage_evals implies
+        # the resource permission, so org admins still pass; a user with only a
+        # resource grant on a different agent does not. A global eval (no agent
+        # scope) falls back to org-level manage_evals.
+        if data_source_ids:
+            if not all(
+                resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
+                for ds_id in data_source_ids
+            ):
+                return None
+        elif not resolved.has_org_permission("manage_evals"):
+            return None
 
         # Verbatim user prompt (the head completion's prompt).
         user_prompt = ""

@@ -235,7 +235,7 @@ class AgentReliabilityService:
             baseline = await self._evaluate(
                 db, organization, actor, case_ids, build_id=None, trigger=trigger,
             )
-            test_run_ids.append(baseline["run_id"])
+            test_run_ids.extend(baseline.get("run_ids") or ([baseline["run_id"]] if baseline.get("run_id") else []))
             detail["baseline"] = baseline["summary"]
             baseline_passing = set(baseline["passing_case_ids"])
 
@@ -274,7 +274,7 @@ class AgentReliabilityService:
                     db, organization, actor, case_ids,
                     build_id=candidate_build_id, trigger=trigger,
                 )
-                test_run_ids.append(result["run_id"])
+                test_run_ids.extend(result.get("run_ids") or ([result["run_id"]] if result.get("run_id") else []))
 
                 now_passing = set(result["passing_case_ids"])
                 regressed = sorted(baseline_passing - now_passing)
@@ -401,51 +401,64 @@ class AgentReliabilityService:
         """Run the given eval cases against ``build_id`` (or current main when
         None) to completion and return pass/fail counts + which cases passed.
 
-        Drives the same execution path the UI's run-stream uses, then reads the
-        persisted TestResult rows.
+        Each case runs as its own single-case TestRun, executed **sequentially**.
+        ``stream_run`` fans every non-terminal result in a run out to concurrent
+        agent tasks that share setup objects bound to this session; driving a
+        multi-case run inline (draining the SSE body here, outside Starlette)
+        deadlocks on that shared session. One case per run sidesteps it and is
+        only marginally slower for the small suites this loop targets.
         """
         from app.services.test_run_service import TestRunService
         trs = TestRunService()
-        run = await trs.create_run(
-            db, organization, actor, case_ids=case_ids,
-            trigger_reason=f"automation:{trigger}", build_id=build_id,
-        )
 
-        # Drive the run to completion by draining the SSE stream's body.
-        try:
-            response = await trs.stream_run(db, organization, actor, str(run.id))
-            body = getattr(response, "body_iterator", None)
-            if body is not None:
-                async for _chunk in body:
-                    pass
-        except Exception as e:  # pragma: no cover - execution path
-            logger.warning("agent_reliability._evaluate stream failed: %s", e)
-
-        # Read terminal results.
-        rows = (
-            await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
-        ).scalars().all()
-        passing, failing = [], []
+        run_ids: List[str] = []
+        passing: List[str] = []
+        failing: List[str] = []
         passed = failed = errored = 0
-        for r in rows:
-            st = (r.status or "").lower()
-            if st in ("pass", "success"):
-                passed += 1
-                passing.append(str(r.case_id))
-            elif st == "fail":
-                failed += 1
-                failing.append(str(r.case_id))
-            else:
-                errored += 1
-                failing.append(str(r.case_id))
+
+        for cid in case_ids:
+            run = await trs.create_run(
+                db, organization, actor, case_ids=[str(cid)],
+                trigger_reason=f"automation:{trigger}", build_id=build_id,
+            )
+            run_ids.append(str(run.id))
+
+            # Drive this single-case run to completion by draining the SSE body.
+            try:
+                response = await trs.stream_run(db, organization, actor, str(run.id))
+                body = getattr(response, "body_iterator", None)
+                if body is not None:
+                    async for _chunk in body:
+                        pass
+            except Exception as e:  # pragma: no cover - execution path
+                logger.warning("agent_reliability._evaluate stream failed: %s", e)
+
+            rows = (
+                await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
+            ).scalars().all()
+            for r in rows:
+                st = (r.status or "").lower()
+                if st in ("pass", "success"):
+                    passed += 1
+                    passing.append(str(r.case_id))
+                elif st == "fail":
+                    failed += 1
+                    failing.append(str(r.case_id))
+                else:
+                    errored += 1
+                    failing.append(str(r.case_id))
+
+        total = passed + failed + errored
         return {
-            "run_id": str(run.id),
+            # Back-compat single id (first run) plus the full list.
+            "run_id": run_ids[0] if run_ids else None,
+            "run_ids": run_ids,
             "passed": passed,
             "failed": failed,
             "errored": errored,
             "passing_case_ids": passing,
             "failing_case_ids": failing,
-            "summary": {"total": len(rows), "passed": passed, "failed": failed, "errored": errored},
+            "summary": {"total": total, "passed": passed, "failed": failed, "errored": errored},
         }
 
     async def _train_iteration(
