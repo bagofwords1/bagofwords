@@ -2307,7 +2307,8 @@
     "toastUpdated": "Scheduled prompt updated",
     "toastScheduled": "Prompt scheduled",
     "toastError": "Error",
-    "toastSaveFailed": "Failed to save scheduled prompt"
+    "toastSaveFailed": "Failed to save scheduled prompt",
+    "viewReport": "View report"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -3,7 +3,18 @@
         <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900">{{ isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle') }}</h3>
+                    <div class="min-w-0">
+                        <h3 class="text-sm font-semibold text-gray-900">{{ isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle') }}</h3>
+                        <NuxtLink
+                            v-if="isEditing && reportId"
+                            :to="`/reports/${reportId}`"
+                            class="mt-0.5 inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-600"
+                            @click="isOpen = false"
+                        >
+                            <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
+                            {{ reportTitle }}
+                        </NuxtLink>
+                    </div>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
                 </div>
             </template>
@@ -186,6 +197,7 @@ const isSaving = ref(false)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
 const isEditing = computed(() => !!props.scheduledPrompt)
+const reportTitle = computed(() => props.scheduledPrompt?.report?.title || t('scheduledPrompt.viewReport'))
 
 const initialContent = computed(() => props.scheduledPrompt?.prompt?.content || props.draftContent || '')
 const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat' | 'deep') || props.draftMode || 'chat')
