@@ -3,8 +3,8 @@
     <!-- Header -->
     <div class="flex items-center justify-between pl-3 pr-4 py-3 shrink-0">
       <div>
-        <h1 class="text-[15px] font-semibold text-gray-900 tracking-tight">Agents</h1>
-        <p class="text-xs text-gray-400 mt-0.5">The instructions, rules and skills your agents reason with.</p>
+        <h1 class="text-lg font-semibold text-gray-900">Agents</h1>
+        <p class="mt-1 text-sm text-gray-500">Configure your agents and the data, tools, skills and instructions they reason with.</p>
       </div>
       <div class="flex items-center gap-2.5">
         <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="expand('pending', true)">
@@ -298,12 +298,12 @@
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-1.5 min-w-0">
               <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100" title="Open agent" @click="openAgent(panelView.agentId)">
-                <DataSourceIcon :type="panelAgent?.type" class="w-4 h-4 shrink-0" />
-                <span class="text-xs font-medium text-gray-700 truncate hover:text-gray-900">{{ panelAgent?.name || 'Agent' }}</span>
+                <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
+                <span class="text-[13px] font-medium text-gray-700 truncate hover:text-gray-900">{{ panelAgent?.name || 'Agent' }}</span>
               </button>
-              <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0" />
-              <span class="text-xs text-gray-500 shrink-0">{{ panelKindLabel }}</span>
-              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
+              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 shrink-0" />
+              <span class="text-[13px] text-gray-500 shrink-0">{{ panelKindLabel }}</span>
+              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
@@ -526,8 +526,8 @@
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-0 w-full opacity-80 select-none pointer-events-none" />
             <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
               <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400" /></div>
-              <h3 class="mt-3 text-[15px] font-medium text-gray-900">Your agents &amp; their knowledge</h3>
-              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ agents.length ? 'Pick an agent on the left, then an instruction to view, edit, and track its versions.' : 'Connect your data to create your first agent.' }}</p>
+              <h3 class="mt-3 text-base font-medium text-gray-900">Configure your agents</h3>
+              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ agents.length ? 'Select an agent on the left to explore and edit its data, tools, skills and instructions.' : 'Connect your data to create your first agent.' }}</p>
               <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New agent</button>
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white/70 text-gray-700 text-xs font-medium hover:bg-gray-50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />Connect data</button>
