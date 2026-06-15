@@ -79,10 +79,10 @@
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
             <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</span>
-            <UTooltip v-if="canViewAllAgents" text="Show every agent in the org, including ones you're not a member of">
-              <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">
+            <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
+              <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-600 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
-                <span>Show all</span>
+                <span>{{ $t('data.showAllAgents') }}</span>
               </label>
             </UTooltip>
           </div>
@@ -1002,9 +1002,10 @@ const onToolsConnectionChanged = async () => {
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))
-// Org-wide data-source governance gates the "show all" toggle (mirrors the
-// legacy agents page; full_admin_access bypasses, manage_connections qualifies).
-const canViewAllAgents = computed(() => useCan('create_data_source') || useCan('manage_connections'))
+// Org-wide data-source governance gates the "show all" toggle — admin-only,
+// exactly like the legacy agents page (full_admin_access bypasses useCan, so
+// this is true for full admins too; per-DS `manage` does NOT grant it).
+const canViewAllAgents = computed(() => useCan('manage_connections'))
 // True when the user runs a user_required agent via the connection's system
 // (service-principal) creds — admin/owner fallback, no personal sign-in needed.
 const usesServiceAccount = (a: any) => {
