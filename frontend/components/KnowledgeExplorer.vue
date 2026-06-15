@@ -6,14 +6,29 @@
         <h1 class="text-[15px] font-semibold text-gray-900 tracking-tight">Agents</h1>
         <p class="text-xs text-gray-400 mt-0.5">The instructions, rules and skills your agents reason with.</p>
       </div>
-      <div class="flex items-center gap-2">
-        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="expand('pending', true)">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ pendingCount }} pending review
+      <div class="flex items-center gap-1.5">
+        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="expand('pending', true)">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ pendingCount }} pending
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
-        <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors" @click="openCreate()">
-          <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> Add instruction
-        </button>
+        <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
+          <button class="inline-flex items-center gap-1.5 h-8 pl-2.5 pr-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors">
+            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> New
+            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
+          </button>
+          <template #panel="{ close }">
+            <div class="p-1 w-52">
+              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="openCreate(); close()">
+                <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800">Instruction</span><span class="block text-[10px] text-gray-400">A rule, skill or note for your agents</span></span>
+              </button>
+              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="showAddConnection = true; close()">
+                <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800">Agent</span><span class="block text-[10px] text-gray-400">Connect data, tools and tables</span></span>
+              </button>
+            </div>
+          </template>
+        </UPopover>
       </div>
     </div>
 
@@ -68,7 +83,7 @@
             <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" gearable reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)" @gear="openPanel('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -76,7 +91,7 @@
                 <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" text="No accessible tables." :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" gearable reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)" @gear="openPanel('tools', agent.id)" @reload="reloadTools(agent.id)">
+              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <div v-for="tool in (agentTools[agent.id] || [])" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:48px;padding-right:8px">
                   <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
                   <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
@@ -107,6 +122,7 @@
               </TreeGroup>
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
+                <span class="w-3 shrink-0"></span>
                 <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-gray-400 shrink-0" />
                 <span class="flex-1 text-left truncate">Evals</span>
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
@@ -235,8 +251,10 @@
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-1.5 min-w-0">
-              <DataSourceIcon :type="panelAgent?.type" class="w-4 h-4 shrink-0" />
-              <span class="text-xs font-medium text-gray-700 truncate">{{ panelAgent?.name || 'Agent' }}</span>
+              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100" title="Open agent" @click="openAgent(panelView.agentId)">
+                <DataSourceIcon :type="panelAgent?.type" class="w-4 h-4 shrink-0" />
+                <span class="text-xs font-medium text-gray-700 truncate hover:text-gray-900">{{ panelAgent?.name || 'Agent' }}</span>
+              </button>
               <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0" />
               <span class="text-xs text-gray-500 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : (panelView.kind === 'tools' ? 'Tools' : 'Evals') }}</span>
               <span v-if="panelView.kind !== 'evals' && !panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
@@ -248,7 +266,7 @@
             <div v-else class="px-6 py-4">
               <TablesSelector
                 v-if="panelView.kind === 'tables'"
-                :key="'tables-' + panelView.agentId"
+                :key="'tables-' + panelView.agentId + '-' + tablesRefreshKey"
                 :ds-id="panelView.agentId"
                 schema="full"
                 :can-update="panelCanUpdate"
@@ -597,6 +615,13 @@ const openPanel = (kind: 'tables' | 'tools' | 'evals', agentId: string) => {
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
 }
+// Row-click on Tables/Tools opens the editable panel immediately (like clicking
+// an agent). Re-clicking the already-open row just collapses the tree node.
+const onPanelRowClick = (kind: 'tables' | 'tools', agentId: string) => {
+  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(kind + ':' + agentId); return }
+  if (!isOpen(kind + ':' + agentId)) expand(kind + ':' + agentId)
+  openPanel(kind, agentId)
+}
 
 // ── Agent overview ──────────────────────────────────────
 const agentView = ref<null | { agentId: string }>(null)
@@ -704,9 +729,12 @@ const saveStarters = async () => {
   catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
 }
 // reload tables / tools from the tree
+const tablesRefreshKey = ref(0)
 const reloadTables = async (id: string) => {
   try { await useMyFetch(`/data_sources/${id}/refresh_schema`, { method: 'GET' }) } catch {}
-  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: 'Tables reloaded', color: 'green' })
+  agentLoaded.value.delete(id); await loadAgentMeta(id)
+  tablesRefreshKey.value++  // force the open TablesSelector panel to re-fetch
+  toast.add({ title: 'Tables reloaded', color: 'green' })
 }
 const reloadTools = async (id: string) => {
   for (const c of (agents.value.find(a => a.id === id)?.connections || [])) { try { await useMyFetch(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch {} }
