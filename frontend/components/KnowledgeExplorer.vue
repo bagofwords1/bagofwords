@@ -488,7 +488,7 @@
                   <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
                   <!-- Agents -->
-                  <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents" icon="i-heroicons-cpu-chip" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400" />All agents</span>
                     <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
@@ -567,6 +567,10 @@
                   <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 rounded" :class="pb.status === 'pending_approval' ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-100'">{{ pb.status === 'pending_approval' ? 'review' : 'draft' }}</span>
                 </div>
                 <div class="text-[10px] text-gray-400 mt-0.5">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
+                <div v-if="pb.build_title || pb.message" class="mt-1">
+                  <div v-if="pb.build_title" class="text-[11px] font-medium text-gray-700 truncate">{{ pb.build_title }}</div>
+                  <div v-if="pb.message" class="text-[10px] text-gray-500 mt-0.5 line-clamp-2 whitespace-pre-line">{{ pb.message }}</div>
+                </div>
                 <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5">
                   <button class="h-5 px-2 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === pb.build_id || discarding === pb.build_id" @click.stop="approveSuggestion(pb)">{{ approving === pb.build_id ? '…' : 'Approve' }}</button>
                   <button class="h-5 px-2 rounded text-gray-400 hover:text-red-600 text-[10px] ml-auto disabled:opacity-50" :disabled="discarding === pb.build_id || approving === pb.build_id" @click.stop="discardSuggestion(pb)">{{ discarding === pb.build_id ? '…' : 'Discard' }}</button>

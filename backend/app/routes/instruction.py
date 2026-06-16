@@ -619,6 +619,9 @@ async def get_instruction_pending_builds(
             "pending_version_number": version.version_number,
             "pending_text": version.text or "",
             "pending_title": version.title,
+            # Build-level "commit message": auto-generated summary + free-text rationale.
+            "build_title": build.title,
+            "message": build.description,
         })
     return result
 
