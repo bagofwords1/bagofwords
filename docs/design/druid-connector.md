@@ -100,14 +100,17 @@ Iterate here: edit the client/config/registry and re-run.
 
 ---
 
-## Loop B — Live confirmation (real Druid, optional)
+## Loop B — Live confirmation (real Druid) — RUN
 
-Confirms against a real broker. `pydruid` is required here (it's mocked in Loop
-A). The official Druid quickstart ships a `wikipedia` datasource.
+Confirmed against a **real Apache Druid 33.0.0 cluster** stood up in the sandbox
+(`bin/start-nano-quickstart`, Java 21 with `DRUID_SKIP_JAVA_CHECK=1`), with the
+quickstart `wikiticker` sample ingested as the `wikipedia` datasource (39,244
+rows). `pydruid` is required here (it's mocked in Loop A).
 
 ```bash
 /tmp/venv312/bin/pip install pydruid==0.6.9
 
+# Start Druid (nano-quickstart) and ingest the wikipedia sample, then:
 cd backend
 export BOW_DATABASE_URL="sqlite:///db/app.db"
 /tmp/venv312/bin/python - <<'PY'
@@ -116,12 +119,33 @@ c = DruidClient(host="localhost", port=8888)   # Router; use 8082 for Broker
 print(c.test_connection())
 for t in c.get_schemas():
     print(t.name, [col.name for col in t.columns])
-print(c.execute_query("SELECT COUNT(*) AS n FROM druid.wikipedia"))
+print(c.execute_query('SELECT COUNT(*) AS n FROM "wikipedia"'))
 PY
 ```
 
-Expected: `{'success': True, ...}`, the discovered datasources with columns, and
-a row count. (Not run in this sandbox — no live Druid cluster.)
+**Observed (PASS):**
+
+```
+{'success': True, 'message': 'Successfully connected to Druid'}
+druid.wikipedia: ['__time:TIMESTAMP', 'channel:VARCHAR', ..., 'added:BIGINT', 'deleted:BIGINT']  # 20 typed columns
+   n
+39244
+```
+
+### Bug caught by Loop B (and fixed)
+
+The first live run failed `get_schemas` with `'list' object has no attribute
+'items'`. Root cause: **pydruid's DB-API does not support qmark/positional
+parameters** — passing `cursor.execute(sql, [..])` makes it try `.items()` on
+the list. Fix: inline the schema names as single-quote-escaped SQL **literals**
+(`DruidClient._quote_literal`), matching the Pinot client. Values are
+admin-provided config, not end-user input. Re-ran live → PASS. This is exactly
+the kind of driver-contract mismatch the mocked Loop A could not catch, which is
+why Loop B was run for real.
+
+> Note: `SELECT 1 AS alias` (constant select with alias, no `FROM`) is rejected
+> by Druid's parser; `test_connection` deliberately uses bare `SELECT 1`, which
+> Druid accepts.
 
 ---
 
