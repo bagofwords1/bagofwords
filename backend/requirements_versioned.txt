@@ -210,3 +210,4 @@ opentelemetry-exporter-otlp==1.29.0
 opentelemetry-exporter-otlp-proto-grpc==1.29.0
 opentelemetry-exporter-otlp-proto-http==1.29.0
 mcp==1.26.0
+trino==0.337.0
