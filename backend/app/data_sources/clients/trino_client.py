@@ -7,6 +7,7 @@ from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+from urllib.parse import quote_plus
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,8 +28,8 @@ class TrinoClient(DataSourceClient):
         if self.protocol == "https":
             if not self.password:
                 raise ValueError("Password is required for HTTPS connections.")
-            return f"trino://{self.user}:{self.password}@{self.host}:{self.port}/{self.catalog}/{self.schema}"
-        return f"trino://{self.user}@{self.host}:{self.port}/{self.catalog}/{self.schema}"
+            return f"trino://{quote_plus(self.user)}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.catalog}/{self.schema}"
+        return f"trino://{quote_plus(self.user)}@{self.host}:{self.port}/{self.catalog}/{self.schema}"
 
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
