@@ -27,6 +27,7 @@ from app.schemas.data_sources.configs import (
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
+    TrinoConfig,
     MongoDBConfig,
     PostHogConfig,
     # DuckDB
@@ -389,6 +390,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Apache Druid",
         description="Real-time analytics database queried via the Broker/Router SQL API.",
         config_schema=DruidConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None,
+        version="beta",
+    ),
+    "trino": DataSourceRegistryEntry(
+        type="trino",
+        title="Trino",
+        description="Distributed SQL query engine (Presto successor) federating many data sources.",
+        config_schema=TrinoConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
