@@ -167,3 +167,163 @@ resources:
     # by default there is no memory limit
     # to set the memory limit, set --set resources.limits.memory=1Gi|2Gi|4Gi, etc...
     memory: ""
+
+# -- Override for the resource name. Defaults to .Release.Name.
+# Useful when deploying multiple releases of the same chart into one namespace.
+nameOverride: ""
+
+# -- Number of pod replicas.
+replicaCount: 1
+
+# -- Deployment strategy. Leave empty for Kubernetes default (RollingUpdate 25/25).
+strategy: {}
+# strategy:
+#   type: RollingUpdate
+#   rollingUpdate:
+#     maxSurge: 1
+#     maxUnavailable: 0
+
+# -- Number of old ReplicaSets to retain.
+revisionHistoryLimit: 2
+
+# -- Seconds to wait for in-flight requests to drain on pod shutdown.
+terminationGracePeriodSeconds: 30
+
+# -- Node selector for the app pod. Does NOT affect the bundled PostgreSQL pod
+# (use postgresql.primary.nodeSelector for that).
+nodeSelector: {}
+
+# -- Tolerations for the app pod.
+tolerations: []
+
+# -- Affinity rules for the app pod.
+affinity: {}
+
+# -- Topology spread constraints for the app pod.
+topologySpreadConstraints: []
+
+# -- Annotations added to every pod (not the Deployment metadata).
+podAnnotations: {}
+
+# -- Security context for the pod (fsGroup, runAsUser, etc.).
+podSecurityContext: {}
+
+# -- Security context for the main app container.
+containerSecurityContext: {}
+
+# -- Container lifecycle hooks (preStop / postStart).
+lifecycle: {}
+# lifecycle:
+#   preStop:
+#     exec:
+#       command: ["/bin/sh", "-c", "sleep 5"]
+
+# -- Init containers to run before the main app container.
+initContainers: []
+
+# -- Sidecar containers to run alongside the main app container.
+extraContainers: []
+
+# -- Extra environment variables injected into the main app container.
+extraEnv: []
+# extraEnv:
+#   - name: MY_VAR
+#     value: "foo"
+#   - name: FROM_SECRET
+#     valueFrom:
+#       secretKeyRef:
+#         name: my-secret
+#         key: my-key
+
+# -- Extra envFrom sources (ConfigMap or Secret refs) added after the main ConfigMap/secretRef.
+extraEnvFrom: []
+# extraEnvFrom:
+#   - configMapRef:
+#       name: extra-config
+#   - secretRef:
+#       name: extra-secret
+
+# -- Extra volumes to add to the pod.
+extraVolumes: []
+
+# -- Extra volume mounts to add to the main app container.
+extraVolumeMounts: []
+
+# -- Startup probe. Kubernetes will not route traffic or count the pod ready until this passes.
+startupProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 30
+
+# -- Readiness probe. Pod is removed from Service endpoints while this fails.
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 1
+
+# -- Liveness probe. Pod is restarted when this fails.
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 1
+
+##########################################################
+# Horizontal Pod Autoscaler
+##########################################################
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+##########################################################
+# Pod Disruption Budget
+##########################################################
+podDisruptionBudget:
+  enabled: false
+  minAvailable: "50%"
+  # maxUnavailable: 1   # set this and clear minAvailable to use maxUnavailable instead
+
+##########################################################
+# Network Policy
+##########################################################
+networkPolicy:
+  enabled: false
+  # ingress and egress are raw Kubernetes NetworkPolicy rule objects.
+  ingress: []
+  # ingress:
+  #   - from:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: ingress-nginx
+  #     ports:
+  #     - protocol: TCP
+  #       port: 3000
+  egress: []
+
+##########################################################
+# Prometheus ServiceMonitor
+##########################################################
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  path: /metrics
+  port: http
+  # additionalLabels must match your Prometheus Operator's serviceMonitorSelector.
+  additionalLabels: {}
+  # additionalLabels:
+  #   release: prometheus
