@@ -1,7 +1,8 @@
 # Release Notes
 
 ## Version 0.0.412 (June 16, 2026)
-- **Apache Druid data source** — new connector for querying Apache Druid via its Broker/Router SQL HTTP endpoint (`pydruid` DB-API driver). Datasource discovery reads `INFORMATION_SCHEMA.COLUMNS` (excluding the engine-internal `sys` / `INFORMATION_SCHEMA` schemas), an optional comma-separated **Schema** filter narrows what's indexed, and connections support optional HTTP basic auth (username/password) with an HTTPS toggle. Sensible defaults: Broker port `8082` (use `8888` for the Router) and path `/druid/v2/sql/`. Ships with a Druid icon in the data-source picker.
+- **Apache Druid data source** — connect to Apache Druid and query it as a new data source.
+- **Trino data source** — connect to the Trino distributed SQL engine and query it as a new data source.
 
 ## Version 0.0.411 (June 15, 2026)
 - **⌘K command palette** — a global **⌘K / Ctrl+K** palette for quick navigation and creation, opened from anywhere in the app. One input searches across **recent reports**, **agents**, and **instructions** (server-side search for reports/instructions, client-side filtering for agents; recents shown by default), with pinned, query-echoing create actions: `New report "…"` (creates and navigates) and a permission-aware `New instruction "…"` / `Suggest instruction "…"` that opens the instruction modal pre-filled with the typed text. No-match queries still surface the create actions.
