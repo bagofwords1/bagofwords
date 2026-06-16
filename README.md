@@ -137,6 +137,7 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | Tableau                  | Service             |
 | Presto                   | Database/Warehouse  |
 | Apache Pinot             | Database/Warehouse  |
+| Apache Druid             | Database/Warehouse  |
 | Oracle DB                | Database/Warehouse  |
 | MongoDB                  | Database/Warehouse  |
 | PostHog                  | Service             |

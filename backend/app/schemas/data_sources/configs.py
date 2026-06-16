@@ -481,6 +481,20 @@ class PinotConfig(BaseModel):
     )
 
 
+# Apache Druid
+class DruidConfig(BaseModel):
+    host: str = Field(..., title="Host", description="Broker or Router host", json_schema_extra={"ui:type": "string"})
+    port: int = Field(8082, ge=1, le=65535, title="Port", description="Broker SQL port (8082) or Router port (8888)", json_schema_extra={"ui:type": "number"})
+    secure: bool = Field(False, title="Secure", description="Use HTTPS when true", json_schema_extra={"ui:type": "boolean"})
+    path: str = Field("/druid/v2/sql/", title="Path", description="Druid SQL endpoint path", json_schema_extra={"ui:type": "string"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas (default: druid). System schemas are always excluded.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # MongoDB
 class MongoDBCredentials(BaseModel):
     user: Optional[str] = Field(
