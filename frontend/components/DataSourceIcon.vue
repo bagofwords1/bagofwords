@@ -50,13 +50,23 @@ const iconPath = computed(() => {
     return `/data_sources_icons/${t}.png`;
 });
 
+const svgPath = computed(() => {
+    if (!props.type) return null;
+    const t = normalizeType(props.type);
+    return `/data_sources_icons/${t}.svg`;
+});
+
 const imgSrc = ref(iconPath.value)
 watch(iconPath, (next) => {
     imgSrc.value = next
 })
 
 const handleError = () => {
-    // Avoid infinite loop if fallback is also missing
+    // Try SVG variant before falling back to document icon
+    if (imgSrc.value === iconPath.value && svgPath.value) {
+        imgSrc.value = svgPath.value;
+        return;
+    }
     if (imgSrc.value !== FALLBACK_ICON) {
         imgSrc.value = FALLBACK_ICON
     }
