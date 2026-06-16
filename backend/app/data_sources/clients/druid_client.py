@@ -64,6 +64,11 @@ class DruidClient(DataSourceClient):
         if self.password:
             self._connect_kwargs["password"] = self.password
 
+    @staticmethod
+    def _quote_literal(value: str) -> str:
+        """Render a Python string as a safe Druid SQL string literal."""
+        return "'" + str(value).replace("'", "''") + "'"
+
     @contextmanager
     def connect(self) -> Generator[Any, None, None]:
         from pydruid.db import connect as druid_connect
@@ -107,19 +112,18 @@ class DruidClient(DataSourceClient):
         (typically ``druid.<name>``), with column data types as reported by
         the engine.
         """
-        where_clauses = []
-        params: List[Any] = []
+        # Druid SQL identifiers/values here come from admin-provided config
+        # (schema names), not end-user input. pydruid's DB-API does not accept
+        # qmark/positional params, so we inline single-quote-escaped string
+        # literals — the same approach the Pinot client uses.
         if self._schemas:
-            placeholders = ", ".join(["?"] * len(self._schemas))
-            where_clauses.append(f"TABLE_SCHEMA IN ({placeholders})")
-            params.extend(self._schemas)
+            in_list = ", ".join(self._quote_literal(s) for s in self._schemas)
+            where_sql = f" WHERE TABLE_SCHEMA IN ({in_list})"
         else:
             # Exclude Druid-internal schemas when no explicit filter is given.
-            placeholders = ", ".join(["?"] * len(self.SYSTEM_SCHEMAS))
-            where_clauses.append(f"TABLE_SCHEMA NOT IN ({placeholders})")
-            params.extend(sorted(self.SYSTEM_SCHEMAS))
+            in_list = ", ".join(self._quote_literal(s) for s in sorted(self.SYSTEM_SCHEMAS))
+            where_sql = f" WHERE TABLE_SCHEMA NOT IN ({in_list})"
 
-        where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
         sql = (
             "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE "
             "FROM INFORMATION_SCHEMA.COLUMNS"
@@ -130,7 +134,7 @@ class DruidClient(DataSourceClient):
         try:
             with self.connect() as conn:
                 cursor = conn.cursor()
-                cursor.execute(sql, params or None)
+                cursor.execute(sql)
                 result = cursor.fetchall()
                 try:
                     cursor.close()

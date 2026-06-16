@@ -156,18 +156,20 @@ class TestGetTables:
         _install_fake_pydruid(monkeypatch, cursor)
         c = DruidClient(host="h")
         c.get_tables()
-        sql, params = cursor.executed[0]
+        sql, _ = cursor.executed[0]
         assert "TABLE_SCHEMA NOT IN" in sql
-        assert set(params) == {"INFORMATION_SCHEMA", "sys"}
+        # System schemas inlined as escaped string literals (pydruid has no
+        # positional param support).
+        assert "'INFORMATION_SCHEMA'" in sql and "'sys'" in sql
 
     def test_explicit_schema_filter(self, monkeypatch):
         cursor = _FakeCursor(rows=[], description=None)
         _install_fake_pydruid(monkeypatch, cursor)
         c = DruidClient(host="h", schema="druid, staging")
         c.get_tables()
-        sql, params = cursor.executed[0]
+        sql, _ = cursor.executed[0]
         assert "TABLE_SCHEMA IN" in sql
-        assert params == ["druid", "staging"]
+        assert "'druid'" in sql and "'staging'" in sql
 
     def test_returns_empty_on_error(self, monkeypatch):
         cursor = _FakeCursor(rows=[], description=None)
