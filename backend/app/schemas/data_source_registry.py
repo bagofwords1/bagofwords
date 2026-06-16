@@ -16,6 +16,7 @@ from app.schemas.data_sources.configs import (
     SQLConfig,
     MssqlConfig,
     PrestoConfig,
+    TrinoConfig,
     GoogleAnalyticsConfig,
     GCPConfig,
     AWSCostConfig,
@@ -93,6 +94,7 @@ from app.schemas.data_sources.configs import (
     NetSuiteCredentials,
     SQLCredentials,
     PrestoCredentials,
+    TrinoCredentials,
     GoogleAnalyticsCredentials,
     GCPCredentials,
     AWSCostCredentials,
@@ -359,6 +361,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         config_schema=ClickhouseConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None,
+    ),
+    "trino": DataSourceRegistryEntry(
+        type="trino",
+        title="Trino",
+        description="Trino is a distributed SQL query engine for big data analytics.",
+        config_schema=TrinoConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"])
         }),
         client_path=None,
     ),
