@@ -153,17 +153,21 @@
         <!-- Connections footer -->
         <div class="border-t border-gray-200 px-3 py-2 flex items-center gap-2">
           <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mr-1">Connections</span>
-          <UTooltip v-for="c in connections" :key="c.id" :text="`${c.name} · ${c.type}`">
+          <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
             <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 hover:bg-gray-50" @click="openConnectionDetail(c)">
               <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
               <span class="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </button>
+          </UTooltip>
+          <UTooltip v-if="connections.length > 4" :text="`View all ${connections.length} connections`">
+            <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
           <UTooltip v-if="canCreateDataSource" text="New connection">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
+          <button v-if="connections.length" type="button" class="ml-auto text-[11px] text-gray-400 hover:text-gray-700" @click="showConnectionsModal = true">View all</button>
         </div>
 
         <!-- Drag handle to resize the tree pane -->
@@ -270,9 +274,17 @@
               </div>
               <InstructionText :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" :prose="true" :markdown="true" />
             </template>
-            <div v-else class="rounded-lg border border-dashed border-gray-200 p-6 text-center">
-              <p class="text-xs text-gray-400">No primary instruction set for this agent.</p>
-              <button v-if="agentCanUpdate" class="mt-2 text-[11px] font-medium text-gray-700 hover:text-gray-900" @click="startCreatePrimary">+ Add a primary instruction</button>
+            <div v-else class="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-6 py-8 text-center">
+              <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mb-3">
+                <UIcon name="i-heroicons-document-text" class="w-5 h-5 text-blue-500" />
+              </div>
+              <p class="text-sm font-medium text-gray-800">No primary instruction</p>
+              <p class="mt-1 max-w-md mx-auto text-xs text-gray-500">Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.</p>
+              <div v-if="agentCanUpdate" class="mt-4 flex items-center justify-center gap-3">
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="startCreatePrimary"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />Add primary instruction</button>
+                <span class="text-xs text-gray-400">or</span>
+                <PrimaryInstructionPicker :agent-id="agentView.agentId" label="select existing" @select="onSelectExistingPrimary" />
+              </div>
             </div>
 
             <!-- Conversation starters (editable) -->
@@ -585,6 +597,33 @@
     </div>
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
+
+    <!-- All connections (clean list) -->
+    <UModal v-model="showConnectionsModal" :ui="{ width: 'sm:max-w-lg' }">
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="text-sm font-semibold text-gray-900">Connections</div>
+            <div class="text-xs text-gray-500">{{ connections.length }} connected source{{ connections.length === 1 ? '' : 's' }}</div>
+          </div>
+          <button v-if="canCreateDataSource" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New</button>
+        </div>
+        <div class="max-h-[60vh] overflow-auto -mx-1 px-1 space-y-0.5">
+          <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 text-left transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
+            <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 bg-white shrink-0">
+              <DataSourceIcon :type="c.type" class="w-4 h-4" />
+              <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-medium text-gray-800 truncate">{{ c.name }}</span>
+              <span class="block text-xs text-gray-400 truncate">{{ c.type }}</span>
+            </span>
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-300 shrink-0" />
+          </button>
+        </div>
+      </div>
+    </UModal>
+
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
@@ -622,6 +661,7 @@
 import { h as createElement } from 'vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
@@ -826,6 +866,15 @@ const saveDesc = async () => {
 const primaryDraft = reactive<{ title: string; text: string }>({ title: '', text: '' })
 const primarySaving = ref(false)
 const startCreatePrimary = () => { primaryDraft.title = agentDetail.value?.name ? agentDetail.value.name + ' - Main' : 'Main'; primaryDraft.text = ''; creatingPrimary.value = true; editingPrimary.value = false }
+const onSelectExistingPrimary = async (instruction: any) => {
+  const newId = instruction?.id; const aid = agentView.value?.agentId
+  if (!newId || !aid) return
+  try {
+    await useMyFetch(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: newId } })
+    await refreshAgentDetail()
+    toast?.add?.({ title: 'Saved', description: 'Primary instruction updated.' })
+  } catch (e: any) { toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' }) }
+}
 const startEditPrimary = () => { const p = agentDetail.value?.primary_instruction; primaryDraft.title = p?.title || ''; primaryDraft.text = p?.text || ''; editingPrimary.value = true; creatingPrimary.value = false }
 const cancelPrimary = () => { creatingPrimary.value = false; editingPrimary.value = false }
 const savePrimary = async () => {
@@ -973,6 +1022,7 @@ const approving = ref<string | null>(null)
 const discarding = ref<string | null>(null)
 // connection modals
 const showConnectionModal = ref(false)
+const showConnectionsModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showNewAgent = ref(false)
