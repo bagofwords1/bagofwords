@@ -27,7 +27,7 @@ Common labels applied to every resource.
 */}}
 {{- define "bowapp.labels" -}}
 helm.sh/chart: {{ include "bowapp.chart" . }}
-{{ include "bowapp.selectorLabels" . }}
+{{- include "bowapp.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
