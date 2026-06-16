@@ -467,20 +467,6 @@ class PinotConfig(BaseModel):
     )
 
 
-# Trino
-class TrinoConfig(BaseModel):
-    host: str = Field(..., title="Host", description="Trino coordinator host", json_schema_extra={"ui:type": "string"})
-    port: int = Field(8080, ge=1, le=65535, title="Port", description="Trino coordinator port", json_schema_extra={"ui:type": "number"})
-    catalog: str = Field(..., title="Catalog", description="Catalog to query (e.g. hive, tpch, iceberg)", json_schema_extra={"ui:type": "string"})
-    schema: Optional[str] = Field(
-        None,
-        title="Schema",
-        description="Optional schema or comma-separated list of schemas. If blank, all non-system schemas in the catalog are indexed.",
-        json_schema_extra={"ui:type": "string"}
-    )
-    http_scheme: str = Field("http", title="HTTP Scheme", description="http or https (https is used automatically when a password is set)", json_schema_extra={"ui:type": "string"})
-
-
 # Apache Druid
 class DruidConfig(BaseModel):
     host: str = Field(..., title="Host", description="Broker or Router host", json_schema_extra={"ui:type": "string"})

@@ -191,7 +191,6 @@ posthog==6.7.11
 db-dtypes==1.2.0
 pinotdb==5.7.0
 pydruid==0.6.9
-trino==0.330.0
 oracledb==3.4.0
 testcontainers[postgres,mysql]==4.13.3
 python-pptx==1.0.2
