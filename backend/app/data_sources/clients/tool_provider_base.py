@@ -66,3 +66,16 @@ class ToolProviderClient(ABC):
 
     async def atest_connection(self) -> Dict[str, Any]:
         return await asyncio.to_thread(self.test_connection)
+
+    # Resources — optional capability. Only MCP servers expose resources;
+    # providers that don't (e.g. custom API) inherit these defaults so callers
+    # get a clear NotImplementedError instead of an AttributeError.
+
+    async def alist_resources(self) -> List[Dict[str, Any]]:
+        raise NotImplementedError("This provider does not support resources")
+
+    async def alist_resource_templates(self) -> List[Dict[str, Any]]:
+        raise NotImplementedError("This provider does not support resources")
+
+    async def aread_resource(self, uri: str) -> Dict[str, Any]:
+        raise NotImplementedError("This provider does not support resources")
