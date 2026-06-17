@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.413 (June 18, 2026)
+- feat(mcp): let the agent read MCP server resources (list_mcp_resources + read_mcp_resource)
+- fix: prevent 'Cannot use import statement outside a module' in artifact iframe 
+
 ## Version 0.0.412 (June 16, 2026)
 - **Apache Druid data source** — connect to Apache Druid and query it as a new data source.
 - **Trino data source** — connect to the Trino distributed SQL engine and query it as a new data source.
