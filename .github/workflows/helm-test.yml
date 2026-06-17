@@ -1,0 +1,100 @@
+name: Helm Chart Tests
+
+on:
+  pull_request:
+    paths:
+      - 'k8s/chart/**'
+      - '.github/workflows/helm-test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'k8s/chart/**'
+
+jobs:
+  helm-lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Add Bitnami repo
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+
+      - name: Update dependencies
+        run: helm dependency update k8s/chart/
+
+      - name: Lint (default values)
+        run: helm lint k8s/chart/
+
+      - name: Lint (ingress enabled)
+        run: helm lint k8s/chart/ --set ingress.enabled=true --set host=test.example.com
+
+  helm-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest
+
+      - name: Add Bitnami repo
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+
+      - name: Update dependencies
+        run: helm dependency update k8s/chart/
+
+      - name: Run unit tests
+        run: helm unittest k8s/chart/
+
+  helm-schema:
+    name: Schema Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Add Bitnami repo
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+
+      - name: Update dependencies
+        run: helm dependency update k8s/chart/
+
+      - name: Template with default values
+        run: |
+          helm template test-release k8s/chart/ \
+            --set postgresql.auth.username=u \
+            --set postgresql.auth.password=p \
+            --set postgresql.auth.database=d \
+            > /dev/null
+
+  helm-docs:
+    name: Docs Up-to-Date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm-docs
+        run: |
+          HELM_DOCS_VERSION=$(curl -s https://api.github.com/repos/norwoodj/helm-docs/releases/latest \
+            | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" \
+            | tar xz helm-docs
+          sudo mv helm-docs /usr/local/bin/
+
+      - name: Check README is up to date
+        run: |
+          helm-docs k8s/chart/
+          if ! git diff --exit-code k8s/chart/README.md; then
+            echo "README.md is out of sync. Run 'helm-docs k8s/chart/' locally and commit."
+            exit 1
+          fi
