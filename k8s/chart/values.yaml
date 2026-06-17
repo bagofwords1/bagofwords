@@ -1,8 +1,17 @@
+# -- Docker image settings for the bagofwords application container.
 image:
+  # -- Image tag to deploy. Use a specific version (e.g. `v1.2.3`) in production.
   tag: latest
+  # -- Container image registry.
   registry: docker.io
+  # -- Container image repository.
   repository: bagofwords/bagofwords
+
+# -- Hostname for the Ingress rule (e.g. `app.example.com`).
 host: app.bagofwords.com
+
+# -- Bitnami PostgreSQL subchart values. All subchart keys are accepted here.
+# @default -- see subchart defaults
 postgresql:
   auth:
     username: ""
@@ -14,71 +23,105 @@ postgresql:
       size: 20Gi
     nodeSelector: {}
 
-# Managed database with IAM auth (alternative to the bundled postgresql subchart).
-# When database.auth.provider is not "password", the postgresql subchart values
+# -- Managed database with IAM auth (alternative to the bundled postgresql subchart).
+# When `database.auth.provider` is not `password`, the postgresql subchart values
 # above are ignored and the app connects to the external managed database instead.
 database:
   auth:
+    # -- Authentication provider. `password` uses the bundled postgresql subchart.
+    # `aws_iam` connects to an external RDS instance using IAM token authentication.
     provider: password   # password | aws_iam
-    region: ""           # AWS only — e.g. "us-east-1"
-    sslMode: ""          # e.g. "verify-full" (required for IAM auth)
+    # -- AWS region for IAM token generation (aws_iam only, e.g. `us-east-1`).
+    region: ""
+    # -- PostgreSQL SSL mode for managed database connections (e.g. `verify-full`).
+    sslMode: ""
     sslRootCert:
-      secretName: ""     # K8s Secret with a custom CA cert (optional — image ships with public AWS RDS bundle)
-      key: ""            # Key inside the Secret (e.g. "ca-bundle.pem")
-  host: ""               # e.g. my-cluster.cluster-xxx.us-east-1.rds.amazonaws.com
+      # -- Name of a Kubernetes Secret containing a custom CA certificate bundle.
+      # Leave empty to use the AWS RDS public CA bundle bundled in the image.
+      secretName: ""
+      # -- Key inside the Secret that holds the CA certificate (e.g. `ca-bundle.pem`).
+      key: ""
+  # -- Hostname of the managed database.
+  host: ""
+  # -- Database port.
   port: 5432
-  username: ""           # DB user — must have GRANT rds_iam (AWS) or equivalent
-  name: ""               # Database name
+  # -- Database user. Must have `GRANT rds_iam` for aws_iam auth.
+  username: ""
+  # -- Database name.
+  name: ""
+
 ingress:
+  # -- Enable the Ingress resource.
   enabled: true
+  # -- IngressClass name (e.g. `nginx`, `alb`).
   className: nginx
   tls:
+    # -- Enable TLS on the Ingress.
     enabled: false
+    # -- Name of the TLS Secret (must exist in the same namespace).
     secretName: bowapp-cert
-  # Example custom annotations:
-  # annotations:
-  #   nginx.ingress.kubernetes.io/proxy-body-size: "100m"
-  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  annotations: {}
-serviceAccount:
-  name: bowapp
-  imagePullSecret: ""
+  # -- Extra annotations to add to the Ingress resource.
+  # Example: `nginx.ingress.kubernetes.io/proxy-body-size: "100m"`
   annotations: {}
 
-# Application configuration.
-#
-# Sensitive fields (encryptionKey, googleClientSecret, smtp.password, licenseKey,
-# oidcProviders[].clientSecret, ldap.bindPassword) should be provided via a
-# Kubernetes Secret referenced by `config.secretRef`. Use the ${VAR} placeholder
-# pattern (e.g. clientSecret: "${BOW_OIDC_OKTA_CLIENT_SECRET}") and put the real
-# value in the Secret with the matching key. See README.md for details.
-#
-# Plaintext values are still accepted for backward compatibility, but they will
-# land in a ConfigMap (not a Secret) and trigger a warning in helm NOTES.
+serviceAccount:
+  # -- Name of the ServiceAccount to create and use for the app pod.
+  name: bowapp
+  # -- Name of an existing image pull secret to attach to the ServiceAccount.
+  imagePullSecret: ""
+  # -- Annotations added to the ServiceAccount (e.g. for IRSA / Workload Identity).
+  annotations: {}
+
+# -- Application configuration.
+# Sensitive fields (`encryptionKey`, `googleClientSecret`, SMTP `password`,
+# OIDC `clientSecret`, LDAP `bindPassword`, `licenseKey`) should be provided
+# via a Kubernetes Secret referenced by `config.secretRef`. Use the `${VAR}`
+# placeholder pattern in these fields; put the real value in the Secret with
+# the matching key. See README.md for details.
 config:
+  # -- Name of a Kubernetes Secret whose keys are injected as environment variables.
+  # Use this to supply sensitive values without landing them in the ConfigMap.
   secretRef: ""
+  # -- Enable Google OAuth login.
   googleOauthEnabled: false
+  # -- Google OAuth client ID.
   googleClientId: ""
+  # -- Google OAuth client secret. Prefer `config.secretRef` key `BOW_GOOGLE_CLIENT_SECRET`.
   googleClientSecret: ""
+  # -- AES encryption key for sensitive data at rest. Prefer `config.secretRef` key `BOW_ENCRYPTION_KEY`.
   encryptionKey: ""
+  # -- Enable Intercom in-app chat widget.
   intercomEnabled: false
+  # -- Enable anonymous usage telemetry.
   telemetryEnabled: true
+  # -- Public base URL of the application (e.g. `https://app.example.com`).
   baseUrl: ""
+  # -- Authentication mode. `hybrid` allows both local and SSO login.
+  # `local_only` disables SSO. `sso_only` disables local login.
   authMode: "hybrid"   # hybrid | local_only | sso_only
+  # -- Allow users to sign up without an invitation.
   allowUninvitedSignups: false
+  # -- Allow multiple organizations (multi-tenant mode).
   allowMultipleOrganizations: false
+  # -- Require users to verify their email address before logging in.
   verifyEmails: false
+  # -- Number of Uvicorn worker processes. Leave empty to use Uvicorn's default.
   uvicornWorkers: ""
   otel:
+    # -- Enable OpenTelemetry tracing export.
     enabled: false
+    # -- Service name reported in traces.
     serviceName: "bagofwords-backend"
+    # -- OTLP traces endpoint URL.
     tracesEndpoint: "http://localhost:4317"
+    # -- OTLP transport protocol (`grpc` or `http/protobuf`).
     protocol: "grpc" # grpc or http/protobuf
+    # -- Extra OTLP headers as comma-separated `key=value` pairs.
     headers: "" # format: key1=value1,key2=value2
 
-  # OpenID Connect providers (Okta, Microsoft Entra, Auth0, etc.).
-  # `clientSecret` should always use the ${BOW_OIDC_<NAME>_CLIENT_SECRET}
-  # placeholder pattern — the real secret is provided via config.secretRef.
+  # -- OpenID Connect providers (Okta, Microsoft Entra, Auth0, etc.).
+  # `clientSecret` should always use the `${BOW_OIDC_<NAME>_CLIENT_SECRET}` placeholder
+  # — the real secret is provided via `config.secretRef`.
   #
   # Example — Okta:
   # oidcProviders:
@@ -114,58 +157,91 @@ config:
   #     resolveGroupNames: true
   oidcProviders: []
 
-  # LDAP / Active Directory.
-  # bindPassword is NOT set here — provide it as BOW_LDAP_BIND_PASSWORD in
-  # the Secret referenced by config.secretRef.
+  # -- LDAP / Active Directory integration.
+  # `bindPassword` is NOT set here — provide it as `BOW_LDAP_BIND_PASSWORD` in
+  # the Secret referenced by `config.secretRef`.
   ldap:
+    # -- Enable LDAP authentication.
     enabled: false
-    url: ""                                  # e.g. ldaps://ad.corp.com:636
-    bindDn: ""                               # service account DN (optional)
+    # -- LDAP server URL (e.g. `ldaps://ad.corp.com:636`).
+    url: ""
+    # -- Service account DN for binding (optional — omit for anonymous bind).
+    bindDn: ""
+    # -- Use SSL/TLS for the LDAP connection.
     useSsl: true
+    # -- Upgrade the connection to TLS after connecting (mutually exclusive with `useSsl`).
     startTls: false
-    baseDn: ""                               # e.g. dc=corp,dc=com
-    userSearchBase: ""                       # defaults to baseDn when empty
+    # -- Base DN for user and group searches (e.g. `dc=corp,dc=com`).
+    baseDn: ""
+    # -- Base DN for user searches. Defaults to `baseDn` when empty.
+    userSearchBase: ""
+    # -- LDAP filter for user objects.
     userSearchFilter: "(objectClass=person)"
+    # -- LDAP attribute that holds the user's email address.
     userEmailAttribute: "mail"
+    # -- LDAP attribute that holds the user's display name.
     userNameAttribute: "displayName"
-    groupSearchBase: ""                      # defaults to baseDn when empty
+    # -- Base DN for group searches. Defaults to `baseDn` when empty.
+    groupSearchBase: ""
+    # -- LDAP filter for group objects.
     groupSearchFilter: "(objectClass=group)"
+    # -- LDAP attribute that holds the group's display name.
     groupNameAttribute: "cn"
-    groupMemberAttribute: "member"            # "member" (AD/DN) or "memberUid" (OpenLDAP)
-    groupMemberFormat: "dn"                  # "dn" or "uid"
+    # -- LDAP attribute listing group members (`member` for AD/DN, `memberUid` for OpenLDAP).
+    groupMemberAttribute: "member"
+    # -- Format of member values in `groupMemberAttribute` (`dn` or `uid`).
+    groupMemberFormat: "dn"
+    # -- How often (in minutes) to sync groups from LDAP.
     syncIntervalMinutes: 60
+    # -- Automatically create user accounts on first LDAP login.
     autoProvisionUsers: false
+    # -- LDAP connection timeout in seconds.
     connectionTimeout: 10
+    # -- Maximum number of entries per LDAP page request.
     pageSize: 500
 
-  # Enterprise license key. Prefer config.secretRef with key BOW_LICENSE_KEY.
+  # -- Enterprise license key. Prefer `config.secretRef` key `BOW_LICENSE_KEY`.
   licenseKey: ""
 
-  # SMTP — `enabled` is a Helm-only render gate (SMTPSettings has no `enabled`
-  # field). Setting `host` also implicitly enables the block. `password` should
-  # be provided via config.secretRef as BOW_SMTP_PASSWORD.
+  # -- SMTP email relay settings.
+  # `enabled` is a Helm-only render gate — the SMTPSettings object has no `enabled` field.
+  # Setting `host` also implicitly enables the block. `password` should be provided
+  # via `config.secretRef` as `BOW_SMTP_PASSWORD`.
   smtp:
+    # -- Enable SMTP email sending.
     enabled: false
+    # -- SMTP server hostname.
     host: ""
+    # -- SMTP server port.
     port: 587
+    # -- SMTP username for authentication.
     username: ""
+    # -- SMTP password. Prefer `config.secretRef` key `BOW_SMTP_PASSWORD`.
     password: ""
+    # -- Display name for outgoing emails.
     from_name: ""
+    # -- From address for outgoing emails.
     from_email: ""
+    # -- Use STARTTLS.
     use_tls: true
+    # -- Use implicit SSL/TLS (port 465).
     use_ssl: false
+    # -- Authenticate with the SMTP server.
     use_credentials: true
+    # -- Validate the server's TLS certificate.
     validate_certs: true
 
 
 
+# -- CPU and memory resource requests and limits for the app container.
 resources:
   requests:
+    # -- CPU request (e.g. `500m`, `1`, `2`).
     cpu: 2
+    # -- Memory request (e.g. `512Mi`, `900Mi`).
     memory: 900Mi
   limits:
-    # by default there is no memory limit
-    # to set the memory limit, set --set resources.limits.memory=1Gi|2Gi|4Gi, etc...
+    # -- Memory limit. Leave empty for no limit.
     memory: ""
 
 # -- Override for the resource name. Defaults to .Release.Name.
