@@ -50,6 +50,7 @@ database:
   # -- Database name.
   name: ""
 
+# -- Ingress resource configuration. Exposes the app over HTTP/HTTPS.
 ingress:
   # -- Enable the Ingress resource.
   enabled: true
@@ -64,6 +65,7 @@ ingress:
   # Example: `nginx.ingress.kubernetes.io/proxy-body-size: "100m"`
   annotations: {}
 
+# -- ServiceAccount used by the app pod.
 serviceAccount:
   # -- Name of the ServiceAccount to create and use for the app pod.
   name: bowapp

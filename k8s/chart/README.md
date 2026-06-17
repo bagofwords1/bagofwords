@@ -93,6 +93,7 @@ Bag of words - a new ai data tool
 | image.registry | string | `"docker.io"` | Container image registry. |
 | image.repository | string | `"bagofwords/bagofwords"` | Container image repository. |
 | image.tag | string | `"latest"` | Image tag to deploy. Use a specific version (e.g. `v1.2.3`) in production. |
+| ingress | object | `{"annotations":{},"className":"nginx","enabled":true,"tls":{"enabled":false,"secretName":"bowapp-cert"}}` | Ingress resource configuration. Exposes the app over HTTP/HTTPS. |
 | ingress.annotations | object | `{}` | Extra annotations to add to the Ingress resource. Example: `nginx.ingress.kubernetes.io/proxy-body-size: "100m"` |
 | ingress.className | string | `"nginx"` | IngressClass name (e.g. `nginx`, `alb`). |
 | ingress.enabled | bool | `true` | Enable the Ingress resource. |
@@ -118,6 +119,7 @@ Bag of words - a new ai data tool
 | resources.requests.cpu | int | `2` | CPU request (e.g. `500m`, `1`, `2`). |
 | resources.requests.memory | string | `"900Mi"` | Memory request (e.g. `512Mi`, `900Mi`). |
 | revisionHistoryLimit | int | `2` | Number of old ReplicaSets to retain. |
+| serviceAccount | object | `{"annotations":{},"imagePullSecret":"","name":"bowapp"}` | ServiceAccount used by the app pod. |
 | serviceAccount.annotations | object | `{}` | Annotations added to the ServiceAccount (e.g. for IRSA / Workload Identity). |
 | serviceAccount.imagePullSecret | string | `""` | Name of an existing image pull secret to attach to the ServiceAccount. |
 | serviceAccount.name | string | `"bowapp"` | Name of the ServiceAccount to create and use for the app pod. |
