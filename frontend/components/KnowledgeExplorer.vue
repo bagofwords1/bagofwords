@@ -413,8 +413,8 @@
               </div>
               <div class="flex items-center gap-1.5">
                 <template v-if="diff.buildId && canApprove">
-                  <button class="h-7 px-2.5 rounded-md text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
-                  <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-40 inline-flex items-center gap-1 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
+                  <button class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
+                  <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
                 </template>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Close" @click="closeDiff"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
@@ -481,8 +481,8 @@
                         <span v-if="activeSuggestion?.message" class="block mt-0.5 text-[11px] text-gray-500 line-clamp-3">{{ activeSuggestion.message }}</span>
                         <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
                         <span class="mt-2.5 pt-2.5 border-t border-gray-100 flex items-center gap-1.5">
-                          <button class="flex-1 h-7 rounded-lg bg-gray-900 text-white text-[11px] font-medium hover:bg-black disabled:opacity-40 inline-flex items-center justify-center gap-1" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
-                          <button class="flex-1 h-7 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:text-red-600 hover:border-red-200 disabled:opacity-40 inline-flex items-center justify-center gap-1" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                          <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-green-600" />Accept</button>
+                          <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
                         </span>
                       </span>
                     </span>
@@ -1047,22 +1047,14 @@ const startTreeResize = (e: MouseEvent) => {
 
 // version diff + pending suggestions
 const pendingBuilds = ref<any[]>([])
-// Global set of instruction ids that have a pending/draft build (the list endpoint
-// doesn't carry build status, so derive it from pending builds' contents).
+// Global set of instruction ids that have a REAL pending change (a build that
+// intentionally changed them vs its base, not stale-snapshot inheritance). The
+// backend computes this so the count/dots match the per-instruction review.
 const pendingInstrIds = ref<Set<string>>(new Set())
 const fetchPendingMap = async () => {
   try {
-    const { data } = await useMyFetch<any>('/api/builds', { method: 'GET', query: { status: 'pending_approval', limit: 100 } })
-    const builds = Array.isArray(data.value) ? data.value : (data.value?.items || [])
-    const ids = new Set<string>()
-    await Promise.all(builds.map(async (bld: any) => {
-      try {
-        const { data: c } = await useMyFetch<any>(`/api/builds/${bld.id}/contents`, { method: 'GET' })
-        const items = Array.isArray(c.value) ? c.value : (c.value?.items || [])
-        for (const it of items) if (it.instruction_id) ids.add(String(it.instruction_id))
-      } catch {}
-    }))
-    pendingInstrIds.value = ids
+    const { data } = await useMyFetch<any>('/api/instructions/pending-changes', { method: 'GET' })
+    pendingInstrIds.value = new Set<string>((data.value?.instruction_ids || []).map((x: any) => String(x)))
   } catch {}
 }
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
@@ -1489,7 +1481,9 @@ const openFile = async (f: any, agentId?: string) => {
 }
 
 // ── Counts ──────────────────────────────────────────────
-const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id) || h.getEffectiveStatus(ins) === 'pending_review'
+// Authoritative: an instruction is "pending" iff it has a real pending change
+// (from /pending-changes). Avoids the old over-count from inherited/stale rows.
+const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id)
 const pendingCount = computed(() => allInstructions.value.filter(isPending).length)
 const globalCount = computed(() => allInstructions.value.filter(i => (i.data_sources || []).length === 0).length)
 const skillCount = computed(() => allInstructions.value.filter(i => (i as any).kind === 'skill').length)

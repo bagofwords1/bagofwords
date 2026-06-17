@@ -305,6 +305,99 @@ async def analyze_instruction_endpoint(
     )
 
 
+# NB: declared before /instructions/{instruction_id} so the literal segment
+# isn't captured as a path param.
+@router.get("/instructions/pending-changes")
+async def get_pending_change_instruction_ids(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Return the set of instruction IDs that have a *real* pending change in any
+    non-main draft/pending build — i.e. the build intentionally changed that
+    instruction relative to its own base, and the change isn't already live.
+
+    Drives the "Pending review" count and the per-row pending dots so they match
+    what the per-instruction review actually shows (no stale-snapshot inflation)."""
+    from sqlalchemy import select as _select, and_ as _and
+    from app.models.instruction_build import InstructionBuild
+    from app.models.build_content import BuildContent
+    from app.models.instruction_version import InstructionVersion
+
+    org_id = str(organization.id)
+
+    # 1) Main build contents → instruction_id -> (version_id, text)
+    main_rows = (
+        await db.execute(
+            _select(BuildContent.instruction_id, InstructionVersion.id, InstructionVersion.text)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
+            .where(_and(
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+            ))
+        )
+    ).all()
+    main_version = {str(i): str(v) for i, v, _t in main_rows}
+    main_text = {str(i): (t or "") for i, _v, t in main_rows}
+
+    # 2) Pending (non-main) builds → id -> base_build_id
+    pend_builds = (
+        await db.execute(
+            _select(InstructionBuild.id, InstructionBuild.base_build_id)
+            .where(_and(
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.is_main.is_(False),
+                InstructionBuild.deleted_at.is_(None),
+                InstructionBuild.status.in_(["draft", "pending_approval"]),
+            ))
+        )
+    ).all()
+    base_of = {str(bid): (str(base) if base else None) for bid, base in pend_builds}
+    if not base_of:
+        return {"instruction_ids": []}
+
+    # 3) Base builds' contents → (base_build_id, instruction_id) -> version_id
+    base_ids = [b for b in base_of.values() if b]
+    base_version: dict = {}
+    if base_ids:
+        base_rows = (
+            await db.execute(
+                _select(BuildContent.build_id, BuildContent.instruction_id, BuildContent.instruction_version_id)
+                .where(BuildContent.build_id.in_(base_ids))
+            )
+        ).all()
+        for b_id, i_id, v_id in base_rows:
+            base_version[(str(b_id), str(i_id))] = str(v_id)
+
+    # 4) Pending builds' contents (with text) → decide "really changed vs base"
+    pend_rows = (
+        await db.execute(
+            _select(BuildContent.build_id, BuildContent.instruction_id, BuildContent.instruction_version_id, InstructionVersion.text)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
+            .where(BuildContent.build_id.in_(list(base_of.keys())))
+        )
+    ).all()
+
+    changed: set = set()
+    for b_id, i_id, v_id, v_text in pend_rows:
+        b_id, i_id, v_id = str(b_id), str(i_id), str(v_id)
+        base_id = base_of.get(b_id)
+        if base_id:
+            base_vid = base_version.get((base_id, i_id))
+            really_changed = (base_vid != v_id) if base_vid is not None else True
+        else:
+            really_changed = (i_id not in main_version) or (main_version.get(i_id) != v_id)
+        if not really_changed:
+            continue
+        if i_id in main_text and (v_text or "") == main_text[i_id]:
+            continue  # already live (no-op)
+        changed.add(i_id)
+
+    return {"instruction_ids": sorted(changed)}
+
+
 # STANDARD CRUD
 @router.get("/instructions/{instruction_id}", response_model=InstructionSchema)
 async def get_instruction(
@@ -614,12 +707,13 @@ async def get_instruction_pending_builds(
     if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
-    # Exclude builds that contain this instruction at the same version the
-    # MAIN build already has — those are drafts that just inherited the main
-    # build's content without making a real change. Compared against main
-    # (not against `instruction.current_version_id`) so that a brand-new
-    # instruction created inside a draft (and not yet in main) still surfaces
-    # as a pending suggestion.
+    # A pending build is only a *suggestion for this instruction* if it actually
+    # changed this instruction relative to its OWN base (the main build it forked
+    # from) — not merely relative to current main. Otherwise a build that forked
+    # from an older main and only touched some other instruction would show up
+    # here for every instruction whenever main later moved ahead (the "stale
+    # snapshot" noise). We compare each build's version against its base build's
+    # version below; main is used only to drop already-applied (no-op) leftovers.
     main_version_stmt = (
         select(BuildContent.instruction_version_id)
         .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
@@ -654,8 +748,6 @@ async def get_instruction_pending_builds(
         InstructionBuild.status.in_(["draft", "pending_approval"]),
         InstructionBuild.is_main.is_(False),
     ]
-    if main_version_id is not None:
-        where_clauses.append(BuildContent.instruction_version_id != main_version_id)
 
     stmt = (
         select(BuildContent, InstructionBuild, InstructionVersion)
@@ -669,6 +761,36 @@ async def get_instruction_pending_builds(
         .order_by(InstructionBuild.created_at.desc())
     )
     rows = (await db.execute(stmt)).all()
+
+    # For each candidate build, look up what version of THIS instruction its base
+    # build had, so we can tell "intentionally changed here" from "inherited".
+    base_build_ids = [str(b.base_build_id) for _c, b, _v in rows if getattr(b, "base_build_id", None)]
+    base_version_by_build: dict = {}
+    if base_build_ids:
+        base_rows = (
+            await db.execute(
+                select(BuildContent.build_id, BuildContent.instruction_version_id)
+                .where(
+                    and_(
+                        BuildContent.build_id.in_(base_build_ids),
+                        BuildContent.instruction_id == instruction_id,
+                    )
+                )
+            )
+        ).all()
+        for b_id, v_id in base_rows:
+            base_version_by_build[str(b_id)] = str(v_id)
+
+    def _build_changed_instruction(build, version) -> bool:
+        """True if `build` actually changed this instruction vs its own base."""
+        base_id = getattr(build, "base_build_id", None)
+        if base_id:
+            base_vid = base_version_by_build.get(str(base_id))
+            if base_vid is not None:
+                return base_vid != str(version.id)  # changed vs base
+            return True  # not present in base → newly added in this build
+        # No recorded base → fall back to comparing against current main.
+        return main_version_id is None or str(version.id) != str(main_version_id)
 
     # Resolve the originating report for AI suggestions, so the UI can show a
     # "generated from <report>" provenance link on each suggestion. The chain is
@@ -691,8 +813,11 @@ async def get_instruction_pending_builds(
 
     result = []
     for _content, build, version in rows:
+        # Only builds that intentionally changed THIS instruction (vs their base).
+        if not _build_changed_instruction(build, version):
+            continue
         # Skip suggestions whose text already matches the live (main) text —
-        # there is nothing to review.
+        # there is nothing to review (already applied / no-op leftover).
         if main_text is not None and (version.text or "") == (main_text or ""):
             continue
         creator = getattr(build, "created_by_user", None)
