@@ -246,8 +246,95 @@ Every value has a default in `values.yaml`, so no field is `required` at root le
 
 ---
 
+## Section 3 — CI/CD (GitHub Actions)
+
+### Location
+`.github/workflows/helm-test.yml`
+
+### Trigger
+```yaml
+on:
+  pull_request:
+    paths:
+      - 'k8s/chart/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'k8s/chart/**'
+```
+
+### Jobs
+
+#### `helm-lint`
+- Install helm (latest stable via `azure/setup-helm`)
+- `helm dependency update k8s/chart/`
+- `helm lint k8s/chart/`
+- `helm lint k8s/chart/ --set ingress.enabled=true`
+
+#### `helm-test`
+- Install helm
+- Install helm-unittest plugin: `helm plugin install https://github.com/helm-unittest/helm-unittest`
+- `helm dependency update k8s/chart/`
+- `helm unittest k8s/chart/`
+
+#### `helm-schema`
+- Install helm
+- `helm dependency update k8s/chart/`
+- `helm template test-release k8s/chart/ --set postgresql.auth.username=u --set postgresql.auth.password=p --set postgresql.auth.database=d > /dev/null`
+  — validates the schema is not broken by a default render
+
+### Job ordering
+`helm-lint` and `helm-schema` run in parallel; `helm-test` runs independently. All three must pass for the workflow to succeed. No deploy step — chart publishing is out of scope.
+
+---
+
+## Section 4 — helm-docs
+
+### Tool
+`helm-docs` — generates `k8s/chart/README.md` from `Chart.yaml` + `values.yaml` comments.
+
+### Installation (local)
+```bash
+brew install helm-docs
+```
+
+### Generated file
+`k8s/chart/README.md` — auto-generated, committed to git. Do not edit manually.
+
+### Comment format
+Values in `values.yaml` are annotated with `# -- <description>` comments immediately above each key. Example:
+
+```yaml
+# -- Number of replicas for the bowapp Deployment.
+replicaCount: 1
+
+autoscaling:
+  # -- Enable Horizontal Pod Autoscaler. When enabled, `replicaCount` is ignored.
+  enabled: false
+  # -- Minimum number of replicas when HPA is active.
+  minReplicas: 1
+  # -- Maximum number of replicas when HPA is active.
+  maxReplicas: 5
+```
+
+### Scope of annotation
+All top-level keys and their direct children that have non-obvious semantics. Kubernetes pass-through objects (`nodeSelector`, `affinity`, `tolerations`, `podSecurityContext`, etc.) get a one-line comment pointing to the Kubernetes docs concept. Deeply nested keys (e.g. individual probe fields) are not annotated — the `startupProbe` / `readinessProbe` / `livenessProbe` parent comment explains them.
+
+### CI integration
+Add a `helm-docs` check step to the `helm-test` job:
+```yaml
+- name: Check helm-docs is up to date
+  run: |
+    helm-docs --dry-run k8s/chart/ > /tmp/expected-readme.md
+    diff k8s/chart/README.md /tmp/expected-readme.md
+```
+If the generated output differs from the committed `README.md`, the CI step fails — enforcing that docs stay in sync with values.
+
+---
+
 ## Out of Scope
 
-- CI/CD integration (GitHub Actions running unittest) — separate concern
-- helm-docs auto-generation — separate concern
 - Snapshot testing — not used (Atlantis uses it but adds maintenance overhead)
+- Chart publishing / OCI push — separate concern
+- helm-docs for any chart other than `k8s/chart/`
