@@ -971,4 +971,38 @@
     } catch (e) { /* non-fatal */ }
   })();
 
+  // ─── Babel sandbox patches ──────────────────────────────────────────────────
+  //
+  // 1. Force Babel to use classic JSX runtime so JSX compiles to React.createElement()
+  //    instead of _jsx() calls (which require react/jsx-runtime, not available here).
+  //
+  // 2. Intercept Node.prototype.appendChild to strip any residual LLM-written
+  //    `import` declarations from the script Babel injects into the DOM — Babel
+  //    transforms JSX but leaves `import` keywords unchanged, causing the browser
+  //    to throw "Cannot use import statement outside a module".
+  (function patchBabel() {
+    // Patch 1: classic JSX runtime
+    if (window.Babel && window.Babel.availablePresets && window.Babel.availablePresets.react) {
+      var _origReact = window.Babel.availablePresets.react;
+      window.Babel.availablePresets.react = function(api, opts, dir) {
+        return _origReact(api, Object.assign({}, opts, { runtime: 'classic' }), dir);
+      };
+    }
+
+    // Patch 2: strip LLM-written imports from Babel's injected script output
+    function stripImports(code) {
+      var s = code.replace(/import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]\s*;?/g, '');
+      return s.replace(/^[ \t]*import\b(?!\s*\().*$/gm, '');
+    }
+    var _origAppendChild = Node.prototype.appendChild;
+    Node.prototype.appendChild = function(node) {
+      if (node && node.nodeType === 1 && node.tagName === 'SCRIPT' &&
+          !node.getAttribute('src') && !node.getAttribute('type') &&
+          node.textContent && /\bimport\b/.test(node.textContent)) {
+        node.textContent = stripImports(node.textContent);
+      }
+      return _origAppendChild.call(this, node);
+    };
+  })();
+
 })();
