@@ -407,18 +407,16 @@
           <div v-if="diff" class="flex-1 flex flex-col min-h-0">
             <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
               <div class="flex items-center gap-2 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
                 <span class="text-xs font-medium text-gray-700 truncate">{{ diff.title }}</span>
-                <span v-if="activeSuggestion?.created_by?.name" class="text-[10px] text-gray-400 shrink-0">· {{ activeSuggestion.created_by.name }}</span>
-                <NuxtLink v-if="activeSuggestion?.report_id" :to="`/reports/${activeSuggestion.report_id}`" class="text-[10px] text-blue-500 hover:underline shrink-0 inline-flex items-center gap-0.5">from report<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
-                <span class="text-[10px] text-gray-400 shrink-0">current ↔ {{ diff.label }}</span>
+                <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 shrink-0 tabular-nums">· {{ hunkCount }} change{{ hunkCount === 1 ? '' : 's' }}</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <template v-if="diff.buildId && canApprove">
-                  <span v-if="hunkCount" class="text-[10px] text-gray-400 mr-1 tabular-nums">{{ hunkCount }} change{{ hunkCount === 1 ? '' : 's' }}</span>
-                  <button class="h-7 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-1" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
-                  <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:text-red-600 hover:border-red-200 disabled:opacity-50" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
+                  <button class="h-7 px-2.5 rounded-md text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
+                  <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-40 inline-flex items-center gap-1 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
                 </template>
-                <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="closeDiff">Close</button>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Close" @click="closeDiff"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
             <!-- Run this suggestion's evals (validate the candidate build) -->
@@ -457,20 +455,35 @@
             </div>
 
             <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
-              <!-- Interactive, per-hunk inline review for suggestions (Cursor-style) -->
+              <!-- Inline per-hunk review for suggestions. Clean tracked changes;
+                   hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
                 <div v-if="!hunkCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — this suggestion is resolved.</div>
-                <div v-else class="text-sm leading-relaxed whitespace-pre-wrap break-words text-gray-800">
+                <div v-else class="text-[15px] leading-[1.7] whitespace-pre-wrap break-words text-gray-800">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
-                    <span v-else class="relative inline rounded-[3px] px-0.5 ring-1 transition-colors" :class="resolving === seg.idx ? 'bg-amber-100 ring-amber-300' : 'bg-amber-50/70 ring-amber-200/70'">
+                    <span v-else class="group/h relative inline-block align-baseline rounded transition-shadow" :class="resolving === seg.idx ? 'ring-2 ring-gray-900/15' : 'hover:ring-2 hover:ring-gray-900/10'">
                       <template v-for="(op, oi) in seg.ops" :key="oi">
-                        <del v-if="op.type === -1" class="text-red-500 bg-red-50 line-through decoration-red-400/70">{{ op.text }}</del>
-                        <ins v-else class="text-green-700 bg-green-50 no-underline">{{ op.text }}</ins>
+                        <del v-if="op.type === -1" class="text-red-400 line-through decoration-red-300 decoration-1">{{ op.text }}</del>
+                        <ins v-else class="text-emerald-700 bg-emerald-50 rounded px-px no-underline">{{ op.text }}</ins>
                       </template>
-                      <span v-if="canApprove" class="inline-flex items-center gap-0.5 align-middle mx-1 select-none">
-                        <button class="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40" title="Accept this change" :disabled="resolving !== null" @click="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === seg.idx }]" /></button>
-                        <button class="inline-flex items-center justify-center w-[18px] h-[18px] rounded border border-gray-300 bg-white text-gray-400 hover:text-red-600 hover:border-red-300 disabled:opacity-40" title="Reject this change" :disabled="resolving !== null" @click="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
+                      <span v-if="resolving === seg.idx" class="absolute inset-0 rounded bg-white/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" /></span>
+
+                      <!-- Hover card: provenance + per-hunk actions -->
+                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 mt-1.5 w-64 cursor-default select-none rounded-xl bg-white shadow-lg ring-1 ring-gray-200 p-3 text-left whitespace-normal" @click.stop>
+                        <span class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                          <span class="w-1.5 h-1.5 rounded-full" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                          <span class="font-medium text-gray-700">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed change' }}</span>
+                          <span v-if="activeSuggestion?.created_at">· {{ fmtDate(activeSuggestion.created_at) }}</span>
+                        </span>
+                        <span v-if="activeSuggestion?.created_by?.name" class="block mt-1 text-[11px] text-gray-400">by {{ activeSuggestion.created_by.name }}</span>
+                        <span v-if="activeSuggestion?.build_title" class="block mt-1.5 text-[12px] font-medium text-gray-800">{{ activeSuggestion.build_title }}</span>
+                        <span v-if="activeSuggestion?.message" class="block mt-0.5 text-[11px] text-gray-500 line-clamp-3">{{ activeSuggestion.message }}</span>
+                        <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
+                        <span class="mt-2.5 pt-2.5 border-t border-gray-100 flex items-center gap-1.5">
+                          <button class="flex-1 h-7 rounded-lg bg-gray-900 text-white text-[11px] font-medium hover:bg-black disabled:opacity-40 inline-flex items-center justify-center gap-1" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
+                          <button class="flex-1 h-7 rounded-lg border border-gray-200 text-gray-600 text-[11px] font-medium hover:text-red-600 hover:border-red-200 disabled:opacity-40 inline-flex items-center justify-center gap-1" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                        </span>
                       </span>
                     </span>
                   </template>
@@ -629,6 +642,9 @@
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
 
+    <!-- Agent trace for a suggestion (opened from the inline review hover card) -->
+    <TraceModal v-if="canViewConsole" v-model="showTraceModal" :report-id="traceReportId" :completion-id="traceCompletionId" />
+
     <!-- All connections (clean list) -->
     <UModal v-model="showConnectionsModal" :ui="{ width: 'sm:max-w-lg' }">
       <div class="p-5">
@@ -709,6 +725,7 @@ import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
+import TraceModal from '~/components/console/TraceModal.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
@@ -1217,6 +1234,18 @@ const rejectHunk = (idx: number) => {
 }
 const acceptAll = () => doResolve('all', diff.value?.modified || '', diff.value?.modified || '')
 const rejectAll = () => doResolve('reject-all', diff.value?.original || '', diff.value?.original || '')
+
+// Agent trace: open the report/completion that produced this suggestion.
+const canViewConsole = computed(() => useCan('view_console'))
+const showTraceModal = ref(false)
+const traceReportId = ref<string | null>(null)
+const traceCompletionId = ref<string | null>(null)
+const openTrace = (pb: any) => {
+  if (!pb || !canViewConsole.value) return
+  traceReportId.value = pb.report_id || null
+  traceCompletionId.value = pb.completion_id || null
+  showTraceModal.value = true
+}
 // Clean inline word-diff (current ↔ selected version / suggestion), like ReportAgent/GlobalCreate.
 const diffOps = computed(() => {
   if (!diff.value) return []
