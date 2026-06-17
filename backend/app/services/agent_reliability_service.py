@@ -183,6 +183,7 @@ class AgentReliabilityService:
         *,
         user: Optional[User] = None,
         changed_hint: Optional[str] = None,
+        train_override: Optional[str] = None,
     ) -> AgentAutomationRun:
         """Run the full loop for one agent. Always returns an
         AgentAutomationRun row describing the outcome (never raises into the
@@ -247,7 +248,10 @@ class AgentReliabilityService:
                 )
 
             # --- Remediation gated on train_on_failure. ----------------------
-            if policy.stage("train_on_failure") == AUTONOMY_OFF:
+            # An à-la-carte Review action can override the saved policy for this
+            # one invocation: "off" => eval-only (report), "auto" => force train.
+            effective_train = train_override or policy.stage("train_on_failure")
+            if effective_train == AUTONOMY_OFF:
                 # We measured and reported, but aren't allowed to fix.
                 return await self._finish(
                     db, run, STATUS_GAVE_UP, iterations=0, build_id=None,

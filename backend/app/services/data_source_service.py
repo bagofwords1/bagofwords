@@ -2766,6 +2766,11 @@ class DataSourceService:
                     trigger=TRIGGER_TABLE_CHANGE,
                     changed_hint=f"{activated_count} table(s) activated",
                 )
+                from app.services.review_producers import emit_schema_changed
+                await emit_schema_changed(
+                    db, str(organization.id), str(data_source_id),
+                    summary=f"{activated_count} table(s) activated on this connection.",
+                )
             except Exception:
                 logger.debug("update_tables_status_delta: reliability trigger skipped", exc_info=True)
 
@@ -4161,6 +4166,10 @@ class DataSourceService:
                         data_source_id=str(data_source.id),
                         trigger=TRIGGER_TABLE_CHANGE,
                         changed_hint=hint,
+                    )
+                    from app.services.review_producers import emit_schema_changed
+                    await emit_schema_changed(
+                        db, str(data_source.organization_id), str(data_source.id), summary=hint,
                     )
         except Exception:
             logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)

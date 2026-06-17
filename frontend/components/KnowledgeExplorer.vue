@@ -7,8 +7,8 @@
         <p class="mt-1 text-sm text-gray-500">Configure your agents and the data, tools, skills and instructions they reason with.</p>
       </div>
       <div class="flex items-center gap-2.5">
-        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="expand('pending', true)">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ pendingCount }} pending
+        <button v-if="reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="openReview(null)">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ reviewCount }} to review
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
@@ -70,10 +70,13 @@
             <EmptyHint v-if="skillCount === 0" text="No skills yet." />
             <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
           </TreeGroup>
-          <TreeGroup label="Pending review" icon="i-heroicons-clock" :count="pendingCount" :count-accent="pendingCount > 0" :open="isOpen('pending')" @toggle="expand('pending')">
-            <EmptyHint v-if="pendingCount === 0" text="Nothing awaiting review." />
-            <InstrLeaf v-for="ins in listFor('pending')" :key="ins.id" :ins="ins" />
-          </TreeGroup>
+          <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 px-2"
+                  :class="reviewView ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-100'"
+                  @click="openReview(null)">
+            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 shrink-0" />
+            <span class="flex-1 text-left truncate">Review</span>
+            <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 text-amber-700 tabular-nums">{{ reviewCount }}</span>
+          </button>
 
           <div class="h-px bg-gray-100 my-2 mx-1"></div>
 
@@ -176,8 +179,10 @@
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
+        <!-- Review feed -->
+        <ReviewFeed v-if="reviewView" :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
         <!-- Agent overview -->
-        <template v-if="agentView">
+        <template v-else-if="agentView">
           <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
@@ -732,6 +737,7 @@ import AddMCPModal from '~/components/AddMCPModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
+import ReviewFeed from '~/components/ReviewFeed.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
@@ -1025,10 +1031,28 @@ const onUploadInput = async (e: Event) => {
 }
 
 // Clear every right-pane mode (preview / diff / tables-tools panel / agent view / detail)
+// ── Review feed (center-pane view) ──────────────────────
+const reviewView = ref<null | { agentId: string | null }>(null)
+const reviewCount = ref(0)
+const fetchReviewCount = async () => {
+  try { const { data } = await useMyFetch<any>('/api/review/count', { method: 'GET' }); reviewCount.value = data.value?.open || 0 } catch {}
+}
+const closeReview = () => { reviewView.value = null; fetchReviewCount() }
 const clearRightPane = () => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView()
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview()
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []
+}
+const openReview = (agentId: string | null = null) => {
+  clearRightPane()
+  reviewView.value = { agentId }
+}
+// Open an instruction (from a Review item) and surface its pending diff.
+const openInstructionFromReview = async (p: { instructionId: string; buildId?: string }) => {
+  closeReview()
+  let ins = allInstructions.value.find(i => i.id === p.instructionId)
+  if (!ins) { try { const { data } = await useMyFetch<any>(`/api/instructions/${p.instructionId}`, { method: 'GET' }); ins = data.value } catch {} }
+  if (ins) openInstruction(ins)
 }
 
 // tree pane resize
@@ -1776,7 +1800,7 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus()])
+  await Promise.all([fetchAgents(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   openAgentFromRoute()
 })
 </script>

@@ -2811,6 +2811,18 @@ class InstructionService:
 
             # Single commit for all deferred audit logs from submit/approve/promote
             await db.commit()
+
+            # Surface non-admin / AI suggestions in the admin Review feed (one
+            # item per changed instruction × attached agent). Never block.
+            if not is_admin and getattr(build, "source", "user") in ("user", "ai"):
+                try:
+                    from app.services.review_producers import emit_instruction_suggestions_for_build
+                    await emit_instruction_suggestions_for_build(
+                        db, str(build.organization_id), build,
+                        why="A non-admin proposed this instruction change — review and accept or run an eval.",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"review: failed to emit suggestion for build {build.id}: {e}")
             return True
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")

@@ -60,6 +60,7 @@ from app.routes import (
     organization,
     data_source,
     agent_reliability,
+    review,
     demo_data_source,
     text_widget,
     user_profile,
@@ -217,6 +218,7 @@ async def health():
 app.include_router(demo_data_source.router, prefix="/api")  # Must be before data_source for /data_sources/demos to match
 app.include_router(data_source.router, prefix="/api")
 app.include_router(agent_reliability.router, prefix="/api")
+app.include_router(review.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
