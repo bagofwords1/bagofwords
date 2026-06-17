@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from pydantic import BaseModel
 
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
@@ -531,6 +532,61 @@ async def revert_instruction_to_version(
     return reverted
 
 
+class ResolveSuggestionRequest(BaseModel):
+    """Apply a partial (per-hunk) resolution of a suggested change.
+
+    The client computes two full texts from the inline diff:
+    - ``promote_text``: current text + the accepted hunks → promoted as a new
+      version (a build-of-one) if it differs from the live text.
+    - ``remaining_text``: what should stay proposed (current text + the hunks
+      still pending). If it equals the live text, the suggestion is fully
+      resolved and the instruction is dropped from the source build.
+    """
+    build_id: Optional[str] = None
+    promote_text: str = ""
+    remaining_text: str = ""
+    title: Optional[str] = None
+
+
+@router.post("/instructions/{instruction_id}/resolve", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def resolve_instruction_suggestion(
+    instruction_id: str,
+    body: ResolveSuggestionRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Accept/reject part of a suggested change at hunk granularity.
+
+    Accepting promotes the accepted hunks immediately (build-of-one); the
+    remaining hunks stay pending against the new current text. Used by the
+    inline tracked-changes review UI.
+    """
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+
+    resolved = await instruction_service.resolve_suggestion(
+        db, instruction_id,
+        build_id=body.build_id,
+        promote_text=body.promote_text,
+        remaining_text=body.remaining_text,
+        title=body.title,
+        organization=organization,
+        current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
 # ==================== Pending Builds (Tracked Changes) ====================
 
 from sqlalchemy import select, and_
@@ -579,6 +635,18 @@ async def get_instruction_pending_builds(
     )
     main_version_id = (await db.execute(main_version_stmt)).scalar_one_or_none()
 
+    # Text of the current main version — used to drop suggestions that no longer
+    # propose a real change (e.g. after a hunk was accepted, the leftover build
+    # points at a different version row but identical text). Comparing text makes
+    # "empty diff" suggestions self-resolve out of the review queue.
+    main_text = None
+    if main_version_id is not None:
+        main_text = (
+            await db.execute(
+                select(InstructionVersion.text).where(InstructionVersion.id == main_version_id)
+            )
+        ).scalar_one_or_none()
+
     where_clauses = [
         BuildContent.instruction_id == instruction_id,
         InstructionBuild.organization_id == str(organization.id),
@@ -602,9 +670,33 @@ async def get_instruction_pending_builds(
     )
     rows = (await db.execute(stmt)).all()
 
+    # Resolve the originating report for AI suggestions, so the UI can show a
+    # "generated from <report>" provenance link on each suggestion. The chain is
+    # build.agent_execution_id -> AgentExecution.report_id.
+    from app.models.agent_execution import AgentExecution
+    exec_ids = [str(b.agent_execution_id) for _c, b, _v in rows if getattr(b, "agent_execution_id", None)]
+    trace_by_exec: dict = {}
+    if exec_ids:
+        exec_rows = (
+            await db.execute(
+                select(AgentExecution.id, AgentExecution.report_id, AgentExecution.completion_id)
+                .where(AgentExecution.id.in_(exec_ids))
+            )
+        ).all()
+        for ex_id, report_id, completion_id in exec_rows:
+            trace_by_exec[str(ex_id)] = {
+                "report_id": str(report_id) if report_id else None,
+                "completion_id": str(completion_id) if completion_id else None,
+            }
+
     result = []
     for _content, build, version in rows:
+        # Skip suggestions whose text already matches the live (main) text —
+        # there is nothing to review.
+        if main_text is not None and (version.text or "") == (main_text or ""):
+            continue
         creator = getattr(build, "created_by_user", None)
+        trace = trace_by_exec.get(str(build.agent_execution_id)) if getattr(build, "agent_execution_id", None) else None
         result.append({
             "build_id": str(build.id),
             "build_number": build.build_number,
@@ -622,6 +714,9 @@ async def get_instruction_pending_builds(
             # Build-level "commit message": auto-generated summary + free-text rationale.
             "build_title": build.title,
             "message": build.description,
+            # Provenance: which report/completion generated this suggestion (AI only).
+            "report_id": (trace or {}).get("report_id"),
+            "completion_id": (trace or {}).get("completion_id"),
         })
     return result
 

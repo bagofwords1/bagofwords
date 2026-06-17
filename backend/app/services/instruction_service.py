@@ -967,6 +967,90 @@ class InstructionService:
         # Return the refreshed instruction
         return await self.get_instruction(db, instruction.id, organization, current_user)
 
+    async def resolve_suggestion(
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        *,
+        build_id: Optional[str],
+        promote_text: str,
+        remaining_text: str,
+        title: Optional[str],
+        organization: Organization,
+        current_user: User,
+    ) -> Optional[InstructionSchema]:
+        """Apply a per-hunk resolution of a suggested change.
+
+        ``promote_text`` (current + accepted hunks) is promoted as a fresh
+        build-of-one when it differs from the live text. ``remaining_text``
+        (current + still-pending hunks) is what stays proposed on the source
+        suggestion build; when it equals the live text the instruction is
+        dropped from that build (the suggestion is fully resolved).
+        """
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None
+
+        # Resolve the live (current) text and the metadata to carry forward.
+        meta_src = None
+        if instruction.current_version_id:
+            meta_src = await self.version_service.get_version(db, instruction.current_version_id)
+        cur_text = (meta_src.text if meta_src else None)
+        if cur_text is None:
+            cur_text = getattr(instruction, 'text', '') or ''
+
+        async def _mk_version(text: str):
+            return await self.version_service.create_version_from_data(
+                db,
+                instruction_id=instruction.id,
+                text=text,
+                title=title if title is not None else (meta_src.title if meta_src else getattr(instruction, 'title', None)),
+                structured_data=(meta_src.structured_data if meta_src else None),
+                formatted_content=None,
+                status=(meta_src.status if meta_src else 'published') or 'published',
+                load_mode=(meta_src.load_mode if meta_src else getattr(instruction, 'load_mode', 'always')) or 'always',
+                references_json=(meta_src.references_json if meta_src else None),
+                data_source_ids=(meta_src.data_source_ids if meta_src else None),
+                label_ids=(meta_src.label_ids if meta_src else None),
+                category_ids=(meta_src.category_ids if meta_src else None),
+                user_id=current_user.id,
+            )
+
+        # 1) Promote the accepted hunks as an isolated build-of-one. We use a
+        #    fresh build (not the shared user draft) so only THIS instruction's
+        #    change is promoted; everything else inherits main unchanged.
+        if (promote_text or '').strip() != (cur_text or '').strip():
+            new_version = await _mk_version(promote_text)
+            build = await self.build_service.create_build(
+                db, organization.id, source='user', user_id=current_user.id, copy_from_main=True
+            )
+            await self.build_service.add_to_build(db, build.id, instruction.id, new_version.id)
+            await db.commit()
+            await self._auto_finalize_build(db, build, current_user, user_permissions)
+            cur_text = promote_text
+
+        # 2) Reconcile the source suggestion build against what's left pending.
+        if build_id:
+            src_build = await self.build_service.get_build(db, build_id)
+            if src_build and str(src_build.organization_id) == str(organization.id) and not src_build.is_main:
+                if (remaining_text or '').strip() == (cur_text or '').strip():
+                    # Nothing left to propose — drop this instruction from the
+                    # suggestion. Other instructions in the build are untouched.
+                    try:
+                        await self.build_service.remove_from_build(db, build_id, instruction.id)
+                    except Exception:
+                        pass
+                else:
+                    # Persist the shrunken proposal so the remaining hunks keep
+                    # showing (diffed against the new current text).
+                    rem_version = await _mk_version(remaining_text)
+                    await self.build_service.add_to_build(db, build_id, instruction.id, rem_version.id)
+                    await db.commit()
+
+        return await self.get_instruction(db, instruction.id, organization, current_user)
+
     async def enhance_instruction(
         self, 
         db: AsyncSession, 

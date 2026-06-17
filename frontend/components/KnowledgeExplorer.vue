@@ -408,11 +408,16 @@
             <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="text-xs font-medium text-gray-700 truncate">{{ diff.title }}</span>
+                <span v-if="activeSuggestion?.created_by?.name" class="text-[10px] text-gray-400 shrink-0">· {{ activeSuggestion.created_by.name }}</span>
+                <NuxtLink v-if="activeSuggestion?.report_id" :to="`/reports/${activeSuggestion.report_id}`" class="text-[10px] text-blue-500 hover:underline shrink-0 inline-flex items-center gap-0.5">from report<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
                 <span class="text-[10px] text-gray-400 shrink-0">current ↔ {{ diff.label }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <button v-if="diff.buildId && canApprove" class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === diff.buildId || discarding === diff.buildId" @click="approveSuggestion({ build_id: diff.buildId })">{{ approving === diff.buildId ? 'Approving…' : 'Approve' }}</button>
-                <button v-if="diff.buildId && canApprove" class="h-7 px-3 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:text-red-600 hover:border-red-200 disabled:opacity-50" :disabled="discarding === diff.buildId || approving === diff.buildId" @click="discardSuggestion({ build_id: diff.buildId })">{{ discarding === diff.buildId ? 'Discarding…' : 'Discard' }}</button>
+                <template v-if="diff.buildId && canApprove">
+                  <span v-if="hunkCount" class="text-[10px] text-gray-400 mr-1 tabular-nums">{{ hunkCount }} change{{ hunkCount === 1 ? '' : 's' }}</span>
+                  <button class="h-7 px-3 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-1" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
+                  <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:text-red-600 hover:border-red-200 disabled:opacity-50" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
+                </template>
                 <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="closeDiff">Close</button>
               </div>
             </div>
@@ -452,7 +457,27 @@
             </div>
 
             <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
-              <TrackedChangesView :diff-ops="diffOps" />
+              <!-- Interactive, per-hunk inline review for suggestions (Cursor-style) -->
+              <template v-if="diff.buildId">
+                <div v-if="!hunkCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — this suggestion is resolved.</div>
+                <div v-else class="text-sm leading-relaxed whitespace-pre-wrap break-words text-gray-800">
+                  <template v-for="(seg, si) in hunks" :key="si">
+                    <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
+                    <span v-else class="relative inline rounded-[3px] px-0.5 ring-1 transition-colors" :class="resolving === seg.idx ? 'bg-amber-100 ring-amber-300' : 'bg-amber-50/70 ring-amber-200/70'">
+                      <template v-for="(op, oi) in seg.ops" :key="oi">
+                        <del v-if="op.type === -1" class="text-red-500 bg-red-50 line-through decoration-red-400/70">{{ op.text }}</del>
+                        <ins v-else class="text-green-700 bg-green-50 no-underline">{{ op.text }}</ins>
+                      </template>
+                      <span v-if="canApprove" class="inline-flex items-center gap-0.5 align-middle mx-1 select-none">
+                        <button class="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40" title="Accept this change" :disabled="resolving !== null" @click="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === seg.idx }]" /></button>
+                        <button class="inline-flex items-center justify-center w-[18px] h-[18px] rounded border border-gray-300 bg-white text-gray-400 hover:text-red-600 hover:border-red-300 disabled:opacity-40" title="Reject this change" :disabled="resolving !== null" @click="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
+                      </span>
+                    </span>
+                  </template>
+                </div>
+              </template>
+              <!-- Read-only word diff for version comparisons -->
+              <TrackedChangesView v-else :diff-ops="diffOps" />
             </div>
           </div>
 
@@ -566,14 +591,16 @@
                   <span class="text-xs font-medium text-gray-700">{{ pb.source === 'ai' ? 'AI suggestion' : 'Proposed' }} · v{{ pb.pending_version_number }}</span>
                   <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 rounded" :class="pb.status === 'pending_approval' ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-100'">{{ pb.status === 'pending_approval' ? 'review' : 'draft' }}</span>
                 </div>
-                <div class="text-[10px] text-gray-400 mt-0.5">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
+                <div class="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1 flex-wrap">
+                  <span>{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</span>
+                  <NuxtLink v-if="pb.report_id" :to="`/reports/${pb.report_id}`" class="text-blue-500 hover:underline inline-flex items-center gap-0.5" @click.stop>· from report<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
+                </div>
                 <div v-if="pb.build_title || pb.message" class="mt-1">
                   <div v-if="pb.build_title" class="text-[11px] font-medium text-gray-700 truncate">{{ pb.build_title }}</div>
                   <div v-if="pb.message" class="text-[10px] text-gray-500 mt-0.5 line-clamp-2 whitespace-pre-line">{{ pb.message }}</div>
                 </div>
-                <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5">
-                  <button class="h-5 px-2 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === pb.build_id || discarding === pb.build_id" @click.stop="approveSuggestion(pb)">{{ approving === pb.build_id ? '…' : 'Approve' }}</button>
-                  <button class="h-5 px-2 rounded text-gray-400 hover:text-red-600 text-[10px] ml-auto disabled:opacity-50" :disabled="discarding === pb.build_id || approving === pb.build_id" @click.stop="discardSuggestion(pb)">{{ discarding === pb.build_id ? '…' : 'Discard' }}</button>
+                <div v-if="canApprove" class="mt-1.5 flex items-center">
+                  <span class="text-[10px] font-medium text-amber-700 inline-flex items-center gap-0.5">Review changes<UIcon name="i-heroicons-arrow-right" class="w-2.5 h-2.5" /></span>
                 </div>
               </div>
             </div>
@@ -1022,6 +1049,8 @@ const fetchPendingMap = async () => {
   } catch {}
 }
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
+const activeSuggestion = ref<any | null>(null)
+const resolving = ref<number | 'all' | 'reject-all' | null>(null)
 const approving = ref<string | null>(null)
 const discarding = ref<string | null>(null)
 // connection modals
@@ -1127,7 +1156,67 @@ const loadPending = async (id: string) => {
   pendingBuilds.value = []
   try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch {}
 }
-const closeDiff = () => { diff.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
+const closeDiff = () => { diff.value = null; activeSuggestion.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
+
+// ── Inline per-hunk review ─────────────────────────────────────────────────
+// A "hunk" is a contiguous run of change ops (insertions/deletions) bounded by
+// unchanged context. Each is independently acceptable/rejectable.
+const hunks = computed(() => {
+  const segs: any[] = []
+  if (!diff.value || !diff.value.buildId) return segs
+  let cur: any = null
+  let idx = -1
+  for (const op of diffOps.value) {
+    if (op.type === 0) { segs.push({ kind: 'context', text: op.text }); cur = null }
+    else { if (!cur) { idx++; cur = { kind: 'hunk', idx, ops: [] }; segs.push(cur) } cur.ops.push(op) }
+  }
+  return segs
+})
+const hunkCount = computed(() => hunks.value.filter((s: any) => s.kind === 'hunk').length)
+// Synthesize a full text by applying ONLY the hunks in `acceptIdxs` onto the
+// current text; all other hunks revert to current. (insert = keep added text,
+// delete = drop removed text when accepted; the inverse when not.)
+const buildHunkText = (acceptIdxs: Set<number>) => {
+  let out = ''
+  let h = -1
+  let inHunk = false
+  for (const op of diffOps.value) {
+    if (op.type === 0) { out += op.text; inHunk = false; continue }
+    if (!inHunk) { h++; inHunk = true }
+    const accepted = acceptIdxs.has(h)
+    if (op.type === 1) { if (accepted) out += op.text }
+    else { if (!accepted) out += op.text }
+  }
+  return out
+}
+const doResolve = async (key: number | 'all' | 'reject-all', promoteText: string, remainingText: string) => {
+  if (!detail.value || resolving.value !== null) return
+  const buildId = diff.value?.buildId || null
+  resolving.value = key
+  try {
+    const { error } = await useMyFetch(`/api/instructions/${detail.value.id}/resolve`, { method: 'POST', body: { build_id: buildId, promote_text: promoteText, remaining_text: remainingText } })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed to apply change')
+    // Pull the new live text, then recompute remaining suggestions against it.
+    const { data } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'GET' })
+    if (data.value) { detail.value = data.value; if (!editing.value) syncDraft(data.value) }
+    await loadPending(detail.value.id)
+    await loadVersions(detail.value.id)
+    refreshLists()
+    const stillPb = pendingBuilds.value.find((p: any) => p.build_id === buildId)
+    if (stillPb) viewSuggestion(stillPb)
+    else closeDiff()
+  } catch (e: any) {
+    toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' })
+  } finally { resolving.value = null }
+}
+const acceptHunk = (idx: number) => doResolve(idx, buildHunkText(new Set([idx])), diff.value?.modified || '')
+const rejectHunk = (idx: number) => {
+  const keep = new Set<number>()
+  for (let i = 0; i < hunkCount.value; i++) if (i !== idx) keep.add(i)
+  doResolve(idx, diff.value?.original || '', buildHunkText(keep))
+}
+const acceptAll = () => doResolve('all', diff.value?.modified || '', diff.value?.modified || '')
+const rejectAll = () => doResolve('reject-all', diff.value?.original || '', diff.value?.original || '')
 // Clean inline word-diff (current ↔ selected version / suggestion), like ReportAgent/GlobalCreate.
 const diffOps = computed(() => {
   if (!diff.value) return []
@@ -1147,6 +1236,7 @@ const viewVersion = async (v: any, isCurrent: boolean) => {
   } catch {}
 }
 const viewSuggestion = (pb: any) => {
+  activeSuggestion.value = pb
   diff.value = { title: pb.source === 'ai' ? 'AI suggestion' : 'Proposed change', label: `v${pb.pending_version_number}`, original: detail.value?.text || '', modified: pb.pending_text || '', buildId: pb.build_id, versionId: null }
   // Reset any prior run view and lazily load eval suites for the run strip.
   evalActiveRun.value = null; evalResults.value = []; stopEvalPoll()
