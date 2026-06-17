@@ -495,6 +495,12 @@
           </div>
 
           <div v-else class="flex-1 flex flex-col min-h-0">
+            <!-- Pending-change banner: clear, always-visible affordance to review -->
+            <button v-if="!editing && !creating && pendingBuilds.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 bg-amber-50/60 text-left hover:bg-amber-50 transition-colors" @click="viewSuggestion(pendingBuilds[0])">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+              <span class="text-[12px] text-amber-800">{{ pendingBuilds.length === 1 ? 'A pending change is waiting for review' : `${pendingBuilds.length} pending changes are waiting for review` }}</span>
+              <span class="ml-auto text-[11px] font-medium text-amber-700 inline-flex items-center gap-0.5 shrink-0">Review<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" /></span>
+            </button>
             <!-- Scrollable content: title + body -->
             <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
               <div class="max-w-3xl">
@@ -1516,7 +1522,7 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 const openInstruction = async (ins: Instruction) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); creating.value = false; bottomTab.value = 'details'
   selectedId.value = ins.id; detail.value = ins; editing.value = false
-  syncDraft(ins); loadVersions(ins.id); loadPending(ins.id)
+  syncDraft(ins); loadVersions(ins.id)
   try {
     const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
     if (data.value && selectedId.value === ins.id) {
@@ -1526,6 +1532,12 @@ const openInstruction = async (ins: Instruction) => {
       if (idx >= 0) { allInstructions.value[idx] = { ...allInstructions.value[idx], status: data.value.status, current_build_id: data.value.current_build_id, current_build_status: data.value.current_build_status }; allInstructions.value = [...allInstructions.value] }
     }
   } catch (e) {}
+  // Surface pending changes immediately: load them against the now-current text
+  // and auto-open the review so the diff isn't hidden behind a link.
+  await loadPending(ins.id)
+  if (selectedId.value === ins.id && !editing.value && !diff.value && pendingBuilds.value.length) {
+    viewSuggestion(pendingBuilds.value[0])
+  }
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.text = ins.text || ''
