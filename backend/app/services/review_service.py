@@ -188,6 +188,27 @@ class ReviewService:
             await db.commit()
         return len(rows)
 
+    async def resolve_for_instruction(self, db: AsyncSession, *, organization_id: str, instruction_id: str) -> int:
+        """Auto-resolve any active instruction_suggestion items for an instruction
+        (across all agents) — called when the admin has handled the change
+        (accepted/rejected) so the item doesn't linger."""
+        from app.models.review_item import TYPE_INSTRUCTION_SUGGESTION
+        rows = (await db.execute(
+            select(ReviewItem).where(and_(
+                ReviewItem.organization_id == organization_id,
+                ReviewItem.type == TYPE_INSTRUCTION_SUGGESTION,
+                ReviewItem.group_key == f"instr:{instruction_id}",
+                ReviewItem.status.in_(list(ACTIVE_STATUSES)),
+                ReviewItem.deleted_at.is_(None),
+            ))
+        )).scalars().all()
+        for it in rows:
+            it.status = STATUS_RESOLVED
+            it.verified_at = datetime.utcnow()
+        if rows:
+            await db.commit()
+        return len(rows)
+
     # ---- visibility --------------------------------------------------------
     async def _visible(self, db, organization, user) -> tuple[bool, list[str]]:
         return await get_ds_ids_with_permission(

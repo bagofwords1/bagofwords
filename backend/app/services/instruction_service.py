@@ -1042,6 +1042,14 @@ class InstructionService:
                         await self.build_service.remove_from_build(db, build_id, instruction.id)
                     except Exception:
                         pass
+                    # The suggestion is fully handled — clear it from the Review feed.
+                    try:
+                        from app.services.review_service import review_service
+                        await review_service.resolve_for_instruction(
+                            db, organization_id=str(organization.id), instruction_id=str(instruction.id),
+                        )
+                    except Exception:
+                        pass
                 else:
                     # Persist the shrunken proposal so the remaining hunks keep
                     # showing (diffed against the new current text).
