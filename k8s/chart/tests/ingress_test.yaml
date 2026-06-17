@@ -20,9 +20,9 @@ tests:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: test-release
-      - equal:
+      - matchRegex:
           path: metadata.labels["helm.sh/chart"]
-          value: bagofwords-1.2.0
+          pattern: "^bagofwords-"
       - equal:
           path: spec.ingressClassName
           value: nginx

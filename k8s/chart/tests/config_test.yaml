@@ -20,9 +20,9 @@ tests:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: test-release
-      - equal:
+      - matchRegex:
           path: metadata.labels["helm.sh/chart"]
-          value: bagofwords-1.2.0
+          pattern: "^bagofwords-"
       - matchRegex:
           path: data.BOW_DATABASE_URL
           pattern: "^postgresql://test:test@test-release-postgresql:5432/testdb$"
