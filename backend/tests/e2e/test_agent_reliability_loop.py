@@ -64,8 +64,9 @@ class _StubReliability(AgentReliabilityService):
             "summary": {"total": len(passing) + len(failing), "passed": len(passing), "failed": len(failing)},
         }
 
-    async def _train_iteration(self, db, organization, actor, data_source, *, failing_case_ids, build_id, trigger, iteration):
+    async def _train_iteration(self, db, organization, actor, data_source, *, failing_case_ids, build_id, trigger, iteration, brief=None):
         self.train_calls += 1
+        self.last_brief = brief
         # Don't touch the real BuildService; just return a synthetic build id.
         return {"build_id": build_id or f"build-{uuid.uuid4().hex[:8]}", "summary": {"instructions_added": 1}}
 
