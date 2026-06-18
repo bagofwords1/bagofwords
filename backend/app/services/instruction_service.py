@@ -2665,6 +2665,7 @@ class InstructionService:
             from app.models.instruction_build import InstructionBuild
             from app.models.build_content import BuildContent
             from app.models.instruction_version import InstructionVersion as _IV
+            from app.services.suggestion_merge import covers as _sm_covers
             iid = instruction.id
             # Current main version of this instruction (id + text).
             main_row = (await db.execute(
@@ -2716,7 +2717,12 @@ class InstructionService:
                     changed = (main_vid != vid)
                 if not changed:
                     continue
-                if main_txt is not None and (vtext or '') == (main_txt or ''):
+                # No-op vs current: exact match, or current already contains the
+                # whole suggestion (its text is a pure-insertion subset of main).
+                if main_txt is not None and (
+                    (vtext or '') == (main_txt or '')
+                    or _sm_covers(vtext or '', main_txt or '')
+                ):
                     continue
                 instruction_dict["current_build_id"] = str(bid)
                 instruction_dict["current_build_status"] = st

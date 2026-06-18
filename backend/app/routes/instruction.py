@@ -323,6 +323,7 @@ async def get_pending_change_instruction_ids(
     from app.models.instruction_build import InstructionBuild
     from app.models.build_content import BuildContent
     from app.models.instruction_version import InstructionVersion
+    from app.services.suggestion_merge import covers as _covers
 
     org_id = str(organization.id)
 
@@ -401,8 +402,8 @@ async def get_pending_change_instruction_ids(
         # no longer exclude it on freshness; only genuine no-ops below drop out.
         if (i_id, v_id) in superseded_pairs:
             continue  # intermediate snapshot of a chained edit — leaf covers it
-        if i_id in main_text and (v_text or "") == main_text[i_id]:
-            continue  # already live (no-op)
+        if i_id in main_text and ((v_text or "") == main_text[i_id] or _covers(v_text or "", main_text[i_id])):
+            continue  # already live (no-op) — exact, or fully contained in current
         changed.add(i_id)
 
     return {"instruction_ids": sorted(changed)}
@@ -865,12 +866,18 @@ async def get_instruction_pending_builds(
         # build no other pending build forked from) is a real suggestion.
         if str(version.id) in superseded_versions:
             return False
-        # Skip suggestions whose text already matches the live (main) text —
-        # there is nothing to review (already applied / no-op leftover). A
-        # *stale* sibling (base behind current) keeps a different snapshot, so
-        # this no longer hides it — the client rebases its intended change
-        # (base_text -> pending_text) onto current text instead.
-        if main_text is not None and (version.text or "") == (main_text or ""):
+        # Skip suggestions that contribute nothing to the live (main) text —
+        # already applied / no-op leftover. This covers both an exact match and
+        # the case where current already contains everything the suggestion
+        # proposes (its text is a pure-insertion subset of main), e.g. after the
+        # change was accepted via a slightly different version row. A *stale*
+        # sibling that still has genuinely new content is kept (the client
+        # rebases its intended change onto current).
+        from app.services.suggestion_merge import covers
+        if main_text is not None and (
+            (version.text or "") == (main_text or "")
+            or covers(version.text or "", main_text or "")
+        ):
             return False
         return True
 

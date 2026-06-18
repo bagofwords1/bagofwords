@@ -265,6 +265,32 @@ async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -
         for b_id, i_id, v_id, t in ct_rows:
             content_lookup[(str(b_id), str(i_id))] = (str(v_id), t or "")
 
+    # No-op vs current: a suggestion whose text is already fully present in the
+    # live (main) text contributes nothing to review. Mark it superseded so it's
+    # not counted, emitted, or left as a stuck feed item ("0 changes · 1
+    # suggestion"). Uses pure-insertion containment so a version row that differs
+    # from main only by already-applied content still resolves out.
+    from app.services.suggestion_merge import covers
+    instr_ids = {i for (_b, i) in content_lookup.keys()}
+    main_text_by_instr: dict = {}
+    if instr_ids:
+        main_rows = (await db.execute(
+            select(BuildContent.instruction_id, InstructionVersion.text)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
+            .where(and_(
+                InstructionBuild.organization_id == organization_id,
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+                BuildContent.instruction_id.in_(list(instr_ids)),
+            ))
+        )).all()
+        main_text_by_instr = {str(i): (t or "") for i, t in main_rows}
+    for (b_id, i_id), (v_id, txt) in content_lookup.items():
+        mt = main_text_by_instr.get(i_id)
+        if mt is not None and (txt == mt or covers(txt, mt)):
+            superseded_pairs.add((i_id, v_id))
+
     # Pass 1a: which instructions each build really changed (structural supersede
     # only) — the basis for the content-supersede comparison.
     changed_by_build = {}
