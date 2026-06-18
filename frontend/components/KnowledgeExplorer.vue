@@ -420,22 +420,21 @@
               </div>
               <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Suggestions & version history" @click="toggleHistory()"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
             </div>
-            <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
               <div v-if="!mergedReviewCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — all suggestions resolved.</div>
               <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
                 <template v-for="(seg, si) in mergedSegments" :key="si">
                   <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
                   <span v-else :id="`rh-${seg.buildId}-${seg.idx}`" class="group/h relative inline align-baseline rounded-[3px] transition-colors"
-                        :class="[resolving === `${seg.buildId}:${seg.idx}` ? 'bg-gray-100' : 'hover:bg-gray-50', highlightBuild === seg.buildId ? 'bg-amber-50' : '']">
+                        :class="[resolving === `${seg.buildId}:${seg.idx}` ? 'bg-amber-100' : 'hover:bg-amber-50', highlightBuild === seg.buildId ? 'bg-amber-100 ring-1 ring-amber-300' : '']">
                     <template v-for="(op, oi) in seg.ops" :key="oi">
                       <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                       <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                     </template>
                     <!-- Always-visible inline accept/reject (no disappearing popover) -->
-                    <span v-if="canApprove" contenteditable="false" class="inline-flex items-center align-middle ml-1 -translate-y-px rounded-md border border-gray-200 bg-white shadow-sm overflow-hidden select-none">
-                      <button title="Accept change" class="px-1 h-[18px] inline-flex items-center text-emerald-600 hover:bg-emerald-50 disabled:opacity-40" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" /></button>
-                      <span class="w-px h-3 bg-gray-200"></span>
-                      <button title="Reject change" class="px-1 h-[18px] inline-flex items-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
+                    <span v-if="canApprove" contenteditable="false" class="inline-flex items-center align-middle ml-1 -translate-y-px rounded overflow-hidden ring-1 ring-black/5 shadow-sm select-none">
+                      <button title="Accept change" class="px-1.5 h-[18px] inline-flex items-center bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" /></button>
+                      <button title="Reject change" class="px-1.5 h-[18px] inline-flex items-center bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
                     </span>
                     <!-- Hover: provenance + message + trace (info only) -->
                     <span class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 bottom-full left-0 mb-1.5 w-56 cursor-default select-none rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2.5 text-left whitespace-normal" @click.stop>
@@ -508,7 +507,7 @@
               </div>
             </div>
 
-            <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
               <!-- Inline per-hunk review for suggestions. Clean tracked changes;
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
@@ -516,16 +515,15 @@
                 <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
-                    <span v-else class="group/h relative inline align-baseline rounded-[3px] transition-colors" :class="resolving === seg.idx ? 'bg-gray-100' : 'hover:bg-gray-50'">
+                    <span v-else class="group/h relative inline align-baseline rounded-[3px] transition-colors" :class="resolving === seg.idx ? 'bg-amber-100' : 'hover:bg-amber-50'">
                       <template v-for="(op, oi) in seg.ops" :key="oi">
                         <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                         <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                       </template>
                       <!-- Always-visible inline accept/reject -->
-                      <span v-if="canApprove" contenteditable="false" class="inline-flex items-center align-middle ml-1 -translate-y-px rounded-md border border-gray-200 bg-white shadow-sm overflow-hidden select-none">
-                        <button title="Accept change" class="px-1 h-[18px] inline-flex items-center text-emerald-600 hover:bg-emerald-50 disabled:opacity-40" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === seg.idx }]" /></button>
-                        <span class="w-px h-3 bg-gray-200"></span>
-                        <button title="Reject change" class="px-1 h-[18px] inline-flex items-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-40" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
+                      <span v-if="canApprove" contenteditable="false" class="inline-flex items-center align-middle ml-1 -translate-y-px rounded overflow-hidden ring-1 ring-black/5 shadow-sm select-none">
+                        <button title="Accept change" class="px-1.5 h-[18px] inline-flex items-center bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === seg.idx }]" /></button>
+                        <button title="Reject change" class="px-1.5 h-[18px] inline-flex items-center bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
                       </span>
                       <!-- Hover: provenance + message + trace (info only) -->
                       <span class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 bottom-full left-0 mb-1.5 w-56 cursor-default select-none rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2.5 text-left whitespace-normal" @click.stop>
@@ -1404,13 +1402,19 @@ const reloadAfterResolve = async () => {
   if (data.value) { detail.value = data.value; if (!editing.value) syncDraft(data.value) }
   await loadPending(detail.value.id); await loadVersions(detail.value.id); refreshLists(); fetchReviewCount()
 }
+// Scroll container of the review/diff pane — preserved across resolve reloads so
+// accepting a change doesn't jump the page back to the top.
+const reviewScroll = ref<HTMLElement | null>(null)
 const doResolveFor = async (buildId: string, promoteText: string, remainingText: string, key: string) => {
   if (!detail.value || resolving.value !== null) return
   resolving.value = key
+  const prevScroll = reviewScroll.value?.scrollTop ?? 0
   try {
     const { error } = await useMyFetch(`/api/instructions/${detail.value.id}/resolve`, { method: 'POST', body: { build_id: buildId, promote_text: promoteText, remaining_text: remainingText } })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
     await reloadAfterResolve()
+    await nextTick()
+    if (reviewScroll.value) reviewScroll.value.scrollTop = prevScroll
   } catch (e: any) { toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' }) } finally { resolving.value = null }
 }
 function hunkCountOf(ops: any[]) { let hc = 0, inH = false; for (const o of ops) { if (o.type === 0) inH = false; else { if (!inH) { hc++; inH = true } } } return hc }
