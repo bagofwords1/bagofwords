@@ -94,11 +94,10 @@
             <div class="flex items-center gap-1 shrink-0 self-center" @click.stop>
               <template v-if="it.status === 'open' || it.status === 'snoozed'">
                 <button v-for="a in primaryActions(it)" :key="a.id"
-                        class="h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40"
-                        :class="a.primary ? 'bg-gray-50 hover:bg-gray-100 border border-gray-150 text-gray-700' : 'text-gray-500 hover:bg-gray-100'"
+                        class="h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40 bg-gray-50 hover:bg-gray-100 border border-gray-150 text-gray-700"
                         :disabled="busy === it.id"
                         @click="runAction(it, a)">
-                  <UIcon v-if="busy === it.id && a.primary" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
+                  <UIcon v-if="busy === it.id" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin text-gray-400" />
                   <UIcon v-else-if="a.id === 'run_eval'" name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400" />
                   <UIcon v-else-if="a.id === 'run_training'" name="i-heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
                   <UIcon v-else-if="a.id === 'review'" name="i-heroicons-arrow-right" class="w-3.5 h-3.5 text-gray-400" />
