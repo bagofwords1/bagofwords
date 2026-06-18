@@ -6,7 +6,6 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
       python3 \
-      python3-pip \
       python3-venv \
       python3-dev \
       build-essential \
@@ -162,9 +161,6 @@ COPY --from=frontend-builder --chown=app:app /app/frontend/.output/public /app/f
 # rendering code that reads files from disk (not over HTTP).
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/artifact-sandbox.html /app/frontend/public/artifact-sandbox.html
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/libs /app/frontend/public/libs
-
-# Copy runtime configs and scripts
-COPY --chown=app:app ./backend/requirements_versioned.txt /app/backend/
 
 # Download RDS/Aurora CA certificate bundle for IAM auth SSL verification
 RUN mkdir -p /app/certs && \
