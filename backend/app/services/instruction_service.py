@@ -967,6 +967,98 @@ class InstructionService:
         # Return the refreshed instruction
         return await self.get_instruction(db, instruction.id, organization, current_user)
 
+    async def resolve_suggestion(
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        *,
+        build_id: Optional[str],
+        promote_text: str,
+        remaining_text: str,
+        title: Optional[str],
+        organization: Organization,
+        current_user: User,
+    ) -> Optional[InstructionSchema]:
+        """Apply a per-hunk resolution of a suggested change.
+
+        ``promote_text`` (current + accepted hunks) is promoted as a fresh
+        build-of-one when it differs from the live text. ``remaining_text``
+        (current + still-pending hunks) is what stays proposed on the source
+        suggestion build; when it equals the live text the instruction is
+        dropped from that build (the suggestion is fully resolved).
+        """
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None
+
+        # Resolve the live (current) text and the metadata to carry forward.
+        meta_src = None
+        if instruction.current_version_id:
+            meta_src = await self.version_service.get_version(db, instruction.current_version_id)
+        cur_text = (meta_src.text if meta_src else None)
+        if cur_text is None:
+            cur_text = getattr(instruction, 'text', '') or ''
+
+        async def _mk_version(text: str):
+            return await self.version_service.create_version_from_data(
+                db,
+                instruction_id=instruction.id,
+                text=text,
+                title=title if title is not None else (meta_src.title if meta_src else getattr(instruction, 'title', None)),
+                structured_data=(meta_src.structured_data if meta_src else None),
+                formatted_content=None,
+                status=(meta_src.status if meta_src else 'published') or 'published',
+                load_mode=(meta_src.load_mode if meta_src else getattr(instruction, 'load_mode', 'always')) or 'always',
+                references_json=(meta_src.references_json if meta_src else None),
+                data_source_ids=(meta_src.data_source_ids if meta_src else None),
+                label_ids=(meta_src.label_ids if meta_src else None),
+                category_ids=(meta_src.category_ids if meta_src else None),
+                user_id=current_user.id,
+            )
+
+        # 1) Promote the accepted hunks as an isolated build-of-one. We use a
+        #    fresh build (not the shared user draft) so only THIS instruction's
+        #    change is promoted; everything else inherits main unchanged.
+        if (promote_text or '').strip() != (cur_text or '').strip():
+            new_version = await _mk_version(promote_text)
+            build = await self.build_service.create_build(
+                db, organization.id, source='user', user_id=current_user.id, copy_from_main=True
+            )
+            await self.build_service.add_to_build(db, build.id, instruction.id, new_version.id)
+            await db.commit()
+            await self._auto_finalize_build(db, build, current_user, user_permissions)
+            cur_text = promote_text
+
+        # 2) Reconcile the source suggestion build against what's left pending.
+        if build_id:
+            src_build = await self.build_service.get_build(db, build_id)
+            if src_build and str(src_build.organization_id) == str(organization.id) and not src_build.is_main:
+                if (remaining_text or '').strip() == (cur_text or '').strip():
+                    # Nothing left to propose — drop this instruction from the
+                    # suggestion. Other instructions in the build are untouched.
+                    try:
+                        await self.build_service.remove_from_build(db, build_id, instruction.id)
+                    except Exception:
+                        pass
+                    # The suggestion is fully handled — clear it from the Review feed.
+                    try:
+                        from app.services.review_service import review_service
+                        await review_service.resolve_for_instruction(
+                            db, organization_id=str(organization.id), instruction_id=str(instruction.id),
+                        )
+                    except Exception:
+                        pass
+                else:
+                    # Persist the shrunken proposal so the remaining hunks keep
+                    # showing (diffed against the new current text).
+                    rem_version = await _mk_version(remaining_text)
+                    await self.build_service.add_to_build(db, build_id, instruction.id, rem_version.id)
+                    await db.commit()
+
+        return await self.get_instruction(db, instruction.id, organization, current_user)
+
     async def enhance_instruction(
         self, 
         db: AsyncSession, 
@@ -1787,7 +1879,7 @@ class InstructionService:
         """Handle owner editing their own private instruction"""
 
         # Owner can only edit text/title/category/toggles. Ignore any status changes silently.
-        allowed_fields = ['text', 'title', 'category', 'is_seen', 'can_user_toggle']
+        allowed_fields = ['text', 'title', 'category', 'kind', 'is_seen', 'can_user_toggle']
         
         # Apply allowed changes only (ignore status/private/global fields if present)
         for field in allowed_fields:
@@ -2107,6 +2199,7 @@ class InstructionService:
                     source_git_commit_sha=getattr(inst, "source_git_commit_sha", None),
                     source_sync_enabled=getattr(inst, "source_sync_enabled", True) if getattr(inst, "source_sync_enabled", None) is not None else True,
                     load_mode=getattr(inst, "load_mode", "always") or "always",
+                    kind=getattr(inst, "kind", "instruction") or "instruction",
                     title=getattr(inst, "title", None),
                     structured_data=getattr(inst, "structured_data", None),
                     formatted_content=getattr(inst, "formatted_content", None),
@@ -2115,6 +2208,64 @@ class InstructionService:
                 )
             )
         
+        # Batch-populate current_build_{id,status} so the list can show a
+        # "Pending review" status. A build snapshots the whole instruction set,
+        # so mere membership in a non-main draft/pending build is NOT a real
+        # change — mirror GET /instructions/{id}/pending-builds and only count
+        # builds whose instruction version DIFFERS from the main build's version
+        # (or where the instruction isn't in main at all, i.e. created in a draft).
+        if list_items:
+            try:
+                from app.models.instruction_build import InstructionBuild
+                from app.models.build_content import BuildContent
+                inst_ids = [it.id for it in list_items]
+                # main build version per instruction
+                main_rows = await db.execute(
+                    select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+                    .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                    .where(
+                        BuildContent.instruction_id.in_(inst_ids),
+                        InstructionBuild.organization_id == str(organization.id),
+                        InstructionBuild.is_main == True,  # noqa: E712
+                        InstructionBuild.deleted_at == None,  # noqa: E711
+                        BuildContent.deleted_at == None,  # noqa: E711
+                    )
+                )
+                main_ver: dict = {str(iid): vid for iid, vid in main_rows.all()}
+                # non-main draft/pending builds, newest first
+                build_rows = await db.execute(
+                    select(
+                        BuildContent.instruction_id,
+                        InstructionBuild.id,
+                        InstructionBuild.status,
+                        BuildContent.instruction_version_id,
+                    )
+                    .join(InstructionBuild, BuildContent.build_id == InstructionBuild.id)
+                    .where(
+                        BuildContent.instruction_id.in_(inst_ids),
+                        InstructionBuild.organization_id == str(organization.id),
+                        InstructionBuild.is_main == False,  # noqa: E712
+                        InstructionBuild.status.in_(['draft', 'pending_approval']),
+                        InstructionBuild.deleted_at == None,  # noqa: E711
+                        BuildContent.deleted_at == None,  # noqa: E711
+                    )
+                    .order_by(InstructionBuild.created_at.desc())
+                )
+                latest_by_inst: dict = {}
+                for inst_id, b_id, b_status, ver_id in build_rows.all():
+                    key = str(inst_id)
+                    mv = main_ver.get(key)
+                    if mv is not None and ver_id == mv:
+                        continue  # inherited the main version — not a real pending change
+                    if key not in latest_by_inst:  # rows are newest-first
+                        latest_by_inst[key] = (str(b_id), b_status)
+                for it in list_items:
+                    hit = latest_by_inst.get(str(it.id))
+                    if hit:
+                        it.current_build_id, it.current_build_status = hit
+            except Exception as e:
+                logger.warning(f"Failed to batch-resolve current builds for instruction list: {e}")
+
         # Post-filter by per-user table accessibility (user_data_source_tables overlay).
         # Excludes instructions whose table references are ALL inaccessible to the user.
         if current_user:
@@ -2668,6 +2819,18 @@ class InstructionService:
 
             # Single commit for all deferred audit logs from submit/approve/promote
             await db.commit()
+
+            # Surface non-admin / AI suggestions in the admin Review feed (one
+            # item per changed instruction × attached agent). Never block.
+            if not is_admin and getattr(build, "source", "user") in ("user", "ai"):
+                try:
+                    from app.services.review_producers import emit_instruction_suggestions_for_build
+                    await emit_instruction_suggestions_for_build(
+                        db, str(build.organization_id), build,
+                        why="A non-admin proposed this instruction change — review and accept or run an eval.",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"review: failed to emit suggestion for build {build.id}: {e}")
             return True
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")

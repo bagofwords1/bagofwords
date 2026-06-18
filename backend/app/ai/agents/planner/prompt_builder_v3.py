@@ -199,6 +199,7 @@ PLAN TYPE GUIDANCE
 - After inspect_data, move to create_data to generate the actual tracked insight.
 - If schemas are empty/insufficient OR the request is ambiguous, call the clarify tool.
 - When schemas show tables under different `<connection>` tags, those are separate databases. Queries CANNOT join across connections.
+- Each `<data_source>` may carry a `<status>` block describing its publishing status (published/draft/disabled), with a short explanation. Factor this in: if a source is a draft, note it's still being configured rather than finalized; if it's disabled, don't rely on it. Treat published sources as ready for normal use.
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.

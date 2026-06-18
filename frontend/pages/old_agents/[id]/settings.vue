@@ -637,7 +637,7 @@ async function confirmDelete() {
     if (!error?.value) {
         toast?.add?.({ title: 'Agent deleted' })
         showDelete.value = false
-        router.push('/agents')
+        router.push('/old_agents')
     } else {
         toast?.add?.({ title: 'Failed to delete', description: String(error.value), color: 'red' })
     }

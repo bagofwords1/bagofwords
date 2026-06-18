@@ -4,7 +4,7 @@
             <div class="w-full max-w-7xl px-4 ps-0 py-4">
 
                 <!-- Back link -->
-                <NuxtLink to="/agents" class="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                <NuxtLink to="/old_agents" class="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
                     <UIcon name="heroicons-chevron-left" class="w-3.5 h-3.5" />
                     All agents
                 </NuxtLink>
@@ -99,6 +99,7 @@
                         <PublishStatusControl
                             :data-source-id="id"
                             :status="integration.publish_status || 'published'"
+                            :reliability-status="integration.reliability_status"
                             @updated="onPublishStatusUpdated"
                         />
                         <UButton
@@ -121,7 +122,7 @@
                         <p class="mt-1.5 text-sm text-gray-500 max-w-sm mx-auto">
                             This agent is private. Contact the owner or an admin to request access.
                         </p>
-                        <NuxtLink to="/agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
+                        <NuxtLink to="/old_agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
                             ← Back to agents
                         </NuxtLink>
                     </div>
@@ -134,7 +135,7 @@
                         <p class="mt-1.5 text-sm text-gray-500 max-w-sm mx-auto">
                             The agent you're looking for doesn't exist or has been removed.
                         </p>
-                        <NuxtLink to="/agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
+                        <NuxtLink to="/old_agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
                             ← Back to agents
                         </NuxtLink>
                     </div>
@@ -221,17 +222,17 @@ const tabs = computed(() =>
 )
 
 function tabTo(tabName: string) {
-    if (!id.value) return '/agents'
-    if (tabName === '') return `/agents/${id.value}`
-    return `/agents/${id.value}/${tabName}`
+    if (!id.value) return '/old_agents'
+    if (tabName === '') return `/old_agents/${id.value}`
+    return `/old_agents/${id.value}/${tabName}`
 }
 
 function isTabActive(tabName: string) {
     const path = route.path
     if (tabName === '') {
-        return path === `/agents/${id.value}` || path === `/agents/${id.value}/`
+        return path === `/old_agents/${id.value}` || path === `/old_agents/${id.value}/`
     }
-    return path === `/agents/${id.value}/${tabName}`
+    return path === `/old_agents/${id.value}/${tabName}`
 }
 
 const tableCount = computed(() =>
@@ -293,9 +294,12 @@ async function saveDesc() {
     }
 }
 
-function onPublishStatusUpdated(value: string) {
+function onPublishStatusUpdated(value: { publish_status: string; reliability_status?: string }) {
     // Optimistic local update; refetch keeps derived views in sync.
-    if (integration.value) integration.value.publish_status = value
+    if (integration.value) {
+        integration.value.publish_status = value.publish_status
+        if (value.reliability_status !== undefined) integration.value.reliability_status = value.reliability_status
+    }
     fetchIntegration()
 }
 

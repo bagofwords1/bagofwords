@@ -50,6 +50,7 @@ class InstructionBase(BaseModel):
     thumbs_up: int = 0
     status: str = "published"  # Content lifecycle: draft | published | archived
     category: str = "general"
+    kind: str = "instruction"  # 'instruction' (normal) | 'skill'
     
     # DEPRECATED: Dual-status lifecycle fields (approval workflow moved to builds)
     private_status: Optional[str] = None    # DEPRECATED - not used
@@ -96,6 +97,7 @@ class InstructionUpdate(BaseModel):
     text: Optional[str] = None
     status: Optional[str] = None
     category: Optional[str] = None
+    kind: Optional[str] = None  # 'instruction' | 'skill'
     private_status: Optional[str] = None
     global_status: Optional[str] = None
     is_seen: Optional[bool] = None
@@ -190,6 +192,7 @@ class InstructionListSchema(BaseModel):
     text: str
     status: str
     category: str
+    kind: str = "instruction"  # 'instruction' (normal) | 'skill'
     user_id: Optional[str] = None
     user: Optional[UserSchema] = None
     organization_id: str
@@ -217,6 +220,10 @@ class InstructionListSchema(BaseModel):
 
     # === Build System fields ===
     current_version_id: Optional[str] = None
+    # In-flight (non-main) build for this instruction, if any, so the list can
+    # derive a "Pending review" status the same way the detail view does.
+    current_build_id: Optional[str] = None
+    current_build_status: Optional[str] = None
 
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []
