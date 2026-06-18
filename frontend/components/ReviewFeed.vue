@@ -17,19 +17,19 @@
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Close" @click="$emit('close')"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
       </div>
-      <!-- Filters -->
-      <div class="mt-3 flex items-center gap-2 flex-wrap">
+      <!-- Filters (compact) -->
+      <div class="mt-2.5 flex items-center gap-1.5 flex-wrap">
         <div class="relative">
-          <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-          <input v-model="search" type="text" placeholder="Search…" class="h-8 w-48 pl-8 pr-2 text-[13px] bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400" />
+          <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+          <input v-model="search" type="text" placeholder="Search…" class="h-7 w-40 pl-7 pr-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400" />
         </div>
         <!-- Agent filter -->
         <UPopover :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
-          <button type="button" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-gray-200 text-[13px] text-gray-700 hover:bg-gray-50">
-            <DataSourceIcon v-if="agentFilter" :type="agentTypeOf(agentFilter)" class="w-3.5 h-3.5" />
-            <UIcon v-else name="i-heroicons-cube" class="w-3.5 h-3.5 text-gray-400" />
+          <button type="button" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-gray-200 text-xs text-gray-600 hover:bg-gray-50">
+            <DataSourceIcon v-if="agentFilter" :type="agentTypeOf(agentFilter)" class="w-3 h-3" />
+            <UIcon v-else name="i-heroicons-cube" class="w-3 h-3 text-gray-400" />
             {{ agentFilter ? agentNameOf(agentFilter) : 'All agents' }}
-            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-60" />
+            <UIcon name="i-heroicons-chevron-down" class="w-2.5 h-2.5 opacity-60" />
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-56 max-h-72 overflow-auto">
@@ -39,14 +39,14 @@
           </template>
         </UPopover>
         <!-- Type filter chips -->
-        <button v-for="t in typeChips" :key="t.value" class="inline-flex items-center gap-1 h-8 px-2.5 rounded-md border text-[12px] font-medium transition-colors"
-                :class="typeFilter === t.value ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+        <button v-for="t in typeChips" :key="t.value" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium transition-colors"
+                :class="typeFilter === t.value ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-500 hover:bg-gray-50'"
                 @click="typeFilter = (typeFilter === t.value ? null : t.value)">
-          <UIcon :name="t.icon" class="w-3.5 h-3.5" />{{ t.label }}
+          <UIcon :name="t.icon" class="w-3 h-3" />{{ t.label }}
         </button>
         <span class="flex-1"></span>
-        <button class="inline-flex items-center gap-1 h-8 px-2.5 rounded-md text-[12px] font-medium transition-colors" :class="showResolved ? 'text-gray-700 bg-gray-100' : 'text-gray-400 hover:bg-gray-50'" @click="showResolved = !showResolved">
-          <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5" />Resolved
+        <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium transition-colors" :class="showResolved ? 'text-gray-700 bg-gray-100' : 'text-gray-400 hover:bg-gray-50'" @click="showResolved = !showResolved">
+          <UIcon name="i-heroicons-check-circle" class="w-3 h-3" />Resolved
         </button>
       </div>
     </div>
@@ -54,10 +54,15 @@
     <!-- List -->
     <div class="flex-1 min-h-0 overflow-y-auto">
       <div v-if="loading && !items.length" class="flex items-center justify-center py-20 text-gray-400"><UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin" /></div>
-      <div v-else-if="!filtered.length" class="flex flex-col items-center justify-center py-24 text-center px-6">
-        <div class="w-12 h-12 rounded-xl bg-gray-50 ring-1 ring-gray-200/70 flex items-center justify-center"><UIcon name="i-heroicons-check-circle" class="w-6 h-6 text-gray-300" /></div>
-        <p class="mt-3 text-sm font-medium text-gray-700">You're all caught up</p>
-        <p class="mt-1 text-xs text-gray-400 max-w-xs">Nothing needs review{{ agentFilter ? ' for this agent' : '' }}. New suggestions, schema changes and quality signals will land here.</p>
+      <div v-else-if="!filtered.length" class="flex-1 flex items-center justify-center px-6">
+        <div class="relative w-full max-w-md h-64 overflow-hidden">
+          <img src="/assets/empty-states/review-empty.png" alt="" class="absolute inset-x-0 bottom-6 w-full opacity-80 select-none pointer-events-none" />
+          <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
+            <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-gray-400" /></div>
+            <h3 class="mt-3 text-base font-medium text-gray-900">You're all caught up</h3>
+            <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">Nothing needs review{{ agentFilter ? ' for this agent' : '' }}. New suggestions, schema changes and quality signals will land here.</p>
+          </div>
+        </div>
       </div>
       <ul v-else class="divide-y divide-gray-100">
         <li v-for="it in filtered" :key="it.id"

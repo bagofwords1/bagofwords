@@ -70,9 +70,11 @@
             <EmptyHint v-if="skillCount === 0" text="No skills yet." />
             <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
           </TreeGroup>
-          <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 px-2"
-                  :class="reviewView ? 'bg-gray-100 text-gray-900' : 'text-gray-700 hover:bg-gray-100'"
+          <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0"
+                  style="padding-left:6px;padding-right:8px"
+                  :class="reviewView ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'"
                   @click="openReview(null)">
+            <span class="w-3 shrink-0"></span>
             <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 shrink-0" />
             <span class="flex-1 text-left truncate">Review</span>
             <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 text-amber-700 tabular-nums">{{ reviewCount }}</span>
@@ -599,7 +601,7 @@
       </section>
 
       <!-- ── Pane 3: Versions + suggestions ──────────── -->
-      <aside v-if="detail && !creating && showHistory" class="w-64 shrink-0 border-l border-gray-200 flex flex-col">
+      <aside v-if="detail && !creating && showHistory && !reviewView" class="w-64 shrink-0 border-l border-gray-200 flex flex-col">
         <div class="flex-1 overflow-y-auto">
           <!-- Suggested changes (pending builds) -->
           <template v-if="pendingBuilds.length">
@@ -1544,7 +1546,7 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); creating.value = false; bottomTab.value = 'details'
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); creating.value = false; bottomTab.value = 'details'
   selectedId.value = ins.id; detail.value = ins; editing.value = false
   syncDraft(ins); loadVersions(ins.id)
   try {
