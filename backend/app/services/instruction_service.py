@@ -1059,8 +1059,225 @@ class InstructionService:
 
         return await self.get_instruction(db, instruction.id, organization, current_user)
 
+    # ── Per-hunk tracked changes (immutable cherry-pick model) ────────────────
+    async def _pending_suggestion_builds(self, db: AsyncSession, instruction_id: str, organization: Organization):
+        """Non-main draft/pending builds (user|ai|git) that contain this
+        instruction, newest first. Each is an immutable suggestion snapshot."""
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
+        rows = (await db.execute(
+            select(InstructionBuild, _IV.text, _IV.id)
+            .join(BuildContent, BuildContent.build_id == InstructionBuild.id)
+            .join(_IV, _IV.id == BuildContent.instruction_version_id)
+            .options(selectinload(InstructionBuild.created_by_user))
+            .where(
+                BuildContent.instruction_id == instruction_id,
+                InstructionBuild.organization_id == str(organization.id),
+                InstructionBuild.is_main == False,  # noqa: E712
+                InstructionBuild.deleted_at == None,  # noqa: E711
+                InstructionBuild.status.in_(["draft", "pending_approval"]),
+                InstructionBuild.source.in_(["user", "ai", "git"]),
+            )
+            .order_by(InstructionBuild.created_at.desc())
+        )).all()
+        return rows
+
+    async def _main_text_of(self, db: AsyncSession, instruction):
+        """Current live (main) text + version id of an instruction, read
+        AUTHORITATIVELY from the is_main build's content. (Instruction.current_
+        version_id is updated by promote via raw SQL and can be stale in a cached
+        session; the is_main build query always reflects committed state.)"""
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
+        row = (await db.execute(
+            select(_IV.id, _IV.text)
+            .join(BuildContent, BuildContent.instruction_version_id == _IV.id)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .where(
+                InstructionBuild.is_main == True,  # noqa: E712
+                InstructionBuild.organization_id == str(instruction.organization_id),
+                InstructionBuild.deleted_at == None,  # noqa: E711
+                BuildContent.instruction_id == str(instruction.id),
+            ).limit(1)
+        )).first()
+        if row:
+            main_vid = str(row[0])
+            meta_src = await self.version_service.get_version(db, main_vid)
+            return (row[1] or ""), main_vid, meta_src
+        # Fallback: no main build content (legacy) — use the cached row / version.
+        meta_src = None
+        if instruction.current_version_id:
+            meta_src = await self.version_service.get_version(db, instruction.current_version_id)
+        main_text = (meta_src.text if meta_src else getattr(instruction, "text", "")) or ""
+        main_vid = str(instruction.current_version_id) if instruction.current_version_id else None
+        return main_text, main_vid, meta_src
+
+    @staticmethod
+    def _rejected_keys(build, instruction_id: str) -> set:
+        return {
+            r.get("key")
+            for r in (getattr(build, "rejected_hunks", None) or [])
+            if r.get("instruction_id") == str(instruction_id)
+        }
+
+    async def _build_base_text(self, db: AsyncSession, build, instruction_id: str) -> str:
+        """Text of `instruction_id` in this build's base (what the suggestion
+        forked from). '' if no base / instruction absent from base (added new)."""
+        base_id = getattr(build, "base_build_id", None)
+        if not base_id:
+            return ""
+        txt = await self._build_instruction_text(db, str(base_id), instruction_id)
+        return txt or ""
+
+    async def review_hunks(self, db: AsyncSession, instruction_id: str, *, organization: Organization, current_user: User):
+        """Per-instruction tracked changes. For each pending suggestion, compute
+        its INTENT hunks (diff base->proposed), then keep only those that (a)
+        aren't rejected, (b) apply cleanly onto current main (no conflict), and
+        (c) actually change main (not already applied). Each surfaced hunk is
+        rendered against current main so the UI overlays it on live text."""
+        from app.services.text_hunks import compute_hunks, apply_hunk_onto, diff_word_ops
+        from app.models.agent_execution import AgentExecution
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None
+        main_text, main_vid, _meta = await self._main_text_of(db, instruction)
+        rows = await self._pending_suggestion_builds(db, instruction_id, organization)
+        suggestions = []
+        for build, proposed_text, proposed_vid in rows:
+            rejected = self._rejected_keys(build, instruction_id)
+            base_text = await self._build_base_text(db, build, instruction_id)
+            shown = []
+            for h in compute_hunks(base_text, proposed_text or ""):
+                if h.key in rejected:
+                    continue
+                new_main, ok = apply_hunk_onto(base_text, main_text, h)
+                if not ok or new_main == main_text:
+                    continue  # conflict, or already applied to main
+                ops = diff_word_ops(main_text, new_main)
+                before = "".join(t for ty, t in ops if ty == -1)
+                after = "".join(t for ty, t in ops if ty == 1)
+                shown.append({"key": h.key, "before": before, "after": after,
+                              "ops": [{"type": ty, "text": t} for ty, t in ops]})
+            if not shown:
+                continue
+            trace = None
+            if getattr(build, "agent_execution_id", None):
+                ex = (await db.execute(
+                    select(AgentExecution.report_id, AgentExecution.completion_id)
+                    .where(AgentExecution.id == str(build.agent_execution_id))
+                )).first()
+                if ex:
+                    trace = {"report_id": str(ex[0]) if ex[0] else None, "completion_id": str(ex[1]) if ex[1] else None}
+            creator = getattr(build, "created_by_user", None)
+            suggestions.append({
+                "build_id": str(build.id),
+                "build_number": build.build_number,
+                "source": build.source,
+                "created_at": build.created_at.isoformat() if build.created_at else None,
+                "created_by": ({"id": str(creator.id), "name": getattr(creator, "name", None) or getattr(creator, "email", None)} if creator else None),
+                "proposed_version_id": str(proposed_vid),
+                "message": build.description,
+                "report_id": (trace or {}).get("report_id"),
+                "completion_id": (trace or {}).get("completion_id"),
+                "hunks": shown,
+            })
+        return {"main_version_id": main_vid, "main_text": main_text, "suggestions": suggestions}
+
+    async def accept_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
+                          against_main_version_id: Optional[str], organization: Organization, current_user: User):
+        """Cherry-pick one hunk of a suggestion onto main: create a NEW build =
+        main + that hunk and promote it. The suggestion build is never mutated;
+        because main then contains the change, the hunk drops out of its review."""
+        from app.services.text_hunks import compute_hunks, apply_hunk_onto
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None, "not_found"
+        main_text, main_vid, meta_src = await self._main_text_of(db, instruction)
+        # Optimistic concurrency: the client diffed against a specific main.
+        if against_main_version_id and main_vid and str(against_main_version_id) != str(main_vid):
+            return None, "conflict"
+        build = await self.build_service.get_build(db, build_id)
+        if not build or str(build.organization_id) != str(organization.id):
+            return None, "not_found"
+        proposed = await self._build_instruction_text(db, build_id, instruction_id)
+        if proposed is None:
+            return None, "not_found"
+        base_text = await self._build_base_text(db, build, instruction_id)
+        hunk = next((h for h in compute_hunks(base_text, proposed) if h.key == hunk_key), None)
+        if hunk is None:
+            return None, "conflict"
+        new_text, ok = apply_hunk_onto(base_text, main_text, hunk)
+        if not ok:
+            return None, "conflict"
+        if new_text == main_text:
+            return await self.get_instruction(db, instruction.id, organization, current_user), "noop"
+        # Promote new build-of-one (only this instruction changes; rest inherit main).
+        new_version = await self.version_service.create_version_from_data(
+            db, instruction_id=instruction.id, text=new_text,
+            title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
+            structured_data=(meta_src.structured_data if meta_src else None), formatted_content=None,
+            status=(meta_src.status if meta_src else "published") or "published",
+            load_mode=(meta_src.load_mode if meta_src else getattr(instruction, "load_mode", "always")) or "always",
+            references_json=(meta_src.references_json if meta_src else None),
+            data_source_ids=(meta_src.data_source_ids if meta_src else None),
+            label_ids=(meta_src.label_ids if meta_src else None),
+            category_ids=(meta_src.category_ids if meta_src else None),
+            user_id=current_user.id,
+        )
+        new_build = await self.build_service.create_build(db, organization.id, source="user", user_id=current_user.id, copy_from_main=True)
+        await self.build_service.add_to_build(db, new_build.id, instruction.id, new_version.id)
+        await db.commit()
+        await self._auto_finalize_build(db, new_build, current_user, user_permissions)
+        # Record the accepted hunk on the SOURCE suggestion as resolved, so it
+        # stays resolved even if main later drifts around its anchor (the build's
+        # content snapshot is untouched — this is review metadata only).
+        await self._record_resolved_hunk(db, build, instruction_id, hunk_key, "accept")
+        return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
+
+    async def _record_resolved_hunk(self, db: AsyncSession, build, instruction_id: str, hunk_key: str, action: str):
+        from sqlalchemy.orm.attributes import flag_modified
+        rej = list(build.rejected_hunks or [])
+        if not any(r.get("key") == hunk_key and r.get("instruction_id") == str(instruction_id) for r in rej):
+            rej.append({"instruction_id": str(instruction_id), "key": hunk_key, "action": action})
+            build.rejected_hunks = rej
+            flag_modified(build, "rejected_hunks")
+            await db.commit()
+
+    async def reject_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
+                          organization: Organization, current_user: User):
+        """Record a hunk as rejected on the suggestion build (the only persisted
+        per-hunk state). The build's content snapshot is left immutable."""
+        build = await self.build_service.get_build(db, build_id)
+        if not build or str(build.organization_id) != str(organization.id) or build.is_main:
+            return None, "not_found"
+        await self._record_resolved_hunk(db, build, instruction_id, hunk_key, "reject")
+        # If nothing remains pending for this instruction across all builds, clear
+        # it from the Review feed.
+        try:
+            remaining = await self.review_hunks(db, instruction_id, organization=organization, current_user=current_user)
+            if remaining and not remaining.get("suggestions"):
+                from app.services.review_service import review_service
+                await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
+        except Exception:
+            pass
+        return await self.get_instruction(db, instruction_id, organization, current_user), "ok"
+
+    async def _build_instruction_text(self, db: AsyncSession, build_id: str, instruction_id: str) -> Optional[str]:
+        """Text of `instruction_id`'s version inside `build_id` (the proposed snapshot)."""
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
+        row = (await db.execute(
+            select(_IV.text).join(BuildContent, BuildContent.instruction_version_id == _IV.id)
+            .where(BuildContent.build_id == build_id, BuildContent.instruction_id == instruction_id)
+            .limit(1)
+        )).first()
+        return (row[0] or "") if row else None
+
     async def enhance_instruction(
-        self, 
+        self,
         db: AsyncSession, 
         instruction_data: InstructionCreate, 
         organization: Organization,

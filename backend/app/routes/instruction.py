@@ -691,6 +691,99 @@ async def resolve_instruction_suggestion(
     return resolved
 
 
+# ==================== Per-hunk tracked changes (cherry-pick model) ===========
+
+@router.get("/instructions/{instruction_id}/review-hunks")
+async def get_instruction_review_hunks(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Server-authoritative tracked changes for an instruction: every pending
+    suggestion as word-level hunks diffed against current main (rejected hunks
+    filtered out). The unit of accept/reject is the hunk."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    result = await instruction_service.review_hunks(db, instruction_id, organization=organization, current_user=current_user)
+    if result is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return result
+
+
+class AcceptHunkRequest(BaseModel):
+    build_id: str
+    hunk_key: str
+    against_main_version_id: Optional[str] = None
+
+
+class RejectHunkRequest(BaseModel):
+    build_id: str
+    hunk_key: str
+
+
+@router.post("/instructions/{instruction_id}/hunks/accept", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def accept_instruction_hunk(
+    instruction_id: str,
+    body: AcceptHunkRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Cherry-pick one hunk of a suggestion onto main (new immutable build)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+    resolved, status = await instruction_service.accept_hunk(
+        db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
+        against_main_version_id=body.against_main_version_id,
+        organization=organization, current_user=current_user,
+    )
+    if status == "conflict":
+        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
+@router.post("/instructions/{instruction_id}/hunks/reject", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def reject_instruction_hunk(
+    instruction_id: str,
+    body: RejectHunkRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Reject one hunk of a suggestion (records it; build snapshot stays immutable)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+    resolved, _status = await instruction_service.reject_hunk(
+        db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
+        organization=organization, current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
 # ==================== Pending Builds (Tracked Changes) ====================
 
 from sqlalchemy import select, and_
