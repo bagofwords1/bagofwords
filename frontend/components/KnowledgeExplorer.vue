@@ -1322,17 +1322,36 @@ function applyHunks(ops: any[], acceptIdxs: Set<number>) {
   }
   return out
 }
+// Rebase a suggestion's *intended change* (base_text -> pending_text) onto the
+// current text via a 3-way merge, so a still-valid sibling stays applicable
+// after another sibling was accepted (current advanced past its base) and we
+// never render spurious "re-add removed text" hunks. Falls back to the raw
+// pending text when no base was recorded (legacy/new-from-scratch).
+function rebaseSuggestion(baseText: string | null | undefined, pendingText: string, current: string): string {
+  if (baseText == null) return pendingText            // no base → full snapshot
+  if (baseText === pendingText) return current        // no intended change
+  if (baseText === current) return pendingText         // fresh → trivial
+  try {
+    const patches = dmpLib.patch_make(baseText, pendingText)
+    if (!patches.length) return current
+    const [merged] = dmpLib.patch_apply(patches, current)
+    return merged
+  } catch { return pendingText }
+}
+const mergedTextFor = (pb: any) => rebaseSuggestion(pb?.base_text, pb?.pending_text || '', detail.value?.text || '')
 const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0)
 const pendingViews = computed(() => {
   const cur = detail.value?.text || ''
-  return pendingBuilds.value.map((pb: any) => ({ build: pb, ...computeBuildHunks(cur, pb.pending_text || '') }))
+  return pendingBuilds.value
+    .map((pb: any) => { const merged = rebaseSuggestion(pb.base_text, pb.pending_text || '', cur); return { build: pb, merged, ...computeBuildHunks(cur, merged) } })
+    .filter((v: any) => v.hunks.length > 0)   // drop suggestions already applied to current (rebased no-op)
 })
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.
 const mergedSegments = computed(() => {
   const cur = detail.value?.text || ''
   const all: any[] = []
-  for (const v of pendingViews.value) for (const h of v.hunks) all.push({ ...h, buildId: v.build.build_id, build: v.build, buildOps: v.ops })
+  for (const v of pendingViews.value) for (const h of v.hunks) all.push({ ...h, buildId: v.build.build_id, build: v.build, buildOps: v.ops, merged: v.merged })
   all.sort((a, b) => a.start - b.start || 0)
   const segs: any[] = []
   let cursor = 0
@@ -1367,13 +1386,16 @@ const doResolveFor = async (buildId: string, promoteText: string, remainingText:
   } catch (e: any) { toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' }) } finally { resolving.value = null }
 }
 function hunkCountOf(ops: any[]) { let hc = 0, inH = false; for (const o of ops) { if (o.type === 0) inH = false; else { if (!inH) { hc++; inH = true } } } return hc }
-const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), seg.build.pending_text || '', `${seg.buildId}:${seg.idx}`)
+// Hunks/ops are all computed against the rebased ("merged") text, so promote =
+// current + accepted hunk and remaining = the rebased full suggestion (the
+// reload re-rebases and drops the now-applied hunk).
+const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), seg.merged ?? mergedTextFor(seg.build), `${seg.buildId}:${seg.idx}`)
 const rejectMergedHunk = (seg: any) => {
   const keep = new Set<number>(); const hc = hunkCountOf(seg.buildOps)
   for (let i = 0; i < hc; i++) if (i !== seg.idx) keep.add(i)
   doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keep), `${seg.buildId}:${seg.idx}`)
 }
-const acceptSource = (pb: any) => { closeDiff(); doResolveFor(pb.build_id, pb.pending_text || '', pb.pending_text || '', `src:${pb.build_id}`) }
+const acceptSource = (pb: any) => { const m = mergedTextFor(pb); closeDiff(); doResolveFor(pb.build_id, m, m, `src:${pb.build_id}`) }
 const rejectSource = (pb: any) => { closeDiff(); doResolveFor(pb.build_id, detail.value?.text || '', detail.value?.text || '', `src:${pb.build_id}`) }
 const scrollToBuild = (buildId: string) => {
   highlightBuild.value = buildId
@@ -1422,7 +1444,7 @@ const viewVersion = async (v: any, isCurrent: boolean) => {
 }
 const viewSuggestion = (pb: any) => {
   activeSuggestion.value = pb
-  diff.value = { title: pb.source === 'ai' ? 'AI suggestion' : 'Proposed change', label: `v${pb.pending_version_number}`, original: detail.value?.text || '', modified: pb.pending_text || '', buildId: pb.build_id, versionId: null }
+  diff.value = { title: pb.source === 'ai' ? 'AI suggestion' : 'Proposed change', label: `v${pb.pending_version_number}`, original: detail.value?.text || '', modified: mergedTextFor(pb), buildId: pb.build_id, versionId: null }
   // Reset any prior run view and lazily load eval suites for the run strip.
   evalActiveRun.value = null; evalResults.value = []; stopEvalPoll()
   fetchEvalSuites()

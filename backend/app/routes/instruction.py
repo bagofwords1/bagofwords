@@ -392,14 +392,13 @@ async def get_pending_change_instruction_ids(
         if base_id:
             base_vid = base_version.get((base_id, i_id))
             really_changed = (base_vid != v_id) if base_vid is not None else True
-            # Fresh: forked from the current state of this instruction. A stale
-            # build (current advanced since it forked) is superseded — exclude it.
-            fresh = True if base_vid is None else (base_vid == main_version.get(i_id))
         else:
             really_changed = (i_id not in main_version) or (main_version.get(i_id) != v_id)
-            fresh = True
-        if not really_changed or not fresh:
+        if not really_changed:
             continue
+        # A stale sibling (base behind current) is still a real pending change —
+        # the per-instruction view rebases its intended change onto current. We
+        # no longer exclude it on freshness; only genuine no-ops below drop out.
         if (i_id, v_id) in superseded_pairs:
             continue  # intermediate snapshot of a chained edit — leaf covers it
         if i_id in main_text and (v_text or "") == main_text[i_id]:
@@ -792,6 +791,32 @@ async def get_instruction_pending_builds(
         for b_id, v_id in base_rows:
             base_version_by_build[str(b_id)] = str(v_id)
 
+    # Text of each base version, so the client can rebase a suggestion's
+    # *intended change* (base_text -> pending_text) onto the current text rather
+    # than diffing the full snapshot. This keeps a still-valid sibling suggestion
+    # applicable after another sibling was accepted (main advanced past its
+    # base), and avoids spurious "re-add removed text" hunks.
+    base_text_by_vid: dict = {}
+    base_vids = [v for v in base_version_by_build.values() if v]
+    if base_vids:
+        bt_rows = (
+            await db.execute(
+                select(InstructionVersion.id, InstructionVersion.text)
+                .where(InstructionVersion.id.in_(base_vids))
+            )
+        ).all()
+        for v_id, txt in bt_rows:
+            base_text_by_vid[str(v_id)] = txt or ""
+
+    def _base_text_for(build) -> str:
+        base_id = getattr(build, "base_build_id", None)
+        if not base_id:
+            return ""  # no base → suggestion adds the instruction from scratch
+        base_vid = base_version_by_build.get(str(base_id))
+        if base_vid is None:
+            return ""  # instruction not present in base → newly added here
+        return base_text_by_vid.get(str(base_vid), "")
+
     # Supersede chained edits: if pending build A forked from pending build B
     # (a chain v15 -> v16 -> v17 from sequential chat edits), then B is an
     # intermediate snapshot fully contained in A. Showing both produces
@@ -812,20 +837,6 @@ async def get_instruction_pending_builds(
             return True  # not present in base → newly added in this build
         # No recorded base → fall back to comparing against current main.
         return main_version_id is None or str(version.id) != str(main_version_id)
-
-    def _build_fresh(build) -> bool:
-        """True if the build forked from the CURRENT state of this instruction —
-        i.e. its base's version of the instruction equals current main's. A stale
-        build (current advanced since it forked) is no longer a clean, applicable
-        suggestion: its full-text snapshot would diff against current as drift
-        (re-adding removed text, etc.), so we exclude it (it's superseded)."""
-        base_id = getattr(build, "base_build_id", None)
-        if not base_id:
-            return True  # no base recorded → treat as fresh (legacy/manual)
-        base_vid = base_version_by_build.get(str(base_id))
-        if base_vid is None:
-            return True  # instruction not in base → newly added → fresh
-        return str(base_vid) == str(main_version_id)
 
     # Resolve the originating report for AI suggestions, so the UI can show a
     # "generated from <report>" provenance link on each suggestion. The chain is
@@ -851,16 +862,15 @@ async def get_instruction_pending_builds(
         # Only builds that intentionally changed THIS instruction (vs their base).
         if not _build_changed_instruction(build, version):
             continue
-        # Only FRESH builds (forked from the current state) — stale ones are
-        # superseded once the instruction was promoted past their base.
-        if not _build_fresh(build):
-            continue
         # Skip intermediate snapshots of a chained edit — only the leaf (the
         # build no other pending build forked from) is a real suggestion.
         if str(version.id) in superseded_versions:
             continue
         # Skip suggestions whose text already matches the live (main) text —
-        # there is nothing to review (already applied / no-op leftover).
+        # there is nothing to review (already applied / no-op leftover). A
+        # *stale* sibling (base behind current) keeps a different snapshot, so
+        # this no longer hides it — the client rebases its intended change
+        # (base_text -> pending_text) onto current text instead.
         if main_text is not None and (version.text or "") == (main_text or ""):
             continue
         creator = getattr(build, "created_by_user", None)
@@ -878,6 +888,10 @@ async def get_instruction_pending_builds(
             "pending_version_id": str(version.id),
             "pending_version_number": version.version_number,
             "pending_text": version.text or "",
+            # The text this suggestion forked from — lets the client rebase the
+            # intended change onto current text (3-way merge) so siblings stay
+            # applicable after one is accepted.
+            "base_text": _base_text_for(build),
             "pending_title": version.title,
             # Build-level "commit message": auto-generated summary + free-text rationale.
             "build_title": build.title,

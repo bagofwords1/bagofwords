@@ -140,7 +140,6 @@ async def _changed_instructions_for_build(db, organization_id, build, superseded
         select(BuildContent.instruction_id, BuildContent.instruction_version_id)
         .where(BuildContent.build_id == str(build.id))
     )).all()
-    has_base = bool(getattr(build, "base_build_id", None))
     out: List[Tuple[str, List[str]]] = []
     for i, v in contents:
         i, v = str(i), str(v)
@@ -148,10 +147,9 @@ async def _changed_instructions_for_build(db, organization_id, build, superseded
         changed = (base != v) if base is not None else (main_v.get(i) != v)
         if not changed:
             continue
-        # Fresh: forked from the instruction's current state. A stale build
-        # (current advanced past its base) is superseded — don't surface it.
-        if has_base and base is not None and base != main_v.get(i):
-            continue
+        # A stale sibling (base behind current) is still a real pending change:
+        # the per-instruction review rebases its intended change onto current,
+        # so we keep surfacing it instead of excluding on freshness.
         # Intermediate snapshot of a chained edit — the leaf build covers it.
         if superseded_pairs and (i, v) in superseded_pairs:
             continue

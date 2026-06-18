@@ -2701,19 +2701,20 @@ class InstructionService:
                     .where(BuildContent.build_id.in_(base_ids), BuildContent.instruction_id == iid)
                 )).all():
                     base_vmap[str(b_id)] = str(v_id)
-            # Pick the latest build that is a REAL, FRESH, non-no-op change — the
-            # same rule the Review feed uses, so the status doesn't get stuck on a
-            # stale leftover build after the instruction was promoted.
+            # Pick the latest build that is a REAL, non-no-op change — the same
+            # rule the Review feed uses, so the status doesn't get stuck on a
+            # stale leftover build after the instruction was promoted. A stale
+            # sibling (base behind current) still counts as pending: its intended
+            # change is rebased onto current in the review, so we don't exclude
+            # it on freshness here either.
             for bid, st, base, vid, vtext in cand:
                 vid = str(vid)
                 if base:
                     base_vid = base_vmap.get(str(base))
                     changed = True if base_vid is None else (base_vid != vid)
-                    fresh = True if base_vid is None else (str(base_vid) == (main_vid or ''))
                 else:
                     changed = (main_vid != vid)
-                    fresh = True
-                if not changed or not fresh:
+                if not changed:
                     continue
                 if main_txt is not None and (vtext or '') == (main_txt or ''):
                     continue
