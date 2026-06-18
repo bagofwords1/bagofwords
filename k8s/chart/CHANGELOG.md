@@ -41,5 +41,3 @@ argocd.argoproj.io/sync-options: Replace=true
 - Added: HPA, PodDisruptionBudget, NetworkPolicy, ServiceAccount templates (all disabled by default)
 - Added: strict `values.schema.json` validation
 - Added: configurable probes, `extraEnv`, `extraEnvFrom`, `extraVolumes`, security contexts, sidecars
-- Removed: ServiceMonitor template (not needed)
-- Removed: bundled Postgres subchart replaced by Bitnami postgresql dependency
