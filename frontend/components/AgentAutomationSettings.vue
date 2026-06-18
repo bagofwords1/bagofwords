@@ -68,9 +68,14 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ agentId: string | null; canManage?: boolean }>()
+import { useCan } from '~/composables/usePermissions'
+const props = defineProps<{ agentId: string | null }>()
 const emit = defineEmits<{ (e: 'saved'): void }>()
 const toast = useToast()
+// Real per-agent permission (mirrors PublishStatusControl). NB: do NOT take this
+// as a Boolean prop — Vue defaults an absent Boolean prop to false, which would
+// silently disable every control.
+const canManage = computed(() => props.agentId ? useCan('manage', { type: 'data_source', id: props.agentId }) : false)
 
 const AUTONOMY_OPTS = [
   { value: 'off', label: 'Off' },
@@ -112,7 +117,6 @@ const form = ref<Record<string, any>>(defaultForm())
 const dirty = ref(false)
 const savingSettings = ref(false)
 const savedOk = ref(false)
-const canManage = computed(() => props.canManage !== false)
 
 function markDirty() { dirty.value = true; savedOk.value = false }
 function detectMode(): Mode {
