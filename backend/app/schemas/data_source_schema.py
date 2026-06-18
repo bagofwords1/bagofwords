@@ -154,6 +154,7 @@ class DataSourceSchema(DataSourceBase):
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     # Distinct from is_active (connection health).
     publish_status: str = "published"
+    reliability_status: str = "training"
     use_llm_sync: bool = False
     # Per-channel availability map ({channel_type: bool}). None = available in
     # every connected channel.
@@ -200,6 +201,7 @@ class DataSourceListItemSchema(BaseModel):
     is_public: bool = False
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     publish_status: str = "published"
+    reliability_status: str = "training"
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
@@ -302,6 +304,10 @@ class DataSourceUpdate(DataSourceBase):
     # Manager-set publishing lifecycle. Guarded by the 'manage' resource
     # permission on the data source (see routes/data_source.py).
     publish_status: Optional[str] = None
+    # Manager-set lifecycle/quality stage. Normally automation-driven, but a
+    # manager can override it (the "Production/Training/Development" stage in the
+    # agent status control). Guarded by 'manage' like publish_status.
+    reliability_status: Optional[str] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
     primary_instruction_id: Optional[Union[str, None]] = None  # None = clear, str = set
 
@@ -313,6 +319,16 @@ class DataSourceUpdate(DataSourceBase):
         allowed = {"published", "draft", "disabled"}
         if v not in allowed:
             raise ValueError(f"publish_status must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator('reliability_status')
+    @classmethod
+    def _validate_reliability_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"ok", "training", "development"}
+        if v not in allowed:
+            raise ValueError(f"reliability_status must be one of {sorted(allowed)}")
         return v
 
     # Connection-related fields (will be delegated to Connection update)

@@ -205,7 +205,7 @@
                     </template>
                   </UPopover>
                   <span v-else class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0" :class="agentDetail?.is_public ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-gray-200 bg-gray-50 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
-                  <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" @updated="onAgentPublishUpdated" />
+                  <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" :reliability-status="agentDetail.reliability_status" @updated="onAgentPublishUpdated" />
                   <!-- Auth badges (parity with the legacy agents page) -->
                   <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" text="Runs via the connection's service account (admin/owner fallback) — no personal sign-in needed">
                     <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-emerald-50 text-emerald-700"><UIcon name="i-heroicons-cpu-chip" class="w-2.5 h-2.5" />Service account</span>
@@ -868,9 +868,10 @@ const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
   try { const { data } = await useMyFetch<any>('/reports', { method: 'GET', query: { data_source_id: id, limit: 1, filter: 'published' } }); agentReportCount.value = (data.value as any)?.total ?? 0 } catch {}
 }
-const onAgentPublishUpdated = (val: string) => {
-  if (agentDetail.value) agentDetail.value.publish_status = val
-  const a = agents.value.find(x => x.id === agentView.value?.agentId); if (a) { a.publish_status = val; agents.value = [...agents.value] }
+const onAgentPublishUpdated = (val: { publish_status: string; reliability_status?: string }) => {
+  const apply = (o: any) => { if (!o) return; o.publish_status = val.publish_status; if (val.reliability_status !== undefined) o.reliability_status = val.reliability_status }
+  apply(agentDetail.value)
+  const a = agents.value.find(x => x.id === agentView.value?.agentId); if (a) { apply(a); agents.value = [...agents.value] }
 }
 const setAgentPublic = async (val: boolean) => {
   const id = agentView.value?.agentId; if (!id) return

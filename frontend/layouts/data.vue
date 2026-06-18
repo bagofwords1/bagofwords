@@ -99,6 +99,7 @@
                         <PublishStatusControl
                             :data-source-id="id"
                             :status="integration.publish_status || 'published'"
+                            :reliability-status="integration.reliability_status"
                             @updated="onPublishStatusUpdated"
                         />
                         <UButton
@@ -293,9 +294,12 @@ async function saveDesc() {
     }
 }
 
-function onPublishStatusUpdated(value: string) {
+function onPublishStatusUpdated(value: { publish_status: string; reliability_status?: string }) {
     // Optimistic local update; refetch keeps derived views in sync.
-    if (integration.value) integration.value.publish_status = value
+    if (integration.value) {
+        integration.value.publish_status = value.publish_status
+        if (value.reliability_status !== undefined) integration.value.reliability_status = value.reliability_status
+    }
     fetchIntegration()
 }
 
