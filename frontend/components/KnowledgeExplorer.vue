@@ -397,7 +397,7 @@
             </div>
             <div class="flex items-center gap-1.5">
               <span v-if="savingMeta" class="text-[10px] text-gray-400">Saving…</span>
-              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="showHistory = !showHistory">
+              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="toggleHistory()">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
               <template v-if="!editing && !diff">
@@ -418,7 +418,7 @@
                 <span class="text-xs font-medium text-gray-700">Pending review</span>
                 <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ mergedReviewCount }} change{{ mergedReviewCount === 1 ? '' : 's' }} · {{ pendingBuilds.length }} suggestion{{ pendingBuilds.length === 1 ? '' : 's' }}</span>
               </div>
-              <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Suggestions & version history" @click="showHistory = !showHistory"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Suggestions & version history" @click="toggleHistory()"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
             </div>
             <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
               <div v-if="!mergedReviewCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — all suggestions resolved.</div>
@@ -642,57 +642,49 @@
         </div>
       </section>
 
-      <!-- ── Pane 3: Versions + suggestions ──────────── -->
-      <aside v-if="detail && !creating && showHistory && !reviewView" class="w-64 shrink-0 border-l border-gray-200 flex flex-col">
-        <div class="flex-1 overflow-y-auto">
-          <!-- Suggested changes (pending builds) -->
-          <template v-if="pendingBuilds.length">
-            <div class="h-9 px-3 flex items-center border-b border-gray-100 bg-amber-50/40">
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-amber-600">Suggested changes</span>
-            </div>
-            <div class="p-2 space-y-1 border-b border-gray-100">
-              <div v-for="pb in pendingBuilds" :key="pb.build_id"
-                   class="px-2.5 py-2 rounded-md border transition-colors cursor-pointer"
-                   :class="highlightBuild === pb.build_id ? 'border-amber-300 bg-amber-50' : 'border-transparent hover:bg-amber-50/60'"
-                   @click="scrollToBuild(pb.build_id)">
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-medium text-gray-700">{{ pb.source === 'ai' ? 'AI suggestion' : 'Proposed' }} · v{{ pb.pending_version_number }}</span>
-                  <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 rounded" :class="pb.status === 'pending_approval' ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-100'">{{ pb.status === 'pending_approval' ? 'review' : 'draft' }}</span>
-                </div>
-                <div class="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1 flex-wrap">
-                  <span>{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</span>
-                  <button v-if="pb.completion_id || pb.report_id" class="text-blue-500 hover:underline inline-flex items-center gap-0.5" @click.stop="openTrace(pb)">· trace<UIcon name="i-heroicons-arrows-pointing-out" class="w-2.5 h-2.5" /></button>
-                </div>
-                <div v-if="pb.build_title || pb.message" class="mt-1">
-                  <div v-if="pb.build_title" class="text-[11px] font-medium text-gray-700 truncate">{{ pb.build_title }}</div>
-                  <div v-if="pb.message" class="text-[10px] text-gray-500 mt-0.5 line-clamp-2 whitespace-pre-line">{{ pb.message }}</div>
-                </div>
-                <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5" @click.stop>
-                  <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[10px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="acceptSource(pb)"><UIcon :name="resolving === `src:${pb.build_id}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3 text-green-600', { 'animate-spin': resolving === `src:${pb.build_id}` }]" />Accept all</button>
-                  <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md hover:bg-gray-100 text-[10px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="rejectSource(pb)">Reject</button>
-                  <button class="ml-auto text-[10px] text-amber-700 hover:underline inline-flex items-center gap-0.5" @click="scrollToBuild(pb.build_id)">Locate<UIcon name="i-heroicons-arrow-right" class="w-2.5 h-2.5" /></button>
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <!-- Version history -->
-          <div class="h-9 px-3 flex items-center border-b border-gray-100"><span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Version history</span></div>
-          <div class="p-2 space-y-0.5">
-            <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
-            <div v-else-if="versions.length === 0" class="p-3 text-center text-[11px] text-gray-300">No history yet.</div>
-            <div v-for="(v, i) in versions" :key="v.id"
-                 class="px-2.5 py-2 rounded-md border transition-colors cursor-pointer"
-                 :class="diff && diff.versionId === v.id ? 'border-gray-300 bg-gray-50' : 'border-transparent hover:bg-gray-50'"
-                 @click="viewVersion(v, i === 0)">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-medium text-gray-700">v{{ v.version_number }}</span>
-                <span v-if="i === 0" class="text-[9px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-100 px-1.5 rounded">current</span>
-                <button v-else class="text-[10px] text-gray-400 hover:text-gray-700" @click.stop="restore(v)">Restore</button>
-              </div>
-              <div class="text-[10px] text-gray-400 mt-0.5">{{ fmtDate(v.created_at) }}</div>
-            </div>
+      <!-- ── Pane 3: one quiet panel — Changes OR History (never both) ──────── -->
+      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-l border-gray-200 flex flex-col bg-white">
+        <div class="h-11 px-2.5 flex items-center justify-between border-b border-gray-100">
+          <div class="flex items-center gap-0.5">
+            <button v-if="pendingBuilds.length" type="button" class="px-2 h-7 rounded-md text-[12px] font-medium transition-colors inline-flex items-center gap-1" :class="rightTab === 'changes' ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-700'" @click="rightTab = 'changes'">Changes<span class="text-[10px] tabular-nums opacity-70">{{ pendingBuilds.length }}</span></button>
+            <button type="button" class="px-2 h-7 rounded-md text-[12px] font-medium transition-colors" :class="(rightTab === 'history' || !pendingBuilds.length) ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-700'" @click="rightTab = 'history'">History</button>
           </div>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100" title="Close" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+        </div>
+        <div class="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+          <!-- Changes (suggestion sources — quiet, actions on hover) -->
+          <template v-if="rightTab === 'changes' && pendingBuilds.length">
+            <button v-for="pb in pendingBuilds" :key="pb.build_id" type="button"
+                    class="group/s w-full text-left px-2.5 py-2.5 rounded-lg transition-colors"
+                    :class="highlightBuild === pb.build_id ? 'bg-amber-50' : 'hover:bg-gray-50'"
+                    @click="locateSuggestion(pb)">
+              <div class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="pb.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                <span class="text-[13px] font-medium text-gray-800 truncate">{{ pb.source === 'ai' ? 'AI suggestion' : 'Proposed change' }}</span>
+              </div>
+              <div class="mt-0.5 ml-3.5 text-[11px] text-gray-400 truncate">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
+              <div v-if="canApprove" class="mt-2 ml-3.5 flex items-center gap-1.5 opacity-0 group-hover/s:opacity-100 transition-opacity" @click.stop>
+                <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="acceptSource(pb)"><UIcon :name="resolving === `src:${pb.build_id}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3 text-green-600', { 'animate-spin': resolving === `src:${pb.build_id}` }]" />Accept</button>
+                <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md hover:bg-gray-100 text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="rejectSource(pb)">Reject</button>
+                <button v-if="pb.completion_id || pb.report_id" class="ml-auto text-gray-300 hover:text-gray-600" title="View trace" @click="openTrace(pb)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3.5 h-3.5" /></button>
+              </div>
+            </button>
+          </template>
+          <!-- History (quiet rows, Restore on hover) -->
+          <template v-else>
+            <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
+            <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300">No history yet.</div>
+            <button v-for="(v, i) in versions" :key="v.id" type="button"
+                    class="group/h w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
+                    :class="diff && diff.versionId === v.id ? 'bg-gray-100' : 'hover:bg-gray-50'"
+                    @click="viewVersion(v, i === 0)">
+              <div class="min-w-0">
+                <div class="text-[13px] text-gray-800">v{{ v.version_number }}<span v-if="i === 0" class="ml-1.5 text-[10px] font-medium text-green-600">current</span></div>
+                <div class="text-[11px] text-gray-400">{{ fmtDate(v.created_at) }}</div>
+              </div>
+              <span v-if="i !== 0" class="text-[11px] text-gray-400 hover:text-gray-700 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">Restore</span>
+            </button>
+          </template>
         </div>
       </aside>
     </div>
@@ -1376,8 +1368,8 @@ const rejectMergedHunk = (seg: any) => {
   for (let i = 0; i < hc; i++) if (i !== seg.idx) keep.add(i)
   doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keep), `${seg.buildId}:${seg.idx}`)
 }
-const acceptSource = (pb: any) => doResolveFor(pb.build_id, pb.pending_text || '', pb.pending_text || '', `src:${pb.build_id}`)
-const rejectSource = (pb: any) => doResolveFor(pb.build_id, detail.value?.text || '', detail.value?.text || '', `src:${pb.build_id}`)
+const acceptSource = (pb: any) => { closeDiff(); doResolveFor(pb.build_id, pb.pending_text || '', pb.pending_text || '', `src:${pb.build_id}`) }
+const rejectSource = (pb: any) => { closeDiff(); doResolveFor(pb.build_id, detail.value?.text || '', detail.value?.text || '', `src:${pb.build_id}`) }
 const scrollToBuild = (buildId: string) => {
   highlightBuild.value = buildId
   nextTick(() => {
@@ -1385,6 +1377,13 @@ const scrollToBuild = (buildId: string) => {
     setTimeout(() => { if (highlightBuild.value === buildId) highlightBuild.value = null }, 1800)
   })
 }
+// Clicking a suggestion always returns to the merged review (exit any version
+// compare so the inline hunks exist) and scrolls to it — fixes the "clicking a
+// suggestion while on a version does nothing" confusion.
+const locateSuggestion = (pb: any) => { closeDiff(); rightTab.value = 'changes'; scrollToBuild(pb.build_id) }
+// Right panel: one mode at a time.
+const rightTab = ref<'changes' | 'history'>('changes')
+const toggleHistory = () => { showHistory.value = !showHistory.value; if (showHistory.value) rightTab.value = 'history' }
 const sourceLabel = (pb: any) => pb?.source === 'ai' ? 'AI' : 'Proposed'
 
 // Agent trace: open the report/completion that produced this suggestion.
@@ -1689,6 +1688,11 @@ const openInstruction = async (ins: Instruction) => {
   // Surface pending changes immediately: the merged review view (reviewMode)
   // renders all suggestions inline automatically once these are loaded.
   await loadPending(ins.id)
+  // Quiet right panel: open to Changes when there are suggestions, else closed.
+  if (selectedId.value === ins.id) {
+    rightTab.value = pendingBuilds.value.length ? 'changes' : 'history'
+    showHistory.value = pendingBuilds.value.length > 0
+  }
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.text = ins.text || ''
