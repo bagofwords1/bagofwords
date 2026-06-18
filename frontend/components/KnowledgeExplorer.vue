@@ -431,24 +431,22 @@
                       <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                       <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                     </template>
-                    <!-- Always-visible inline accept/reject (no disappearing popover) -->
-                    <span v-if="canApprove" contenteditable="false" class="inline-flex items-center align-middle ml-1 -translate-y-px rounded overflow-hidden ring-1 ring-black/5 shadow-sm select-none">
-                      <button title="Accept change" class="px-1.5 h-[18px] inline-flex items-center bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" /></button>
-                      <button title="Reject change" class="px-1.5 h-[18px] inline-flex items-center bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
-                    </span>
-                    <!-- Hover: provenance + message + trace (info only) -->
-                    <span class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 bottom-full left-0 mb-1.5 w-56 cursor-default select-none rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2.5 text-left whitespace-normal" @click.stop>
-                      <span class="flex items-center justify-between gap-2">
-                        <span class="flex items-center gap-1.5 min-w-0">
+                    <!-- Floating control BELOW the change (not inline, so text
+                         stays readable). pt-1 bridges the gap so moving the
+                         cursor down keeps it open. -->
+                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 pt-1 cursor-default select-none whitespace-normal" @click.stop>
+                      <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
+                        <span class="flex items-center gap-1.5 mb-1.5">
                           <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="seg.build.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                          <span class="text-[11px] font-medium text-gray-700 truncate">{{ seg.build.source === 'ai' ? 'AI suggestion' : 'Proposed' }}</span>
+                          <span class="text-[10px] text-gray-500 truncate">{{ seg.build.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="seg.build.created_at"> · {{ fmtDate(seg.build.created_at) }}</template></span>
+                          <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="ml-1 text-gray-300 hover:text-gray-600 transition-colors" title="View trace" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                         </span>
-                        <span v-if="seg.build.created_at" class="text-[10px] text-gray-400 shrink-0">{{ fmtDate(seg.build.created_at) }}</span>
+                        <span class="flex items-center gap-1.5">
+                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" />Accept</button>
+                          <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                        </span>
+                        <span v-if="seg.overlap" class="block mt-1.5 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
                       </span>
-                      <span v-if="seg.build.created_by?.name" class="block mt-0.5 pl-3 text-[10px] text-gray-400 truncate">{{ seg.build.created_by.name }}</span>
-                      <span v-if="seg.build.message" class="block mt-1.5 text-[11px] text-gray-500 line-clamp-3">{{ seg.build.message }}</span>
-                      <span v-if="seg.overlap" class="block mt-1.5 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
-                      <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
                     </span>
                   </span>
                 </template>
@@ -520,23 +518,19 @@
                         <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                         <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                       </template>
-                      <!-- Always-visible inline accept/reject -->
-                      <span v-if="canApprove" contenteditable="false" class="inline-flex items-center align-middle ml-1 -translate-y-px rounded overflow-hidden ring-1 ring-black/5 shadow-sm select-none">
-                        <button title="Accept change" class="px-1.5 h-[18px] inline-flex items-center bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3', { 'animate-spin': resolving === seg.idx }]" /></button>
-                        <button title="Reject change" class="px-1.5 h-[18px] inline-flex items-center bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button>
-                      </span>
-                      <!-- Hover: provenance + message + trace (info only) -->
-                      <span class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 bottom-full left-0 mb-1.5 w-56 cursor-default select-none rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2.5 text-left whitespace-normal" @click.stop>
-                        <span class="flex items-center justify-between gap-2">
-                          <span class="flex items-center gap-1.5 min-w-0">
+                      <!-- Floating control below the change (hover, bridged) -->
+                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 pt-1 cursor-default select-none whitespace-normal" @click.stop>
+                        <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
+                          <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                            <span class="text-[11px] font-medium text-gray-700 truncate">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed' }}</span>
+                            <span class="text-[10px] text-gray-500 truncate">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
+                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ml-1 text-gray-300 hover:text-gray-600 transition-colors" title="View trace" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
-                          <span v-if="activeSuggestion?.created_at" class="text-[10px] text-gray-400 shrink-0">{{ fmtDate(activeSuggestion.created_at) }}</span>
+                          <span class="flex items-center gap-1.5">
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />Accept</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                          </span>
                         </span>
-                        <span v-if="activeSuggestion?.created_by?.name" class="block mt-0.5 pl-3 text-[10px] text-gray-400 truncate">{{ activeSuggestion.created_by.name }}</span>
-                        <span v-if="activeSuggestion?.message" class="block mt-1.5 text-[11px] text-gray-500 line-clamp-3">{{ activeSuggestion.message }}</span>
-                        <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
                       </span>
                     </span>
                   </template>
@@ -647,49 +641,25 @@
         </div>
       </section>
 
-      <!-- ── Pane 3: one quiet panel — Changes OR History (never both) ──────── -->
+      <!-- ── Pane 3: version history only (hidden by default; toggle via clock) ── -->
       <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-l border-gray-200 flex flex-col bg-white">
-        <div class="h-11 px-2.5 flex items-center justify-between border-b border-gray-100">
-          <div class="flex items-center gap-0.5">
-            <button v-if="pendingBuilds.length" type="button" class="px-2 h-7 rounded-md text-[12px] font-medium transition-colors inline-flex items-center gap-1" :class="rightTab === 'changes' ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-700'" @click="rightTab = 'changes'">Changes<span class="text-[10px] tabular-nums opacity-70">{{ pendingBuilds.length }}</span></button>
-            <button type="button" class="px-2 h-7 rounded-md text-[12px] font-medium transition-colors" :class="(rightTab === 'history' || !pendingBuilds.length) ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-700'" @click="rightTab = 'history'">History</button>
-          </div>
+        <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100">
+          <span class="text-[12px] font-medium text-gray-700">History</span>
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100" title="Close" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
         <div class="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          <!-- Changes (suggestion sources — quiet, actions on hover) -->
-          <template v-if="rightTab === 'changes' && pendingBuilds.length">
-            <button v-for="pb in pendingBuilds" :key="pb.build_id" type="button"
-                    class="group/s w-full text-left px-2.5 py-2.5 rounded-lg transition-colors"
-                    :class="highlightBuild === pb.build_id ? 'bg-amber-50' : 'hover:bg-gray-50'"
-                    @click="locateSuggestion(pb)">
-              <div class="flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="pb.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                <span class="text-[13px] font-medium text-gray-800 truncate">{{ pb.source === 'ai' ? 'AI suggestion' : 'Proposed change' }}</span>
-              </div>
-              <div class="mt-0.5 ml-3.5 text-[11px] text-gray-400 truncate">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
-              <div v-if="canApprove" class="mt-2 ml-3.5 flex items-center gap-1.5 opacity-0 group-hover/s:opacity-100 transition-opacity" @click.stop>
-                <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="acceptSource(pb)"><UIcon :name="resolving === `src:${pb.build_id}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3 text-green-600', { 'animate-spin': resolving === `src:${pb.build_id}` }]" />Accept</button>
-                <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md hover:bg-gray-100 text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="rejectSource(pb)">Reject</button>
-                <button v-if="pb.completion_id || pb.report_id" class="ml-auto text-gray-300 hover:text-gray-600" title="View trace" @click="openTrace(pb)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3.5 h-3.5" /></button>
-              </div>
-            </button>
-          </template>
-          <!-- History (quiet rows, Restore on hover) -->
-          <template v-else>
-            <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
-            <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300">No history yet.</div>
-            <button v-for="(v, i) in versions" :key="v.id" type="button"
-                    class="group/h w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
-                    :class="diff && diff.versionId === v.id ? 'bg-gray-100' : 'hover:bg-gray-50'"
-                    @click="viewVersion(v, i === 0)">
-              <div class="min-w-0">
-                <div class="text-[13px] text-gray-800">v{{ v.version_number }}<span v-if="i === 0" class="ml-1.5 text-[10px] font-medium text-green-600">current</span></div>
-                <div class="text-[11px] text-gray-400">{{ fmtDate(v.created_at) }}</div>
-              </div>
-              <span v-if="i !== 0" class="text-[11px] text-gray-400 hover:text-gray-700 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">Restore</span>
-            </button>
-          </template>
+          <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
+          <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300">No history yet.</div>
+          <button v-for="(v, i) in versions" :key="v.id" type="button"
+                  class="group/h w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
+                  :class="diff && diff.versionId === v.id ? 'bg-gray-100' : 'hover:bg-gray-50'"
+                  @click="viewVersion(v, i === 0)">
+            <div class="min-w-0">
+              <div class="text-[13px] text-gray-800">v{{ v.version_number }}<span v-if="i === 0" class="ml-1.5 text-[10px] font-medium text-green-600">current</span></div>
+              <div class="text-[11px] text-gray-400">{{ fmtDate(v.created_at) }}</div>
+            </div>
+            <span v-if="i !== 0" class="text-[11px] text-gray-400 hover:text-gray-700 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">Restore</span>
+          </button>
         </div>
       </aside>
     </div>
@@ -845,7 +815,7 @@ const refIds = computed<string[]>({
 })
 const removeRef = (i: number) => { draft.references.splice(i, 1) }
 
-const showHistory = ref(true)
+const showHistory = ref(false)
 const versions = ref<any[]>([])
 const versionsLoading = ref(false)
 
@@ -1439,10 +1409,9 @@ const scrollToBuild = (buildId: string) => {
 // Clicking a suggestion always returns to the merged review (exit any version
 // compare so the inline hunks exist) and scrolls to it — fixes the "clicking a
 // suggestion while on a version does nothing" confusion.
-const locateSuggestion = (pb: any) => { closeDiff(); rightTab.value = 'changes'; scrollToBuild(pb.build_id) }
-// Right panel: one mode at a time.
-const rightTab = ref<'changes' | 'history'>('changes')
-const toggleHistory = () => { showHistory.value = !showHistory.value; if (showHistory.value) rightTab.value = 'history' }
+const locateSuggestion = (pb: any) => { closeDiff(); scrollToBuild(pb.build_id) }
+// Right panel: version history only, toggled via the clock button.
+const toggleHistory = () => { showHistory.value = !showHistory.value }
 const sourceLabel = (pb: any) => pb?.source === 'ai' ? 'AI' : 'Proposed'
 
 // Agent trace: open the report/completion that produced this suggestion.
@@ -1745,13 +1714,9 @@ const openInstruction = async (ins: Instruction) => {
     }
   } catch (e) {}
   // Surface pending changes immediately: the merged review view (reviewMode)
-  // renders all suggestions inline automatically once these are loaded.
+  // renders all suggestions inline automatically once these are loaded. The
+  // history panel stays closed by default — open it via the clock button.
   await loadPending(ins.id)
-  // Quiet right panel: open to Changes when there are suggestions, else closed.
-  if (selectedId.value === ins.id) {
-    rightTab.value = pendingBuilds.value.length ? 'changes' : 'history'
-    showHistory.value = pendingBuilds.value.length > 0
-  }
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.text = ins.text || ''
