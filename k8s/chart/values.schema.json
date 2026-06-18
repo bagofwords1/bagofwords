@@ -219,17 +219,6 @@
         "ingress": { "type": "array" },
         "egress": { "type": "array" }
       }
-    },
-    "serviceMonitor": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "interval": { "type": "string" },
-        "path": { "type": "string" },
-        "port": { "type": "string" },
-        "additionalLabels": { "type": "object", "additionalProperties": true }
-      }
     }
   }
 }

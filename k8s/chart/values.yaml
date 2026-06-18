@@ -393,15 +393,3 @@ networkPolicy:
   #       port: 3000
   egress: []
 
-##########################################################
-# Prometheus ServiceMonitor
-##########################################################
-serviceMonitor:
-  enabled: false
-  interval: "30s"
-  path: /metrics
-  port: http
-  # additionalLabels must match your Prometheus Operator's serviceMonitorSelector.
-  additionalLabels: {}
-  # additionalLabels:
-  #   release: prometheus

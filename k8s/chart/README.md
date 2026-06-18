@@ -123,11 +123,6 @@ Bag of words - a new ai data tool
 | serviceAccount.annotations | object | `{}` | Annotations added to the ServiceAccount (e.g. for IRSA / Workload Identity). |
 | serviceAccount.imagePullSecret | string | `""` | Name of an existing image pull secret to attach to the ServiceAccount. |
 | serviceAccount.name | string | `"bowapp"` | Name of the ServiceAccount to create and use for the app pod. |
-| serviceMonitor.additionalLabels | object | `{}` |  |
-| serviceMonitor.enabled | bool | `false` |  |
-| serviceMonitor.interval | string | `"30s"` |  |
-| serviceMonitor.path | string | `"/metrics"` |  |
-| serviceMonitor.port | string | `"http"` |  |
 | startupProbe | object | `{"failureThreshold":30,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":30,"periodSeconds":10}` | Startup probe. Kubernetes will not route traffic or count the pod ready until this passes. |
 | strategy | object | `{}` | Deployment strategy. Leave empty for Kubernetes default (RollingUpdate 25/25). |
 | terminationGracePeriodSeconds | int | `30` | Seconds to wait for in-flight requests to drain on pod shutdown. |
