@@ -12,7 +12,7 @@
 cd backend
 python3 -m venv venv
 source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-pip install -r requirements_versioned.txt
+pip install uv && uv sync --frozen --extra dev
 
 # Run migrations
 alembic upgrade head

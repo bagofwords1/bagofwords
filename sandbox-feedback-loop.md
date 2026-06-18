@@ -48,13 +48,8 @@ The app targets **Python 3.12** (uses 3.12 f-string syntax). The sandbox default
 
 ```bash
 cd backend
-python3.12 -m venv /tmp/venv312
-/tmp/venv312/bin/pip install -q --upgrade pip
-
-# Heavy/native packages aren't needed for the app-logic repro on SQLite.
-grep -ivE '^psycopg2|^pyspark|^thrift|^pyodbc|^grpcio-tools|^confluent-kafka|^snowflake|^cx[-_]Oracle|^oracledb|^pymssql|^sqlalchemy-bigquery|^google-cloud' \
-  requirements_versioned.txt > /tmp/reqs_lite.txt
-/tmp/venv312/bin/pip install -q -r /tmp/reqs_lite.txt
+pip install uv
+uv sync --frozen --extra dev
 
 # Required by bow-config.dev.yaml (database.url: ${BOW_DATABASE_URL})
 export BOW_DATABASE_URL="sqlite:///db/app.db"
