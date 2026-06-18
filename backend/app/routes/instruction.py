@@ -857,22 +857,41 @@ async def get_instruction_pending_builds(
                 "completion_id": str(completion_id) if completion_id else None,
             }
 
-    result = []
-    for _content, build, version in rows:
+    def _passes_basic(build, version) -> bool:
         # Only builds that intentionally changed THIS instruction (vs their base).
         if not _build_changed_instruction(build, version):
-            continue
+            return False
         # Skip intermediate snapshots of a chained edit — only the leaf (the
         # build no other pending build forked from) is a real suggestion.
         if str(version.id) in superseded_versions:
-            continue
+            return False
         # Skip suggestions whose text already matches the live (main) text —
         # there is nothing to review (already applied / no-op leftover). A
         # *stale* sibling (base behind current) keeps a different snapshot, so
         # this no longer hides it — the client rebases its intended change
         # (base_text -> pending_text) onto current text instead.
         if main_text is not None and (version.text or "") == (main_text or ""):
+            return False
+        return True
+
+    # Content-level supersede: when sequential edits (often separate chat turns)
+    # produce sibling builds that DON'T chain via base_build_id but whose text is
+    # a cumulative superset of one another, keep only the maximal (leaf) one. This
+    # collapses "+lorem" and "+lorem +hello" into the single cumulative suggestion
+    # instead of rendering the shared text twice.
+    from app.services.suggestion_merge import superseded_by_containment
+    cand_by_build = {
+        str(build.id): ((version.text or ""), _base_text_for(build))
+        for _c, build, version in rows if _passes_basic(build, version)
+    }
+    superseded_by_content = superseded_by_containment(cand_by_build)
+
+    result = []
+    for _content, build, version in rows:
+        if not _passes_basic(build, version):
             continue
+        if str(build.id) in superseded_by_content:
+            continue  # an intermediate snapshot a later sibling already covers
         creator = getattr(build, "created_by_user", None)
         trace = trace_by_exec.get(str(build.agent_execution_id)) if getattr(build, "agent_execution_id", None) else None
         result.append({

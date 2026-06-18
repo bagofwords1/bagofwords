@@ -1386,14 +1386,14 @@ const doResolveFor = async (buildId: string, promoteText: string, remainingText:
   } catch (e: any) { toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' }) } finally { resolving.value = null }
 }
 function hunkCountOf(ops: any[]) { let hc = 0, inH = false; for (const o of ops) { if (o.type === 0) inH = false; else { if (!inH) { hc++; inH = true } } } return hc }
-// Hunks/ops are all computed against the rebased ("merged") text, so promote =
-// current + accepted hunk and remaining = the rebased full suggestion (the
-// reload re-rebases and drops the now-applied hunk).
-const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), seg.merged ?? mergedTextFor(seg.build), `${seg.buildId}:${seg.idx}`)
+// Set of this build's hunks EXCEPT the one being acted on — what stays pending.
+function keepAllBut(ops: any[], idx: number) { const keep = new Set<number>(); const hc = hunkCountOf(ops); for (let i = 0; i < hc; i++) if (i !== idx) keep.add(i); return keep }
+// Hunks/ops are computed against the rebased ("merged") text. Accept: promote =
+// current + the accepted hunk; remaining = current + the OTHER hunks (so the
+// build keeps proposing only what's left, not the already-applied hunk).
+const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), applyHunks(seg.buildOps, keepAllBut(seg.buildOps, seg.idx)), `${seg.buildId}:${seg.idx}`)
 const rejectMergedHunk = (seg: any) => {
-  const keep = new Set<number>(); const hc = hunkCountOf(seg.buildOps)
-  for (let i = 0; i < hc; i++) if (i !== seg.idx) keep.add(i)
-  doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keep), `${seg.buildId}:${seg.idx}`)
+  doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keepAllBut(seg.buildOps, seg.idx)), `${seg.buildId}:${seg.idx}`)
 }
 const acceptSource = (pb: any) => { const m = mergedTextFor(pb); closeDiff(); doResolveFor(pb.build_id, m, m, `src:${pb.build_id}`) }
 const rejectSource = (pb: any) => { closeDiff(); doResolveFor(pb.build_id, detail.value?.text || '', detail.value?.text || '', `src:${pb.build_id}`) }

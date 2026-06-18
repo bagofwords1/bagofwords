@@ -233,21 +233,71 @@ async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -
     # the base of some pending build. A pending build whose own version is one
     # of these is an intermediate snapshot (v16 in v15->v16->v17) covered by the
     # leaf, so we exclude it from counts and emission.
+    from collections import defaultdict
+    from app.models.instruction_version import InstructionVersion
+    from app.services.suggestion_merge import superseded_by_containment
     base_ids = [str(b.base_build_id) for b in builds if getattr(b, "base_build_id", None)]
     superseded_pairs = set()
+    base_text_lookup: dict = {}   # (base_build_id, instruction_id) -> base text
     if base_ids:
         base_rows = (await db.execute(
-            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+            select(BuildContent.build_id, BuildContent.instruction_id,
+                   BuildContent.instruction_version_id, InstructionVersion.text)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
             .where(BuildContent.build_id.in_(base_ids))
         )).all()
-        superseded_pairs = {(str(i), str(v)) for i, v in base_rows}
-    # Pass 1: count distinct pending builds per changed instruction.
-    counts: Counter = Counter()
+        for b_id, i_id, v_id, t in base_rows:
+            superseded_pairs.add((str(i_id), str(v_id)))
+            base_text_lookup[(str(b_id), str(i_id))] = t or ""
+    # Per-(build, instruction) version + text, so we can compare only REAL
+    # changes for content supersede below (never inherited/base text — that would
+    # wrongly drop a deletion-only suggestion).
+    base_build_of = {str(b.id): (str(b.base_build_id) if getattr(b, "base_build_id", None) else None) for b in builds}
+    pend_build_ids = [str(b.id) for b in builds]
+    content_lookup: dict = {}   # (build_id, instruction_id) -> (version_id, text)
+    if pend_build_ids:
+        ct_rows = (await db.execute(
+            select(BuildContent.build_id, BuildContent.instruction_id,
+                   BuildContent.instruction_version_id, InstructionVersion.text)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
+            .where(BuildContent.build_id.in_(pend_build_ids))
+        )).all()
+        for b_id, i_id, v_id, t in ct_rows:
+            content_lookup[(str(b_id), str(i_id))] = (str(v_id), t or "")
+
+    # Pass 1a: which instructions each build really changed (structural supersede
+    # only) — the basis for the content-supersede comparison.
     changed_by_build = {}
     for b in builds:
-        changed = await _changed_instructions_for_build(db, organization_id, b, superseded_pairs)
-        changed_by_build[str(b.id)] = changed
-        for instruction_id, _ds in changed:
+        changed_by_build[str(b.id)] = await _changed_instructions_for_build(
+            db, organization_id, b, superseded_pairs
+        )
+
+    # Content-level supersede: sibling builds that don't chain structurally but
+    # whose text is a cumulative superset of one another (e.g. "+lorem" vs
+    # "+lorem +hello" from two separate chat turns). Compare only real-changed
+    # versions per instruction; keep the maximal (leaf) one, mark the rest
+    # superseded so they're neither counted nor emitted twice.
+    by_instr: dict = defaultdict(dict)   # instr -> {version_id: (text, base_text)}
+    for bid, changed in changed_by_build.items():
+        base_bid = base_build_of.get(bid)
+        for instr, _ds in changed:
+            vt = content_lookup.get((bid, instr))
+            if vt:
+                base_text = base_text_lookup.get((base_bid, instr), "") if base_bid else ""
+                by_instr[instr][vt[0]] = (vt[1], base_text)
+    for instr, vmap in by_instr.items():
+        for vid in superseded_by_containment(vmap):
+            superseded_pairs.add((instr, vid))
+
+    # Pass 1b: recount with content supersede applied (a build superseded for an
+    # instruction drops out of both the count and emission).
+    counts: Counter = Counter()
+    for b in builds:
+        kept = [(instr, ds) for (instr, ds) in changed_by_build[str(b.id)]
+                if (instr, content_lookup.get((str(b.id), instr), (None,))[0]) not in superseded_pairs]
+        changed_by_build[str(b.id)] = kept
+        for instruction_id, _ds in kept:
             counts[instruction_id] += 1
     # Pass 2: emit with the real count.
     n = 0
