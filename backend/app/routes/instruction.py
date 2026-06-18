@@ -387,9 +387,13 @@ async def get_pending_change_instruction_ids(
         if base_id:
             base_vid = base_version.get((base_id, i_id))
             really_changed = (base_vid != v_id) if base_vid is not None else True
+            # Fresh: forked from the current state of this instruction. A stale
+            # build (current advanced since it forked) is superseded — exclude it.
+            fresh = True if base_vid is None else (base_vid == main_version.get(i_id))
         else:
             really_changed = (i_id not in main_version) or (main_version.get(i_id) != v_id)
-        if not really_changed:
+            fresh = True
+        if not really_changed or not fresh:
             continue
         if i_id in main_text and (v_text or "") == main_text[i_id]:
             continue  # already live (no-op)
@@ -792,6 +796,20 @@ async def get_instruction_pending_builds(
         # No recorded base → fall back to comparing against current main.
         return main_version_id is None or str(version.id) != str(main_version_id)
 
+    def _build_fresh(build) -> bool:
+        """True if the build forked from the CURRENT state of this instruction —
+        i.e. its base's version of the instruction equals current main's. A stale
+        build (current advanced since it forked) is no longer a clean, applicable
+        suggestion: its full-text snapshot would diff against current as drift
+        (re-adding removed text, etc.), so we exclude it (it's superseded)."""
+        base_id = getattr(build, "base_build_id", None)
+        if not base_id:
+            return True  # no base recorded → treat as fresh (legacy/manual)
+        base_vid = base_version_by_build.get(str(base_id))
+        if base_vid is None:
+            return True  # instruction not in base → newly added → fresh
+        return str(base_vid) == str(main_version_id)
+
     # Resolve the originating report for AI suggestions, so the UI can show a
     # "generated from <report>" provenance link on each suggestion. The chain is
     # build.agent_execution_id -> AgentExecution.report_id.
@@ -815,6 +833,10 @@ async def get_instruction_pending_builds(
     for _content, build, version in rows:
         # Only builds that intentionally changed THIS instruction (vs their base).
         if not _build_changed_instruction(build, version):
+            continue
+        # Only FRESH builds (forked from the current state) — stale ones are
+        # superseded once the instruction was promoted past their base.
+        if not _build_fresh(build):
             continue
         # Skip suggestions whose text already matches the live (main) text —
         # there is nothing to review (already applied / no-op leftover).

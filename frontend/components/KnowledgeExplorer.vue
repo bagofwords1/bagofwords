@@ -422,7 +422,7 @@
             </div>
             <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
               <div v-if="!mergedReviewCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — all suggestions resolved.</div>
-              <div v-else class="text-[15px] leading-[1.7] whitespace-pre-wrap break-words text-gray-800">
+              <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
                 <template v-for="(seg, si) in mergedSegments" :key="si">
                   <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
                   <span v-else :id="`rh-${seg.buildId}-${seg.idx}`" class="group/h relative inline-block align-baseline rounded transition-all"
@@ -508,7 +508,7 @@
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
                 <div v-if="!hunkCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — this suggestion is resolved.</div>
-                <div v-else class="text-[15px] leading-[1.7] whitespace-pre-wrap break-words text-gray-800">
+                <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
                     <span v-else class="group/h relative inline-block align-baseline rounded transition-shadow" :class="resolving === seg.idx ? 'ring-2 ring-gray-900/15' : 'hover:ring-2 hover:ring-gray-900/10'">

@@ -2664,23 +2664,62 @@ class InstructionService:
         try:
             from app.models.instruction_build import InstructionBuild
             from app.models.build_content import BuildContent
-            build_lookup = await db.execute(
-                select(InstructionBuild.id, InstructionBuild.status)
-                .join(BuildContent, BuildContent.build_id == InstructionBuild.id)
+            from app.models.instruction_version import InstructionVersion as _IV
+            iid = instruction.id
+            # Current main version of this instruction (id + text).
+            main_row = (await db.execute(
+                select(BuildContent.instruction_version_id, _IV.text)
+                .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                .join(_IV, _IV.id == BuildContent.instruction_version_id)
                 .where(
-                    BuildContent.instruction_id == instruction.id,
+                    BuildContent.instruction_id == iid,
+                    InstructionBuild.is_main == True,  # noqa: E712
+                    InstructionBuild.deleted_at == None,  # noqa: E711
+                ).limit(1)
+            )).first()
+            main_vid = str(main_row[0]) if main_row else None
+            main_txt = main_row[1] if main_row else None
+            # Candidate pending builds (newest first) with version + base.
+            cand = (await db.execute(
+                select(InstructionBuild.id, InstructionBuild.status, InstructionBuild.base_build_id,
+                       BuildContent.instruction_version_id, _IV.text)
+                .join(BuildContent, BuildContent.build_id == InstructionBuild.id)
+                .join(_IV, _IV.id == BuildContent.instruction_version_id)
+                .where(
+                    BuildContent.instruction_id == iid,
                     InstructionBuild.is_main == False,  # noqa: E712
                     InstructionBuild.status.in_(['draft', 'pending_approval']),
                     InstructionBuild.deleted_at == None,  # noqa: E711
                     BuildContent.deleted_at == None,  # noqa: E711
-                )
-                .order_by(InstructionBuild.created_at.desc())
-                .limit(1)
-            )
-            latest = build_lookup.first()
-            if latest:
-                instruction_dict["current_build_id"] = str(latest[0])
-                instruction_dict["current_build_status"] = latest[1]
+                ).order_by(InstructionBuild.created_at.desc())
+            )).all()
+            base_ids = [str(b) for (_i, _s, b, _v, _t) in cand if b]
+            base_vmap = {}
+            if base_ids:
+                for b_id, v_id in (await db.execute(
+                    select(BuildContent.build_id, BuildContent.instruction_version_id)
+                    .where(BuildContent.build_id.in_(base_ids), BuildContent.instruction_id == iid)
+                )).all():
+                    base_vmap[str(b_id)] = str(v_id)
+            # Pick the latest build that is a REAL, FRESH, non-no-op change — the
+            # same rule the Review feed uses, so the status doesn't get stuck on a
+            # stale leftover build after the instruction was promoted.
+            for bid, st, base, vid, vtext in cand:
+                vid = str(vid)
+                if base:
+                    base_vid = base_vmap.get(str(base))
+                    changed = True if base_vid is None else (base_vid != vid)
+                    fresh = True if base_vid is None else (str(base_vid) == (main_vid or ''))
+                else:
+                    changed = (main_vid != vid)
+                    fresh = True
+                if not changed or not fresh:
+                    continue
+                if main_txt is not None and (vtext or '') == (main_txt or ''):
+                    continue
+                instruction_dict["current_build_id"] = str(bid)
+                instruction_dict["current_build_status"] = st
+                break
         except Exception as e:
             logger.warning(f"Failed to resolve current build for instruction {instruction.id}: {e}")
 

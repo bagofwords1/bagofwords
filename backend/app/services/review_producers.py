@@ -135,12 +135,17 @@ async def _changed_instructions_for_build(db, organization_id, build) -> List[Tu
         select(BuildContent.instruction_id, BuildContent.instruction_version_id)
         .where(BuildContent.build_id == str(build.id))
     )).all()
+    has_base = bool(getattr(build, "base_build_id", None))
     out: List[Tuple[str, List[str]]] = []
     for i, v in contents:
         i, v = str(i), str(v)
         base = base_v.get(i)
         changed = (base != v) if base is not None else (main_v.get(i) != v)
         if not changed:
+            continue
+        # Fresh: forked from the instruction's current state. A stale build
+        # (current advanced past its base) is superseded — don't surface it.
+        if has_base and base is not None and base != main_v.get(i):
             continue
         ds_rows = (await db.execute(
             select(ids_assoc.c.data_source_id).where(ids_assoc.c.instruction_id == i)
@@ -228,6 +233,29 @@ async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -
     n = 0
     for b in builds:
         n += await emit_instruction_suggestions_for_build(db, organization_id, b, occurrences_map=counts)
+    # Auto-resolve any active suggestion items whose instruction no longer has a
+    # fresh pending change (accepted, rejected, or superseded by a newer state).
+    from datetime import datetime
+    from app.models.review_item import ReviewItem, ACTIVE_STATUSES, STATUS_RESOLVED
+    active_ids = set(counts.keys())
+    open_items = (await db.execute(
+        select(ReviewItem).where(and_(
+            ReviewItem.organization_id == organization_id,
+            ReviewItem.type == TYPE_INSTRUCTION_SUGGESTION,
+            ReviewItem.status.in_(list(ACTIVE_STATUSES)),
+            ReviewItem.deleted_at.is_(None),
+        ))
+    )).scalars().all()
+    stale = 0
+    for it in open_items:
+        gk = it.group_key or ""
+        iid = gk[len("instr:"):] if gk.startswith("instr:") else None
+        if iid and iid not in active_ids:
+            it.status = STATUS_RESOLVED
+            it.verified_at = datetime.utcnow()
+            stale += 1
+    if stale:
+        await db.commit()
     return n
 
 
