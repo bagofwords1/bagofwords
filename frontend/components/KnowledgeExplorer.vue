@@ -420,8 +420,8 @@
               </div>
               <div class="flex items-center gap-1.5 shrink-0">
                 <template v-if="canApprove && mergedReviewCount">
-                  <button class="inline-flex items-center h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('reject')">Reject all</button>
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('accept')"><UIcon :name="bulkResolving ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': bulkResolving }]" />Accept all</button>
+                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject all</button>
+                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('accept')"><UIcon :name="bulkResolving ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': bulkResolving }]" />Accept all</button>
                 </template>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="toggleHistory()"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
               </div>
@@ -437,10 +437,11 @@
                       <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                       <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                     </template>
-                    <!-- Floating control BELOW the change (not inline, so text
-                         stays readable). pt-1 bridges the gap so moving the
-                         cursor down keeps it open. -->
-                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 pt-1 cursor-default select-none whitespace-normal" @click.stop>
+                    <!-- Floating control anchored just below the FIRST line of the
+                         change (top-0 + ~1 line of pt), so it stays near the
+                         hover point even for tall multi-line changes; the pt also
+                         bridges the gap so moving the cursor down keeps it open. -->
+                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
                       <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
                         <span class="flex items-center gap-1.5 mb-1.5">
                           <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="seg.build.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
@@ -448,8 +449,8 @@
                           <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="ml-1 text-gray-300 hover:text-gray-600 transition-colors" title="View trace" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                         </span>
                         <span class="flex items-center gap-1.5">
-                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" />Accept</button>
-                          <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" />Accept</button>
+                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject</button>
                         </span>
                         <span v-if="seg.overlap" class="block mt-1.5 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
                       </span>
@@ -524,8 +525,9 @@
                         <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                         <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                       </template>
-                      <!-- Floating control below the change (hover, bridged) -->
-                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 pt-1 cursor-default select-none whitespace-normal" @click.stop>
+                      <!-- Floating control anchored just below the first line of
+                           the change (near the hover point even for tall blocks). -->
+                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
                         <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
                           <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
@@ -533,8 +535,8 @@
                             <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ml-1 text-gray-300 hover:text-gray-600 transition-colors" title="View trace" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
                           <span class="flex items-center gap-1.5">
-                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />Accept</button>
-                            <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />Accept</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject</button>
                           </span>
                         </span>
                       </span>
