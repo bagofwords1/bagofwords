@@ -26,9 +26,12 @@ RUN rm -f /app/backend/db/app.db
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install any needed packages specified in backend/requirements_versioned.txt
-RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    python3 -m pip install --no-cache-dir --prefer-binary -r requirements_versioned.txt
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+
+# Install locked main deps into the venv; dev group excluded from image
+RUN uv sync --frozen --no-dev --no-install-project \
+      --python /opt/venv/bin/python3
 
 # Pre-cache tiktoken encodings for airgapped environments
 RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
