@@ -371,6 +371,11 @@ async def get_pending_change_instruction_ids(
         for b_id, i_id, v_id in base_rows:
             base_version[(str(b_id), str(i_id))] = str(v_id)
 
+    # Versions that are the base of some pending build (per instruction) — a
+    # pending build whose own version is one of these is an intermediate snapshot
+    # of a chained edit (v15->v16->v17) and is superseded by its child/leaf.
+    superseded_pairs = {(i_id, v_id) for (_b, i_id), v_id in base_version.items()}
+
     # 4) Pending builds' contents (with text) → decide "really changed vs base"
     pend_rows = (
         await db.execute(
@@ -395,6 +400,8 @@ async def get_pending_change_instruction_ids(
             fresh = True
         if not really_changed or not fresh:
             continue
+        if (i_id, v_id) in superseded_pairs:
+            continue  # intermediate snapshot of a chained edit — leaf covers it
         if i_id in main_text and (v_text or "") == main_text[i_id]:
             continue  # already live (no-op)
         changed.add(i_id)
@@ -785,6 +792,16 @@ async def get_instruction_pending_builds(
         for b_id, v_id in base_rows:
             base_version_by_build[str(b_id)] = str(v_id)
 
+    # Supersede chained edits: if pending build A forked from pending build B
+    # (a chain v15 -> v16 -> v17 from sequential chat edits), then B is an
+    # intermediate snapshot fully contained in A. Showing both produces
+    # overlapping/duplicated diff hunks ("hello world hello world"). Only the
+    # leaf should surface. A version is superseded iff it is the base version
+    # of some OTHER pending build. base_version_by_build holds, for each pending
+    # build's base, the instruction version that base carried — so any of those
+    # values that is itself a pending build's version is an intermediate.
+    superseded_versions = set(base_version_by_build.values())
+
     def _build_changed_instruction(build, version) -> bool:
         """True if `build` actually changed this instruction vs its own base."""
         base_id = getattr(build, "base_build_id", None)
@@ -837,6 +854,10 @@ async def get_instruction_pending_builds(
         # Only FRESH builds (forked from the current state) — stale ones are
         # superseded once the instruction was promoted past their base.
         if not _build_fresh(build):
+            continue
+        # Skip intermediate snapshots of a chained edit — only the leaf (the
+        # build no other pending build forked from) is a real suggestion.
+        if str(version.id) in superseded_versions:
             continue
         # Skip suggestions whose text already matches the live (main) text —
         # there is nothing to review (already applied / no-op leftover).

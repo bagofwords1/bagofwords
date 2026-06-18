@@ -1337,8 +1337,13 @@ const mergedSegments = computed(() => {
   const segs: any[] = []
   let cursor = 0
   for (const h of all) {
+    // Safety net: two builds touching the same span of current text can't both
+    // be rendered cleanly (they'd produce duplicated strikethroughs like
+    // "hello world hello world"). Backend supersede should prevent chained
+    // edits from reaching here; if a genuine overlap still slips through, drop
+    // the later hunk rather than render garbage.
+    if (h.start < cursor) continue
     if (h.start > cursor) segs.push({ kind: 'context', text: cur.slice(cursor, h.start) })
-    else if (h.start < cursor) h.overlap = true
     segs.push({ kind: 'hunk', ...h })
     cursor = Math.max(cursor, h.end)
   }

@@ -106,9 +106,14 @@ async def scan_low_confidence(db: AsyncSession, organization_id: str, *,
 
 
 # ── instruction suggestions (non-admin user edits + AI/harness) ─────────────
-async def _changed_instructions_for_build(db, organization_id, build) -> List[Tuple[str, List[str]]]:
+async def _changed_instructions_for_build(db, organization_id, build, superseded_pairs=None) -> List[Tuple[str, List[str]]]:
     """For a pending build, the instructions it actually changed vs main, each
-    with the agent ids it's attached to (empty => global)."""
+    with the agent ids it's attached to (empty => global).
+
+    ``superseded_pairs`` (set of (instruction_id, version_id)) lets the caller
+    drop intermediate snapshots of a chained edit (v15->v16->v17): a build whose
+    version is another pending build's base is covered by the leaf, so it's
+    excluded to avoid duplicated/overlapping diff hunks."""
     from app.models.instruction_build import InstructionBuild
     from app.models.build_content import BuildContent
     from app.models.instruction import instruction_data_source_association as ids_assoc
@@ -147,6 +152,9 @@ async def _changed_instructions_for_build(db, organization_id, build) -> List[Tu
         # (current advanced past its base) is superseded — don't surface it.
         if has_base and base is not None and base != main_v.get(i):
             continue
+        # Intermediate snapshot of a chained edit — the leaf build covers it.
+        if superseded_pairs and (i, v) in superseded_pairs:
+            continue
         ds_rows = (await db.execute(
             select(ids_assoc.c.data_source_id).where(ids_assoc.c.instruction_id == i)
         )).all()
@@ -156,7 +164,8 @@ async def _changed_instructions_for_build(db, organization_id, build) -> List[Tu
 
 async def emit_instruction_suggestions_for_build(db, organization_id: str, build, *,
                                                   why: Optional[str] = None,
-                                                  occurrences_map: Optional[dict] = None) -> int:
+                                                  occurrences_map: Optional[dict] = None,
+                                                  superseded_pairs=None) -> int:
     """Emit a suggestion item per (changed instruction × attached agent). Global
     instructions (no agent) emit a single global item (admin-only).
 
@@ -167,7 +176,7 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
     from app.models.review_item import ReviewItem, STATUS_DISMISSED
     source = getattr(build, "source", "user")
     label = "AI" if source == "ai" else "Proposed"
-    changed = await _changed_instructions_for_build(db, organization_id, build)
+    changed = await _changed_instructions_for_build(db, organization_id, build, superseded_pairs)
     n = 0
     for instruction_id, ds_ids in changed:
         # Respect a prior dismissal of THIS build's suggestion for this
@@ -212,6 +221,7 @@ async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -
     number of distinct pending builds that changed it."""
     from collections import Counter
     from app.models.instruction_build import InstructionBuild
+    from app.models.build_content import BuildContent
     builds = (await db.execute(
         select(InstructionBuild).where(and_(
             InstructionBuild.organization_id == organization_id,
@@ -221,18 +231,30 @@ async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -
             InstructionBuild.source.in_(["user", "ai"]),
         ))
     )).scalars().all()
+    # Supersede chained edits: build (instruction_id, version_id) pairs that are
+    # the base of some pending build. A pending build whose own version is one
+    # of these is an intermediate snapshot (v16 in v15->v16->v17) covered by the
+    # leaf, so we exclude it from counts and emission.
+    base_ids = [str(b.base_build_id) for b in builds if getattr(b, "base_build_id", None)]
+    superseded_pairs = set()
+    if base_ids:
+        base_rows = (await db.execute(
+            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+            .where(BuildContent.build_id.in_(base_ids))
+        )).all()
+        superseded_pairs = {(str(i), str(v)) for i, v in base_rows}
     # Pass 1: count distinct pending builds per changed instruction.
     counts: Counter = Counter()
     changed_by_build = {}
     for b in builds:
-        changed = await _changed_instructions_for_build(db, organization_id, b)
+        changed = await _changed_instructions_for_build(db, organization_id, b, superseded_pairs)
         changed_by_build[str(b.id)] = changed
         for instruction_id, _ds in changed:
             counts[instruction_id] += 1
     # Pass 2: emit with the real count.
     n = 0
     for b in builds:
-        n += await emit_instruction_suggestions_for_build(db, organization_id, b, occurrences_map=counts)
+        n += await emit_instruction_suggestions_for_build(db, organization_id, b, occurrences_map=counts, superseded_pairs=superseded_pairs)
     # Auto-resolve any active suggestion items whose instruction no longer has a
     # fresh pending change (accepted, rejected, or superseded by a newer state).
     from datetime import datetime
