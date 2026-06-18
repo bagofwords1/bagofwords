@@ -418,7 +418,13 @@
                 <span class="text-xs font-medium text-gray-700">Pending review</span>
                 <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ mergedReviewCount }} change{{ mergedReviewCount === 1 ? '' : 's' }} · {{ pendingBuilds.length }} suggestion{{ pendingBuilds.length === 1 ? '' : 's' }}</span>
               </div>
-              <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Suggestions & version history" @click="toggleHistory()"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <template v-if="canApprove && mergedReviewCount">
+                  <button class="inline-flex items-center h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('reject')">Reject all</button>
+                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-600 text-white text-[11px] font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('accept')"><UIcon :name="bulkResolving ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': bulkResolving }]" />Accept all</button>
+                </template>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="toggleHistory()"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
+              </div>
             </div>
             <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
               <div v-if="!mergedReviewCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — all suggestions resolved.</div>
@@ -1371,16 +1377,31 @@ const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v
 const mergedSegments = computed(() => {
   const cur = detail.value?.text || ''
   const all: any[] = []
-  for (const v of pendingViews.value) for (const h of v.hunks) all.push({ ...h, buildId: v.build.build_id, build: v.build, buildOps: v.ops, merged: v.merged })
-  all.sort((a, b) => a.start - b.start || 0)
+  const n = pendingViews.value.length
+  pendingViews.value.forEach((v: any, vi: number) => {
+    // Recency rank — a newer suggestion wins when two overlap the same span.
+    // build_number is monotonic; fall back to list order (API returns newest
+    // first, so index 0 is the most recent).
+    const rank = v.build.build_number ?? (n - vi)
+    for (const h of v.hunks) all.push({ ...h, buildId: v.build.build_id, build: v.build, buildOps: v.ops, merged: v.merged, rank })
+  })
+  // Two suggestions touching the same span of current text can't both render
+  // cleanly (e.g. older word-swaps inside a line the newest suggestion deletes
+  // wholesale). Claim spans NEWEST-first so the latest intent wins, dropping the
+  // overlapping older hunks; then render what's kept in document order.
+  const kept: any[] = []
+  const claimed: [number, number][] = []
+  for (const h of [...all].sort((a, b) => (b.rank - a.rank) || (a.start - b.start))) {
+    const s = h.start, e = Math.max(h.end, h.start)
+    const isPoint = e === s
+    const clash = claimed.some(([cs, ce]) => (isPoint ? (s > cs && s < ce) : (s < ce && e > cs)))
+    if (clash) continue
+    claimed.push([s, e]); kept.push(h)
+  }
+  kept.sort((a, b) => a.start - b.start || 0)
   const segs: any[] = []
   let cursor = 0
-  for (const h of all) {
-    // Safety net: two builds touching the same span of current text can't both
-    // be rendered cleanly (they'd produce duplicated strikethroughs like
-    // "hello world hello world"). Backend supersede should prevent chained
-    // edits from reaching here; if a genuine overlap still slips through, drop
-    // the later hunk rather than render garbage.
+  for (const h of kept) {
     if (h.start < cursor) continue
     if (h.start > cursor) segs.push({ kind: 'context', text: cur.slice(cursor, h.start) })
     segs.push({ kind: 'hunk', ...h })
@@ -1427,6 +1448,23 @@ function keepAllBut(ops: any[], idx: number) { const keep = new Set<number>(); c
 const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), applyHunks(seg.buildOps, keepAllBut(seg.buildOps, seg.idx)), `${seg.buildId}:${seg.idx}`)
 const rejectMergedHunk = (seg: any) => {
   doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keepAllBut(seg.buildOps, seg.idx)), `${seg.buildId}:${seg.idx}`)
+}
+// Accept / reject every pending suggestion on this instruction. Resolve one at a
+// time (each reload re-rebases the rest onto the new current), newest first so a
+// later edit that supersedes an earlier one lands last.
+const bulkResolving = ref(false)
+const resolveAll = async (mode: 'accept' | 'reject') => {
+  if (bulkResolving.value || resolving.value !== null) return
+  bulkResolving.value = true
+  try {
+    let guard = 0
+    while (pendingViews.value.length && guard++ < 100) {
+      const v = pendingViews.value[0]
+      const cur = detail.value?.text || ''
+      if (mode === 'accept') await doResolveFor(v.build.build_id, v.merged, v.merged, `src:${v.build.build_id}`)
+      else await doResolveFor(v.build.build_id, cur, cur, `src:${v.build.build_id}`)
+    }
+  } finally { bulkResolving.value = false }
 }
 const acceptSource = (pb: any) => { const m = mergedTextFor(pb); closeDiff(); doResolveFor(pb.build_id, m, m, `src:${pb.build_id}`) }
 const rejectSource = (pb: any) => { closeDiff(); doResolveFor(pb.build_id, detail.value?.text || '', detail.value?.text || '', `src:${pb.build_id}`) }
