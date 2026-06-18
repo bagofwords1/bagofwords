@@ -1206,8 +1206,9 @@ const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
 const onConnectionChanged = async () => { await fetchAgents() }
 const loadPending = async (id: string) => {
-  pendingBuilds.value = []
-  try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch {}
+  // Fetch then replace (don't clear first) so the review pane doesn't unmount
+  // and remount mid-resolve, which would reset its scroll to the top.
+  try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch { pendingBuilds.value = [] }
 }
 const closeDiff = () => { diff.value = null; activeSuggestion.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
 
@@ -1246,6 +1247,7 @@ const doResolve = async (key: number | 'all' | 'reject-all', promoteText: string
   if (!detail.value || resolving.value !== null) return
   const buildId = diff.value?.buildId || null
   resolving.value = key
+  const prevScroll = reviewScroll.value?.scrollTop ?? 0
   try {
     const { error } = await useMyFetch(`/api/instructions/${detail.value.id}/resolve`, { method: 'POST', body: { build_id: buildId, promote_text: promoteText, remaining_text: remainingText } })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed to apply change')
@@ -1258,6 +1260,7 @@ const doResolve = async (key: number | 'all' | 'reject-all', promoteText: string
     const stillPb = pendingBuilds.value.find((p: any) => p.build_id === buildId)
     if (stillPb) viewSuggestion(stillPb)
     else closeDiff()
+    restoreScroll(prevScroll)
   } catch (e: any) {
     toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' })
   } finally { resolving.value = null }
@@ -1273,10 +1276,31 @@ const rejectAll = () => doResolve('reject-all', diff.value?.original || '', diff
 
 // ── Multi-source merged review: show ALL pending suggestions inline at once ───
 const dmpLib = new (DiffMatchPatch as any)()
+// Word-level diff: tokenize into words / whitespace / single symbols, map each
+// unique token to a char, diff the encoded strings, then decode. A changed word
+// surfaces as a whole-word replacement instead of scattered character fragments
+// inside the word (e.g. "customer" → "CuStoMeR" is one swap, not "Cu·s·S·…").
+function wordDiffOps(a: string, b: string): { type: number; text: string }[] {
+  if (a === b) return a ? [{ type: 0, text: a }] : []
+  const tokenize = (s: string) => s.match(/\w+|\s+|[^\w\s]/g) || []
+  const tokenToChar = new Map<string, string>()
+  const charToToken: string[] = []
+  const encode = (toks: string[]) => toks.map((t) => {
+    let c = tokenToChar.get(t)
+    if (c === undefined) { c = String.fromCharCode(charToToken.length); tokenToChar.set(t, c); charToToken.push(t) }
+    return c
+  }).join('')
+  const ea = encode(tokenize(a)), eb = encode(tokenize(b))
+  const raw = dmpLib.diff_main(ea, eb, false)
+  return raw.map((o: [number, string]) => {
+    let text = ''
+    for (let i = 0; i < o[1].length; i++) text += charToToken[o[1].charCodeAt(i)]
+    return { type: o[0], text }
+  })
+}
 function computeBuildHunks(current: string, modified: string) {
   if (current === modified || modified === '') return { ops: [], hunks: [] }
-  const raw = dmpLib.diff_main(current, modified); dmpLib.diff_cleanupSemantic(raw)
-  const ops = raw.map((o: [number, string]) => ({ type: o[0], text: o[1] }))
+  const ops = wordDiffOps(current, modified)
   const hunks: any[] = []
   let cpos = 0, cur: any = null, idx = -1
   for (const op of ops) {
@@ -1383,9 +1407,16 @@ const doResolveFor = async (buildId: string, promoteText: string, remainingText:
     const { error } = await useMyFetch(`/api/instructions/${detail.value.id}/resolve`, { method: 'POST', body: { build_id: buildId, promote_text: promoteText, remaining_text: remainingText } })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
     await reloadAfterResolve()
-    await nextTick()
-    if (reviewScroll.value) reviewScroll.value.scrollTop = prevScroll
+    restoreScroll(prevScroll)
   } catch (e: any) { toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' }) } finally { resolving.value = null }
+}
+// Restore the review pane's scroll across re-renders: once after Vue patches,
+// then again on the next frame after layout settles (content height changed).
+const restoreScroll = (top: number) => {
+  nextTick(() => {
+    if (reviewScroll.value) reviewScroll.value.scrollTop = top
+    requestAnimationFrame(() => { if (reviewScroll.value) reviewScroll.value.scrollTop = top })
+  })
 }
 function hunkCountOf(ops: any[]) { let hc = 0, inH = false; for (const o of ops) { if (o.type === 0) inH = false; else { if (!inH) { hc++; inH = true } } } return hc }
 // Set of this build's hunks EXCEPT the one being acted on — what stays pending.
@@ -1431,10 +1462,7 @@ const diffOps = computed(() => {
   const base = diff.value.original || ''
   const next = diff.value.modified || ''
   if (base === next) return [{ type: 0, text: base }]
-  const dmp = new (DiffMatchPatch as any)()
-  const ops = dmp.diff_main(base, next)
-  dmp.diff_cleanupSemantic(ops)
-  return ops.map((o: [number, string]) => ({ type: o[0], text: o[1] }))
+  return wordDiffOps(base, next)
 })
 const viewVersion = async (v: any, isCurrent: boolean) => {
   if (isCurrent || !detail.value) { closeDiff(); return }
