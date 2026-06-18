@@ -1322,6 +1322,16 @@ function applyHunks(ops: any[], acceptIdxs: Set<number>) {
   }
   return out
 }
+// True iff `big` equals `small` plus pure insertions (small fully preserved,
+// no deletions). Mirrors the backend `covers()` — used to recognise when one
+// text already contains another so we don't re-derive (and duplicate) it.
+function coversText(small: string, big: string): boolean {
+  if (small === big) return false
+  if (!small) return true
+  const d = dmpLib.diff_main(small, big)
+  for (const part of d) if (part[0] === -1) return false   // any deletion → not a pure superset
+  return true
+}
 // Rebase a suggestion's *intended change* (base_text -> pending_text) onto the
 // current text via a 3-way merge, so a still-valid sibling stays applicable
 // after another sibling was accepted (current advanced past its base) and we
@@ -1329,7 +1339,15 @@ function applyHunks(ops: any[], acceptIdxs: Set<number>) {
 // pending text when no base was recorded (legacy/new-from-scratch).
 function rebaseSuggestion(baseText: string | null | undefined, pendingText: string, current: string): string {
   if (baseText == null) return pendingText            // no base → full snapshot
+  if (pendingText === current) return current         // already applied → no-op
   if (baseText === pendingText) return current        // no intended change
+  // The suggestion already incorporates everything in current plus more (it's a
+  // pure additive superset of current) → the merged result IS the suggestion
+  // text. Re-deriving via patch would re-insert the shared part ("Lorem ipsum"
+  // already promoted, re-added again). This is the common sequential-edit case.
+  if (coversText(current, pendingText)) return pendingText
+  // Current already contains the whole suggestion (advanced past it) → no-op.
+  if (coversText(pendingText, current)) return current
   if (baseText === current) return pendingText         // fresh → trivial
   try {
     const patches = dmpLib.patch_make(baseText, pendingText)
