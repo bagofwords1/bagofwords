@@ -1861,10 +1861,32 @@ class ConsoleService:
                         'message': message,
                     }
 
+        import re as _re
+
         def _text(value) -> str:
             if isinstance(value, dict):
                 return str(value.get('content') or value.get('text') or '')
             return str(value or '')
+
+        # Assistant content is the serialized block stream with planning headers
+        # like "**🧠 Planning (action) → create_data ✗**". For the conversation
+        # rail we want the clean final-answer prose: drop the headers/emojis and
+        # keep the text after the last planning marker.
+        _planning_header = _re.compile(r"\*\*[^\n*]*Planning[^\n*]*\*\*")
+        _emoji = _re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002190-\U000021FF\U00002300-\U000023FF]")
+
+        def _clean_answer(value) -> str:
+            text = _text(value)
+            if not text:
+                return ''
+            parts = _planning_header.split(text)
+            tail = parts[-1] if parts else text
+            if not tail.strip() and len(parts) > 1:
+                tail = parts[-2]
+            tail = _emoji.sub('', tail)
+            tail = _re.sub(r'[*_`#>]', '', tail)
+            tail = _re.sub(r'\s+', ' ', tail).strip()
+            return tail
 
         turns: List[ConversationTurnSchema] = []
         failed_turns = 0
@@ -1884,7 +1906,7 @@ class ConsoleService:
                 role=r.user_role or 'user',
                 completion_id=str(r.completion_id) if r.completion_id else None,
                 agent_execution_id=str(r.ae_id),
-                assistant_content=_text(r.assistant_completion)[:2000],
+                assistant_content=_clean_answer(r.assistant_completion)[:2000],
                 status=derived_status,
                 total_tools=counts['total'],
                 total_failed_tools=counts['failed'],

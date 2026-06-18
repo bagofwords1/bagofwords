@@ -16,20 +16,13 @@
                             <span v-if="conversation?.user_email" class="text-gray-400">{{ conversation.user_email }}</span>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <!-- Conversation roll-up chips -->
-                        <span v-if="conversation" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600">
-                            <UIcon name="i-heroicons-chat-bubble-left-right" class="w-3.5 h-3.5" />
-                            {{ conversation.total_turns }} {{ conversation.total_turns === 1 ? 'turn' : 'turns' }}
-                        </span>
-                        <span v-if="conversation?.failed_turns" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-xs text-red-600 border border-red-100">
-                            <UIcon name="i-heroicons-x-circle" class="w-3.5 h-3.5" />
-                            {{ conversation.failed_turns }} failed
-                        </span>
-                        <span v-if="conversation?.negative_feedback_turns" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-xs text-amber-600 border border-amber-100">
-                            <UIcon name="i-heroicons-hand-thumb-down" class="w-3.5 h-3.5" />
-                            {{ conversation.negative_feedback_turns }}
-                        </span>
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                        <!-- Conversation roll-up: plain text -->
+                        <div v-if="conversation" class="flex items-center gap-2 text-xs text-gray-500">
+                            <span>{{ conversation.total_turns }} {{ conversation.total_turns === 1 ? 'turn' : 'turns' }}</span>
+                            <span v-if="conversation.failed_turns" class="text-red-500">{{ conversation.failed_turns }} failed</span>
+                            <span v-if="conversation.negative_feedback_turns" class="text-amber-600">{{ conversation.negative_feedback_turns }} negative</span>
+                        </div>
                         <UButton
                             color="gray"
                             variant="ghost"
@@ -51,40 +44,37 @@
                     <div v-if="isConvLoading" class="flex-1 flex items-center justify-center">
                         <Spinner class="w-5 h-5 text-gray-400" />
                     </div>
-                    <div v-else class="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5">
+                    <div v-else class="flex-1 min-h-0 overflow-y-auto">
                         <button
                             v-for="(turn, i) in turns"
                             :key="turn.completion_id || i"
                             type="button"
                             @click="selectTurn(turn)"
                             :class="[
-                                'w-full text-start rounded-lg border px-3 py-2.5 transition-colors',
+                                'w-full text-start px-4 py-3 border-s-2 border-b border-gray-100 transition-colors',
                                 turn.completion_id === selectedCompletionId
-                                    ? 'border-blue-400 bg-white shadow-sm'
-                                    : 'border-transparent hover:border-gray-200 hover:bg-white'
+                                    ? 'border-s-blue-500 bg-blue-50/50'
+                                    : 'border-s-transparent hover:bg-gray-100/60'
                             ]"
                         >
                             <!-- User prompt -->
-                            <div class="flex items-start gap-2">
-                                <UIcon name="i-heroicons-user" class="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <div class="text-xs text-gray-800 font-medium line-clamp-2 leading-snug">{{ turn.user_prompt || '—' }}</div>
-                            </div>
-                            <!-- Assistant snippet -->
-                            <div class="flex items-start gap-2 mt-1.5">
-                                <span :class="['w-2 h-2 rounded-full mt-1 flex-shrink-0', turnDotClass(turn)]"></span>
-                                <div class="text-[11px] text-gray-500 line-clamp-2 leading-snug">{{ assistantSnippet(turn) }}</div>
-                            </div>
-                            <!-- Meta badges -->
-                            <div class="flex items-center gap-2 mt-1.5 ps-4 text-[10px] text-gray-400 flex-wrap">
-                                <span v-if="turn.total_tools" class="inline-flex items-center gap-0.5">
-                                    <UIcon name="i-heroicons-wrench" class="w-3 h-3" />
-                                    {{ turn.total_tools }}<span v-if="turn.total_failed_tools" class="text-red-500"> ({{ turn.total_failed_tools }}✗)</span>
-                                </span>
-                                <span v-if="turn.total_duration_ms != null" class="inline-flex items-center gap-0.5">
-                                    <UIcon name="i-heroicons-bolt" class="w-3 h-3" />{{ formatDuration(turn.total_duration_ms) }}
-                                </span>
-                                <UIcon v-if="turn.feedback_status === 'positive'" name="i-heroicons-hand-thumb-up" class="w-3 h-3 text-green-500" />
-                                <UIcon v-else-if="turn.feedback_status === 'negative'" name="i-heroicons-hand-thumb-down" class="w-3 h-3 text-red-500" />
+                            <div class="text-[13px] text-gray-900 line-clamp-2 leading-snug">{{ turn.user_prompt || '—' }}</div>
+                            <!-- Assistant reply (clean prose) -->
+                            <div v-if="assistantSnippet(turn)" class="text-xs text-gray-500 line-clamp-2 leading-snug mt-1">{{ assistantSnippet(turn) }}</div>
+                            <!-- Meta line: plain text, no icons -->
+                            <div class="flex items-center gap-1.5 mt-2 text-[11px] text-gray-400">
+                                <span :class="statusTextClass(turn.status)">{{ statusLabel(turn.status) }}</span>
+                                <template v-if="turn.total_tools">
+                                    <span>·</span>
+                                    <span :class="turn.total_failed_tools ? 'text-red-500' : ''">{{ turn.total_tools }} {{ turn.total_tools === 1 ? 'tool' : 'tools' }}</span>
+                                </template>
+                                <template v-if="turn.total_duration_ms != null">
+                                    <span>·</span><span>{{ formatDuration(turn.total_duration_ms) }}</span>
+                                </template>
+                                <template v-if="turn.feedback_status !== 'none'">
+                                    <span>·</span>
+                                    <span :class="turn.feedback_status === 'positive' ? 'text-green-600' : 'text-red-500'">{{ turn.feedback_status }}</span>
+                                </template>
                             </div>
                         </button>
                         <div v-if="!turns.length" class="text-xs text-gray-400 text-center py-8">No turns yet</div>
@@ -897,10 +887,15 @@ const closeModal = () => {
 }
 
 // Conversation rail helpers
-const turnDotClass = (turn: ConversationTurn) => {
-    if (turn.status === 'error') return 'bg-red-500'
-    if (turn.status === 'in_progress') return 'bg-amber-400'
-    return 'bg-green-500'
+const statusLabel = (status: string) => {
+    if (status === 'in_progress') return 'running'
+    return status
+}
+
+const statusTextClass = (status: string) => {
+    if (status === 'error') return 'text-red-500'
+    if (status === 'in_progress') return 'text-amber-600'
+    return 'text-green-600'
 }
 
 const statusChipClass = (status: string) => {
