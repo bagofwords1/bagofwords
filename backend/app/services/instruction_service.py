@@ -739,13 +739,35 @@ class InstructionService:
         
         # Get the instruction
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        # Snapshot the canonical (live) fields before any mutation. A suggester
+        # edit must NOT change the live instruction row — the proposal lives only
+        # in a pending version/build until an admin approves it. We restore these
+        # after capturing the proposed text into a version (see below).
+        _live_snapshot = {
+            f: getattr(instruction, f, None)
+            for f in ("text", "title", "category", "kind", "is_seen",
+                      "can_user_toggle", "current_version_id")
+        }
         # Determine membership/permissions; non-members cannot update regardless of ownership
         user_permissions = await self._get_user_permissions(db, current_user, organization)
         if not user_permissions:
             raise HTTPException(status_code=403, detail="Permission denied: not an organization member")
         
+        # A member who is neither an org admin nor the instruction's owner may
+        # still SUGGEST an edit when they hold per-agent manage_instructions on
+        # the instruction's attached data source(s). The resulting build routes
+        # to pending_approval (they're not an org admin), surfacing as a
+        # suggestion for an admin to review — the "non-admin suggests a change"
+        # flow. Without this, such a member is denied (403) even though the
+        # route-level resource-scoped gate already let them through.
+        can_suggest = await self._user_can_suggest_edit(
+            db, instruction, current_user, organization, user_permissions
+        )
+
         # Determine what type of update this is and check permissions
-        update_type = self._determine_update_type(instruction, instruction_data, current_user, user_permissions)
+        update_type = self._determine_update_type(
+            instruction, instruction_data, current_user, user_permissions, can_suggest=can_suggest
+        )
         
         # Handle the update based on type
         if update_type == "admin_edit":
@@ -845,7 +867,28 @@ class InstructionService:
         except Exception as e:
             logger.warning(f"Failed to create version for updated instruction {instruction.id}: {e}")
             # Don't fail the update if versioning fails
-        
+
+        # A suggester edit must leave the LIVE instruction unchanged — the
+        # proposed text now lives in the pending build's version, and the
+        # canonical row must keep showing the approved (main) content until an
+        # admin accepts it. Revert the fields we mutated above so the explorer
+        # list/detail and the legacy AI-context path don't surface unapproved
+        # text. (The main-build AI-context path already reads the approved
+        # version, so this only closes the display/integrity gap.)
+        if update_type == "suggester_edit":
+            try:
+                live = await db.get(Instruction, str(instruction.id))
+                if live is not None:
+                    for _f, _v in _live_snapshot.items():
+                        setattr(live, _f, _v)
+                    await db.commit()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"suggester_edit: failed to restore live row for {instruction.id}: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
         # Re-fetch instruction with proper eager loading to avoid lazy loading issues
         fresh_instruction = await db.execute(
             select(Instruction)
@@ -1847,11 +1890,13 @@ class InstructionService:
         
         return instruction
 
-    def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User, user_permissions: set) -> str:
+    def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User, user_permissions: set, can_suggest: bool = False) -> str:
         """Determine what type of update this is based on permissions.
 
-        MVP: no suggestion workflow. Admin (manage_instructions) edits anything;
-        owner can edit their own; everyone else is denied.
+        Org admin (manage_instructions / full_admin) edits anything and the
+        change goes live; the owner can edit their own; a per-agent manager
+        (``can_suggest``) proposes a change that stays pending for admin review;
+        everyone else is denied.
         """
         is_admin = self._is_admin_permissions(user_permissions)
         is_owner = instruction.user_id == current_user.id
@@ -1860,7 +1905,47 @@ class InstructionService:
             return "admin_edit"
         if is_owner:
             return "owner_edit"
+        if can_suggest:
+            return "suggester_edit"
         return "no_permission"
+
+    async def _user_can_suggest_edit(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        current_user: User,
+        organization: Organization,
+        user_permissions: set,
+    ) -> bool:
+        """True when a non-admin, non-owner member may *suggest* an edit because
+        they hold per-agent ``manage_instructions`` on every data source the
+        instruction is attached to.
+
+        Global instructions (no attached data source) have no per-agent grant to
+        derive suggest rights from, so only the org admin or owner can edit them.
+        """
+        if self._is_admin_permissions(user_permissions):
+            return False  # admin_edit already covers this
+        if instruction.user_id == current_user.id:
+            return False  # owner_edit already covers this
+
+        rows = (
+            await db.execute(
+                select(instruction_data_source_association.c.data_source_id).where(
+                    instruction_data_source_association.c.instruction_id == instruction.id
+                )
+            )
+        ).all()
+        ds_ids = [str(r[0]) for r in rows]
+        if not ds_ids:
+            return False
+
+        from app.core.permission_resolver import resolve_permissions
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        return all(
+            resolved.has_resource_permission("data_source", ds_id, "manage_instructions")
+            for ds_id in ds_ids
+        )
 
     async def _handle_admin_edit(self, instruction: Instruction, instruction_data: InstructionUpdate, admin_user: User):
         """Handle admin editing any instruction (not review)"""
