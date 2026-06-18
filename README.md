@@ -122,34 +122,43 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | Google BigQuery          | Database/Warehouse  |
 | Databricks SQL           | Database/Warehouse  |
 | Microsoft Fabric         | Database/Warehouse  |
-| NetSuite                 | Service             |
 | MySQL                    | Database/Warehouse  |
 | AWS Athena               | Database/Warehouse  |
 | MariaDB                  | Database/Warehouse  |
 | DuckDB                   | Database/Warehouse  |
-| Salesforce               | Service             |
 | Microsoft SQL Server     | Database/Warehouse  |
 | ClickHouse               | Database/Warehouse  |
 | Azure Data Explorer      | Database/Warehouse  |
-| AWS Cost Explorer        | Service             |
 | Vertica                  | Database/Warehouse  |
 | AWS Redshift             | Database/Warehouse  |
-| Tableau                  | Service             |
-| Presto                   | Database/Warehouse  |
+| Trino                    | Database/Warehouse  |
 | Apache Pinot             | Database/Warehouse  |
 | Apache Druid             | Database/Warehouse  |
-| Oracle DB                | Database/Warehouse  |
+| Oracle Database          | Database/Warehouse  |
 | MongoDB                  | Database/Warehouse  |
-| PostHog                  | Service             |
-| PowerBI                  | Service             |
-| QlikView                 | Service             |
 | Sybase SQL Anywhere      | Database/Warehouse  |
-| Sisense BI               | Service             |
+| Teradata Vantage         | Database/Warehouse  |
+| SQLite                   | Database/Warehouse  |
+| Spark                    | Database/Warehouse  |
+| NetSuite                 | Service             |
+| Salesforce               | Service             |
+| AWS Cost Explorer        | Service             |
+| Tableau                  | Service             |
+| PostHog                  | Service             |
+| Power BI                 | Service             |
+| Power BI Report Server   | Service             |
+| Qlik Sense               | Service             |
+| Qlik (QVD)               | Service             |
+| Sisense                  | Service             |
 | OneDrive                 | Service             |
-| Google Driv              | Service             |
+| Google Drive             | Service             |
 | SharePoint               | Service             |
+| Timbr AI                 | Service             |
+| Oracle BI                | Service             |
+| MCP Server               | Service             |
+| Custom API               | Service             |
 
-> **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
+> **Note:** "Service" refers to APIs, SaaS platforms, and BI tools, while "Database/Warehouse" refers to systems that store and query structured data.
 
 ## Enterprise
 
