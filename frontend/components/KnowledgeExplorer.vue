@@ -410,8 +410,50 @@
             </div>
           </div>
 
-          <!-- Diff view (version compare / suggestion) -->
-          <div v-if="diff" class="flex-1 flex flex-col min-h-0">
+          <!-- Merged review: ALL pending suggestions shown inline at once -->
+          <div v-if="reviewMode" class="flex-1 flex flex-col min-h-0">
+            <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                <span class="text-xs font-medium text-gray-700">Pending review</span>
+                <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ mergedReviewCount }} change{{ mergedReviewCount === 1 ? '' : 's' }} · {{ pendingBuilds.length }} suggestion{{ pendingBuilds.length === 1 ? '' : 's' }}</span>
+              </div>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Suggestions & version history" @click="showHistory = !showHistory"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+              <div v-if="!mergedReviewCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — all suggestions resolved.</div>
+              <div v-else class="text-[15px] leading-[1.7] whitespace-pre-wrap break-words text-gray-800">
+                <template v-for="(seg, si) in mergedSegments" :key="si">
+                  <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
+                  <span v-else :id="`rh-${seg.buildId}-${seg.idx}`" class="group/h relative inline-block align-baseline rounded transition-all"
+                        :class="[resolving === `${seg.buildId}:${seg.idx}` ? 'ring-2 ring-gray-900/15' : 'hover:ring-2 hover:ring-gray-900/10', highlightBuild === seg.buildId ? 'ring-2 ring-amber-300 bg-amber-50' : '']">
+                    <template v-for="(op, oi) in seg.ops" :key="oi">
+                      <del v-if="op.type === -1" class="text-red-400 line-through decoration-red-300 decoration-1">{{ op.text }}</del>
+                      <ins v-else class="text-emerald-700 bg-emerald-50 rounded px-px no-underline">{{ op.text }}</ins>
+                    </template>
+                    <span v-if="resolving === `${seg.buildId}:${seg.idx}`" class="absolute inset-0 rounded bg-white/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" /></span>
+                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 mt-1.5 w-64 cursor-default select-none rounded-xl bg-white shadow-lg ring-1 ring-gray-200 p-3 text-left whitespace-normal" @click.stop>
+                      <span class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="seg.build.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                        <span class="font-medium text-gray-700">{{ seg.build.source === 'ai' ? 'AI suggestion' : 'Proposed change' }}</span>
+                        <span v-if="seg.build.created_at">· {{ fmtDate(seg.build.created_at) }}</span>
+                      </span>
+                      <span v-if="seg.build.created_by?.name" class="block mt-1 text-[11px] text-gray-400">by {{ seg.build.created_by.name }}</span>
+                      <span v-if="seg.overlap" class="block mt-1 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
+                      <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
+                      <span class="mt-2.5 pt-2.5 border-t border-gray-100 flex items-center gap-1.5">
+                        <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-green-600" />Accept</button>
+                        <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                      </span>
+                    </span>
+                  </span>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Diff view (version compare) -->
+          <div v-else-if="diff" class="flex-1 flex flex-col min-h-0">
             <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
@@ -611,22 +653,24 @@
             <div class="p-2 space-y-1 border-b border-gray-100">
               <div v-for="pb in pendingBuilds" :key="pb.build_id"
                    class="px-2.5 py-2 rounded-md border transition-colors cursor-pointer"
-                   :class="diff && diff.buildId === pb.build_id ? 'border-amber-300 bg-amber-50' : 'border-transparent hover:bg-amber-50/60'"
-                   @click="viewSuggestion(pb)">
+                   :class="highlightBuild === pb.build_id ? 'border-amber-300 bg-amber-50' : 'border-transparent hover:bg-amber-50/60'"
+                   @click="scrollToBuild(pb.build_id)">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-medium text-gray-700">{{ pb.source === 'ai' ? 'AI suggestion' : 'Proposed' }} · v{{ pb.pending_version_number }}</span>
                   <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 rounded" :class="pb.status === 'pending_approval' ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-100'">{{ pb.status === 'pending_approval' ? 'review' : 'draft' }}</span>
                 </div>
                 <div class="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1 flex-wrap">
                   <span>{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</span>
-                  <NuxtLink v-if="pb.report_id" :to="`/reports/${pb.report_id}`" class="text-blue-500 hover:underline inline-flex items-center gap-0.5" @click.stop>· from report<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
+                  <button v-if="pb.completion_id || pb.report_id" class="text-blue-500 hover:underline inline-flex items-center gap-0.5" @click.stop="openTrace(pb)">· trace<UIcon name="i-heroicons-arrows-pointing-out" class="w-2.5 h-2.5" /></button>
                 </div>
                 <div v-if="pb.build_title || pb.message" class="mt-1">
                   <div v-if="pb.build_title" class="text-[11px] font-medium text-gray-700 truncate">{{ pb.build_title }}</div>
                   <div v-if="pb.message" class="text-[10px] text-gray-500 mt-0.5 line-clamp-2 whitespace-pre-line">{{ pb.message }}</div>
                 </div>
-                <div v-if="canApprove" class="mt-1.5 flex items-center">
-                  <span class="text-[10px] font-medium text-amber-700 inline-flex items-center gap-0.5">Review changes<UIcon name="i-heroicons-arrow-right" class="w-2.5 h-2.5" /></span>
+                <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5" @click.stop>
+                  <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[10px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="acceptSource(pb)"><UIcon :name="resolving === `src:${pb.build_id}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3 h-3 text-green-600', { 'animate-spin': resolving === `src:${pb.build_id}` }]" />Accept all</button>
+                  <button class="inline-flex items-center gap-1 h-6 px-2 rounded-md hover:bg-gray-100 text-[10px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click="rejectSource(pb)">Reject</button>
+                  <button class="ml-auto text-[10px] text-amber-700 hover:underline inline-flex items-center gap-0.5" @click="scrollToBuild(pb.build_id)">Locate<UIcon name="i-heroicons-arrow-right" class="w-2.5 h-2.5" /></button>
                 </div>
               </div>
             </div>
@@ -1092,7 +1136,7 @@ const fetchPendingMap = async () => {
 }
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
 const activeSuggestion = ref<any | null>(null)
-const resolving = ref<number | 'all' | 'reject-all' | null>(null)
+const resolving = ref<any>(null)
 const approving = ref<string | null>(null)
 const discarding = ref<string | null>(null)
 // connection modals
@@ -1259,6 +1303,89 @@ const rejectHunk = (idx: number) => {
 }
 const acceptAll = () => doResolve('all', diff.value?.modified || '', diff.value?.modified || '')
 const rejectAll = () => doResolve('reject-all', diff.value?.original || '', diff.value?.original || '')
+
+// ── Multi-source merged review: show ALL pending suggestions inline at once ───
+const dmpLib = new (DiffMatchPatch as any)()
+function computeBuildHunks(current: string, modified: string) {
+  if (current === modified || modified === '') return { ops: [], hunks: [] }
+  const raw = dmpLib.diff_main(current, modified); dmpLib.diff_cleanupSemantic(raw)
+  const ops = raw.map((o: [number, string]) => ({ type: o[0], text: o[1] }))
+  const hunks: any[] = []
+  let cpos = 0, cur: any = null, idx = -1
+  for (const op of ops) {
+    if (op.type === 0) { cpos += op.text.length; cur = null; continue }
+    if (!cur) { idx++; cur = { idx, ops: [], start: cpos, end: cpos }; hunks.push(cur) }
+    cur.ops.push(op)
+    if (op.type === -1) { cpos += op.text.length; cur.end = cpos }   // deletion consumes current
+  }
+  return { ops, hunks }
+}
+function applyHunks(ops: any[], acceptIdxs: Set<number>) {
+  let out = '', h = -1, inHunk = false
+  for (const op of ops) {
+    if (op.type === 0) { out += op.text; inHunk = false; continue }
+    if (!inHunk) { h++; inHunk = true }
+    const acc = acceptIdxs.has(h)
+    if (op.type === 1) { if (acc) out += op.text } else { if (!acc) out += op.text }
+  }
+  return out
+}
+const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0)
+const pendingViews = computed(() => {
+  const cur = detail.value?.text || ''
+  return pendingBuilds.value.map((pb: any) => ({ build: pb, ...computeBuildHunks(cur, pb.pending_text || '') }))
+})
+const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
+// Interleave every build's hunks onto the current text, ordered by position.
+const mergedSegments = computed(() => {
+  const cur = detail.value?.text || ''
+  const all: any[] = []
+  for (const v of pendingViews.value) for (const h of v.hunks) all.push({ ...h, buildId: v.build.build_id, build: v.build, buildOps: v.ops })
+  all.sort((a, b) => a.start - b.start || 0)
+  const segs: any[] = []
+  let cursor = 0
+  for (const h of all) {
+    if (h.start > cursor) segs.push({ kind: 'context', text: cur.slice(cursor, h.start) })
+    else if (h.start < cursor) h.overlap = true
+    segs.push({ kind: 'hunk', ...h })
+    cursor = Math.max(cursor, h.end)
+  }
+  if (cursor < cur.length) segs.push({ kind: 'context', text: cur.slice(cursor) })
+  return segs
+})
+const highlightBuild = ref<string | null>(null)
+const reloadAfterResolve = async () => {
+  if (!detail.value) return
+  const { data } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'GET' })
+  if (data.value) { detail.value = data.value; if (!editing.value) syncDraft(data.value) }
+  await loadPending(detail.value.id); await loadVersions(detail.value.id); refreshLists(); fetchReviewCount()
+}
+const doResolveFor = async (buildId: string, promoteText: string, remainingText: string, key: string) => {
+  if (!detail.value || resolving.value !== null) return
+  resolving.value = key
+  try {
+    const { error } = await useMyFetch(`/api/instructions/${detail.value.id}/resolve`, { method: 'POST', body: { build_id: buildId, promote_text: promoteText, remaining_text: remainingText } })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    await reloadAfterResolve()
+  } catch (e: any) { toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' }) } finally { resolving.value = null }
+}
+function hunkCountOf(ops: any[]) { let hc = 0, inH = false; for (const o of ops) { if (o.type === 0) inH = false; else { if (!inH) { hc++; inH = true } } } return hc }
+const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), seg.build.pending_text || '', `${seg.buildId}:${seg.idx}`)
+const rejectMergedHunk = (seg: any) => {
+  const keep = new Set<number>(); const hc = hunkCountOf(seg.buildOps)
+  for (let i = 0; i < hc; i++) if (i !== seg.idx) keep.add(i)
+  doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keep), `${seg.buildId}:${seg.idx}`)
+}
+const acceptSource = (pb: any) => doResolveFor(pb.build_id, pb.pending_text || '', pb.pending_text || '', `src:${pb.build_id}`)
+const rejectSource = (pb: any) => doResolveFor(pb.build_id, detail.value?.text || '', detail.value?.text || '', `src:${pb.build_id}`)
+const scrollToBuild = (buildId: string) => {
+  highlightBuild.value = buildId
+  nextTick(() => {
+    document.getElementById(`rh-${buildId}-0`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setTimeout(() => { if (highlightBuild.value === buildId) highlightBuild.value = null }, 1800)
+  })
+}
+const sourceLabel = (pb: any) => pb?.source === 'ai' ? 'AI' : 'Proposed'
 
 // Agent trace: open the report/completion that produced this suggestion.
 const canViewConsole = computed(() => useCan('view_console'))
@@ -1559,12 +1686,9 @@ const openInstruction = async (ins: Instruction) => {
       if (idx >= 0) { allInstructions.value[idx] = { ...allInstructions.value[idx], status: data.value.status, current_build_id: data.value.current_build_id, current_build_status: data.value.current_build_status }; allInstructions.value = [...allInstructions.value] }
     }
   } catch (e) {}
-  // Surface pending changes immediately: load them against the now-current text
-  // and auto-open the review so the diff isn't hidden behind a link.
+  // Surface pending changes immediately: the merged review view (reviewMode)
+  // renders all suggestions inline automatically once these are loaded.
   await loadPending(ins.id)
-  if (selectedId.value === ins.id && !editing.value && !diff.value && pendingBuilds.value.length) {
-    viewSuggestion(pendingBuilds.value[0])
-  }
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.text = ins.text || ''

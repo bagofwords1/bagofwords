@@ -150,9 +150,14 @@ async def _changed_instructions_for_build(db, organization_id, build) -> List[Tu
 
 
 async def emit_instruction_suggestions_for_build(db, organization_id: str, build, *,
-                                                  why: Optional[str] = None) -> int:
+                                                  why: Optional[str] = None,
+                                                  occurrences_map: Optional[dict] = None) -> int:
     """Emit a suggestion item per (changed instruction × attached agent). Global
-    instructions (no agent) emit a single global item (admin-only)."""
+    instructions (no agent) emit a single global item (admin-only).
+
+    ``occurrences_map`` (instruction_id -> count of distinct pending builds
+    touching it) sets the item's change count; it is *set*, never incremented,
+    so re-scans on every feed load don't inflate it."""
     from app.models.instruction import Instruction
     from app.models.review_item import ReviewItem, STATUS_DISMISSED
     source = getattr(build, "source", "user")
@@ -178,15 +183,16 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
         instr = await db.get(Instruction, instruction_id)
         title = getattr(instr, "title", None) or "instruction"
         subject = {"kind": "instruction", "instruction_id": instruction_id, "build_id": str(build.id), "source": source}
+        count = (occurrences_map or {}).get(instruction_id, 1)
         targets = ds_ids or [None]   # None => global
         for ds_id in targets:
             await review_service.emit(
                 db, organization_id=organization_id, type=TYPE_INSTRUCTION_SUGGESTION,
                 data_source_id=ds_id, severity=SEVERITY_INFO,
-                title=f"{label} change · {title}",
+                title=title,
                 why=why or (f"{label} instruction change awaiting review."),
                 group_key=f"instr:{instruction_id}",
-                build_id=str(build.id), subject=subject,
+                build_id=str(build.id), subject=subject, occurrences=count,
             )
             n += 1
     return n
@@ -195,7 +201,11 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
 async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -> int:
     """Backfill/scan: emit suggestion items for all current non-admin/AI pending
     builds. (A pending 'user' build implies a non-admin author — admins
-    auto-promote their own edits.)"""
+    auto-promote their own edits.)
+
+    Two passes so each instruction's item carries a *real* change count =
+    number of distinct pending builds that changed it."""
+    from collections import Counter
     from app.models.instruction_build import InstructionBuild
     builds = (await db.execute(
         select(InstructionBuild).where(and_(
@@ -206,9 +216,18 @@ async def scan_instruction_suggestions(db: AsyncSession, organization_id: str) -
             InstructionBuild.source.in_(["user", "ai"]),
         ))
     )).scalars().all()
+    # Pass 1: count distinct pending builds per changed instruction.
+    counts: Counter = Counter()
+    changed_by_build = {}
+    for b in builds:
+        changed = await _changed_instructions_for_build(db, organization_id, b)
+        changed_by_build[str(b.id)] = changed
+        for instruction_id, _ds in changed:
+            counts[instruction_id] += 1
+    # Pass 2: emit with the real count.
     n = 0
     for b in builds:
-        n += await emit_instruction_suggestions_for_build(db, organization_id, b)
+        n += await emit_instruction_suggestions_for_build(db, organization_id, b, occurrences_map=counts)
     return n
 
 

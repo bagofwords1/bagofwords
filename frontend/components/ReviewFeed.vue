@@ -65,52 +65,52 @@
         </div>
       </div>
       <ul v-else class="divide-y divide-gray-100">
-        <li v-for="it in filtered" :key="it.id"
+        <li v-for="row in displayRows" :key="row.key"
             class="group relative px-6 py-3.5 transition-colors hover:bg-gray-50/70"
-            :class="!it.read && it.status !== 'resolved' ? 'bg-white' : ''">
+            :class="!row.read && row.status !== 'resolved' ? 'bg-white' : ''">
           <!-- severity accent -->
-          <span class="absolute left-0 top-0 bottom-0 w-0.5" :class="accentClass(it)"></span>
+          <span class="absolute left-0 top-0 bottom-0 w-0.5" :class="accentClass(row)"></span>
           <div class="flex items-start gap-3">
-            <div class="mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center shrink-0" :class="iconWrapClass(it)">
-              <UIcon :name="typeMeta(it.type).icon" class="w-4 h-4" />
+            <div class="mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center shrink-0" :class="iconWrapClass(row)">
+              <UIcon :name="typeMeta(row.type).icon" class="w-4 h-4" />
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 min-w-0">
-                <span v-if="!it.read && it.status !== 'resolved'" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
-                <span class="text-[13px] font-medium text-gray-900 truncate">{{ it.title }}</span>
-                <span v-if="it.group_count > 1" class="text-[10px] font-semibold px-1.5 rounded-full bg-gray-100 text-gray-600 shrink-0 tabular-nums">×{{ it.group_count }}</span>
-                <span v-if="it.status === 'in_progress'" class="inline-flex items-center gap-1 text-[10px] text-blue-600 shrink-0"><UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />Running</span>
-                <span v-else-if="it.status === 'resolved'" class="inline-flex items-center gap-0.5 text-[10px] text-green-600 shrink-0"><UIcon name="i-heroicons-check" class="w-3 h-3" />Resolved</span>
+                <span v-if="!row.read && row.status !== 'resolved'" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                <span class="text-[13px] font-medium text-gray-900 truncate">{{ row.title }}</span>
+                <span v-if="row.count > 1" class="text-[10px] font-semibold px-1.5 rounded-full bg-gray-100 text-gray-600 shrink-0 tabular-nums">{{ row.count }} changes</span>
+                <span v-if="row.status === 'in_progress'" class="inline-flex items-center gap-1 text-[10px] text-blue-600 shrink-0"><UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />Running</span>
+                <span v-else-if="row.status === 'resolved'" class="inline-flex items-center gap-0.5 text-[10px] text-green-600 shrink-0"><UIcon name="i-heroicons-check" class="w-3 h-3" />Resolved</span>
               </div>
-              <p v-if="it.why" class="mt-0.5 text-[12px] text-gray-500 line-clamp-2">{{ it.why }}</p>
+              <p v-if="row.why" class="mt-0.5 text-[12px] text-gray-500 line-clamp-2">{{ row.why }}</p>
               <div class="mt-1.5 flex items-center gap-2 text-[11px] text-gray-400">
                 <span class="inline-flex items-center gap-1">
-                  <DataSourceIcon v-if="it.agent_id" :type="agentTypeOf(it.agent_id)" class="w-3 h-3" />
+                  <DataSourceIcon v-if="row.singleAgentId" :type="agentTypeOf(row.singleAgentId)" class="w-3 h-3" />
                   <UIcon v-else name="i-heroicons-globe-alt" class="w-3 h-3" />
-                  {{ it.agent_id ? agentNameOf(it.agent_id) : 'All agents' }}
+                  {{ row.agentLabel }}
                 </span>
                 <span>·</span>
-                <span>{{ typeMeta(it.type).label }}</span>
+                <span>{{ typeMeta(row.type).label }}</span>
                 <span>·</span>
-                <span>{{ fmtDate(it.last_seen_at || it.created_at) }}</span>
+                <span>{{ fmtDate(row.last) }}</span>
               </div>
             </div>
             <!-- actions -->
             <div class="flex items-center gap-1 shrink-0 self-center" @click.stop>
-              <template v-if="it.status === 'open' || it.status === 'snoozed'">
-                <button v-for="a in primaryActions(it)" :key="a.id"
+              <template v-if="row.status === 'open' || row.status === 'snoozed'">
+                <button v-for="a in rowActions(row)" :key="a.id"
                         class="h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40 bg-gray-50 hover:bg-gray-100 border border-gray-150 text-gray-700"
-                        :disabled="busy === it.id"
-                        @click="runAction(it, a)">
-                  <UIcon v-if="busy === it.id" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin text-gray-400" />
+                        :disabled="busy === row.key"
+                        @click="runAction(row, a)">
+                  <UIcon v-if="busy === row.key" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin text-gray-400" />
                   <UIcon v-else-if="a.id === 'run_eval'" name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400" />
                   <UIcon v-else-if="a.id === 'run_training'" name="i-heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
                   <UIcon v-else-if="a.id === 'review'" name="i-heroicons-arrow-right" class="w-3.5 h-3.5 text-gray-400" />
                   {{ a.label }}
                 </button>
               </template>
-              <button v-if="it.status !== 'resolved' && it.status !== 'dismissed'" class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100" :title="it.read ? 'Mark unread' : 'Mark read'" @click="toggleRead(it)"><UIcon :name="it.read ? 'i-heroicons-envelope' : 'i-heroicons-envelope-open'" class="w-3.5 h-3.5" /></button>
-              <button v-if="it.status === 'open' || it.status === 'snoozed'" class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-gray-100 opacity-0 group-hover:opacity-100" title="Dismiss" @click="dismiss(it)"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+              <button v-if="row.status !== 'resolved' && row.status !== 'dismissed'" class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100 opacity-0 group-hover:opacity-100" :title="row.read ? 'Mark unread' : 'Mark read'" @click="toggleRead(row)"><UIcon :name="row.read ? 'i-heroicons-envelope' : 'i-heroicons-envelope-open'" class="w-3.5 h-3.5" /></button>
+              <button v-if="row.status === 'open' || row.status === 'snoozed'" class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-gray-100 opacity-0 group-hover:opacity-100" title="Dismiss" @click="dismiss(row)"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
             </div>
           </div>
         </li>
@@ -193,8 +193,6 @@ const iconWrapClass = (it: any) => {
     orange: 'bg-orange-50 text-orange-600', red: 'bg-red-50 text-red-600', gray: 'bg-gray-100 text-gray-500',
   } as any)[t] || 'bg-gray-100 text-gray-500'
 }
-const primaryActions = (it: any) => (it.actions || []).filter((a: any) => a.id !== 'dismiss')
-
 const filtered = computed(() => {
   let out = items.value
   if (typeFilter.value) out = out.filter(i => i.type === typeFilter.value)
@@ -204,6 +202,50 @@ const filtered = computed(() => {
   }
   return out
 })
+
+// Group instruction_suggestion items per instruction → one row "TITLE · N changes"
+// (the same instruction fanned across agents collapses to one row). Other types
+// render one row each.
+const displayRows = computed(() => {
+  const rows: any[] = []
+  const byInstr = new Map<string, any>()
+  for (const it of filtered.value) {
+    const iid = it.type === 'instruction_suggestion' ? it.subject?.instruction_id : null
+    if (iid) {
+      let g = byInstr.get(iid)
+      if (!g) {
+        g = { key: 'instr:' + iid, kind: 'instruction', type: it.type, severity: it.severity,
+              title: it.title, why: it.why, count: 0, agentIds: [] as any[], read: true,
+              status: 'resolved', items: [] as any[], rep: it, last: it.last_seen_at || it.created_at }
+        byInstr.set(iid, g); rows.push(g)
+      }
+      g.items.push(it)
+      g.count = Math.max(g.count, it.group_count || 1)
+      if (!g.agentIds.includes(it.agent_id)) g.agentIds.push(it.agent_id)
+      if (!it.read && it.status !== 'resolved') g.read = false
+      // Surface the most "active" status for the group.
+      const rank: any = { open: 0, in_progress: 1, snoozed: 2, resolved: 3, dismissed: 4 }
+      if (rank[it.status] < rank[g.status]) { g.status = it.status; g.rep = it }
+    } else {
+      rows.push({ key: it.id, kind: 'single', type: it.type, severity: it.severity,
+                  title: it.title, why: it.why, count: it.group_count || 1, agentIds: [it.agent_id],
+                  read: it.read, status: it.status, items: [it], rep: it, last: it.last_seen_at || it.created_at })
+    }
+  }
+  // Derive an agent label + single-agent icon per row.
+  for (const r of rows) {
+    const ids = r.agentIds.filter((x: any) => x)
+    const hasGlobal = r.agentIds.some((x: any) => !x)
+    r.singleAgentId = (!hasGlobal && ids.length === 1) ? ids[0] : null
+    r.agentLabel = hasGlobal ? 'All agents' : (ids.length === 1 ? agentNameOf(ids[0]) : `${ids.length} agents`)
+  }
+  return rows
+})
+
+const rowActions = (row: any) => {
+  if (row.kind === 'instruction') return [{ id: 'review', label: 'Review' }]
+  return (row.rep.actions || []).filter((a: any) => a.id !== 'dismiss')
+}
 
 const fmtDate = (s: string) => {
   if (!s) return ''
@@ -231,26 +273,34 @@ const refresh = () => fetchItems()
 
 watch([agentFilter, showResolved], fetchItems)
 
-const runAction = async (it: any, a: any) => {
+const runAction = async (row: any, a: any) => {
   if (a.id === 'review') {
-    const s = it.subject || {}
+    const s = row.rep?.subject || {}
     if (s.instruction_id) emit('open-instruction', { instructionId: s.instruction_id, buildId: s.build_id })
     return
   }
-  busy.value = it.id
+  busy.value = row.key
   try {
-    const { data, error } = await useMyFetch<any>(`/api/review/${it.id}/resolve`, { method: 'POST', body: { action_id: a.id } })
+    // Single-item (non-instruction) actions resolve the representative item.
+    const { error } = await useMyFetch<any>(`/api/review/${row.rep.id}/resolve`, { method: 'POST', body: { action_id: a.id } })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
     const label = a.id === 'run_training' ? 'Training started' : a.id === 'run_eval' ? 'Eval started' : 'Done'
     toast.add({ title: label, color: 'blue' })
     await fetchItems()
   } catch (e: any) { toast.add({ title: 'Action failed', description: e?.message, color: 'red' }) } finally { busy.value = null }
 }
-const dismiss = async (it: any) => {
-  try { await useMyFetch(`/api/review/${it.id}/dismiss`, { method: 'POST' }); await fetchItems() } catch {}
+const dismiss = async (row: any) => {
+  try {
+    await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/dismiss`, { method: 'POST' })))
+    await fetchItems()
+  } catch {}
 }
-const toggleRead = async (it: any) => {
-  try { await useMyFetch(`/api/review/${it.id}/read`, { method: 'POST', body: { read: !it.read } }); await fetchItems() } catch {}
+const toggleRead = async (row: any) => {
+  const next = !row.read
+  try {
+    await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/read`, { method: 'POST', body: { read: next } })))
+    await fetchItems()
+  } catch {}
 }
 const markAllRead = async () => {
   try { await useMyFetch('/api/review/read-all', { method: 'POST', body: { agent_id: agentFilter.value } }); await fetchItems() } catch {}
