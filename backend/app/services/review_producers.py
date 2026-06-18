@@ -154,11 +154,27 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
     """Emit a suggestion item per (changed instruction × attached agent). Global
     instructions (no agent) emit a single global item (admin-only)."""
     from app.models.instruction import Instruction
+    from app.models.review_item import ReviewItem, STATUS_DISMISSED
     source = getattr(build, "source", "user")
     label = "AI" if source == "ai" else "Proposed"
     changed = await _changed_instructions_for_build(db, organization_id, build)
     n = 0
     for instruction_id, ds_ids in changed:
+        # Respect a prior dismissal of THIS build's suggestion for this
+        # instruction — don't resurrect it on the next scan.
+        gk = f"instr:{instruction_id}"
+        dismissed = (await db.execute(
+            select(ReviewItem.id).where(and_(
+                ReviewItem.organization_id == organization_id,
+                ReviewItem.type == TYPE_INSTRUCTION_SUGGESTION,
+                ReviewItem.group_key == gk,
+                ReviewItem.build_id == str(build.id),
+                ReviewItem.status == STATUS_DISMISSED,
+                ReviewItem.deleted_at.is_(None),
+            )).limit(1)
+        )).scalar_one_or_none()
+        if dismissed is not None:
+            continue
         instr = await db.get(Instruction, instruction_id)
         title = getattr(instr, "title", None) or "instruction"
         subject = {"kind": "instruction", "instruction_id": instruction_id, "build_id": str(build.id), "source": source}
