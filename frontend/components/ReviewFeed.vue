@@ -12,6 +12,7 @@
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <button v-if="unread" class="h-7 px-2.5 rounded-md text-xs font-medium text-gray-500 hover:bg-gray-100" @click="markAllRead">Mark all read</button>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Automation settings" @click="openSettings"><UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" /></button>
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Refresh" @click="refresh"><UIcon name="i-heroicons-arrow-path" :class="['w-4 h-4', { 'animate-spin': loading }]" /></button>
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Close" @click="$emit('close')"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
@@ -111,11 +112,37 @@
         </li>
       </ul>
     </div>
+
+    <!-- Per-agent automation settings -->
+    <UModal v-model="showSettings" :ui="{ width: 'sm:max-w-lg' }">
+      <div class="p-5">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <div class="text-sm font-semibold text-gray-900">Automation</div>
+            <div class="text-xs text-gray-500 mt-0.5">Per agent: when Review should run evals, train and promote on its own.</div>
+          </div>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0" @click="showSettings = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+        </div>
+        <div class="mb-4">
+          <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Agent</label>
+          <div class="relative mt-1">
+            <DataSourceIcon v-if="settingsAgentId" :type="agentTypeOf(settingsAgentId)" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" />
+            <select v-model="settingsAgentId" class="w-full h-9 pl-9 pr-2 text-[13px] bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white appearance-none">
+              <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+            <UIcon name="i-heroicons-chevron-down" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          </div>
+        </div>
+        <AgentAutomationSettings v-if="settingsAgentId" :key="settingsAgentId" :agent-id="settingsAgentId" />
+        <p v-else class="text-xs text-gray-400">No agents available.</p>
+      </div>
+    </UModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 
 const props = defineProps<{ agents: any[]; initialAgentId?: string | null }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'open-instruction', p: { instructionId: string; buildId?: string }): void; (e: 'count', n: number): void }>()
@@ -129,6 +156,12 @@ const search = ref('')
 const agentFilter = ref<string | null>(props.initialAgentId || null)
 const typeFilter = ref<string | null>(null)
 const showResolved = ref(false)
+const showSettings = ref(false)
+const settingsAgentId = ref<string | null>(props.initialAgentId || null)
+const openSettings = () => {
+  if (!settingsAgentId.value) settingsAgentId.value = agentFilter.value || (props.agents[0]?.id ?? null)
+  showSettings.value = true
+}
 
 const typeChips = [
   { value: 'instruction_suggestion', label: 'Suggestions', icon: 'i-heroicons-document-text' },

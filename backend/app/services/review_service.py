@@ -333,6 +333,14 @@ class ReviewService:
             # Fire the existing agent workflow in the background, scoped to THIS
             # agent only (even if the suggestion is shared across agents).
             train_override = "auto" if kind == "run_training" else "off"
+            # Per-event focus brief (training only) seeded into the run.
+            brief = None
+            if kind == "run_training":
+                try:
+                    from app.services.review_producers import build_training_brief
+                    brief = build_training_brief(item)
+                except Exception:
+                    brief = None
             spawned = list(item.spawned_json or [])
             spawned.append({"kind": kind, "status": "running", "started_at": datetime.utcnow().isoformat()})
             item.spawned_json = spawned
@@ -347,21 +355,22 @@ class ReviewService:
                 kind=kind,
                 train_override=train_override,
                 user_id=str(user.id),
+                brief=brief,
             )
             return {"ok": True, "status": STATUS_IN_PROGRESS, "spawned": kind}
 
         return {"ok": False, "error": "unsupported"}
 
     # ---- background workflow runner ---------------------------------------
-    def _launch_workflow(self, *, organization_id, data_source_id, item_id, kind, train_override, user_id):
+    def _launch_workflow(self, *, organization_id, data_source_id, item_id, kind, train_override, user_id, brief=None):
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             logger.debug("review: no running loop; cannot launch %s", kind)
             return
-        asyncio.create_task(self._run_workflow(organization_id, data_source_id, item_id, kind, train_override, user_id))
+        asyncio.create_task(self._run_workflow(organization_id, data_source_id, item_id, kind, train_override, user_id, brief))
 
-    async def _run_workflow(self, organization_id, data_source_id, item_id, kind, train_override, user_id):
+    async def _run_workflow(self, organization_id, data_source_id, item_id, kind, train_override, user_id, brief=None):
         from app.settings.database import create_async_session_factory
         from app.models.organization import Organization
         from app.models.data_source import DataSource
@@ -379,7 +388,7 @@ class ReviewService:
                 if org and ds:
                     run = await AgentReliabilityService().run_automation(
                         db, org, ds, TRIGGER_MANUAL, user=user, train_override=train_override,
-                        changed_hint=f"manual {kind} from Review feed",
+                        brief=brief, changed_hint=brief or f"manual {kind} from Review feed",
                     )
                     run_id = str(run.id) if run else None
                     outcome_status = getattr(run, "status", "done")

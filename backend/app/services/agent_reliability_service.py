@@ -184,6 +184,7 @@ class AgentReliabilityService:
         user: Optional[User] = None,
         changed_hint: Optional[str] = None,
         train_override: Optional[str] = None,
+        brief: Optional[str] = None,
     ) -> AgentAutomationRun:
         """Run the full loop for one agent. Always returns an
         AgentAutomationRun row describing the outcome (never raises into the
@@ -271,6 +272,7 @@ class AgentReliabilityService:
                     build_id=candidate_build_id,
                     trigger=trigger,
                     iteration=iterations_done,
+                    brief=brief or changed_hint,
                 )
                 candidate_build_id = step["build_id"]
 
@@ -469,6 +471,7 @@ class AgentReliabilityService:
 
     async def _train_iteration(
         self, db, organization, actor, data_source, *, failing_case_ids, build_id, trigger, iteration,
+        brief: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Produce/extend a candidate instruction build aimed at fixing the
         failing cases.
@@ -499,7 +502,7 @@ class AgentReliabilityService:
         summary["reference_repairs"] = repaired
 
         proposed = await self._generate_training_instructions(
-            db, organization, actor, data_source, failing_case_ids=failing_case_ids,
+            db, organization, actor, data_source, failing_case_ids=failing_case_ids, brief=brief,
         )
         added = await self._add_instructions_to_build(
             db, organization, actor, data_source, build_id, proposed,
@@ -557,6 +560,7 @@ class AgentReliabilityService:
 
     async def _generate_training_instructions(
         self, db, organization, actor, data_source, *, failing_case_ids,
+        brief: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Hook for LLM training-mode instruction synthesis.
 
@@ -566,6 +570,10 @@ class AgentReliabilityService:
         context (context_view/context_hub) that isn't available from a bare
         trigger. Live training is driven through the existing knowledge harness;
         this seam lets that be injected without changing the state machine.
+
+        ``brief`` is the per-event focus string built from the Review item
+        (e.g. "fix these 5 low-confidence runs") — threaded here so a harness
+        implementation can seed its training prompt with it.
         """
         return []
 

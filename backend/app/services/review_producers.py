@@ -209,6 +209,29 @@ async def emit_schema_changed(db, organization_id: str, data_source_id: str, *,
     )
 
 
+def build_training_brief(item) -> str:
+    """A per-event 'focus brief' seeded into the training run, built from the
+    Review item's type + context. Threaded to the reliability loop's training
+    seam (and ready for the knowledge-harness implementation)."""
+    t = item.type
+    n = item.group_count or 1
+    why = (item.why or "").strip()
+    if t == TYPE_LOW_CONFIDENCE:
+        return (f"Focus: review the {n} low-confidence agent run(s) on this agent and propose "
+                f"instructions that fix the recurring gaps that caused the low scores. {why}")
+    if t == TYPE_SLOW_QUERY:
+        return (f"Focus: {n} data query/queries on this agent ran over the latency budget. "
+                f"Diagnose the common cause and propose guardrail instructions (e.g. require a "
+                f"filter, avoid full scans) to prevent it. {why}")
+    if t == TYPE_SCHEMA_CHANGED:
+        return (f"Focus: this agent's connection schema changed. {why} "
+                f"Update affected table/column references and instructions so answers stay correct.")
+    if t == TYPE_QUERY_ERROR:
+        return (f"Focus: {n} data query/queries on this agent errored. {why} "
+                f"Propose instructions/fixes so the agent forms valid queries.")
+    return why or "Review recent runs on this agent and propose instructions that improve accuracy."
+
+
 async def run_scans(db: AsyncSession, organization_id: str) -> dict:
     """Run all sweep-based producers for an org (slow queries, low confidence,
     instruction suggestions). Returns counts emitted."""

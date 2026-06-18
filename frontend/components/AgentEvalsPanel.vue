@@ -25,7 +25,6 @@
                 <div class="flex items-center gap-1">
                     <button type="button" :class="tabClass('runs')" @click="activeTab = 'runs'">{{ $t('evals.tabs.runs') }}</button>
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
-                    <button v-if="canManage" type="button" :class="tabClass('automation')" @click="activeTab = 'automation'">Automation</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
                     <input
@@ -166,81 +165,6 @@
                 </table>
             </div>
 
-            <!-- Automation tab (minimal: one autonomy menu + Advanced) -->
-            <div v-else-if="activeTab === 'automation'" class="max-w-xl space-y-5">
-                <!-- Automation mode = master switch + autonomy in one control -->
-                <div class="flex items-start justify-between">
-                    <div class="pe-4">
-                        <div class="text-sm font-medium text-gray-900">Automation</div>
-                        <div class="text-xs text-gray-500 mt-0.5 max-w-sm">{{ modeHelp }}</div>
-                    </div>
-                    <USelectMenu v-model="mode" :options="modeOptions" value-attribute="value" option-attribute="label"
-                        :disabled="!canManage" size="sm" class="w-44 shrink-0" @update:model-value="applyMode" />
-                </div>
-
-                <!-- Advanced: per-stage control -->
-                <div :class="{ 'opacity-50 pointer-events-none': !form.enabled }">
-                    <button type="button" class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800" @click="showAdvanced = !showAdvanced">
-                        <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
-                        Advanced
-                    </button>
-                    <div v-if="showAdvanced" class="mt-2">
-                        <p class="text-[11px] text-gray-400 mb-2">Each stage: <span class="font-medium">Off</span> · <span class="font-medium">Suggest</span> (stop for review) · <span class="font-medium">Auto</span> (end to end).</p>
-                        <div class="rounded-md border border-gray-200 divide-y divide-gray-100">
-                            <!-- Merged eval triggers -->
-                            <div class="flex items-center justify-between px-3 py-2.5">
-                                <div class="pe-4">
-                                    <div class="text-xs font-medium text-gray-800">Re-run evals when things change</div>
-                                    <div class="text-[11px] text-gray-500">Tables activated/changed, this agent's instructions, or a global build promoted.</div>
-                                </div>
-                                <select v-model="evalTrigger" :disabled="!canManage"
-                                    class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
-                                    <option v-for="o in AUTONOMY_OPTS" :key="o.value" :value="o.value">{{ o.label }}</option>
-                                </select>
-                            </div>
-                            <!-- Per-stage dials -->
-                            <div v-for="dial in advancedDials" :key="dial.key" class="flex items-center justify-between px-3 py-2.5">
-                                <div class="pe-4">
-                                    <div class="text-xs font-medium text-gray-800">{{ dial.label }}</div>
-                                    <div class="text-[11px] text-gray-500">{{ dial.help }}</div>
-                                </div>
-                                <select v-model="(form as any)[dial.key]" :disabled="!canManage" @change="onAdvancedChange"
-                                    class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
-                                    <option v-for="o in dial.options" :key="o.value" :value="o.value">{{ o.label }}</option>
-                                </select>
-                            </div>
-                            <!-- On repeated failure -->
-                            <div class="flex items-center justify-between px-3 py-2.5">
-                                <div class="pe-4">
-                                    <div class="text-xs font-medium text-gray-800">On repeated failure</div>
-                                    <div class="text-[11px] text-gray-500">When the loop can't reach green: keep it in training (still visible to users) or move it to development (only agent admins can see it).</div>
-                                </div>
-                                <select v-model="form.on_repeated_failure" :disabled="!canManage" @change="markDirty"
-                                    class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
-                                    <option value="none">Do nothing</option>
-                                    <option value="training">Keep in training</option>
-                                    <option value="development">Move to development</option>
-                                </select>
-                            </div>
-                            <!-- Max iterations -->
-                            <div class="flex items-center justify-between px-3 py-2.5">
-                                <div class="pe-4">
-                                    <div class="text-xs font-medium text-gray-800">Max training iterations</div>
-                                    <div class="text-[11px] text-gray-500">Cap on the train → re-eval loop before giving up. Guards cost.</div>
-                                </div>
-                                <input v-model.number="form.max_iterations" type="number" min="1" max="10" :disabled="!canManage" @change="markDirty"
-                                    class="h-7 w-16 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div v-if="canManage" class="flex items-center gap-2">
-                    <UButton color="blue" size="xs" :disabled="!dirty" :loading="savingSettings" @click="saveSettings">Save</UButton>
-                    <UButton color="gray" variant="ghost" size="xs" :disabled="!dirty" @click="loadAutomation">Reset</UButton>
-                    <span v-if="savedOk" class="text-xs text-green-600">Saved</span>
-                </div>
-            </div>
         </div>
         <AddTestCaseModal
             v-if="showAddCase"
