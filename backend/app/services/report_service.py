@@ -1425,6 +1425,7 @@ class ReportService:
         user could pin a private source they have no access to and query it.
         """
         from sqlalchemy import delete
+        from app.models.data_source_file_association import data_source_file_association
 
         # Delete existing associations directly via SQL to avoid ORM state tracking issues
         await db.execute(
@@ -1436,6 +1437,28 @@ class ReportService:
         # Expire and refresh the relationship so ORM sees it as empty (avoids MissingGreenlet on lazy load)
         db.expire(report, ["data_sources"])
         await db.refresh(report, ["data_sources"])
+
+        # Remove files that were snapshotted onto the report from data sources
+        # that are no longer attached. We only drop a file when it (a) belongs to
+        # some data source (so user-uploaded files, which belong to none, are
+        # spared), (b) does not belong to any data source that remains attached,
+        # and (c) was snapshotted, not produced/mentioned during a chat
+        # (completion_id IS NULL). This mirrors the add-only snapshot below.
+        remaining_ds_files = (
+            select(data_source_file_association.c.file_id)
+            .where(data_source_file_association.c.data_source_id.in_(data_source_ids))
+        )
+        files_owned_by_any_ds = select(data_source_file_association.c.file_id)
+        await db.execute(
+            delete(report_file_association).where(
+                report_file_association.c.report_id == report.id,
+                report_file_association.c.completion_id.is_(None),
+                report_file_association.c.file_id.in_(files_owned_by_any_ds),
+                report_file_association.c.file_id.notin_(remaining_ds_files),
+            )
+        )
+        # Expire so the ORM re-reads report.files before the snapshot add below.
+        db.expire(report, ["files"])
 
         if data_source_ids:
             # Load all requested data sources (scoped to the org when known)
