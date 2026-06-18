@@ -425,25 +425,27 @@
               <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
                 <template v-for="(seg, si) in mergedSegments" :key="si">
                   <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
-                  <span v-else :id="`rh-${seg.buildId}-${seg.idx}`" class="group/h relative inline-block align-baseline rounded transition-all"
-                        :class="[resolving === `${seg.buildId}:${seg.idx}` ? 'ring-2 ring-gray-900/15' : 'hover:ring-2 hover:ring-gray-900/10', highlightBuild === seg.buildId ? 'ring-2 ring-amber-300 bg-amber-50' : '']">
+                  <span v-else :id="`rh-${seg.buildId}-${seg.idx}`" class="group/h relative inline-block align-baseline rounded-[3px] transition-colors"
+                        :class="[resolving === `${seg.buildId}:${seg.idx}` ? 'bg-gray-100' : 'hover:bg-gray-50', highlightBuild === seg.buildId ? 'bg-amber-50' : '']">
                     <template v-for="(op, oi) in seg.ops" :key="oi">
-                      <del v-if="op.type === -1" class="text-red-400 line-through decoration-red-300 decoration-1">{{ op.text }}</del>
-                      <ins v-else class="text-emerald-700 bg-emerald-50 rounded px-px no-underline">{{ op.text }}</ins>
+                      <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
+                      <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                     </template>
                     <span v-if="resolving === `${seg.buildId}:${seg.idx}`" class="absolute inset-0 rounded bg-white/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" /></span>
-                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 mt-1.5 w-64 cursor-default select-none rounded-xl bg-white shadow-lg ring-1 ring-gray-200 p-3 text-left whitespace-normal" @click.stop>
-                      <span class="flex items-center gap-1.5 text-[11px] text-gray-500">
-                        <span class="w-1.5 h-1.5 rounded-full" :class="seg.build.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                        <span class="font-medium text-gray-700">{{ seg.build.source === 'ai' ? 'AI suggestion' : 'Proposed change' }}</span>
-                        <span v-if="seg.build.created_at">· {{ fmtDate(seg.build.created_at) }}</span>
+                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 mt-2 w-52 cursor-default select-none rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2.5 text-left whitespace-normal" @click.stop>
+                      <span class="flex items-center justify-between gap-2">
+                        <span class="flex items-center gap-1.5 min-w-0">
+                          <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="seg.build.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                          <span class="text-[11px] font-medium text-gray-700 truncate">{{ seg.build.source === 'ai' ? 'AI suggestion' : 'Proposed' }}</span>
+                        </span>
+                        <span v-if="seg.build.created_at" class="text-[10px] text-gray-400 shrink-0">{{ fmtDate(seg.build.created_at) }}</span>
                       </span>
-                      <span v-if="seg.build.created_by?.name" class="block mt-1 text-[11px] text-gray-400">by {{ seg.build.created_by.name }}</span>
-                      <span v-if="seg.overlap" class="block mt-1 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
-                      <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
-                      <span class="mt-2.5 pt-2.5 border-t border-gray-100 flex items-center gap-1.5">
-                        <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-green-600" />Accept</button>
-                        <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                      <span v-if="seg.build.created_by?.name" class="block mt-0.5 pl-3 text-[10px] text-gray-400 truncate">{{ seg.build.created_by.name }}</span>
+                      <span v-if="seg.overlap" class="block mt-1.5 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
+                      <span class="mt-2.5 flex items-center gap-1.5">
+                        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-gray-900 text-white text-[11px] font-medium hover:bg-black disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
+                        <button class="inline-flex items-center h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)">Reject</button>
+                        <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="ml-auto inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />Trace</button>
                       </span>
                     </span>
                   </span>
@@ -511,27 +513,28 @@
                 <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
-                    <span v-else class="group/h relative inline-block align-baseline rounded transition-shadow" :class="resolving === seg.idx ? 'ring-2 ring-gray-900/15' : 'hover:ring-2 hover:ring-gray-900/10'">
+                    <span v-else class="group/h relative inline-block align-baseline rounded-[3px] transition-colors" :class="resolving === seg.idx ? 'bg-gray-100' : 'hover:bg-gray-50'">
                       <template v-for="(op, oi) in seg.ops" :key="oi">
-                        <del v-if="op.type === -1" class="text-red-400 line-through decoration-red-300 decoration-1">{{ op.text }}</del>
-                        <ins v-else class="text-emerald-700 bg-emerald-50 rounded px-px no-underline">{{ op.text }}</ins>
+                        <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
+                        <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
                       </template>
                       <span v-if="resolving === seg.idx" class="absolute inset-0 rounded bg-white/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" /></span>
 
                       <!-- Hover card: provenance + per-hunk actions -->
-                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 mt-1.5 w-64 cursor-default select-none rounded-xl bg-white shadow-lg ring-1 ring-gray-200 p-3 text-left whitespace-normal" @click.stop>
-                        <span class="flex items-center gap-1.5 text-[11px] text-gray-500">
-                          <span class="w-1.5 h-1.5 rounded-full" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                          <span class="font-medium text-gray-700">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed change' }}</span>
-                          <span v-if="activeSuggestion?.created_at">· {{ fmtDate(activeSuggestion.created_at) }}</span>
+                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-full left-0 mt-2 w-52 cursor-default select-none rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2.5 text-left whitespace-normal" @click.stop>
+                        <span class="flex items-center justify-between gap-2">
+                          <span class="flex items-center gap-1.5 min-w-0">
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                            <span class="text-[11px] font-medium text-gray-700 truncate">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed' }}</span>
+                          </span>
+                          <span v-if="activeSuggestion?.created_at" class="text-[10px] text-gray-400 shrink-0">{{ fmtDate(activeSuggestion.created_at) }}</span>
                         </span>
-                        <span v-if="activeSuggestion?.created_by?.name" class="block mt-1 text-[11px] text-gray-400">by {{ activeSuggestion.created_by.name }}</span>
-                        <span v-if="activeSuggestion?.build_title" class="block mt-1.5 text-[12px] font-medium text-gray-800">{{ activeSuggestion.build_title }}</span>
-                        <span v-if="activeSuggestion?.message" class="block mt-0.5 text-[11px] text-gray-500 line-clamp-3">{{ activeSuggestion.message }}</span>
-                        <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="mt-2 inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />View trace</button>
-                        <span class="mt-2.5 pt-2.5 border-t border-gray-100 flex items-center gap-1.5">
-                          <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-green-600" />Accept</button>
-                          <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-40" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />Reject</button>
+                        <span v-if="activeSuggestion?.created_by?.name" class="block mt-0.5 pl-3 text-[10px] text-gray-400 truncate">{{ activeSuggestion.created_by.name }}</span>
+                        <span v-if="activeSuggestion?.message" class="block mt-1.5 text-[11px] text-gray-500 line-clamp-2">{{ activeSuggestion.message }}</span>
+                        <span class="mt-2.5 flex items-center gap-1.5">
+                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-gray-900 text-white text-[11px] font-medium hover:bg-black disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
+                          <button class="inline-flex items-center h-7 px-2 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)">Reject</button>
+                          <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ml-auto inline-flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" />Trace</button>
                         </span>
                       </span>
                     </span>
