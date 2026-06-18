@@ -1444,10 +1444,15 @@ const restoreScroll = (top: number) => {
 function hunkCountOf(ops: any[]) { let hc = 0, inH = false; for (const o of ops) { if (o.type === 0) inH = false; else { if (!inH) { hc++; inH = true } } } return hc }
 // Set of this build's hunks EXCEPT the one being acted on — what stays pending.
 function keepAllBut(ops: any[], idx: number) { const keep = new Set<number>(); const hc = hunkCountOf(ops); for (let i = 0; i < hc; i++) if (i !== idx) keep.add(i); return keep }
-// Hunks/ops are computed against the rebased ("merged") text. Accept: promote =
-// current + the accepted hunk; remaining = current + the OTHER hunks (so the
-// build keeps proposing only what's left, not the already-applied hunk).
-const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), applyHunks(seg.buildOps, keepAllBut(seg.buildOps, seg.idx)), `${seg.buildId}:${seg.idx}`)
+// Hunks/ops are computed against the rebased ("merged") text.
+// Accept: promote = current + the accepted hunk; remaining = the build's FULL
+//   rebased target (merged). On reload the accepted hunk is already in current,
+//   so the rebase shows only the still-pending hunks (and a single-hunk build
+//   resolves out cleanly). Using "keep all but this hunk" here is WRONG: for a
+//   deletion it reverts the just-accepted removal and re-adds the text.
+// Reject: main is unchanged (promote = current); the build keeps proposing the
+//   OTHER hunks (keepAllBut) and drops the rejected one.
+const acceptMergedHunk = (seg: any) => doResolveFor(seg.buildId, applyHunks(seg.buildOps, new Set([seg.idx])), seg.merged ?? mergedTextFor(seg.build), `${seg.buildId}:${seg.idx}`)
 const rejectMergedHunk = (seg: any) => {
   doResolveFor(seg.buildId, detail.value?.text || '', applyHunks(seg.buildOps, keepAllBut(seg.buildOps, seg.idx)), `${seg.buildId}:${seg.idx}`)
 }
