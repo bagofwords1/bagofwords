@@ -1775,6 +1775,7 @@ class ConsoleService:
                 UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
                 UserCompletion.context_effectiveness.label('context_effectiveness'),
                 UserCompletion.response_score.label('response_score'),
+                UserCompletion.judge_json.label('judge_json'),
             )
             .select_from(AgentExecution)
             .outerjoin(SystemCompletion, SystemCompletion.id == AgentExecution.completion_id)
@@ -1932,6 +1933,7 @@ class ConsoleService:
                 instructions_effectiveness=r.instructions_effectiveness,
                 context_effectiveness=r.context_effectiveness,
                 response_score=r.response_score,
+                judge=r.judge_json if isinstance(r.judge_json, dict) else None,
                 total_duration_ms=r.total_duration_ms,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),

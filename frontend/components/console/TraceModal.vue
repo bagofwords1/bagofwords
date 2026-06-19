@@ -202,29 +202,18 @@
                                     <pre class="text-xs text-gray-900 font-sans whitespace-pre-wrap break-words">{{ traceData?.head_prompt_snippet || '—' }}</pre>
 
                                     <!-- Assessment (judge) -->
-                                    <div v-if="isJudgeEnabled && selectedTurn && hasTurnScores(selectedTurn)" class="mt-4">
+                                    <div v-if="isJudgeEnabled && assessmentRows.length" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">LLM Judge Assessment</div>
-                                        <div class="space-y-1.5">
-                                            <div v-if="selectedTurn.instructions_effectiveness != null" class="flex items-center gap-2 text-xs">
-                                                <span class="w-28 text-gray-500 flex-shrink-0">Instructions</span>
-                                                <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
-                                                    <div class="h-full bg-blue-400" :style="{ width: (selectedTurn.instructions_effectiveness / 5 * 100) + '%' }"></div>
+                                        <div class="space-y-2.5">
+                                            <div v-for="row in assessmentRows" :key="row.key">
+                                                <div class="flex items-center gap-2 text-xs">
+                                                    <span class="w-28 text-gray-500 flex-shrink-0">{{ row.label }}</span>
+                                                    <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
+                                                        <div class="h-full" :class="row.bar" :style="{ width: (row.score / 5 * 100) + '%' }"></div>
+                                                    </div>
+                                                    <span class="font-semibold w-7 text-end" :class="row.text">{{ row.score }}/5</span>
                                                 </div>
-                                                <span class="font-semibold text-blue-700 w-7 text-end">{{ selectedTurn.instructions_effectiveness }}/5</span>
-                                            </div>
-                                            <div v-if="selectedTurn.context_effectiveness != null" class="flex items-center gap-2 text-xs">
-                                                <span class="w-28 text-gray-500 flex-shrink-0">Context</span>
-                                                <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
-                                                    <div class="h-full bg-purple-400" :style="{ width: (selectedTurn.context_effectiveness / 5 * 100) + '%' }"></div>
-                                                </div>
-                                                <span class="font-semibold text-purple-700 w-7 text-end">{{ selectedTurn.context_effectiveness }}/5</span>
-                                            </div>
-                                            <div v-if="selectedTurn.response_score != null" class="flex items-center gap-2 text-xs">
-                                                <span class="w-28 text-gray-500 flex-shrink-0">Response</span>
-                                                <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
-                                                    <div class="h-full bg-green-400" :style="{ width: (selectedTurn.response_score / 5 * 100) + '%' }"></div>
-                                                </div>
-                                                <span class="font-semibold text-green-700 w-7 text-end">{{ selectedTurn.response_score }}/5</span>
+                                                <div v-if="row.reasoning" class="text-[11px] text-gray-500 mt-1 ps-[7.5rem] leading-snug">{{ row.reasoning }}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -669,6 +658,7 @@ interface ConversationTurn {
     instructions_effectiveness?: number | null
     context_effectiveness?: number | null
     response_score?: number | null
+    judge?: Record<string, { score?: number | null; reasoning?: string | null }> | null
     total_duration_ms?: number | null
     created_at?: string | null
 }
@@ -929,6 +919,32 @@ const assistantSnippet = (turn: ConversationTurn) => {
 const hasTurnScores = (turn: ConversationTurn) => {
     return turn.instructions_effectiveness != null || turn.context_effectiveness != null || turn.response_score != null
 }
+
+// LLM Judge assessment rows for the Overview. Prefer the per-dimension score
+// from judge_json; fall back to the scalar column. Reasoning shows only when
+// present, and the instructions/context rationale (a single combined judge
+// explanation) is shown once to avoid duplication.
+const assessmentRows = computed(() => {
+    const turn = selectedTurn.value
+    if (!turn) return [] as any[]
+    const j = turn.judge || {}
+    const dims = [
+        { key: 'instructions', label: 'Instructions', scalar: turn.instructions_effectiveness, bar: 'bg-blue-400', text: 'text-blue-700' },
+        { key: 'context', label: 'Context', scalar: turn.context_effectiveness, bar: 'bg-purple-400', text: 'text-purple-700' },
+        { key: 'response', label: 'Response', scalar: turn.response_score, bar: 'bg-green-400', text: 'text-green-700' },
+    ]
+    const rows: any[] = []
+    const seenReasoning = new Set<string>()
+    for (const d of dims) {
+        const score = (j as any)[d.key]?.score ?? d.scalar
+        if (score == null) continue
+        let reasoning = ((j as any)[d.key]?.reasoning || '').trim()
+        if (reasoning && seenReasoning.has(reasoning)) reasoning = ''  // de-dupe combined instructions/context text
+        else if (reasoning) seenReasoning.add(reasoning)
+        rows.push({ key: d.key, label: d.label, score, bar: d.bar, text: d.text, reasoning })
+    }
+    return rows
+})
 
 const selectItem = (item: any) => {
     selectedItem.value = { ...item, id: item.completion_id || item.step_id || item.feedback_id }

@@ -66,6 +66,9 @@ class ConversationTurnSchema(BaseModel):
     instructions_effectiveness: Optional[int] = None
     context_effectiveness: Optional[int] = None
     response_score: Optional[int] = None
+    # LLM judge per-dimension score + reasoning (preferred over the scalar
+    # scores above when present). None when the judge didn't run.
+    judge: Optional[Dict[str, Any]] = None
     total_duration_ms: Optional[float] = None
     created_at: Optional[datetime] = None
 
