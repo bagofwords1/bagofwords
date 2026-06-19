@@ -1227,14 +1227,90 @@ class InstructionService:
         await self._record_resolved_hunk(db, build, instruction_id, hunk_key, "accept")
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
 
-    async def _record_resolved_hunk(self, db: AsyncSession, build, instruction_id: str, hunk_key: str, action: str):
+    async def _record_resolved_hunk(self, db: AsyncSession, build, instruction_id: str, hunk_key: str, action: str, *, commit: bool = True):
         from sqlalchemy.orm.attributes import flag_modified
         rej = list(build.rejected_hunks or [])
         if not any(r.get("key") == hunk_key and r.get("instruction_id") == str(instruction_id) for r in rej):
             rej.append({"instruction_id": str(instruction_id), "key": hunk_key, "action": action})
             build.rejected_hunks = rej
             flag_modified(build, "rejected_hunks")
-            await db.commit()
+            if commit:
+                await db.commit()
+
+    async def accept_all_hunks(self, db: AsyncSession, instruction_id: str, *,
+                               against_main_version_id: Optional[str], organization: Organization, current_user: User):
+        """Accept EVERY live hunk in one pass: apply them all cumulatively onto
+        main (newest suggestion wins on overlap), promote a SINGLE new build, and
+        record every accepted hunk. One request, one build — no per-hunk churn."""
+        from app.services.text_hunks import compute_hunks, apply_hunk_onto
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None, "not_found"
+        main_text, main_vid, meta_src = await self._main_text_of(db, instruction)
+        if against_main_version_id and main_vid and str(against_main_version_id) != str(main_vid):
+            return None, "conflict"
+        rows = await self._pending_suggestion_builds(db, instruction_id, organization)  # newest first
+        new_text = main_text
+        accepted = []  # (build, key)
+        for build, proposed_text, _vid in rows:
+            rejected = self._rejected_keys(build, instruction_id)
+            base_text = await self._build_base_text(db, build, instruction_id)
+            for h in compute_hunks(base_text, proposed_text or ""):
+                if h.key in rejected:
+                    continue
+                merged, ok = apply_hunk_onto(base_text, new_text, h)
+                if ok and merged != new_text:
+                    new_text = merged
+                    accepted.append((build, h.key))
+        if not accepted or new_text == main_text:
+            return await self.get_instruction(db, instruction.id, organization, current_user), "noop"
+        new_version = await self.version_service.create_version_from_data(
+            db, instruction_id=instruction.id, text=new_text,
+            title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
+            structured_data=(meta_src.structured_data if meta_src else None), formatted_content=None,
+            status=(meta_src.status if meta_src else "published") or "published",
+            load_mode=(meta_src.load_mode if meta_src else getattr(instruction, "load_mode", "always")) or "always",
+            references_json=(meta_src.references_json if meta_src else None),
+            data_source_ids=(meta_src.data_source_ids if meta_src else None),
+            label_ids=(meta_src.label_ids if meta_src else None),
+            category_ids=(meta_src.category_ids if meta_src else None),
+            user_id=current_user.id,
+        )
+        nb = await self.build_service.create_build(db, organization.id, source="user", user_id=current_user.id, copy_from_main=True)
+        await self.build_service.add_to_build(db, nb.id, instruction.id, new_version.id)
+        await db.commit()
+        await self._auto_finalize_build(db, nb, current_user, user_permissions)
+        for build, key in accepted:
+            await self._record_resolved_hunk(db, build, instruction_id, key, "accept", commit=False)
+        await db.commit()
+        return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
+
+    async def reject_all_hunks(self, db: AsyncSession, instruction_id: str, *,
+                               organization: Organization, current_user: User):
+        """Reject every live hunk in one pass (records them; main unchanged)."""
+        from app.services.text_hunks import compute_hunks, apply_hunk_onto
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None, "not_found"
+        main_text, _vid, _meta = await self._main_text_of(db, instruction)
+        rows = await self._pending_suggestion_builds(db, instruction_id, organization)
+        for build, proposed_text, _v in rows:
+            rejected = self._rejected_keys(build, instruction_id)
+            base_text = await self._build_base_text(db, build, instruction_id)
+            for h in compute_hunks(base_text, proposed_text or ""):
+                if h.key in rejected:
+                    continue
+                merged, ok = apply_hunk_onto(base_text, main_text, h)
+                if ok and merged != main_text:
+                    await self._record_resolved_hunk(db, build, instruction_id, h.key, "reject", commit=False)
+        await db.commit()
+        try:
+            from app.services.review_service import review_service
+            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
+        except Exception:
+            pass
+        return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
 
     async def reject_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
                           organization: Organization, current_user: User):

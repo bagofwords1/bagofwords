@@ -811,6 +811,60 @@ async def reject_instruction_hunk(
     return resolved
 
 
+class AcceptAllRequest(BaseModel):
+    against_main_version_id: Optional[str] = None
+
+
+@router.post("/instructions/{instruction_id}/hunks/accept-all", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def accept_all_instruction_hunks(
+    instruction_id: str,
+    body: AcceptAllRequest = AcceptAllRequest(),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Accept every live hunk in one pass (single new build)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
+    resolved, status = await instruction_service.accept_all_hunks(
+        db, instruction_id, against_main_version_id=body.against_main_version_id,
+        organization=organization, current_user=current_user,
+    )
+    if status == "conflict":
+        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
+@router.post("/instructions/{instruction_id}/hunks/reject-all", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def reject_all_instruction_hunks(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Reject every live hunk in one pass (records them; main unchanged)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
+    resolved, _status = await instruction_service.reject_all_hunks(
+        db, instruction_id, organization=organization, current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
 # ==================== Pending Builds (Tracked Changes) ====================
 
 from sqlalchemy import select, and_

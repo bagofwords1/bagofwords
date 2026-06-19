@@ -133,13 +133,19 @@ const reject = (seg: any) => _resolve(seg, 'reject')
 async function resolveAll(mode: 'accept' | 'reject') {
   if (busy.value) return
   busy.value = true
+  const top = scrollEl.value?.scrollTop ?? 0
   try {
-    let guard = 0
-    while (totalHunks.value && guard++ < 2000) {
-      const s = suggestions.value.find(x => x.hunks.length)
-      if (!s) break
-      await _resolve({ ...s.hunks[0], build_id: s.build_id }, mode)
-    }
+    // One server-side pass (one build for accept-all) — no per-hunk reload churn.
+    const url = `/api/instructions/${props.instructionId}/hunks/${mode}-all`
+    const body = mode === 'accept' ? { against_main_version_id: mainVersionId.value } : {}
+    const { error } = await useMyFetch(url, { method: 'POST', body })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    await load()
+    emit('changed')
+    await nextTick()
+    if (scrollEl.value) scrollEl.value.scrollTop = top
+  } catch (e: any) {
+    useToast?.().add?.({ title: `Couldn’t ${mode} all`, description: e?.message, color: 'red' })
   } finally { busy.value = false }
 }
 
