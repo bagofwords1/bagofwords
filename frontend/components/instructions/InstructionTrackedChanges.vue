@@ -148,19 +148,22 @@ const displaySegments = computed(() => {
   return out
 })
 
-async function load() {
+// `silent` swaps the hunk data in place WITHOUT flipping `loading` (which would
+// blank the pane to a "Loading…" placeholder). Used after accept/reject so the
+// view updates the resolved hunk away smoothly instead of flickering.
+async function load(opts: { silent?: boolean } = {}) {
   if (!props.instructionId) return
-  loading.value = true
+  if (!opts.silent) loading.value = true
   try {
     const { data } = await useMyFetch<any>(`/api/instructions/${props.instructionId}/review-hunks`, { method: 'GET' })
     const d = data.value || {}
     mainText.value = d.main_text || ''
     mainVersionId.value = d.main_version_id || null
     suggestions.value = d.suggestions || []
-  } finally { loading.value = false }
+  } finally { if (!opts.silent) loading.value = false }
   if (!totalHunks.value) emit('empty')
 }
-defineExpose({ reload: load })
+defineExpose({ reload: () => load() })
 
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
@@ -172,7 +175,7 @@ async function _resolve(seg: any, action: 'accept' | 'reject') {
       : { build_id: seg.build_id, hunk_key: seg.key }
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
-    await load()
+    await load({ silent: true })
     emit('changed')
     await nextTick()
     if (scrollEl.value) scrollEl.value.scrollTop = top
@@ -193,7 +196,7 @@ async function resolveAll(mode: 'accept' | 'reject') {
     const body = mode === 'accept' ? { against_main_version_id: mainVersionId.value } : {}
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
-    await load()
+    await load({ silent: true })
     emit('changed')
     await nextTick()
     if (scrollEl.value) scrollEl.value.scrollTop = top
@@ -202,8 +205,10 @@ async function resolveAll(mode: 'accept' | 'reject') {
   } finally { busy.value = false }
 }
 
-watch(() => props.instructionId, load)
-onMounted(load)
+// Switching to a different instruction shows the loading state; resolves reload
+// silently (see `load`). Wrap so the watcher's args aren't passed as `opts`.
+watch(() => props.instructionId, () => load())
+onMounted(() => load())
 </script>
 
 <style scoped>
