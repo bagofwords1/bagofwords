@@ -31,9 +31,12 @@ class ReadResourcesTool(Tool):
         return ToolMetadata(
             name="read_resources",
             description=(
-                "RESEARCH: Read metadata resources (dbt/LookML/docs). "
+                "RESEARCH: Search INDEXED metadata resources (dbt/LookML/docs) stored in this "
+                "workspace. Matches by resource name/path. "
                 "CRITICAL: Metadata often contains business rules, definitions, and guidelines. "
-                "If metadata resources exist, read them FIRST - they can contain rules you need."
+                "If metadata resources exist, read them FIRST - they can contain rules you need. "
+                "NOTE: This does NOT read MCP server resources by URI (e.g. 'pulse://rules') - "
+                "use list_mcp_resources / read_mcp_resource for those."
             ),
             category="research",
             version="1.0.0",

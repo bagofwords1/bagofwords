@@ -1,5 +1,8 @@
 <template>
-    <div class="flex flex-col h-full">
+    <!-- flex-1/min-h-0 make this fill (and shrink within) a flex-column host so the
+         inner overflow-y-auto columns scroll instead of overflowing the modal. In a
+         non-flex (block) host, flex-1 is inert and h-full keeps the prior behavior. -->
+    <div class="flex flex-col h-full flex-1 min-h-0">
         <!-- VIEW MODE: Read-only display for existing instructions -->
         <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
             <!-- Two-column body: content (left) + metadata sidebar (right) -->

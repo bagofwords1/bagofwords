@@ -191,6 +191,7 @@ PLAN TYPE GUIDANCE
 - You must review user message, the chat's previous messages and activity, inspect schemas or gather context first.
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
 - Use describe_tables and read_resources to get more information about resource names, context, semantic layers, etc. before the next step.
+- When MCP connections are attached, their servers may expose business rules/definitions/schemas as MCP resources (URIs like 'pulse://rules'). Use list_mcp_resources to discover them, then read_mcp_resource to fetch a resource's content BEFORE querying. (read_resources only covers indexed dbt/LookML/docs, not MCP resource URIs.)
 - Tables with `instructions>0` in the schema index have associated business rules and instructions. Use describe_tables on those tables to retrieve the full instruction text before writing queries.
 - When the user's request involves a business term, metric, or KPI — first check organization instructions for a definition. If found, use it. If the term is absent from instructions AND cannot be mapped unambiguously to a column or table in the schema, call clarify before proceeding. Never invent a definition.
 - Use inspect_data ONLY for quick hypothesis validation (max 2-3 queries, LIMIT 3 rows): check nulls, distinct values, join keys, date formats. It's a peek, not analysis.

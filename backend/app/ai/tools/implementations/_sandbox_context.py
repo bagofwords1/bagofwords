@@ -18,7 +18,12 @@ SANDBOX RUNTIME ENVIRONMENT (pre-loaded globally — do NOT import or redefine)
 
 The generated code runs inside a sandboxed iframe. The following libraries and
 helpers are **already loaded globally** — do NOT import, redefine, or remove
-references to any of them:
+references to any of them.
+
+⚠️  NEVER write `import` statements of any kind. They cause an immediate
+    SyntaxError: "Cannot use import statement outside a module" that breaks
+    the entire dashboard. All globals below are already available — use them
+    directly with no imports.
 
 • **React 18** — `React`, `ReactDOM` available globally
   - Hooks are also global: `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback` — use directly without `React.` prefix

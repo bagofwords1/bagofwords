@@ -16,6 +16,7 @@ from app.schemas.data_sources.configs import (
     SQLConfig,
     MssqlConfig,
     PrestoConfig,
+    TrinoConfig,
     GoogleAnalyticsConfig,
     GCPConfig,
     AWSCostConfig,
@@ -26,6 +27,7 @@ from app.schemas.data_sources.configs import (
     SalesforceConfig,
     ClickhouseConfig,
     PinotConfig,
+    DruidConfig,
     MongoDBConfig,
     PostHogConfig,
     # DuckDB
@@ -93,6 +95,7 @@ from app.schemas.data_sources.configs import (
     NetSuiteCredentials,
     SQLCredentials,
     PrestoCredentials,
+    TrinoCredentials,
     GoogleAnalyticsCredentials,
     GCPCredentials,
     AWSCostCredentials,
@@ -362,6 +365,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path=None,
     ),
+    "trino": DataSourceRegistryEntry(
+        type="trino",
+        title="Trino",
+        description="Trino is a distributed SQL query engine for big data analytics.",
+        config_schema=TrinoConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"])
+        }),
+        client_path=None,
+    ),
     "azure_data_explorer": DataSourceRegistryEntry(
         type="azure_data_explorer",
         title="Azure Data Explorer",
@@ -377,6 +390,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Apache Pinot",
         description="Real-time OLAP datastore queried via Broker SQL API.",
         config_schema=PinotConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None,
+        version="beta",
+    ),
+    "druid": DataSourceRegistryEntry(
+        type="druid",
+        title="Apache Druid",
+        description="Real-time analytics database queried via the Broker/Router SQL API.",
+        config_schema=DruidConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),

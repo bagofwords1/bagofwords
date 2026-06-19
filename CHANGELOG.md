@@ -1,6 +1,15 @@
 # Release Notes
 
+## Version 0.0.414 (June 18, 2026)
+- **Fix — long instructions hid the Edit button in the instruction modal** — in the global create/edit instruction modal, a long instruction body made the content area un-scrollable and pushed the action footer (Edit in view mode; Update/Cancel in edit mode) off the bottom of the modal, so the instruction couldn't be edited. The modal now keeps a properly bounded flex layout so the content scrolls internally and the footer stays visible.
+
+## Version 0.0.413 (June 18, 2026)
+- feat(mcp): let the agent read MCP server resources (list_mcp_resources + read_mcp_resource)
+- fix: prevent 'Cannot use import statement outside a module' in artifact iframe 
+
 ## Version 0.0.412 (June 16, 2026)
+- **Apache Druid data source** — connect to Apache Druid and query it as a new data source.
+- **Trino data source** — connect to the Trino distributed SQL engine and query it as a new data source.
 - Agents page redesign - easier navigation around instructions, tools, tables, tc
 - **Continual Learning** - trigger evals -> retrain loop on table change or instruction change for high autonomy
 

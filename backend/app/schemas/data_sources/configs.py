@@ -281,6 +281,20 @@ class PrestoConfig(BaseModel):
     protocol: str = Field("http", title="Protocol", description="", json_schema_extra={"ui:type": "string"})
 
 
+# Trino
+class TrinoCredentials(BaseModel):
+    user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
+    password: str = Field("", title="Password", description="Required for HTTPS only", json_schema_extra={"ui:type": "password"})
+
+
+class TrinoConfig(BaseModel):
+    host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
+    port: int = Field(8080, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+    catalog: str = Field(..., title="Catalog", description="", json_schema_extra={"ui:type": "string"})
+    schema: str = Field(..., title="Schema", description="", json_schema_extra={"ui:type": "string"})
+    protocol: str = Field("http", title="Protocol", description="http or https", json_schema_extra={"ui:type": "string"})
+
+
 # Google Analytics
 class GoogleAnalyticsCredentials(BaseModel):
     service_account_file: str = Field(..., title="Service Account JSON", description="", json_schema_extra={"ui:type": "textarea"})
@@ -463,6 +477,20 @@ class PinotConfig(BaseModel):
         None,
         title="Query Options",
         description="Optional queryOptions string, e.g. useMultistageEngine=true",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
+# Apache Druid
+class DruidConfig(BaseModel):
+    host: str = Field(..., title="Host", description="Broker or Router host", json_schema_extra={"ui:type": "string"})
+    port: int = Field(8082, ge=1, le=65535, title="Port", description="Broker SQL port (8082) or Router port (8888)", json_schema_extra={"ui:type": "number"})
+    secure: bool = Field(False, title="Secure", description="Use HTTPS when true", json_schema_extra={"ui:type": "boolean"})
+    path: str = Field("/druid/v2/sql/", title="Path", description="Druid SQL endpoint path", json_schema_extra={"ui:type": "string"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas (default: druid). System schemas are always excluded.",
         json_schema_extra={"ui:type": "string"}
     )
 
@@ -1283,6 +1311,7 @@ __all__ = [
     "NetSuiteConfig",
     "SQLConfig",
     "PrestoConfig",
+    "TrinoConfig",
     "GoogleAnalyticsConfig",
     "GCPConfig",
     "AWSCostConfig",
@@ -1308,6 +1337,7 @@ __all__ = [
     "NetSuiteCredentials",
     "SQLCredentials",
     "PrestoCredentials",
+    "TrinoCredentials",
     "GoogleAnalyticsCredentials",
     "GCPCredentials",
     "AWSCostCredentials",
