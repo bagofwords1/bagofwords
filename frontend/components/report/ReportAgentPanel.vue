@@ -321,7 +321,7 @@
                 <button
                   v-for="inst in filteredInstructions"
                   :key="inst.id"
-                  @click="selectedInstruction = inst"
+                  @click="openInstruction(inst)"
                   class="w-full px-3 py-2.5 text-start text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
                 >
                   <div class="flex-1 min-w-0">
@@ -924,6 +924,15 @@ watch(selectedAgentId, () => {
   instructionSearch.value = ''
   instructionCategoryFilter.value = []
   instructionStatusFilter.value = ['published']
+})
+
+// Any path that swaps the open instruction must restart the per-hunk review
+// from scratch — otherwise a prior instruction's `empty` (or an Edit-instead
+// toggle) leaks across and forces the legacy editor for the next one.
+watch(selectedInstruction, (next, prev) => {
+  if (next?.id === prev?.id) return
+  instructionReviewEmpty.value = false
+  forceInstructionEdit.value = false
 })
 
 // Expose methods for external callers
