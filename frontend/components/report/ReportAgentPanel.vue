@@ -593,11 +593,12 @@ const selectedInstruction = ref<any | null>(null)
 // Per-hunk review (tracked changes) state for the instruction view.
 const instructionReviewEmpty = ref(false)
 const forceInstructionEdit = ref(false)
+// Show the per-hunk review for an existing instruction when the user can
+// approve; the component reports `empty` (no live hunks) and we fall to the
+// editor. Robust to current_build_status not being populated.
 const showInstructionReview = computed(() =>
-  !!selectedInstruction.value && !creatingInstruction.value && canCreateInstructions.value
-  && selectedInstruction.value.current_build_id
-  && ['draft', 'pending_approval'].includes(selectedInstruction.value.current_build_status)
-  && !instructionReviewEmpty.value && !forceInstructionEdit.value
+  !!selectedInstruction.value && !!selectedInstruction.value.id && !creatingInstruction.value
+  && canCreateInstructions.value && !instructionReviewEmpty.value && !forceInstructionEdit.value
 )
 const creatingInstruction = ref(false)
 const creatingPrimaryInstruction = ref(false)

@@ -67,6 +67,12 @@ async def main():
     from app.services.instruction_service import InstructionService
     from sqlalchemy import func as _func, select as _select
 
+    # Noop the agent-reliability scheduling that promote_build fires per build —
+    # it's background work incidental to this throughput test (otherwise every one
+    # of the 1000 cherry-picks schedules a reliability run).
+    from app.services.agent_reliability_service import AgentReliabilityService
+    AgentReliabilityService.schedule_for_build = lambda self, **kw: None  # type: ignore
+
     svc = InstructionService()
     admin_ids: set = set()
 

@@ -1177,9 +1177,9 @@ const openConnectionDetail = (c: any) => { selectedConnection.value = c; showCon
 const onConnectionChanged = async () => { await fetchAgents() }
 const loadPending = async (id: string) => {
   reviewEmpty.value = false
-  // Fetch then replace (don't clear first) so the review pane doesn't unmount
-  // and remount mid-resolve, which would reset its scroll to the top.
-  try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch { pendingBuilds.value = [] }
+  // Authoritative: a "pending" instruction is one with live hunks in the
+  // cherry-pick review (a fully-resolved suggestion build no longer counts).
+  try { const { data } = await useMyFetch<any>(`/api/instructions/${id}/review-hunks`, { method: 'GET' }); pendingBuilds.value = (data.value?.suggestions || []) } catch { pendingBuilds.value = [] }
 }
 const closeDiff = () => { diff.value = null; activeSuggestion.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
 
