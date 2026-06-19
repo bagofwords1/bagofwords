@@ -49,7 +49,7 @@
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
                             <!-- User bubble -->
                             <div class="flex justify-end mb-2">
-                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 text-[13px] text-gray-900 whitespace-pre-line" dir="auto">{{ turn.user_prompt || '—' }}</div>
+                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 text-[13px] text-gray-900 whitespace-pre-line break-words" dir="auto">{{ turn.user_prompt || '—' }}</div>
                             </div>
                             <!-- Assistant blocks -->
                             <div class="space-y-2">
@@ -198,7 +198,7 @@
                                 <!-- User prompt + context (minimal) -->
                                 <template v-if="selectedItem.id === 'user_prompt'">
                                     <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.userPrompt') }}</div>
-                                    <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
+                                    <pre class="text-xs text-gray-900 font-sans whitespace-pre-wrap break-words">{{ traceData?.head_prompt_snippet || '—' }}</pre>
 
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.context') }}</div>
@@ -250,18 +250,18 @@
                                         </div>
                                         <div v-if="selectedItem.message">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.message') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.message }}</pre>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.reasoning') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.content') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Tool execution with specialized rendering -->
