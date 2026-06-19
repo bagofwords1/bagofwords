@@ -1790,6 +1790,19 @@ class ConsoleService:
         ae_ids = [r.ae_id for r in rows]
         completion_ids = [r.completion_id for r in rows if r.completion_id]
 
+        # Rendered blocks per AE for the chat-style left pane.
+        blocks_by_ae: dict[str, list] = {str(a): [] for a in ae_ids}
+        if ae_ids:
+            blocks_q = (
+                select(CompletionBlock)
+                .where(CompletionBlock.agent_execution_id.in_(ae_ids))
+                .order_by(CompletionBlock.block_index.asc())
+            )
+            for b in (await db.execute(blocks_q)).scalars().all():
+                lst = blocks_by_ae.get(str(b.agent_execution_id))
+                if lst is not None:
+                    lst.append(await serialize_block_v2(db, b))
+
         # Tool counts + ordered tool names per AE.
         te_counts = {str(a): {'total': 0, 'success': 0, 'failed': 0} for a in ae_ids}
         ae_tool_names: dict[str, List[str]] = {str(a): [] for a in ae_ids}
@@ -1921,6 +1934,7 @@ class ConsoleService:
                 response_score=r.response_score,
                 total_duration_ms=r.total_duration_ms,
                 created_at=r.created_at,
+                completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
             ))
 
         # Header user = the report owner.

@@ -69,6 +69,10 @@ class ConversationTurnSchema(BaseModel):
     total_duration_ms: Optional[float] = None
     created_at: Optional[datetime] = None
 
+    # Rendered blocks for the chat-style left pane (same shape the report chat
+    # uses). Empty for turns still in progress / without blocks.
+    completion_blocks: List[CompletionBlockV2Schema] = []
+
 
 class ConversationTraceResponse(BaseModel):
     """A whole report conversation as an ordered list of turns + roll-up."""
