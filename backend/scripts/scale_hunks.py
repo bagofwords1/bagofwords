@@ -12,9 +12,11 @@ import os, sys, asyncio, hashlib, sqlite3, subprocess, uuid, random, time
 REPRO_DB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "db", "scale_hunks.db"))
 os.environ["BOW_DATABASE_URL"] = f"sqlite:///{REPRO_DB}"
 
-N_INSTR = 10          # instructions (fewer = cheaper copy_from_main per accept)
+# Realistic shape: many SMALL instructions (a few hunks each), not a few huge
+# ones — keeps compute_hunks/alignment cheap. 100 x (2 x 6) = 1200 hunks.
+N_INSTR = 100         # instructions
 SUGG_PER_INSTR = 2    # suggestions per instruction
-LINES = 110           # lines per instruction body → 2 x 55 disjoint edits = 1100 hunks
+LINES = 12            # lines per instruction body
 random.seed(7)
 FAILS = []
 
