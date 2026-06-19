@@ -1137,7 +1137,7 @@ class InstructionService:
         aren't rejected, (b) apply cleanly onto current main (no conflict), and
         (c) actually change main (not already applied). Each surfaced hunk is
         rendered against current main so the UI overlays it on live text."""
-        from app.services.text_hunks import compute_hunks, apply_hunk_onto, diff_word_ops
+        from app.services.text_hunks import live_hunks_against_main
         from app.models.agent_execution import AgentExecution
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
@@ -1148,27 +1148,8 @@ class InstructionService:
         for build, proposed_text, proposed_vid in rows:
             rejected = self._rejected_keys(build, instruction_id)
             base_text = await self._build_base_text(db, build, instruction_id)
-            shown = []
-            for h in compute_hunks(base_text, proposed_text or ""):
-                if h.key in rejected:
-                    continue
-                new_main, ok = apply_hunk_onto(base_text, main_text, h)
-                if not ok or new_main == main_text:
-                    continue  # conflict, or already applied to main
-                ops = diff_word_ops(main_text, new_main)
-                # Char offset of this hunk in current main (leading EQUAL run),
-                # so the client can interleave hunks without re-diffing.
-                lead = 0
-                for ty, t in ops:
-                    if ty == 0:
-                        lead += len(t)
-                    else:
-                        break
-                before = "".join(t for ty, t in ops if ty == -1)
-                after = "".join(t for ty, t in ops if ty == 1)
-                shown.append({"key": h.key, "before": before, "after": after,
-                              "start": lead, "end": lead + len(before),
-                              "ops": [{"type": ty, "text": t} for ty, t in ops]})
+            shown = [h for h in live_hunks_against_main(base_text, proposed_text or "", main_text)
+                     if h["key"] not in rejected]
             if not shown:
                 continue
             trace = None

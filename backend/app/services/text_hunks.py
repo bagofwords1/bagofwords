@@ -151,6 +151,47 @@ def apply_hunk_onto(base: str, main: str, hunk: Hunk) -> Tuple[str, bool]:
     return main, False
 
 
+def live_hunks_against_main(base: str, proposed: str, main: str) -> List[dict]:
+    """The suggestion's hunks that are LIVE against current main — i.e. apply
+    cleanly and actually change main (not already-applied, not conflicting) —
+    each as {key, start, end, before, after} positioned in main.
+
+    Computes the base->main token alignment ONCE for the whole suggestion and
+    derives each hunk's position directly from it, so the cost is
+    O(tokens^2 + hunks) instead of O(hunks * tokens^2). No second diff per hunk."""
+    intent = compute_hunks(base, proposed)
+    if not intent:
+        return []
+    ta, tm = _tokenize(base), _tokenize(main)
+    pos = _base_to_main_positions(ta, tm)
+    # char offset of each main token boundary
+    offs = [0]
+    for t in tm:
+        offs.append(offs[-1] + len(t))
+    out: List[dict] = []
+    for h in intent:
+        mi1, mi2 = pos[h.base_lo], pos[h.base_hi]
+        if mi1 is None or mi2 is None or mi2 < mi1:
+            continue  # conflict (alignment broke around the hunk)
+        region = tm[mi1:mi2]
+        after = list(h.after_tokens)
+        base_region = ta[h.base_lo:h.base_hi]
+        if region == after:
+            continue  # already applied
+        if h.base_lo == h.base_hi and after:
+            n = len(after)
+            if tm[max(0, mi1 - n):mi1] == after or tm[mi1:mi1 + n] == after:
+                continue  # insertion already present at the anchor
+        if region != base_region:
+            continue  # main changed this region differently → conflict
+        before = "".join(region)
+        out.append({
+            "key": h.key, "start": offs[mi1], "end": offs[mi1] + len(before),
+            "before": before, "after": "".join(after),
+        })
+    return out
+
+
 def applied_text_for(base: str, proposed: str, hunk_index: int, onto_main: str) -> Tuple[Optional[str], bool]:
     """Convenience: recompute intent hunks of (base, proposed) and apply hunk
     `hunk_index` onto `onto_main`. Returns (new_main, ok); (None, False) if the
