@@ -142,6 +142,28 @@ def test_wrapper_remains_usable_after_a_timeout():
     assert "error" not in timings[1]
 
 
+def test_query_alias_routes_through_instrumented_execute_query():
+    """`.query(...)` is an alias the model often reaches for instead of
+    `.execute_query(...)`. It must go through the wrapper's own execute_query so
+    the call is still captured and timed — not delegated to the raw client."""
+    client = _StubClient(sleep_seconds=0.0)
+    wrapper = _make_wrapper(client, timeout=2)
+    df = wrapper.query("select 1")
+    assert isinstance(df, pd.DataFrame)
+    assert client.calls == 1
+    # Captured + timed exactly as if execute_query had been called directly.
+    assert wrapper._captured_queries == ["select 1"]
+    assert len(wrapper._captured_timings) == 1
+
+
+def test_query_alias_honours_timeout():
+    """The alias inherits the per-query timeout enforcement."""
+    client = _StubClient(sleep_seconds=2.0)
+    wrapper = _make_wrapper(client, timeout=1)
+    with pytest.raises(QueryTimeoutError):
+        wrapper.query("select pg_sleep(2)")
+
+
 def test_non_timeout_exception_does_not_get_timeout_marker():
     client = _StubClient(raise_exc=RuntimeError("syntax error at or near 'FOO'"))
     wrapper = _make_wrapper(client, timeout=2)

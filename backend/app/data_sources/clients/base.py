@@ -78,6 +78,16 @@ class DataSourceClient(ABC):
     def execute_query(self, **kwargs):
         pass
 
+    def query(self, *args, **kwargs):
+        """Alias for execute_query.
+
+        Model-generated code frequently reaches for the shorter, more natural
+        `.query(...)` instead of `.execute_query(...)`. Aliasing here avoids a
+        whole class of `AttributeError: '<Client>' object has no attribute
+        'query'` failures across every connector.
+        """
+        return self.execute_query(*args, **kwargs)
+
     # Async wrappers — offload blocking I/O to a thread so the event loop stays free.
 
     async def atest_connection(self):
@@ -103,6 +113,10 @@ class DataSourceClient(ABC):
 
     async def aexecute_query(self, *args, **kwargs):
         return await asyncio.to_thread(self.execute_query, *args, **kwargs)
+
+    async def aquery(self, *args, **kwargs):
+        """Async alias for aexecute_query (mirrors the sync `query` alias)."""
+        return await self.aexecute_query(*args, **kwargs)
 
     async def awarm_all(self) -> list:
         """Pre-warm any local caches needed before queries. No-op for most clients."""
