@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Get VERSION and DATE
         id: version
@@ -43,7 +43,7 @@ jobs:
           docker buildx prune -af || true
       
       - name: Build image (load locally)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           load: true
@@ -80,7 +80,7 @@ jobs:
 
       - name: Push Docker images
         if: success()
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
