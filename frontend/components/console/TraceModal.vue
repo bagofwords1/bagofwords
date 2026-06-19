@@ -49,7 +49,7 @@
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
                             <!-- User bubble -->
                             <div class="flex justify-end mb-2">
-                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 text-[13px] text-gray-900 whitespace-pre-line" dir="auto">{{ turn.user_prompt || '—' }}</div>
+                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 text-[13px] text-gray-900 whitespace-pre-line break-words" dir="auto">{{ turn.user_prompt || '—' }}</div>
                             </div>
                             <!-- Assistant blocks -->
                             <div class="space-y-2">
@@ -195,15 +195,45 @@
                             <!-- Block Details (minimal) -->
                             <div class="space-y-4">
 
-                                <!-- User prompt + context (minimal) -->
-                                <template v-if="selectedItem.id === 'user_prompt'">
+                                <!-- Overview: prompt + assessment (judge) + context -->
+                                <template v-if="selectedItem.id === 'overview'">
+                                    <!-- User prompt -->
                                     <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.userPrompt') }}</div>
-                                    <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
+                                    <pre class="text-xs text-gray-900 font-sans whitespace-pre-wrap break-words">{{ traceData?.head_prompt_snippet || '—' }}</pre>
 
+                                    <!-- Assessment (judge) -->
+                                    <div v-if="isJudgeEnabled && selectedTurn && hasTurnScores(selectedTurn)" class="mt-4">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Assessment</div>
+                                        <div class="space-y-1.5">
+                                            <div v-if="selectedTurn.instructions_effectiveness != null" class="flex items-center gap-2 text-xs">
+                                                <span class="w-28 text-gray-500 flex-shrink-0">Instructions</span>
+                                                <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
+                                                    <div class="h-full bg-blue-400" :style="{ width: (selectedTurn.instructions_effectiveness / 5 * 100) + '%' }"></div>
+                                                </div>
+                                                <span class="font-semibold text-blue-700 w-7 text-end">{{ selectedTurn.instructions_effectiveness }}/5</span>
+                                            </div>
+                                            <div v-if="selectedTurn.context_effectiveness != null" class="flex items-center gap-2 text-xs">
+                                                <span class="w-28 text-gray-500 flex-shrink-0">Context</span>
+                                                <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
+                                                    <div class="h-full bg-purple-400" :style="{ width: (selectedTurn.context_effectiveness / 5 * 100) + '%' }"></div>
+                                                </div>
+                                                <span class="font-semibold text-purple-700 w-7 text-end">{{ selectedTurn.context_effectiveness }}/5</span>
+                                            </div>
+                                            <div v-if="selectedTurn.response_score != null" class="flex items-center gap-2 text-xs">
+                                                <span class="w-28 text-gray-500 flex-shrink-0">Response</span>
+                                                <div class="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
+                                                    <div class="h-full bg-green-400" :style="{ width: (selectedTurn.response_score / 5 * 100) + '%' }"></div>
+                                                </div>
+                                                <span class="font-semibold text-green-700 w-7 text-end">{{ selectedTurn.response_score }}/5</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Context (schemas / instructions / observations) -->
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.context') }}</div>
-                                        <ContextBrowser 
-                                            :context-data="traceData.head_context_snapshot.context_view_json || {}" 
+                                        <ContextBrowser
+                                            :context-data="traceData.head_context_snapshot.context_view_json || {}"
                                             :build="traceData?.build"
                                         />
                                     </div>
@@ -250,18 +280,18 @@
                                         </div>
                                         <div v-if="selectedItem.message">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.message') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.message }}</pre>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.reasoning') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.content') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Tool execution with specialized rendering -->
@@ -719,14 +749,9 @@ const toggleHarnessCollapsed = () => { harnessCollapsed.value = !harnessCollapse
 const harnessCount = computed(() => blocks.value.filter((b: any) => (b as any).phase === 'knowledge_harness').length)
 const leftItems = computed(() => {
     const items: any[] = []
-    // 1) User prompt
-    if (traceData.value?.head_prompt_snippet) {
-        items.push({ id: 'user_prompt', kind: 'prompt', title: t('traceModal.userPrompt'), subtitle: traceData.value.head_prompt_snippet })
-    }
-    // 1b) Instructions summary (from context snapshot)
-    const instrItems = traceData.value?.head_context_snapshot?.context_view_json?.instructions_usage
-    if (instrItems?.length) {
-        items.push({ id: 'instructions_summary', kind: 'instructions', title: t('traceModal.instructions'), subtitle: t('traceModal.loaded', { count: instrItems.length }) })
+    // 1) Overview — prompt + assessment (judge scores) + context (incl. instructions)
+    if (traceData.value) {
+        items.push({ id: 'overview', kind: 'overview', title: 'Overview', subtitle: traceData.value.head_prompt_snippet })
     }
     // 2) Decisions (blocks) — main-loop first, then knowledge harness
     const mainBlocks = blocks.value.filter((b: any) => (b as any).phase !== 'knowledge_harness')
@@ -856,8 +881,8 @@ const fetchTraceData = async () => {
             console.error('Error fetching trace data:', response.error.value)
         } else if (response.data.value) {
             traceData.value = response.data.value
-            // Always open on the prompt block
-            selectedItem.value = { id: 'user_prompt', title: t('traceModal.userPrompt'), content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+            // Always open on the Overview
+            selectedItem.value = { id: 'overview', title: 'Overview', created_at: traceData.value?.agent_execution?.started_at }
             selectedItemType.value = 'block'
         }
     } catch (error) {
@@ -917,11 +942,8 @@ const selectBlock = (block: any) => {
 const selectLeftItem = (item: any) => {
     if (item.kind === 'decision' && item.ref) {
         selectBlock(item.ref)
-    } else if (item.kind === 'prompt') {
-        selectedItem.value = { id: 'user_prompt', title: t('traceModal.userPrompt'), content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
-        selectedItemType.value = 'block'
-    } else if (item.kind === 'instructions') {
-        selectedItem.value = { id: 'instructions_summary', kind: 'instructions', title: t('traceModal.instructions'), created_at: traceData.value?.agent_execution?.started_at }
+    } else if (item.kind === 'overview') {
+        selectedItem.value = { id: 'overview', title: 'Overview', created_at: traceData.value?.agent_execution?.started_at }
         selectedItemType.value = 'block'
     } else if (item.kind === 'feedback' && item.ref) {
         const fb = item.ref as CompletionFeedbackUI
@@ -1027,6 +1049,7 @@ const getBlockTitle = (block: CompletionBlockV2) => {
 }
 
 const getLeftItemIcon = (item: any) => {
+    if (item.kind === 'overview') return 'i-heroicons-clipboard-document-list'
     if (item.kind === 'prompt') return 'i-heroicons-user'
     if (item.kind === 'instructions') return 'i-heroicons-cube'
     if (item.kind === 'final') return 'i-heroicons-check-circle'
@@ -1036,6 +1059,7 @@ const getLeftItemIcon = (item: any) => {
 }
 
 const getLeftItemIconClass = (item: any) => {
+    if (item.kind === 'overview') return 'w-3 h-3 text-gray-500'
     if (item.kind === 'prompt') return 'w-3 h-3 text-blue-600'
     if (item.kind === 'instructions') return 'w-3 h-3 text-indigo-600'
     if (item.kind === 'final') return 'w-3 h-3 text-green-600'
