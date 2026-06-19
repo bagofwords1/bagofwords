@@ -4,7 +4,7 @@
         v-if="canManage"
         :items="items"
         :popper="{ placement: 'bottom-end' }"
-        :ui="{ width: 'w-80', item: { padding: 'px-2 py-1.5' } }"
+        :ui="{ width: 'w-[26rem]', item: { padding: 'px-3 py-2' } }"
     >
         <button
             type="button"
