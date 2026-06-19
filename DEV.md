@@ -3,22 +3,20 @@
 
 #### Prerequisites
 - Python 3.12+
-- Node.js 18+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (package manager)
+- Node.js 22+
 - Yarn
 
 #### Backend Setup
 ```bash
-# Setup Python environment
 cd backend
-python3 -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-pip install uv && uv sync --frozen --extra dev
+uv sync --extra dev      # creates .venv and installs all deps
 
 # Run migrations
-alembic upgrade head
+uv run alembic upgrade head
 
 # Start server
-python main.py  # Available at http://localhost:8000
+uv run python main.py    # Available at http://localhost:8000
 ```
 
 #### Frontend Setup
