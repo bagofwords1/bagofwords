@@ -410,55 +410,16 @@
             </div>
           </div>
 
-          <!-- Merged review: ALL pending suggestions shown inline at once -->
+          <!-- Per-hunk tracked-changes review (server-authoritative cherry-pick) -->
           <div v-if="reviewMode" class="flex-1 flex flex-col min-h-0">
-            <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
-              <div class="flex items-center gap-2 min-w-0">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-                <span class="text-xs font-medium text-gray-700">Pending review</span>
-                <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ mergedReviewCount }} change{{ mergedReviewCount === 1 ? '' : 's' }} · {{ pendingBuilds.length }} suggestion{{ pendingBuilds.length === 1 ? '' : 's' }}</span>
-              </div>
-              <div class="flex items-center gap-1.5 shrink-0">
-                <template v-if="canApprove && mergedReviewCount">
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject all</button>
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="bulkResolving || resolving !== null" @click="resolveAll('accept')"><UIcon :name="bulkResolving ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': bulkResolving }]" />Accept all</button>
-                </template>
-                <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="toggleHistory()"><UIcon name="i-heroicons-clock" class="w-4 h-4" /></button>
-              </div>
-            </div>
-            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
-              <div v-if="!mergedReviewCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — all suggestions resolved.</div>
-              <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
-                <template v-for="(seg, si) in mergedSegments" :key="si">
-                  <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
-                  <span v-else :id="`rh-${seg.buildId}-${seg.idx}`" class="group/h relative inline align-baseline rounded-[3px] transition-colors"
-                        :class="[resolving === `${seg.buildId}:${seg.idx}` ? 'bg-amber-100' : 'hover:bg-amber-50', highlightBuild === seg.buildId ? 'bg-amber-100 ring-1 ring-amber-300' : '']">
-                    <template v-for="(op, oi) in seg.ops" :key="oi">
-                      <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
-                      <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
-                    </template>
-                    <!-- Floating control anchored just below the FIRST line of the
-                         change (top-0 + ~1 line of pt), so it stays near the
-                         hover point even for tall multi-line changes; the pt also
-                         bridges the gap so moving the cursor down keeps it open. -->
-                    <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
-                      <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
-                        <span class="flex items-center gap-1.5 mb-1.5">
-                          <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="seg.build.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                          <span class="text-[10px] text-gray-500 truncate">{{ seg.build.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="seg.build.created_at"> · {{ fmtDate(seg.build.created_at) }}</template></span>
-                          <button v-if="seg.build.completion_id || seg.build.report_id" type="button" class="ml-1 text-gray-300 hover:text-gray-600 transition-colors" title="View trace" @click.stop="openTrace(seg.build)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
-                        </span>
-                        <span class="flex items-center gap-1.5">
-                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptMergedHunk(seg)"><UIcon :name="resolving === `${seg.buildId}:${seg.idx}` ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === `${seg.buildId}:${seg.idx}` }]" />Accept</button>
-                          <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectMergedHunk(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject</button>
-                        </span>
-                        <span v-if="seg.overlap" class="block mt-1.5 text-[10px] text-amber-600">⚠ overlaps another suggestion</span>
-                      </span>
-                    </span>
-                  </span>
-                </template>
-              </div>
-            </div>
+            <InstructionTrackedChanges
+              :key="detail.id"
+              ref="trackedChangesRef"
+              :instruction-id="detail.id"
+              :can-approve="canApprove"
+              @changed="reloadAfterResolve"
+              @empty="onReviewEmpty"
+            />
           </div>
 
           <!-- Diff view (version compare) -->
@@ -738,6 +699,7 @@
 
 <script setup lang="ts">
 import { h as createElement } from 'vue'
+import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
@@ -1214,6 +1176,7 @@ const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
 const onConnectionChanged = async () => { await fetchAgents() }
 const loadPending = async (id: string) => {
+  reviewEmpty.value = false
   // Fetch then replace (don't clear first) so the review pane doesn't unmount
   // and remount mid-resolve, which would reset its scroll to the top.
   try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch { pendingBuilds.value = [] }
@@ -1370,10 +1333,13 @@ const pendingViews = computed(() => {
     .map((pb: any) => { const merged = rebaseSuggestion(pb.base_text, pb.pending_text || '', cur); return { build: pb, merged, ...computeBuildHunks(cur, merged) } })
     .filter((v: any) => v.hunks.length > 0)   // drop suggestions already applied to current (rebased no-op)
 })
-// Enter the merged review only when there is something to actually review —
-// a pending build that rebases to a no-op (already applied) must NOT force the
-// changes view; we show the instruction text instead.
-const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingViews.value.length > 0)
+// Enter the per-hunk review when the instruction has pending suggestion builds.
+// The review component is server-authoritative; if the server finds no live
+// hunks it emits `empty`, and we fall back to the plain text view.
+const trackedChangesRef = ref<any>(null)
+const reviewEmpty = ref(false)
+const onReviewEmpty = () => { reviewEmpty.value = true }
+const reviewMode = computed(() => !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.
 const mergedSegments = computed(() => {

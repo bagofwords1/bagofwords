@@ -1156,9 +1156,18 @@ class InstructionService:
                 if not ok or new_main == main_text:
                     continue  # conflict, or already applied to main
                 ops = diff_word_ops(main_text, new_main)
+                # Char offset of this hunk in current main (leading EQUAL run),
+                # so the client can interleave hunks without re-diffing.
+                lead = 0
+                for ty, t in ops:
+                    if ty == 0:
+                        lead += len(t)
+                    else:
+                        break
                 before = "".join(t for ty, t in ops if ty == -1)
                 after = "".join(t for ty, t in ops if ty == 1)
                 shown.append({"key": h.key, "before": before, "after": after,
+                              "start": lead, "end": lead + len(before),
                               "ops": [{"type": ty, "text": t} for ty, t in ops]})
             if not shown:
                 continue

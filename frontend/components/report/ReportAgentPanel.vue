@@ -166,36 +166,55 @@
               <Icon name="heroicons:chevron-left" class="w-3 h-3 rtl-flip" />
               {{ $t('reportAgent.allInstructions') }}
             </button>
-            <!-- Unpublished-build warning banner (edit mode only) -->
-            <div
-              v-if="selectedInstruction && selectedInstruction.current_build_id && ['draft', 'pending_approval'].includes(selectedInstruction.current_build_status)"
-              class="mx-4 mb-2 px-2.5 py-1.5 rounded-md border border-amber-200 bg-amber-50 flex items-start gap-2"
-            >
-              <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-              <div class="flex-1 min-w-0">
-                <div class="text-[11px] text-amber-800">
-                  {{ selectedInstruction.current_build_status === 'draft'
-                    ? $t('reportAgent.unpublishedDraft')
-                    : $t('reportAgent.pendingReview') }}
-                </div>
-                <button
-                  v-if="canViewBuilds"
-                  @click="openBuildExplorer(selectedInstruction.current_build_id)"
-                  class="mt-0.5 text-[11px] text-amber-700 hover:text-amber-900 underline"
-                >
-                  {{ $t('reportAgent.viewChanges') }}
+            <!-- Per-hunk tracked-changes review: shown when this instruction has
+                 pending suggestions and the user can approve. Same component as
+                 the Knowledge Explorer. A toggle drops into the editor. -->
+            <template v-if="showInstructionReview">
+              <div class="px-4 pb-1 flex items-center justify-end shrink-0">
+                <button class="text-[11px] text-gray-500 hover:text-gray-800 inline-flex items-center gap-1" @click="forceInstructionEdit = true">
+                  <Icon name="heroicons:pencil-square" class="w-3 h-3" />Edit instead
                 </button>
               </div>
-            </div>
-            <InstructionGlobalCreateComponent
-              :key="selectedInstruction?.id || 'new'"
-              :instruction="selectedInstruction || undefined"
-              :default-status="canCreateInstructions ? 'published' : 'draft'"
-              :initial-version-number="initialVersionNumberForInstruction ?? undefined"
-              :agent-id="selectedAgentId || undefined"
-              @instruction-saved="onInstructionSaved"
-              @cancel="closeInstructionForm"
-            />
+              <InstructionTrackedChanges
+                :key="'review-' + selectedInstruction.id"
+                :instruction-id="selectedInstruction.id"
+                :can-approve="canCreateInstructions"
+                @changed="refreshInstructions()"
+                @empty="instructionReviewEmpty = true"
+              />
+            </template>
+            <template v-else>
+              <!-- Unpublished-build warning banner (edit mode only) -->
+              <div
+                v-if="selectedInstruction && selectedInstruction.current_build_id && ['draft', 'pending_approval'].includes(selectedInstruction.current_build_status)"
+                class="mx-4 mb-2 px-2.5 py-1.5 rounded-md border border-amber-200 bg-amber-50 flex items-start gap-2"
+              >
+                <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-[11px] text-amber-800">
+                    {{ selectedInstruction.current_build_status === 'draft'
+                      ? $t('reportAgent.unpublishedDraft')
+                      : $t('reportAgent.pendingReview') }}
+                  </div>
+                  <button
+                    v-if="canViewBuilds"
+                    @click="openBuildExplorer(selectedInstruction.current_build_id)"
+                    class="mt-0.5 text-[11px] text-amber-700 hover:text-amber-900 underline"
+                  >
+                    {{ $t('reportAgent.viewChanges') }}
+                  </button>
+                </div>
+              </div>
+              <InstructionGlobalCreateComponent
+                :key="selectedInstruction?.id || 'new'"
+                :instruction="selectedInstruction || undefined"
+                :default-status="canCreateInstructions ? 'published' : 'draft'"
+                :initial-version-number="initialVersionNumberForInstruction ?? undefined"
+                :agent-id="selectedAgentId || undefined"
+                @instruction-saved="onInstructionSaved"
+                @cancel="closeInstructionForm"
+              />
+            </template>
           </div>
 
           <!-- Instructions list -->
@@ -509,6 +528,7 @@ import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentia
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
+import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
 
@@ -570,6 +590,15 @@ const evalsCache = ref<Record<string, any[]>>({})
 
 // Instruction detail state
 const selectedInstruction = ref<any | null>(null)
+// Per-hunk review (tracked changes) state for the instruction view.
+const instructionReviewEmpty = ref(false)
+const forceInstructionEdit = ref(false)
+const showInstructionReview = computed(() =>
+  !!selectedInstruction.value && !creatingInstruction.value && canCreateInstructions.value
+  && selectedInstruction.value.current_build_id
+  && ['draft', 'pending_approval'].includes(selectedInstruction.value.current_build_status)
+  && !instructionReviewEmpty.value && !forceInstructionEdit.value
+)
 const creatingInstruction = ref(false)
 const creatingPrimaryInstruction = ref(false)
 const instructionLoading = ref(false)
@@ -902,6 +931,8 @@ function openInstruction(instruction: any, opts?: { initialVersionNumber?: numbe
   instructionLoading.value = false
   creatingInstruction.value = false
   initialVersionNumberForInstruction.value = opts?.initialVersionNumber ?? null
+  instructionReviewEmpty.value = false
+  forceInstructionEdit.value = false
   selectedInstruction.value = instruction
 }
 
