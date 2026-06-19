@@ -23,11 +23,13 @@
       <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 py-10">No pending changes — all suggestions resolved.</div>
       <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
         <template v-for="(seg, si) in segments" :key="si">
-          <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
+          <template v-if="seg.kind === 'context'">
+            <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
+          </template>
           <span v-else :id="`htc-${seg.key}`" class="group/h relative inline align-baseline rounded-[3px] transition-colors"
                 :class="resolving === seg.key ? 'bg-amber-100' : 'hover:bg-amber-50'">
-            <del v-if="seg.before" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ seg.before }}</del>
-            <ins v-if="seg.after" class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ seg.after }}</ins>
+            <del v-if="seg.before" class="text-rose-500/70 line-through decoration-rose-300 decoration-1"><template v-for="(pt, pi) in mentionParts(seg.before)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></del>
+            <ins v-if="seg.after" class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1"><template v-for="(pt, pi) in mentionParts(seg.after)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></ins>
             <span v-if="resolving === seg.key" class="absolute inset-0 rounded bg-white/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" /></span>
             <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
               <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
@@ -63,6 +65,29 @@ const suggestions = ref<any[]>([])
 const scrollEl = ref<HTMLElement | null>(null)
 
 const totalHunks = computed(() => suggestions.value.reduce((n, s) => n + s.hunks.length, 0))
+
+// Split text into plain runs + @mention chips so references render like the
+// normal instruction view. Handles both `@name` / `@"label"` and the TipTap
+// `<span data-type="mention" label="x">` HTML form.
+const MENTION_RE = /@([A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*|"[^"]+")/g
+function mentionParts(text: string): Array<{ t?: string; mention?: string }> {
+  const norm = (text || '')
+    .replace(/<span[^>]*data-type=["']mention["'][^>]*label=["']([^"']+)["'][^>]*>\s*<\/span>/g, '@$1')
+    .replace(/<span[^>]*data-type=["']mention["'][^>]*>([^<]*)<\/span>/g, '@$1')
+  if (!norm.includes('@')) return [{ t: norm }]
+  const parts: Array<{ t?: string; mention?: string }> = []
+  let last = 0, m: RegExpExecArray | null
+  MENTION_RE.lastIndex = 0
+  while ((m = MENTION_RE.exec(norm))) {
+    if (m.index > last) parts.push({ t: norm.slice(last, m.index) })
+    let label = m[1]
+    if (label.startsWith('"')) label = label.slice(1, -1)
+    parts.push({ mention: label })
+    last = MENTION_RE.lastIndex
+  }
+  if (last < norm.length) parts.push({ t: norm.slice(last) })
+  return parts
+}
 
 // Interleave every suggestion's hunks (server-positioned by char offset) onto the
 // live text. On overlap, the newest suggestion wins (build_number rank).
@@ -152,3 +177,15 @@ async function resolveAll(mode: 'accept' | 'reject') {
 watch(() => props.instructionId, load)
 onMounted(load)
 </script>
+
+<style scoped>
+.instr-mention {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-weight: 500;
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+</style>

@@ -1798,10 +1798,15 @@ const save = async () => {
       const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
       toast.add({ title: 'Saved', color: 'green' }); editing.value = false
-      if (data.value) detail.value = { ...detail.value, ...data.value }
-      await refreshLists()
-      const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
-      if (fresh) { detail.value = fresh; syncDraft(fresh) }
+      // Update just this instruction in place — no full list re-fetch, so the
+      // tree keeps its scroll/expanded state (no page-refresh feel).
+      if (data.value) {
+        const merged = { ...detail.value, ...data.value }
+        detail.value = merged; syncDraft(merged)
+        const idx = allInstructions.value.findIndex(i => i.id === merged.id)
+        if (idx >= 0) { allInstructions.value[idx] = { ...allInstructions.value[idx], ...data.value }; allInstructions.value = [...allInstructions.value] }
+      }
+      fetchPendingMap()
       loadVersions(detail.value!.id)
     }
   } catch (e: any) { toast.add({ title: 'Error', description: e.message, color: 'red' }) } finally { saving.value = false }
