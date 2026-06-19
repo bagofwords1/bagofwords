@@ -58,6 +58,16 @@ async def main():
 
     import main as _app  # noqa: F401
     from app.dependencies import async_session_maker
+    # Test-only: skip per-commit fsync (this throwaway sqlite DB) so 1000+ ops
+    # measure the model, not disk durability. Postgres has no such cost.
+    from sqlalchemy import event as _event
+    _engine = async_session_maker.kw["bind"]
+    @_event.listens_for(_engine.sync_engine, "connect")
+    def _fast_sqlite(dbapi_conn, _rec):  # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA synchronous=OFF")
+        cur.execute("PRAGMA journal_mode=MEMORY")
+        cur.close()
     from app.models.organization import Organization
     from app.models.user import User
     from app.models.instruction import Instruction
