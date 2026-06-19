@@ -1,23 +1,29 @@
-"""Agent reliability automation policy.
+"""Agent self-learning automation policy.
 
-A single, consistent autonomy dial (``off`` | ``suggest`` | ``auto``) applied at
-each stage of the self-learning loop, plus a couple of scalar knobs. The policy
-lives in two places and is *resolved* by merging them:
+Each agent (a ``DataSource``) carries a small **decision tree** that the
+agent-page "Self Learning" modal exposes verbatim:
 
-* **Org defaults** — an org-wide policy stored on
-  ``OrganizationSettings.config['agent_automation_defaults']``. A cautious org
-  configures this once.
-* **Per-agent override** — a (possibly partial) policy stored on
-  ``DataSource.automation_settings``. Only the keys present here override the
-  org default; everything else inherits.
+    1. Auto-approve suggestions?
+         yes -> a new suggestion is promoted to main immediately, no evals.
+         no  -> 2.
+    2. Auto-run eval?
+         yes -> the suggestion is evaluated against a *candidate build*
+                (main + the suggested hunks), then 3.
+         no  -> the suggestion just lands in the Review feed for a human.
+    3. Auto-approve on success?
+         yes -> promote automatically when the evals pass.
+         no  -> leave the (passing) candidate pending for a human.
 
-The resolved policy is what the orchestrator (``AgentReliabilityService``) reads.
+    (advanced) Auto-fix on failure?
+         yes -> when evals fail, run the train -> re-eval loop to try to fix.
+         no  -> leave the suggestion in Review marked "eval failed"
+                (main is untouched, so there is nothing to revert).
 
-Autonomy semantics per stage:
-    off      — stage never runs.
-    suggest  — stage runs but stops at a human-reviewable artifact
-               (draft eval / draft instruction build / report-only eval run).
-    auto     — stage runs end to end without a human in the loop.
+The policy is stored per-agent on ``DataSource.automation_settings`` (a partial
+dict is fine — missing keys fall back to the built-in defaults). The resolved
+policy is what the orchestrator (``AgentReliabilityService``) reads, exclusively
+through :meth:`AgentAutomationPolicy.stage` / the ``auto_approve_suggestions``
+flag, so the rest of the loop is unchanged by this surface.
 """
 
 from __future__ import annotations
@@ -27,7 +33,9 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-# Autonomy levels for a pipeline stage.
+# Autonomy levels for an internal pipeline stage. Kept because the orchestrator
+# still reasons in these terms; the Self-Learning tree is *projected* onto them
+# by :meth:`AgentAutomationPolicy.stage`.
 AUTONOMY_OFF = "off"
 AUTONOMY_SUGGEST = "suggest"
 AUTONOMY_AUTO = "auto"
@@ -41,50 +49,25 @@ ON_FAILURE_ACTIONS = (ON_FAILURE_NONE, ON_FAILURE_TRAINING, ON_FAILURE_DEVELOPME
 
 
 class AgentAutomationPolicy(BaseModel):
-    """Resolved (effective) automation policy for one agent.
+    """Resolved (effective) self-learning policy for one agent.
 
-    Also used as the org-default shape and as the (partial) per-agent override
-    shape — for overrides, callers pass only the keys they want to change and
-    merge via :func:`resolve_policy`.
+    The four booleans below are the entire user-facing surface (the modal). The
+    orchestrator never reads them directly except ``auto_approve_suggestions``;
+    every other consumer goes through :meth:`stage`, which projects the tree onto
+    the legacy ``off | suggest | auto`` stage vocabulary.
     """
 
-    # Master switch. When False the orchestrator treats every trigger as ``off``
-    # regardless of the per-stage dials — a single, obvious kill switch.
-    enabled: bool = False
+    # === The decision tree (the modal) ===
+    auto_approve_suggestions: bool = False   # promote new suggestions without evals
+    auto_run_eval: bool = False              # run evals on the candidate build
+    auto_approve_on_success: bool = False    # promote automatically when evals pass
+    auto_fix_on_failure: bool = False        # advanced: train -> re-eval on failure
 
-    # Triggers: when should we (re)measure the agent?
-    eval_on_change: str = AUTONOMY_SUGGEST          # agent's own instructions changed
-    eval_on_table_change: str = AUTONOMY_SUGGEST    # a table was activated / columns changed
-    eval_on_global_change: str = AUTONOMY_SUGGEST   # a global instruction build was promoted
-
-    # Remediation: when evals fail, write/fix instructions.
-    train_on_failure: str = AUTONOMY_SUGGEST
-
-    # Promotion: push a candidate (passing) instruction build live.
-    approve_instructions: str = AUTONOMY_SUGGEST
-
-    # Eval curation: promote a thumbs-up auto-drafted eval from draft -> active.
-    auto_promote_evals: str = AUTONOMY_OFF
-
-    # Outcome when the loop gives up.
+    # Outcome when the train -> re-eval loop gives up.
     on_repeated_failure: str = ON_FAILURE_TRAINING
 
     # Bound on the train -> re-eval loop. The single most important cost guard.
     max_iterations: int = Field(default=3, ge=1, le=10)
-
-    @field_validator(
-        "eval_on_change",
-        "eval_on_table_change",
-        "eval_on_global_change",
-        "train_on_failure",
-        "approve_instructions",
-        "auto_promote_evals",
-    )
-    @classmethod
-    def _valid_autonomy(cls, v: str) -> str:
-        if v not in AUTONOMY_LEVELS:
-            raise ValueError(f"autonomy must be one of {AUTONOMY_LEVELS}, got {v!r}")
-        return v
 
     @field_validator("on_repeated_failure")
     @classmethod
@@ -93,19 +76,34 @@ class AgentAutomationPolicy(BaseModel):
             raise ValueError(f"on_repeated_failure must be one of {ON_FAILURE_ACTIONS}, got {v!r}")
         return v
 
-    def stage(self, name: str) -> str:
-        """Effective autonomy for a stage, honoring the master switch.
+    @property
+    def enabled(self) -> bool:
+        """Derived master switch: the loop does something only if the agent
+        either auto-approves suggestions or auto-runs evals on them."""
+        return bool(self.auto_approve_suggestions or self.auto_run_eval)
 
-        Returns ``off`` for every stage when ``enabled`` is False so callers
-        don't have to special-case the kill switch everywhere.
+    def stage(self, name: str) -> str:
+        """Project the decision tree onto a legacy pipeline stage.
+
+        Returns ``off`` for every stage when the policy is effectively disabled
+        so callers don't have to special-case the kill switch everywhere.
         """
         if not self.enabled:
             return AUTONOMY_OFF
-        return getattr(self, name, AUTONOMY_OFF)
+        if name in ("eval_on_change", "eval_on_table_change", "eval_on_global_change"):
+            return AUTONOMY_AUTO if self.auto_run_eval else AUTONOMY_OFF
+        if name == "train_on_failure":
+            return AUTONOMY_AUTO if self.auto_fix_on_failure else AUTONOMY_OFF
+        if name == "approve_instructions":
+            # When evals run, promote on green only if the agent opted in;
+            # otherwise stop at a human-reviewable (passing) candidate.
+            return AUTONOMY_AUTO if self.auto_approve_on_success else AUTONOMY_SUGGEST
+        # auto_promote_evals and anything else: not part of the tree.
+        return AUTONOMY_OFF
 
 
-# The hard-coded fallback used when an org has configured nothing. Conservative
-# on purpose: master switch off, nothing auto-promotes.
+# The hard-coded fallback used when an agent has configured nothing. Conservative
+# on purpose: nothing runs, every suggestion goes to Review for a human.
 DEFAULT_POLICY = AgentAutomationPolicy()
 
 
@@ -116,6 +114,9 @@ def resolve_policy(
     """Merge org defaults over the built-in defaults, then the per-agent
     override on top. Unknown / partial dicts are tolerated — only recognized
     keys take effect, invalid values fall back to the lower-precedence layer.
+
+    Org defaults remain supported for forward-compat, but there is currently no
+    org-level UI: per-agent overrides are the only configured surface.
     """
     merged: Dict[str, Any] = DEFAULT_POLICY.model_dump()
 

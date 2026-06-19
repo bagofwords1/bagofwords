@@ -246,6 +246,15 @@ class RunEvalTool(Tool):
             total = len(target_case_ids)
             timeout_s = min(total * _PER_CASE_TIMEOUT_S, _MAX_TIMEOUT_S)
 
+            # --- Pin the candidate build so evals test the *staged* hunks ---
+            # In training / knowledge mode the agent accumulates new instruction
+            # versions into a draft build (``training_build_id``). Running evals
+            # without a build_id would silently fall back to the current MAIN
+            # build and never exercise the just-authored instructions. Pin the
+            # draft build when present so "does my change pass?" actually tests
+            # the change. Falls back to main (None) outside a build context.
+            candidate_build_id = runtime_ctx.get("training_build_id")
+
             # --- Kick off the TestRun ---
             run, _results = await run_service.create_and_execute_background(
                 db=db,
@@ -253,6 +262,7 @@ class RunEvalTool(Tool):
                 current_user=user,
                 case_ids=target_case_ids,
                 trigger_reason="agent_run_eval",
+                build_id=candidate_build_id,
             )
             run_id = str(run.id)
 

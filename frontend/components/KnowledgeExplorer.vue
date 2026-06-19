@@ -234,6 +234,7 @@
                     <span class="mt-1 text-[10px] text-gray-400">tasks</span>
                   </span>
                 </div>
+                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Configure how this agent learns from new suggestions" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
                 <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
@@ -697,6 +698,20 @@
         </div>
       </div>
     </UModal>
+
+    <!-- Self Learning (per-agent automation policy) -->
+    <UModal v-model="showSelfLearning" :ui="{ width: 'sm:max-w-lg' }">
+      <div class="p-5">
+        <div class="flex items-center gap-2 mb-1">
+          <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500" />
+          <div class="text-sm font-semibold text-gray-900">Self Learning</div>
+        </div>
+        <AgentAutomationSettings v-if="showSelfLearning && agentView" :agent-id="agentView.agentId" @saved="onSelfLearningSaved" />
+        <div class="flex justify-end mt-4">
+          <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50" @click="showSelfLearning = false">Close</button>
+        </div>
+      </div>
+    </UModal>
   </div>
 </template>
 
@@ -724,6 +739,7 @@ import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentia
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import ReviewFeed from '~/components/ReviewFeed.vue'
+import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
@@ -735,6 +751,9 @@ const toast = useToast()
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
 const agents = ref<any[]>([])
+// "Self Learning" per-agent automation modal (opened from the agent header).
+const showSelfLearning = ref(false)
+function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings saved', color: 'green' }) }
 // Admin-only "show all" toggle: include every agent in the org, not just the
 // caller's memberships. Re-fetches the agent list when flipped.
 const showAllAgents = ref(false)
