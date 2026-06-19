@@ -1137,7 +1137,7 @@ class InstructionService:
         aren't rejected, (b) apply cleanly onto current main (no conflict), and
         (c) actually change main (not already applied). Each surfaced hunk is
         rendered against current main so the UI overlays it on live text."""
-        from app.services.text_hunks import live_hunks_against_main
+        from app.services.text_hunks import rebased_hunks_against_main
         from app.models.agent_execution import AgentExecution
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
@@ -1148,7 +1148,11 @@ class InstructionService:
         for build, proposed_text, proposed_vid in rows:
             rejected = self._rejected_keys(build, instruction_id)
             base_text = await self._build_base_text(db, build, instruction_id)
-            shown = [h for h in live_hunks_against_main(base_text, proposed_text or "", main_text)
+            # Lenient: rebase the suggestion's intent onto current main so a STALE
+            # suggestion (forked from an older main) still surfaces reviewable
+            # hunks instead of collapsing to nothing. Identical to the strict
+            # path when main hasn't drifted.
+            shown = [h for h in rebased_hunks_against_main(base_text, proposed_text or "", main_text)
                      if h["key"] not in rejected]
             if not shown:
                 continue
@@ -1180,7 +1184,7 @@ class InstructionService:
         """Cherry-pick one hunk of a suggestion onto main: create a NEW build =
         main + that hunk and promote it. The suggestion build is never mutated;
         because main then contains the change, the hunk drops out of its review."""
-        from app.services.text_hunks import compute_hunks, apply_hunk_onto
+        from app.services.text_hunks import rebased_hunks_against_main
         user_permissions = await self._get_user_permissions(db, current_user, organization)
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
@@ -1196,12 +1200,13 @@ class InstructionService:
         if proposed is None:
             return None, "not_found"
         base_text = await self._build_base_text(db, build, instruction_id)
-        hunk = next((h for h in compute_hunks(base_text, proposed) if h.key == hunk_key), None)
-        if hunk is None:
+        # Locate the hunk among the (rebased) hunks shown for review and splice it
+        # in by char offset — works for both clean and stale (rebased) suggestions.
+        rh = next((h for h in rebased_hunks_against_main(base_text, proposed or "", main_text)
+                   if h["key"] == hunk_key), None)
+        if rh is None:
             return None, "conflict"
-        new_text, ok = apply_hunk_onto(base_text, main_text, hunk)
-        if not ok:
-            return None, "conflict"
+        new_text = main_text[:rh["start"]] + rh["after"] + main_text[rh["end"]:]
         if new_text == main_text:
             return await self.get_instruction(db, instruction.id, organization, current_user), "noop"
         # Promote new build-of-one (only this instruction changes; rest inherit main).
@@ -1242,7 +1247,7 @@ class InstructionService:
         """Accept EVERY live hunk in one pass: apply them all cumulatively onto
         main (newest suggestion wins on overlap), promote a SINGLE new build, and
         record every accepted hunk. One request, one build — no per-hunk churn."""
-        from app.services.text_hunks import compute_hunks, apply_hunk_onto
+        from app.services.text_hunks import rebased_hunks_against_main
         user_permissions = await self._get_user_permissions(db, current_user, organization)
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
@@ -1256,13 +1261,13 @@ class InstructionService:
         for build, proposed_text, _vid in rows:
             rejected = self._rejected_keys(build, instruction_id)
             base_text = await self._build_base_text(db, build, instruction_id)
-            for h in compute_hunks(base_text, proposed_text or ""):
-                if h.key in rejected:
-                    continue
-                merged, ok = apply_hunk_onto(base_text, new_text, h)
-                if ok and merged != new_text:
-                    new_text = merged
-                    accepted.append((build, h.key))
+            rhs = [h for h in rebased_hunks_against_main(base_text, proposed_text or "", new_text)
+                   if h["key"] not in rejected]
+            # Apply this suggestion's non-rejected hunks right-to-left so earlier
+            # char offsets stay valid; the next suggestion rebases onto the result.
+            for h in sorted(rhs, key=lambda x: x["start"], reverse=True):
+                new_text = new_text[:h["start"]] + h["after"] + new_text[h["end"]:]
+                accepted.append((build, h["key"]))
         if not accepted or new_text == main_text:
             return await self.get_instruction(db, instruction.id, organization, current_user), "noop"
         new_version = await self.version_service.create_version_from_data(
@@ -1289,7 +1294,7 @@ class InstructionService:
     async def reject_all_hunks(self, db: AsyncSession, instruction_id: str, *,
                                organization: Organization, current_user: User):
         """Reject every live hunk in one pass (records them; main unchanged)."""
-        from app.services.text_hunks import compute_hunks, apply_hunk_onto
+        from app.services.text_hunks import rebased_hunks_against_main
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
             return None, "not_found"
@@ -1298,12 +1303,10 @@ class InstructionService:
         for build, proposed_text, _v in rows:
             rejected = self._rejected_keys(build, instruction_id)
             base_text = await self._build_base_text(db, build, instruction_id)
-            for h in compute_hunks(base_text, proposed_text or ""):
-                if h.key in rejected:
+            for h in rebased_hunks_against_main(base_text, proposed_text or "", main_text):
+                if h["key"] in rejected:
                     continue
-                merged, ok = apply_hunk_onto(base_text, main_text, h)
-                if ok and merged != main_text:
-                    await self._record_resolved_hunk(db, build, instruction_id, h.key, "reject", commit=False)
+                await self._record_resolved_hunk(db, build, instruction_id, h["key"], "reject", commit=False)
         await db.commit()
         try:
             from app.services.review_service import review_service

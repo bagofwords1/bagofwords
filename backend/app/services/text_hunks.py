@@ -192,6 +192,48 @@ def live_hunks_against_main(base: str, proposed: str, main: str) -> List[dict]:
     return out
 
 
+def rebased_hunks_against_main(base: str, proposed: str, main: str) -> List[dict]:
+    """Lenient variant of `live_hunks_against_main`. Same intent hunks, positioned
+    against current main, but instead of DROPPING a hunk whose base region drifted
+    in main (the strict conflict rule), it surfaces it anyway with `before` taken
+    from main's current region (proposed-wins on accept) — so a *stale* suggestion
+    stays reviewable instead of collapsing to nothing.
+
+    Crucially the hunk `key` is the intent hunk's key (derived from the immutable
+    base side), so it is STABLE as main changes — a resolved hunk's key keeps
+    matching `rejected_hunks` and won't re-surface. The already-applied / no-op
+    skips are preserved, so when main hasn't drifted this returns exactly what
+    `live_hunks_against_main` does (healthy suggestions unaffected)."""
+    intent = compute_hunks(base, proposed)
+    if not intent:
+        return []
+    ta, tm = _tokenize(base), _tokenize(main)
+    pos = _base_to_main_positions(ta, tm)
+    offs = [0]
+    for t in tm:
+        offs.append(offs[-1] + len(t))
+    out: List[dict] = []
+    for h in intent:
+        mi1, mi2 = pos[h.base_lo], pos[h.base_hi]
+        if mi1 is None or mi2 is None or mi2 < mi1:
+            continue  # anchor gone from main entirely → can't place
+        region = tm[mi1:mi2]
+        after = list(h.after_tokens)
+        if region == after:
+            continue  # already applied
+        if h.base_lo == h.base_hi and after:
+            n = len(after)
+            if tm[max(0, mi1 - n):mi1] == after or tm[mi1:mi1 + n] == after:
+                continue  # insertion already present at the anchor
+        before = "".join(region)
+        after_str = "".join(after)
+        if before == after_str:
+            continue  # no net change against main
+        out.append({"key": h.key, "start": offs[mi1], "end": offs[mi1] + len(before),
+                    "before": before, "after": after_str})
+    return out
+
+
 def applied_text_for(base: str, proposed: str, hunk_index: int, onto_main: str) -> Tuple[Optional[str], bool]:
     """Convenience: recompute intent hunks of (base, proposed) and apply hunk
     `hunk_index` onto `onto_main`. Returns (new_main, ok); (None, False) if the
