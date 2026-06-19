@@ -1,151 +1,181 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-6xl'}">
+    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-7xl'}">
         <UCard>
-            <!-- Header -->
+            <!-- Header: conversation identity + roll-up -->
             <template #header>
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('traceModal.title') }}</h3>
-                    <UButton
-                        color="gray"
-                        variant="ghost"
-                        icon="i-heroicons-x-mark-20-solid"
-                        @click="closeModal"
-                    />
-                </div>
-                <div class="flex items-start justify-between mt-1">
-                    <div class="flex items-center gap-3 text-sm text-gray-500">
-                        <span>{{ $t('traceModal.reportId', { id: reportId }) }}</span>
-                        <!-- Timing summary pills -->
-                        <template v-if="traceData?.timing_breakdown">
-                            <span v-if="traceData.timing_breakdown.total_duration_ms != null"
-                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-xs text-gray-600">
-                                <UIcon name="i-heroicons-clock" class="w-3 h-3" />
-                                {{ $t('traceModal.total', { duration: formatDuration(traceData.timing_breakdown.total_duration_ms) }) }}
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                        <h3 class="text-base font-semibold text-gray-900 truncate">
+                            {{ conversation?.report_title || $t('traceModal.title') }}
+                        </h3>
+                        <div class="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                            <span v-if="conversation?.user_name" class="inline-flex items-center gap-1">
+                                <UIcon name="i-heroicons-user-circle" class="w-3.5 h-3.5" />
+                                {{ conversation.user_name }}
                             </span>
-                        </template>
+                            <span v-if="conversation?.user_email" class="text-gray-400">{{ conversation.user_email }}</span>
+                        </div>
                     </div>
-                    <!-- Header AI scoring (pastel badges) -->
-                    <div
-                        v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)"
-                        class="flex items-center gap-2"
-                    >
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 me-1">{{ $t('traceModal.aiScoring') }}</div>
-                        <div
-                            v-if="traceData.agent_execution.instructions_effectiveness !== null"
-                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200"
-                        >
-                            <span class="me-1">{{ $t('traceModal.instructions') }}</span>
-                            <span class="font-semibold">{{ traceData.agent_execution.instructions_effectiveness }}/5</span>
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                        <!-- Conversation roll-up: plain text -->
+                        <div v-if="conversation" class="flex items-center gap-2 text-xs text-gray-500">
+                            <span>{{ conversation.total_turns }} {{ conversation.total_turns === 1 ? 'turn' : 'turns' }}</span>
+                            <span v-if="conversation.failed_turns" class="text-red-500">{{ conversation.failed_turns }} failed</span>
+                            <span v-if="conversation.negative_feedback_turns" class="text-amber-600">{{ conversation.negative_feedback_turns }} negative</span>
                         </div>
-                        <div
-                            v-if="traceData.agent_execution.context_effectiveness !== null"
-                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200"
-                        >
-                            <span class="me-1">{{ $t('traceModal.context') }}</span>
-                            <span class="font-semibold">{{ traceData.agent_execution.context_effectiveness }}/5</span>
-                        </div>
-                        <div
-                            v-if="traceData.agent_execution.response_score !== null"
-                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-green-50 text-green-700 border-green-200"
-                        >
-                            <span class="me-1">{{ $t('traceModal.response') }}</span>
-                            <span class="font-semibold">{{ traceData.agent_execution.response_score }}/5</span>
-                        </div>
+                        <UButton
+                            color="gray"
+                            variant="ghost"
+                            icon="i-heroicons-x-mark-20-solid"
+                            @click="closeModal"
+                        />
                     </div>
                 </div>
             </template>
 
-            <!-- Content -->
-            <div class="h-[500px] flex flex-col">
-                <!-- Loading State -->
-                <div v-if="isLoading" class="flex-1 flex items-center justify-center">
-                    <div class="text-center">
-                        <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
-                        <p class="text-sm text-gray-500">{{ $t('traceModal.loading') }}</p>
+            <!-- Content: conversation rail + per-turn detail -->
+            <div class="h-[620px] flex -mx-4 -mb-2">
+                <!-- Pane A: whole conversation, rendered like the chat -->
+                <div class="w-[40%] flex-shrink-0 border-e border-gray-200 flex flex-col min-h-0">
+                    <div class="px-4 py-2.5 border-b border-gray-200 text-[11px] uppercase tracking-wide text-gray-500 flex items-center justify-between">
+                        <span>Conversation</span>
+                        <span v-if="conversation" class="text-gray-400 normal-case tracking-normal">{{ conversation.total_turns }}</span>
                     </div>
-                </div>
-
-                <!-- Main Content -->
-                <div v-else class="grid grid-cols-5 gap-6 flex-1 min-h-0">
-                    <!-- Left Pane: Minimal Block List (2/5 width) -->
-                    <div class="col-span-2 border-e border-gray-200 pe-4 flex flex-col min-h-0">
-                        <div class="text-xs text-gray-600 mb-2">{{ $t('traceModal.executionBlocks') }}</div>
-                        <div class="flex-1 min-h-0 overflow-y-auto pe-2">
-                            <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ms-4 ps-3 border-s border-gray-200' : '']">
-                                <div v-if="item.kind === 'section'"
-                                    class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 hover:text-gray-700 select-none"
-                                    @click="toggleHarnessCollapsed()">
-                                    <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3 rtl-flip" />
-                                    <span>{{ item.title }}</span>
-                                    <span class="text-gray-400">· {{ harnessCount }}</span>
-                                </div>
-                                <div v-else :class="[
-                                'px-3 py-2 rounded border cursor-pointer text-xs',
-                                selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
-                            ]" @click="selectLeftItem(item)">
-                                    <div class="flex items-center justify-between">
-                                        <div class="font-medium text-gray-900 truncate flex items-center gap-1">
-                                            <span class="truncate">{{ item.title }}</span>
-                                            <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ms-1">
-                                                <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || $t('nav.dataSources')">
-                                                    <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
-                                                </UTooltip>
-                                            </span>
-                                        </div>
-                                        <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
+                    <div v-if="isConvLoading" class="flex-1 flex items-center justify-center">
+                        <Spinner class="w-5 h-5 text-gray-400" />
+                    </div>
+                    <div v-else class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5">
+                        <div v-for="(turn, i) in turns" :key="turn.completion_id || i"
+                             :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
+                            <!-- User bubble -->
+                            <div class="flex justify-end mb-2">
+                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 text-[13px] text-gray-900 whitespace-pre-line" dir="auto">{{ turn.user_prompt || '—' }}</div>
+                            </div>
+                            <!-- Assistant blocks -->
+                            <div class="space-y-2">
+                                <div v-for="block in chatBlocks(turn)" :key="block.id"
+                                     @click="onChatBlockClick(turn, block)"
+                                     :class="[
+                                        'rounded-lg border px-3 py-2 cursor-pointer transition-colors',
+                                        selectedItem?.id === block.id && turn.completion_id === selectedCompletionId
+                                            ? 'border-blue-300 bg-blue-50/60'
+                                            : 'border-gray-200 hover:border-gray-300'
+                                     ]">
+                                    <div class="flex items-center gap-1.5">
+                                        <UIcon :name="getStatusIcon(block.status)" :class="getStatusIconClass(block.status)" />
+                                        <span class="text-xs font-medium text-gray-800 truncate">{{ chatBlockTitle(block) }}</span>
+                                        <span v-if="block.duration_ms != null" class="ms-auto text-[10px] text-gray-400 font-mono flex-shrink-0">{{ formatDuration(block.duration_ms) }}</span>
                                     </div>
-                                    <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
-                                    <div v-if="getItemDurationMs(item) !== null" class="mt-1.5 flex items-center gap-2 justify-end flex-wrap text-[10px]">
-                                        <!-- codegen / execution split when available -->
-                                        <template v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms != null">
-                                            <span class="text-purple-500">
-                                                {{ $t('traceModal.llm') }} {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms ?? 0) }}
-                                            </span>
-                                            <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms != null" class="text-orange-500">
-                                                {{ $t('traceModal.exec') }} {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms ?? 0) }}
-                                            </span>
-                                            <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.retry_count" class="text-red-500">
-                                                ×{{ ((item.ref?.tool_execution?.sub_timings_json as any)?.retry_count ?? 0) + 1 }}
-                                            </span>
-                                        </template>
-                                        <!-- Dynamic stage badges for tools without codegen_ms -->
-                                        <template v-else-if="(item.ref?.tool_execution?.sub_timings_json as any)?.stages?.length">
-                                            <span v-for="s in getTopStages(item.ref?.tool_execution?.sub_timings_json)" :key="s.stage"
-                                                  :class="s.ms > 5000 ? 'text-red-500' : s.ms > 1000 ? 'text-orange-500' : 'text-purple-500'">
-                                                {{ humanizeStage(s.stage) }} {{ formatDuration(s.ms) }}
-                                            </span>
-                                        </template>
-                                        <!-- Planner LLM badge -->
-                                        <template v-else-if="item.ref?.plan_decision?.metrics_json?.total_duration_ms != null">
-                                            <span class="text-purple-500">
-                                                {{ $t('traceModal.llm') }} {{ formatDuration(item.ref.plan_decision.metrics_json.total_duration_ms) }}
-                                            </span>
-                                        </template>
-                                        <!-- total -->
-                                        <span class="flex items-center text-gray-400">
-                                            <UIcon name="i-heroicons-bolt" class="w-3 h-3 me-0.5" />
-                                            {{ formatDuration(getItemDurationMs(item) || 0) }}
-                                        </span>
+                                    <div v-if="block.reasoning" class="text-[11px] text-gray-400 mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
+                                    <div v-if="block.content" class="mt-1.5 text-xs text-gray-700 markdown-wrapper" dir="auto">
+                                        <MarkdownRender :content="block.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                    </div>
+                                    <div v-if="block.tool_execution" class="mt-2" @click.stop="onChatBlockClick(turn, block)">
+                                        <component
+                                            v-if="shouldUseToolComponent(block.tool_execution)"
+                                            :is="getToolComponent(block.tool_execution.tool_name)"
+                                            :tool-execution="block.tool_execution"
+                                        />
+                                        <GenericTool v-else :tool-execution="block.tool_execution" />
                                     </div>
                                 </div>
-                                <!-- Arrow between blocks (skip around section headers and after last item) -->
-                                <div v-if="item.kind !== 'section' && index < visibleLeftItems.length - 1 && visibleLeftItems[index + 1]?.kind !== 'section'" class="flex justify-center my-1">
-                                    <UIcon name="i-heroicons-arrow-long-down-20-solid" class="w-5 h-5 text-gray-400" />
+                                <!-- Turn meta -->
+                                <div class="flex items-center gap-1.5 ps-1 text-[10px] text-gray-400">
+                                    <span :class="statusTextClass(turn.status)">{{ statusLabel(turn.status) }}</span>
+                                    <template v-if="turn.total_duration_ms != null"><span>·</span><span>{{ formatDuration(turn.total_duration_ms) }}</span></template>
+                                    <template v-if="turn.feedback_status !== 'none'"><span>·</span><span :class="turn.feedback_status === 'positive' ? 'text-green-600' : 'text-red-500'">{{ turn.feedback_status }}</span></template>
                                 </div>
                             </div>
                         </div>
+                        <div v-if="!turns.length" class="text-xs text-gray-400 text-center py-8">No turns yet</div>
+                    </div>
+                </div>
+
+                <!-- Pane B: timeline (focused turn) -->
+                <div class="w-[260px] flex-shrink-0 border-e border-gray-200 flex flex-col min-h-0">
+                    <div class="px-4 py-2.5 border-b border-gray-200 text-[11px] uppercase tracking-wide text-gray-500">Timeline</div>
+                    <div v-if="isLoading" class="flex-1 flex items-center justify-center"><Spinner class="w-5 h-5 text-gray-400" /></div>
+                    <div v-else-if="!visibleLeftItems.length" class="flex-1 flex items-center justify-center text-xs text-gray-400 px-4 text-center">Select a turn</div>
+                    <div v-else class="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
+                        <template v-for="item in visibleLeftItems" :key="item.id">
+                            <div v-if="item.kind === 'section'"
+                                 class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 hover:text-gray-700 select-none"
+                                 @click="toggleHarnessCollapsed()">
+                                <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3 rtl-flip" />
+                                <span>{{ item.title }}</span><span class="text-gray-400">· {{ harnessCount }}</span>
+                            </div>
+                            <button v-else type="button" @click="selectLeftItem(item)"
+                                :class="[
+                                    'w-full text-start rounded-md px-2 py-1.5 border',
+                                    selectedItem?.id === item.id ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:bg-gray-50',
+                                    item.phase === 'knowledge_harness' ? 'ms-3' : ''
+                                ]">
+                                <div class="flex items-center gap-1.5">
+                                    <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
+                                    <span class="text-[11px] text-gray-700 truncate flex-1">{{ item.title }}</span>
+                                    <span v-if="getItemDurationMs(item) !== null" class="text-[10px] text-gray-400 font-mono flex-shrink-0">{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
+                                </div>
+                                <div v-if="getItemDurationMs(item) !== null" class="mt-1 h-1.5 rounded bg-gray-100 overflow-hidden flex">
+                                    <div class="h-full bg-purple-400" :style="{ width: barPct(itemLlmMs(item)) + '%' }"></div>
+                                    <div class="h-full bg-amber-400" :style="{ width: barPct(itemExecMs(item)) + '%' }"></div>
+                                </div>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Pane C: expanded block -->
+                <div class="flex-1 flex flex-col min-h-0">
+                    <!-- Per-turn summary strip -->
+                    <div v-if="selectedTurn" class="px-5 py-2.5 border-b border-gray-200 flex items-center gap-2 flex-wrap">
+                        <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium', statusChipClass(selectedTurn.status)]">
+                            <UIcon :name="getStatusIcon(selectedTurn.status)" class="w-3.5 h-3.5" />
+                            {{ selectedTurn.status }}
+                        </span>
+                        <span v-if="selectedTurn.total_tools" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600">
+                            <UIcon name="i-heroicons-wrench" class="w-3.5 h-3.5" />
+                            {{ selectedTurn.total_successful_tools }}/{{ selectedTurn.total_tools }} tools
+                        </span>
+                        <span v-if="traceData?.timing_breakdown?.total_duration_ms != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600">
+                            <UIcon name="i-heroicons-clock" class="w-3.5 h-3.5" />
+                            {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
+                        </span>
+                        <span v-if="selectedTurn.feedback_status !== 'none'"
+                              :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs', selectedTurn.feedback_status === 'positive' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+                            <UIcon :name="selectedTurn.feedback_status === 'positive' ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'" class="w-3.5 h-3.5" />
+                            {{ selectedTurn.feedback_status }}
+                        </span>
+                        <!-- AI scoring -->
+                        <div v-if="isJudgeEnabled && hasTurnScores(selectedTurn)" class="flex items-center gap-1.5 ms-auto">
+                            <span v-if="selectedTurn.instructions_effectiveness != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                <span>Inst</span><span class="font-semibold">{{ selectedTurn.instructions_effectiveness }}/5</span>
+                            </span>
+                            <span v-if="selectedTurn.context_effectiveness != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200">
+                                <span>Ctx</span><span class="font-semibold">{{ selectedTurn.context_effectiveness }}/5</span>
+                            </span>
+                            <span v-if="selectedTurn.response_score != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-green-50 text-green-700 border-green-200">
+                                <span>Resp</span><span class="font-semibold">{{ selectedTurn.response_score }}/5</span>
+                            </span>
+                        </div>
                     </div>
 
-                    <!-- Right Pane: Details (3/5 width) -->
-                    <div class="col-span-3 flex flex-col min-h-0">
-                        <div v-if="!selectedItem" class="flex items-center justify-center h-full text-gray-500">
+                    <div class="flex-1 min-h-0 overflow-y-auto p-5">
+                        <!-- Loading -->
+                        <div v-if="isLoading" class="h-full flex items-center justify-center">
+                            <div class="text-center">
+                                <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
+                                <p class="text-sm text-gray-500">{{ $t('traceModal.loading') }}</p>
+                            </div>
+                        </div>
+                        <!-- Empty -->
+                        <div v-else-if="!selectedItem" class="flex items-center justify-center h-full text-gray-500">
                             <div class="text-center">
                                 <UIcon name="i-heroicons-cursor-arrow-rays" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
                                 <p class="text-xs">{{ $t('traceModal.selectItem') }}</p>
                             </div>
                         </div>
 
-                        <div v-else class="flex-1 min-h-0 overflow-y-auto pe-2">
+                        <div v-else>
                             <!-- Item Header -->
                             <div class="mb-4 flex-shrink-0">
                                 <div class="flex items-center mb-2">
@@ -424,14 +454,15 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
+                    </div><!-- /pane C scroll -->
+                </div><!-- /pane C -->
+            </div><!-- /content flex -->
         </UCard>
     </UModal>
 </template>
 
 <script setup lang="ts">
+import { MarkdownRender } from 'markstream-vue'
 import RenderTable from '../RenderTable.vue'
 import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
@@ -589,10 +620,44 @@ interface TraceData {
     user_email?: string
 }
 
+interface ConversationTurn {
+    user_completion_id?: string | null
+    user_prompt?: string
+    role: string
+    completion_id?: string | null
+    agent_execution_id?: string | null
+    assistant_content?: string
+    status: string
+    total_tools: number
+    total_failed_tools: number
+    total_successful_tools: number
+    tool_names: string[]
+    step_titles: string[]
+    feedback_status: string
+    feedback_direction: number
+    feedback_message?: string | null
+    instructions_effectiveness?: number | null
+    context_effectiveness?: number | null
+    response_score?: number | null
+    total_duration_ms?: number | null
+    created_at?: string | null
+}
+
+interface ConversationTraceResponse {
+    report_id: string
+    report_title?: string
+    user_name?: string
+    user_email?: string
+    total_turns: number
+    failed_turns: number
+    negative_feedback_turns: number
+    turns: ConversationTurn[]
+}
+
 interface Props {
     modelValue: boolean
     reportId: string
-    completionId: string
+    completionId?: string
 }
 
 const props = defineProps<Props>()
@@ -603,10 +668,16 @@ const emit = defineEmits<{
 
 // State
 const isLoading = ref(false)
+const isConvLoading = ref(false)
 const traceData = ref<AgentExecutionTraceResponse | null>(null)
+const conversation = ref<ConversationTraceResponse | null>(null)
+const selectedCompletionId = ref<string | null>(null)
+const activeTab = ref<'trace' | 'context'>('trace')
 const selectedItem = ref<any>(null)
 const selectedItemType = ref<'block'>('block')
 const blocks = computed(() => traceData.value?.completion_blocks || [])
+const turns = computed(() => conversation.value?.turns || [])
+const selectedTurn = computed(() => turns.value.find(t => t.completion_id === selectedCompletionId.value) || null)
 
 const selectedItemSubTimings = computed(() => {
     const te = selectedItem.value?.tool_execution
@@ -693,13 +764,94 @@ const visibleLeftItems = computed(() => {
 })
 
 // Methods
-const fetchTraceData = async () => {
-    if (!props.reportId || !props.completionId) return
-    
-    isLoading.value = true
+const fetchConversation = async () => {
+    if (!props.reportId) return
+    isConvLoading.value = true
     try {
-        const response = await useMyFetch<AgentExecutionTraceResponse>(`/api/console/agent_executions/by-completion/${props.completionId}`)
-        
+        const response = await useMyFetch<ConversationTraceResponse>(`/api/console/reports/${props.reportId}/conversation`)
+        if (response.error.value) {
+            console.error('Error fetching conversation:', response.error.value)
+        } else if (response.data.value) {
+            conversation.value = response.data.value
+            // Preselect: the completion the modal was opened on, else the last
+            // turn that has a trace, else the last turn.
+            const wanted = props.completionId
+                ? turns.value.find(t => t.completion_id === props.completionId)
+                : null
+            const fallback = [...turns.value].reverse().find(t => t.completion_id) || turns.value[turns.value.length - 1]
+            const initial = wanted || fallback
+            if (initial?.completion_id) {
+                await selectTurn(initial)
+            }
+        }
+    } catch (error) {
+        console.error('Failed to fetch conversation:', error)
+    } finally {
+        isConvLoading.value = false
+    }
+}
+
+const selectTurn = async (turn: ConversationTurn) => {
+    if (!turn?.completion_id) return
+    selectedCompletionId.value = turn.completion_id
+    await fetchTraceData()
+}
+
+// Pane A: chat rendering helpers
+const chatBlocks = (turn: ConversationTurn) =>
+    (turn.completion_blocks || []).filter((b: any) => b.phase !== 'knowledge_harness')
+
+const chatBlockTitle = (block: any) => {
+    if (block.tool_execution) {
+        const te = block.tool_execution
+        return `${te.tool_name}${te.tool_action ? ' → ' + te.tool_action : ''}`
+    }
+    return block.title || 'Step'
+}
+
+const onChatBlockClick = async (turn: ConversationTurn, block: any) => {
+    if (selectedCompletionId.value !== turn.completion_id) {
+        selectedCompletionId.value = turn.completion_id
+        await fetchTraceData()
+    }
+    const match = (traceData.value?.completion_blocks || []).find((b: any) => b.id === block.id) || block
+    selectBlock(match)
+}
+
+// Pane B: timeline bar helpers
+const itemLlmMs = (item: any): number => {
+    const st = item?.ref?.tool_execution?.sub_timings_json
+    if (st?.codegen_ms != null) return st.codegen_ms
+    const pm = item?.ref?.plan_decision?.metrics_json
+    if (pm?.total_duration_ms != null) return pm.total_duration_ms
+    return 0
+}
+const itemExecMs = (item: any): number => {
+    const st = item?.ref?.tool_execution?.sub_timings_json
+    if (st?.execution_ms != null) return st.execution_ms
+    if (item?.ref?.tool_execution) {
+        const total = getItemDurationMs(item) || 0
+        return Math.max(total - (st?.codegen_ms || 0), 0)
+    }
+    return 0
+}
+const maxItemMs = computed(() => {
+    const ds = visibleLeftItems.value
+        .map((it: any) => getItemDurationMs(it))
+        .filter((x: any) => x != null) as number[]
+    return ds.length ? Math.max(...ds, 1) : 1
+})
+const barPct = (ms: number) => (ms ? Math.max((ms / maxItemMs.value) * 100, 1) : 0)
+
+const fetchTraceData = async () => {
+    if (!props.reportId || !selectedCompletionId.value) return
+
+    isLoading.value = true
+    traceData.value = null
+    selectedItem.value = null
+    try {
+        const response = await useMyFetch<AgentExecutionTraceResponse>(`/api/console/agent_executions/by-completion/${selectedCompletionId.value}`)
+
         if (response.error.value) {
             console.error('Error fetching trace data:', response.error.value)
         } else if (response.data.value) {
@@ -719,6 +871,38 @@ const closeModal = () => {
     emit('update:modelValue', false)
     selectedItem.value = null
     traceData.value = null
+    conversation.value = null
+    selectedCompletionId.value = null
+    activeTab.value = 'trace'
+}
+
+// Conversation rail helpers
+const statusLabel = (status: string) => {
+    if (status === 'in_progress') return 'running'
+    return status
+}
+
+const statusTextClass = (status: string) => {
+    if (status === 'error') return 'text-red-500'
+    if (status === 'in_progress') return 'text-amber-600'
+    return 'text-green-600'
+}
+
+const statusChipClass = (status: string) => {
+    if (status === 'error') return 'bg-red-50 text-red-700'
+    if (status === 'in_progress') return 'bg-amber-50 text-amber-700'
+    return 'bg-green-50 text-green-700'
+}
+
+const assistantSnippet = (turn: ConversationTurn) => {
+    const raw = (turn.assistant_content || '').replace(/[*#`>_]/g, '').replace(/\s+/g, ' ').trim()
+    if (raw) return raw
+    if (turn.status === 'in_progress') return 'Running…'
+    return '—'
+}
+
+const hasTurnScores = (turn: ConversationTurn) => {
+    return turn.instructions_effectiveness != null || turn.context_effectiveness != null || turn.response_score != null
 }
 
 const selectItem = (item: any) => {
@@ -909,7 +1093,7 @@ function shouldUseToolComponent(toolExecution: any): boolean {
 // Watch for modal opening
 watch(() => props.modelValue, (newValue) => {
     if (newValue) {
-        fetchTraceData()
+        fetchConversation()
     }
 })
 </script> 

@@ -30,7 +30,13 @@ from pydantic import BaseModel
 from app.models.membership import Membership
 from app.models.tool_execution import ToolExecution
 from app.models.completion_block import CompletionBlock
-from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse, TimingBreakdownSchema, IterationTimingSchema
+from app.schemas.agent_execution_trace_schema import (
+    AgentExecutionTraceResponse,
+    TimingBreakdownSchema,
+    IterationTimingSchema,
+    ConversationTraceResponse,
+    ConversationTurnSchema,
+)
 from app.schemas.agent_execution_schema import AgentExecutionSchema
 from app.schemas.completion_v2_schema import CompletionBlockV2Schema
 from app.serializers.completion_v2 import serialize_block_v2
@@ -1725,6 +1731,231 @@ class ConsoleService:
         if not ae:
             raise ValueError("Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
+
+    async def get_report_conversation(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        report_id: str,
+    ) -> ConversationTraceResponse:
+        """Return a whole report conversation as ordered user→assistant turns.
+
+        Each turn carries diagnosis badges (status, tool counts, feedback,
+        scores, duration) so the conversation-first trace modal can render the
+        full thread; the per-turn trace is lazy-loaded on selection via the
+        existing agent_execution trace endpoint.
+        """
+        from sqlalchemy.orm import aliased
+
+        # Report (scoped to org) for header metadata.
+        report_q = select(Report).where(
+            Report.id == report_id,
+            Report.organization_id == organization.id,
+        )
+        report = (await db.execute(report_q)).scalar_one_or_none()
+        if not report:
+            raise ValueError("Report not found")
+
+        # Every agent execution in the report = one assistant turn. Join the
+        # system completion and its parent user completion (which holds the
+        # prompt text and the AI scores).
+        SystemCompletion = aliased(Completion)
+        UserCompletion = aliased(Completion)
+        rows_q = (
+            select(
+                AgentExecution.id.label('ae_id'),
+                AgentExecution.completion_id.label('completion_id'),
+                AgentExecution.status.label('ae_status'),
+                AgentExecution.total_duration_ms.label('total_duration_ms'),
+                AgentExecution.created_at.label('created_at'),
+                SystemCompletion.completion.label('assistant_completion'),
+                UserCompletion.id.label('user_completion_id'),
+                UserCompletion.prompt.label('user_prompt'),
+                UserCompletion.role.label('user_role'),
+                UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
+                UserCompletion.context_effectiveness.label('context_effectiveness'),
+                UserCompletion.response_score.label('response_score'),
+            )
+            .select_from(AgentExecution)
+            .outerjoin(SystemCompletion, SystemCompletion.id == AgentExecution.completion_id)
+            .outerjoin(UserCompletion, UserCompletion.id == SystemCompletion.parent_id)
+            .where(
+                AgentExecution.report_id == report_id,
+                AgentExecution.organization_id == organization.id,
+            )
+            .order_by(AgentExecution.created_at.asc())
+        )
+        rows = (await db.execute(rows_q)).all()
+
+        ae_ids = [r.ae_id for r in rows]
+        completion_ids = [r.completion_id for r in rows if r.completion_id]
+
+        # Rendered blocks per AE for the chat-style left pane.
+        blocks_by_ae: dict[str, list] = {str(a): [] for a in ae_ids}
+        if ae_ids:
+            blocks_q = (
+                select(CompletionBlock)
+                .where(CompletionBlock.agent_execution_id.in_(ae_ids))
+                .order_by(CompletionBlock.block_index.asc())
+            )
+            for b in (await db.execute(blocks_q)).scalars().all():
+                lst = blocks_by_ae.get(str(b.agent_execution_id))
+                if lst is not None:
+                    lst.append(await serialize_block_v2(db, b))
+
+        # Tool counts + ordered tool names per AE.
+        te_counts = {str(a): {'total': 0, 'success': 0, 'failed': 0} for a in ae_ids}
+        ae_tool_names: dict[str, List[str]] = {str(a): [] for a in ae_ids}
+        ae_step_titles: dict[str, List[str]] = {str(a): [] for a in ae_ids}
+        if ae_ids:
+            te_q = (
+                select(
+                    ToolExecution.agent_execution_id,
+                    func.count(ToolExecution.id).label('cnt'),
+                    func.sum(func.cast(ToolExecution.success, Integer)).label('success_cnt'),
+                )
+                .where(ToolExecution.agent_execution_id.in_(ae_ids))
+                .group_by(ToolExecution.agent_execution_id)
+            )
+            for ae_id, cnt, success_cnt in (await db.execute(te_q)).all():
+                total = int(cnt or 0)
+                successes = int(success_cnt or 0)
+                te_counts[str(ae_id)] = {
+                    'total': total,
+                    'success': successes,
+                    'failed': max(total - successes, 0),
+                }
+
+            _skip_tools = {
+                'list_agent_executions', 'search_instructions', 'edit_instruction',
+                'create_instruction', 'run_eval', 'search_evals', 'create_eval',
+            }
+            tn_q = (
+                select(ToolExecution.agent_execution_id, ToolExecution.tool_name)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids))
+                .order_by(ToolExecution.agent_execution_id.asc(), ToolExecution.created_at.asc())
+            )
+            for ae_id, tname in (await db.execute(tn_q)).all():
+                if tname and tname not in _skip_tools:
+                    lst = ae_tool_names.get(str(ae_id))
+                    if lst is not None and tname not in lst:
+                        lst.append(tname)
+
+            te_step_q = (
+                select(ToolExecution.agent_execution_id, Step.title)
+                .join(Step, Step.id == ToolExecution.created_step_id)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids))
+                .order_by(ToolExecution.agent_execution_id.asc(), Step.created_at.asc())
+            )
+            for ae_id, step_title in (await db.execute(te_step_q)).all():
+                lst = ae_step_titles.get(str(ae_id))
+                if lst is not None and step_title and step_title not in lst:
+                    lst.append(step_title)
+
+        # Most recent feedback per system completion.
+        feedback_map: dict[str, dict] = {}
+        if completion_ids:
+            fb_q = (
+                select(
+                    CompletionFeedback.completion_id,
+                    CompletionFeedback.direction,
+                    CompletionFeedback.message,
+                )
+                .where(CompletionFeedback.completion_id.in_(completion_ids))
+                .order_by(CompletionFeedback.completion_id.asc(), CompletionFeedback.created_at.desc())
+            )
+            for cid, direction, message in (await db.execute(fb_q)).all():
+                scid = str(cid)
+                if scid not in feedback_map:
+                    status = 'positive' if (direction or 0) > 0 else ('negative' if (direction or 0) < 0 else 'none')
+                    feedback_map[scid] = {
+                        'direction': int(direction or 0),
+                        'status': status,
+                        'message': message,
+                    }
+
+        import re as _re
+
+        def _text(value) -> str:
+            if isinstance(value, dict):
+                return str(value.get('content') or value.get('text') or '')
+            return str(value or '')
+
+        # Assistant content is the serialized block stream with planning headers
+        # like "**🧠 Planning (action) → create_data ✗**". For the conversation
+        # rail we want the clean final-answer prose: drop the headers/emojis and
+        # keep the text after the last planning marker.
+        _planning_header = _re.compile(r"\*\*[^\n*]*Planning[^\n*]*\*\*")
+        _emoji = _re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002190-\U000021FF\U00002300-\U000023FF]")
+
+        def _clean_answer(value) -> str:
+            text = _text(value)
+            if not text:
+                return ''
+            parts = _planning_header.split(text)
+            tail = parts[-1] if parts else text
+            if not tail.strip() and len(parts) > 1:
+                tail = parts[-2]
+            tail = _emoji.sub('', tail)
+            tail = _re.sub(r'[*_`#>]', '', tail)
+            tail = _re.sub(r'\s+', ' ', tail).strip()
+            return tail
+
+        turns: List[ConversationTurnSchema] = []
+        failed_turns = 0
+        negative_feedback_turns = 0
+        for r in rows:
+            counts = te_counts.get(str(r.ae_id), {'total': 0, 'success': 0, 'failed': 0})
+            fb = feedback_map.get(str(r.completion_id), {'direction': 0, 'status': 'none', 'message': None})
+            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            if derived_status == 'error':
+                failed_turns += 1
+            if fb['status'] == 'negative':
+                negative_feedback_turns += 1
+
+            turns.append(ConversationTurnSchema(
+                user_completion_id=str(r.user_completion_id) if r.user_completion_id else None,
+                user_prompt=_text(r.user_prompt)[:2000],
+                role=r.user_role or 'user',
+                completion_id=str(r.completion_id) if r.completion_id else None,
+                agent_execution_id=str(r.ae_id),
+                assistant_content=_clean_answer(r.assistant_completion)[:2000],
+                status=derived_status,
+                total_tools=counts['total'],
+                total_failed_tools=counts['failed'],
+                total_successful_tools=counts['success'],
+                tool_names=ae_tool_names.get(str(r.ae_id), [])[:6],
+                step_titles=ae_step_titles.get(str(r.ae_id), [])[:6],
+                feedback_status=fb['status'],
+                feedback_direction=fb['direction'],
+                feedback_message=fb.get('message'),
+                instructions_effectiveness=r.instructions_effectiveness,
+                context_effectiveness=r.context_effectiveness,
+                response_score=r.response_score,
+                total_duration_ms=r.total_duration_ms,
+                created_at=r.created_at,
+                completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
+            ))
+
+        # Header user = the report owner.
+        owner_name = None
+        owner_email = None
+        if report.user_id:
+            owner = (await db.execute(select(User).where(User.id == report.user_id))).scalar_one_or_none()
+            if owner:
+                owner_name = owner.name
+                owner_email = owner.email
+
+        return ConversationTraceResponse(
+            report_id=str(report.id),
+            report_title=report.title or '',
+            user_name=owner_name,
+            user_email=owner_email,
+            total_turns=len(turns),
+            failed_turns=failed_turns,
+            negative_feedback_turns=negative_feedback_turns,
+            turns=turns,
+        )
 
     async def get_agent_execution_summaries(
         self,
