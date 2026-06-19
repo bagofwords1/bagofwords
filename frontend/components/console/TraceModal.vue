@@ -203,7 +203,7 @@
 
                                     <!-- Assessment (judge) -->
                                     <div v-if="isJudgeEnabled && selectedTurn && hasTurnScores(selectedTurn)" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Assessment</div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">LLM Judge Assessment</div>
                                         <div class="space-y-1.5">
                                             <div v-if="selectedTurn.instructions_effectiveness != null" class="flex items-center gap-2 text-xs">
                                                 <span class="w-28 text-gray-500 flex-shrink-0">Instructions</span>
