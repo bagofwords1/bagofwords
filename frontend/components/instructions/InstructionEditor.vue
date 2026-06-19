@@ -157,7 +157,12 @@ function preprocessMentions(text: string): string {
 function markdownToHtml(text: string): string {
   if (!text?.trim()) return ''
   const preprocessed = preprocessMentions(text)
-  return md.render(preprocessed)
+  // Render block-by-block (split on paragraph breaks) so runs of blank lines are
+  // preserved as empty paragraphs. md.render() alone collapses any number of
+  // blank lines into a single paragraph break; the serializer joins paragraphs
+  // with "\n\n", so an empty paragraph round-trips back to a blank line.
+  const blocks = preprocessed.split('\n\n')
+  return blocks.map((b) => (b.length === 0 ? '<p></p>' : md.render(b))).join('')
 }
 
 function serializeInlineMarks(text: string, marks: any[]): string {

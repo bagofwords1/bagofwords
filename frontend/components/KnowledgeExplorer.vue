@@ -1791,9 +1791,19 @@ const save = async () => {
       if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
       toast.add({ title: 'Created', color: 'green' })
       creating.value = false; editing.value = false; draft.references = []
-      await refreshLists()
-      const created = (data.value as any)?.id ? allInstructions.value.find(i => i.id === (data.value as any).id) : null
-      if (created) openInstruction(created)
+      // Insert the new instruction in place (no full list re-fetch / flicker);
+      // the tree grouping computed places it. Fall back to a refresh only if the
+      // POST didn't return the row.
+      const createdRow = data.value as any
+      if (createdRow?.id) {
+        if (!allInstructions.value.some(i => i.id === createdRow.id)) {
+          allInstructions.value = [...allInstructions.value, createdRow]
+        }
+        fetchPendingMap()
+        openInstruction(createdRow)
+      } else {
+        await refreshLists()
+      }
     } else if (detail.value) {
       const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
