@@ -6,24 +6,26 @@
   Reused by the Knowledge Explorer review and the Report agent instruction view.
 -->
 <template>
-  <div class="flex-1 flex flex-col min-h-0">
-    <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
+  <div class="flex flex-col min-h-0" :class="compact ? '' : 'flex-1'">
+    <div class="flex items-center justify-between border-b border-gray-100" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
       <div class="flex items-center gap-2 min-w-0">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-        <span class="text-xs font-medium text-gray-700">Pending review</span>
-        <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ totalHunks }} change{{ totalHunks === 1 ? '' : 's' }} · {{ suggestions.length }} suggestion{{ suggestions.length === 1 ? '' : 's' }}</span>
+        <span class="font-medium text-gray-700" :class="compact ? 'text-[11px]' : 'text-xs'">Pending review</span>
+        <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ totalHunks }} change{{ totalHunks === 1 ? '' : 's' }}</span>
+        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 hover:text-gray-700 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? 'Collapse' : 'Expand all' }}</button>
       </div>
       <div v-if="canApprove && totalHunks" class="flex items-center gap-1.5 shrink-0">
         <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject all</button>
         <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />Accept all</button>
       </div>
     </div>
-    <div ref="scrollEl" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+    <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'flex-1 px-8 py-6 max-w-3xl'">
       <div v-if="loading" class="text-center text-xs text-gray-400 py-10">Loading…</div>
-      <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 py-10">No pending changes — all suggestions resolved.</div>
-      <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
-        <template v-for="(seg, si) in segments" :key="si">
-          <template v-if="seg.kind === 'context'">
+      <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 py-6">No pending changes — all resolved.</div>
+      <div v-else class="whitespace-pre-wrap break-words text-gray-800" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
+        <template v-for="(seg, si) in displaySegments" :key="si">
+          <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 hover:text-gray-600 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines }} unchanged line{{ seg.lines === 1 ? '' : 's' }} ···</span>
+          <template v-else-if="seg.kind === 'context'">
             <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
           </template>
           <span v-else :id="`htc-${seg.key}`" class="group/h relative inline align-baseline rounded-[3px] transition-colors"
@@ -53,7 +55,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 
-const props = defineProps<{ instructionId: string; canApprove?: boolean }>()
+const props = defineProps<{ instructionId: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean }>()
 const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void }>()
 
 const loading = ref(false)
@@ -118,6 +120,32 @@ const segments = computed(() => {
   }
   if (cursor < cur.length) segs.push({ kind: 'context', text: cur.slice(cursor) })
   return segs
+})
+
+// Collapse mode: hide unchanged regions, keeping ~2 lines of context on each
+// side of a change. Far-from-change context becomes a clickable "N unchanged
+// lines" gap. Expand-all reveals everything.
+const expandedAll = ref(false)
+const CONTEXT_LINES = 2
+const displaySegments = computed(() => {
+  if (!props.collapseContext || expandedAll.value) return segments.value
+  const segs = segments.value
+  const out: any[] = []
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i]
+    if (s.kind !== 'context') { out.push(s); continue }
+    const hasPrev = i > 0                    // a hunk precedes this context
+    const hasNext = i < segs.length - 1      // a hunk follows it
+    const lines = (s.text || '').split('\n')
+    const keepHead = hasPrev ? CONTEXT_LINES : 0
+    const keepTail = hasNext ? CONTEXT_LINES : 0
+    const hidden = lines.length - keepHead - keepTail
+    if (hidden <= 1) { out.push(s); continue }   // nothing meaningful to hide
+    if (keepHead) out.push({ kind: 'context', text: lines.slice(0, keepHead).join('\n') + '\n' })
+    out.push({ kind: 'gap', lines: hidden })
+    if (keepTail) out.push({ kind: 'context', text: '\n' + lines.slice(lines.length - keepTail).join('\n') })
+  }
+  return out
 })
 
 async function load() {
