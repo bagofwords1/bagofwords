@@ -16,7 +16,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_data_source_overlay import UserDataSourceTable
 
-from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem
+from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem, SkillCatalogItem
 
 logger = logging.getLogger(__name__)
 
@@ -386,6 +386,8 @@ class InstructionContextBuilder:
                     Instruction.organization_id == self.organization.id,
                     Instruction.deleted_at.is_(None),
                     Instruction.load_mode == "intelligent",
+                    # Skills are advertised via the catalog, never auto-loaded.
+                    Instruction.kind != "skill",
                 )
             )
         )
@@ -479,17 +481,89 @@ class InstructionContextBuilder:
 
         if build_items is not None:
             # Build-based loading - return items with version tracking
-            return InstructionsSection(items=build_items)
+            section = InstructionsSection(items=build_items)
+        else:
+            # Fallback to legacy behavior (direct instruction query)
+            section = await self._build_legacy(
+                query=query,
+                data_source_ids=effective_ds_ids,
+                category=category,
+                categories=categories,
+                max_instructions=max_instructions,
+            )
 
-        # Fallback to legacy behavior (direct instruction query)
-        return await self._build_legacy(
-            query=query,
-            data_source_ids=effective_ds_ids,
-            category=category,
-            categories=categories,
-            max_instructions=max_instructions,
-        )
+        # Advertise skills (kind='skill') as a compact catalog rather than
+        # force-loading their full text. The agent pulls them on demand via
+        # the read_instruction tool.
+        section.skills = await self._build_skills_catalog(data_source_ids=effective_ds_ids)
+        return section
     
+    async def _build_skills_catalog(
+        self,
+        *,
+        data_source_ids: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[SkillCatalogItem]:
+        """Build the advertised catalog of skills (kind='skill').
+
+        Returns published skills in scope (global + matching data sources), with a
+        short id, title and one-line description — NOT their full text. The agent
+        reads full text on demand via the read_instruction tool. Per-user table
+        accessibility is applied so out-of-scope skills aren't advertised.
+        """
+        stmt = (
+            select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources).options(lazyload("*")),
+            )
+            .where(
+                and_(
+                    Instruction.status == "published",
+                    Instruction.organization_id == self.organization.id,
+                    Instruction.deleted_at.is_(None),
+                    Instruction.kind == "skill",
+                )
+            )
+        )
+        result = await self.db.execute(stmt)
+        skills = result.scalars().all()
+
+        # Scope by data sources (global skills — no data sources — always included).
+        effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
+        if effective_ds_ids is not None:
+            skills = [
+                s for s in skills
+                if not s.data_sources or {str(ds.id) for ds in s.data_sources}.intersection(effective_ds_ids)
+            ]
+
+        # Apply per-user table accessibility (same rule as loaded instructions).
+        skills = await self._filter_instructions_by_table_accessibility(skills)
+
+        items: List[SkillCatalogItem] = []
+        for s in skills[:limit]:
+            sid = str(s.id)
+            items.append(SkillCatalogItem(
+                id=sid,
+                short_id=sid[:8],
+                title=s.title or (s.text[:60] if s.text else sid[:8]),
+                description=self._skill_description(s),
+            ))
+        return items
+
+    @staticmethod
+    def _skill_description(instruction: Instruction) -> Optional[str]:
+        """Derive a one-line description for the skills catalog."""
+        sd = instruction.structured_data
+        if isinstance(sd, dict) and sd.get("description"):
+            desc = str(sd["description"]).strip()
+        else:
+            # First non-empty line of the text, trimmed.
+            text = (instruction.text or "").strip()
+            desc = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+        if not desc:
+            return None
+        return desc if len(desc) <= 160 else desc[:157] + "…"
+
     async def _load_from_build(
         self,
         build_id: Optional[str] = None,
@@ -566,6 +640,10 @@ class InstructionContextBuilder:
             if instruction.status != "published":
                 continue
             if version.load_mode == "disabled":
+                continue
+            # Skills are advertised via the skills catalog (read on demand), not
+            # force-loaded into context — skip them here.
+            if getattr(instruction, "kind", "instruction") == "skill":
                 continue
 
             # Filter by data sources: include global instructions (no data sources)

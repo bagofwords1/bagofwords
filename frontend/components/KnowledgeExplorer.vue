@@ -546,8 +546,11 @@
                   <!-- Status -->
                   <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
-                  <!-- Loading -->
-                  <KSelect v-if="metaEditable" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
+                  <!-- Loading (skills are always 'Smart' — locked) -->
+                  <template v-if="metaEditable">
+                    <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
+                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-500 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />Smart</span>
+                  </template>
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
                   <!-- Category -->
                   <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
@@ -568,7 +571,7 @@
                   <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple placeholder="+ Label" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
                   <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]">{{ l.name }}</span>
                   <!-- Kind (last) -->
-                  <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
                 </div>
                 <!-- Source + author/timestamps -->
@@ -1866,6 +1869,8 @@ const saveMeta = async () => {
 }
 // Fire after a metadata control changes (user-initiated only — not on load/edit).
 const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
+// Skills always use 'intelligent' (smart) retrieval — force it when switching to skill.
+const onKindChange = () => { if (draft.kind === 'skill') draft.load_mode = 'intelligent'; onMetaChange() }
 
 // ── Analyze (related instructions + impact) ─────────────
 const analysis = reactive<{ related: any[]; tokens: string[]; impactedPrompts: any[]; impactScore: number; impactMatched: number; impactTotal: number }>(
