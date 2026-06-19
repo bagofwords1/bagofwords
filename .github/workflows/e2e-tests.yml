@@ -23,7 +23,7 @@ jobs:
     - uses: actions/checkout@v7
     
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
         
@@ -68,7 +68,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
 
@@ -151,7 +151,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
 
@@ -194,7 +194,7 @@ jobs:
 
     - name: Set up Python
       if: steps.changes.outputs.llm_files == 'true'
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
 
