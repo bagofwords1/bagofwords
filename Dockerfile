@@ -17,9 +17,9 @@ RUN apt-get update && \
 # Set the working directory in the container for the backend
 WORKDIR /app/backend
 
-# Copy the backend directory contents into the container at /app/backend
-COPY ./backend /app/backend
-RUN rm -f /app/backend/db/app.db
+# Copy only the dependency manifests first so the uv sync layer is cached
+# independently of application source changes.
+COPY ./backend/pyproject.toml ./backend/uv.lock ./
 
 # Create and use a virtual environment for dependencies
 RUN python3 -m venv /opt/venv
@@ -30,6 +30,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
 
 # Install locked main deps into the venv; dev group excluded from image
 RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project
+
+# Copy the full backend source after deps are installed
+COPY ./backend /app/backend
+RUN rm -f /app/backend/db/app.db
 
 # Pre-cache tiktoken encodings for airgapped environments
 RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
