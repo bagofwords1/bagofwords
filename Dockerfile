@@ -29,8 +29,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
 
 # Install locked main deps into the venv; dev group excluded from image
-RUN uv sync --frozen --no-dev --no-install-project \
-      --python /opt/venv/bin/python3
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project
 
 # Pre-cache tiktoken encodings for airgapped environments
 RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
