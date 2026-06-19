@@ -1220,7 +1220,7 @@ class InstructionService:
         new_build = await self.build_service.create_build(db, organization.id, source="user", user_id=current_user.id, copy_from_main=True)
         await self.build_service.add_to_build(db, new_build.id, instruction.id, new_version.id)
         await db.commit()
-        await self._auto_finalize_build(db, new_build, current_user, user_permissions)
+        await self._auto_finalize_build(db, new_build, current_user, user_permissions, trigger_reliability=False)
         # Record the accepted hunk on the SOURCE suggestion as resolved, so it
         # stays resolved even if main later drifts around its anchor (the build's
         # content snapshot is untouched — this is review metadata only).
@@ -1280,7 +1280,7 @@ class InstructionService:
         nb = await self.build_service.create_build(db, organization.id, source="user", user_id=current_user.id, copy_from_main=True)
         await self.build_service.add_to_build(db, nb.id, instruction.id, new_version.id)
         await db.commit()
-        await self._auto_finalize_build(db, nb, current_user, user_permissions)
+        await self._auto_finalize_build(db, nb, current_user, user_permissions, trigger_reliability=False)
         for build, key in accepted:
             await self._record_resolved_hunk(db, build, instruction_id, key, "accept", commit=False)
         await db.commit()
@@ -3101,6 +3101,7 @@ class InstructionService:
         build,
         current_user: User,
         user_permissions: set,
+        trigger_reliability: bool = True,
     ) -> bool:
         """
         Auto-finalize a build based on user permissions.
@@ -3138,7 +3139,7 @@ class InstructionService:
                     db, build.id, approved_by_user_id=current_user.id
                 )
                 if not build.is_main:
-                    await self.build_service.promote_build(db, build.id)
+                    await self.build_service.promote_build(db, build.id, trigger_reliability=trigger_reliability)
                     logger.info(f"Auto-approved and promoted build {build.id} to main")
                 else:
                     logger.info(f"Auto-approved build {build.id} (already main)")

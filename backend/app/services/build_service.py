@@ -853,6 +853,7 @@ class BuildService:
         db: AsyncSession,
         build_id: str,
         user_id: Optional[str] = None,
+        trigger_reliability: bool = True,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
@@ -966,7 +967,7 @@ class BuildService:
         # (and the knowledge harness), so re-triggering on their promotion would
         # recurse. User/git instruction edits are what we want to validate.
         try:
-            if getattr(build, "source", None) != "ai":
+            if trigger_reliability and getattr(build, "source", None) != "ai":
                 from app.services.agent_reliability_service import AgentReliabilityService
                 AgentReliabilityService().schedule_for_build(
                     organization_id=str(build.organization_id),

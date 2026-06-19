@@ -391,8 +391,11 @@
                 <span class="text-xs font-medium text-gray-500">New instruction</span>
               </template>
               <template v-else>
-                <span class="w-1.5 h-1.5 rounded-full" :class="h.getStatusIconClass(detail)"></span>
-                <span class="text-xs font-medium text-gray-500">{{ h.getStatusLabel(detail) }}</span>
+                <!-- Pending state is authoritative from the live-hunk review
+                     (/pending-changes), not the build-status heuristic, so the
+                     badge never goes stale relative to the dots. -->
+                <span class="w-1.5 h-1.5 rounded-full" :class="isPending(detail) ? 'bg-amber-400' : h.getStatusIconClass({ ...detail, current_build_status: null, current_build_id: null })"></span>
+                <span class="text-xs font-medium text-gray-500">{{ isPending(detail) ? 'Pending review' : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
               </template>
             </div>
             <div class="flex items-center gap-1.5">
