@@ -4,7 +4,7 @@
     <div class="widget-header" @click="toggleCollapsed">
       <div class="flex items-center justify-between w-full">
         <div class="flex items-center">
-          <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 rtl-flip" />
+          <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
             v-if="queryId && canEditCode && !readonly"
@@ -24,7 +24,7 @@
           <UTooltip v-if="hasChartForDownload" :text="$t('tools.widgetPreview.downloadPng')">
             <button
               @click.stop="downloadChartPNG"
-              class="text-gray-400 hover:text-gray-600 transition-colors flex items-center"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
             >
               <Icon name="heroicons:photo" class="w-3.5 h-3.5" />
             </button>
@@ -32,7 +32,7 @@
           <UTooltip v-if="hasDataForDownload" :text="$t('tools.widgetPreview.downloadCsv')">
             <button
               @click.stop="downloadCSV"
-              class="text-gray-400 hover:text-gray-600 transition-colors flex items-center"
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
             >
               <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
             </button>
@@ -52,39 +52,39 @@
         </template>
         <template v-else>
           <!-- Tab Navigation -->
-          <div v-if="showTabs" class="flex border-b border-gray-100 mb-2">
-            <button 
+          <div v-if="showTabs" class="flex border-b border-gray-100 dark:border-gray-800 mb-2">
+            <button
               v-if="showVisual"
               @click="activeTab = 'chart'"
               :class="[
                 'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
-                activeTab === 'chart' 
-                  ? 'border-blue-500 text-blue-600' 
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                activeTab === 'chart'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
               {{ $t('tools.widgetPreview.tabChart') }}
             </button>
-            <button 
+            <button
               v-if="hasData"
               @click="activeTab = 'table'"
               :class="[
                 'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
-                activeTab === 'table' 
-                  ? 'border-blue-500 text-blue-600' 
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                activeTab === 'table'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
               {{ $t('tools.widgetPreview.tabData') }}
             </button>
-            <button 
+            <button
               v-if="hasCode"
               @click="activeTab = 'code'"
               :class="[
                 'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
-                activeTab === 'code' 
-                  ? 'border-blue-500 text-blue-600' 
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
+                activeTab === 'code'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
               {{ $t('tools.widgetPreview.tabCode') }}
@@ -157,12 +157,12 @@
                   <!-- Header with toggle and edit button -->
                   <div class="flex items-center justify-between mb-2">
                     <!-- Toggle between Queries and Full Code (only when executed_queries available) -->
-                    <div v-if="hasExecutedQueries" class="flex items-center space-x-1 bg-gray-100 rounded p-0.5">
+                    <div v-if="hasExecutedQueries" class="flex items-center space-x-1 bg-gray-100 dark:bg-gray-800 rounded p-0.5">
                       <button
                         @click="showFullCode = false"
                         :class="[
                           'px-2 py-0.5 text-[11px] rounded transition-colors',
-                          !showFullCode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                          !showFullCode ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         ]"
                       >
                         {{ $t('tools.widgetPreview.toggleQueries') }}
@@ -171,7 +171,7 @@
                         @click="showFullCode = true"
                         :class="[
                           'px-2 py-0.5 text-[11px] rounded transition-colors',
-                          showFullCode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                          showFullCode ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         ]"
                       >
                         {{ $t('tools.widgetPreview.toggleFullCode') }}
@@ -183,7 +183,7 @@
                     <button
                       v-if="queryId && canEditCode && !readonly"
                       @click="onEditClick"
-                      class="text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
+                      class="text-xs px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
                       :title="$t('tools.widgetPreview.editCode')"
                     >
                       <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1" />
@@ -192,7 +192,7 @@
                   </div>
 
                   <!-- Code editor with Monaco -->
-                  <div class="relative h-[250px] rounded overflow-hidden border border-gray-200">
+                  <div class="relative h-[250px] rounded overflow-hidden border border-gray-200 dark:border-gray-700">
                     <ClientOnly>
                       <MonacoEditor
                         :modelValue="displayedCode"
@@ -217,7 +217,7 @@
                     </ClientOnly>
                   </div>
                 </div>
-                
+
                 <!-- Execution details -->
                 <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
                   <span v-if="executionDuration">
@@ -229,11 +229,11 @@
                     {{ $t('tools.widgetPreview.rows', { count: rowCount }) }}
                   </span>
                 </div>
-                
+
                 <!-- Attempts section -->
-                <div v-if="attempts.length > 0" class="mt-3 border-t border-gray-100 pt-3">
-                  <div 
-                    class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+                <div v-if="attempts.length > 0" class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
+                  <div
+                    class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
                     @click="attemptsExpanded = !attemptsExpanded"
                   >
                     <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1.5 rtl-flip" />
@@ -241,7 +241,7 @@
                   </div>
                   <Transition name="fade">
                     <div v-if="attemptsExpanded" class="mt-2 ms-4">
-                      <ul class="text-xs text-gray-600 space-y-1.5">
+                      <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
                         <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
                           <span class="text-gray-400 me-2 flex-shrink-0">{{ idx + 1 }}.</span>
                           <span class="text-red-500">{{ att }}</span>
@@ -256,11 +256,11 @@
         </template>
 
         <!-- Bottom Action Buttons (hidden in readonly mode) -->
-        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <div class="flex items-center space-x-2">
             <button
               v-if="isExcel && hasDataForDownload"
-              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-green-600 hover:text-green-700"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 text-green-600 hover:text-green-700"
               @click.stop="addToSpreadsheet"
               :title="$t('tools.widgetPreview.addToSpreadsheetTitle')"
             >
@@ -277,7 +277,7 @@
             <button
               v-else-if="canAddToDashboard"
               :disabled="isAddingToDashboard"
-              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-blue-500 hover:text-blue-600 disabled:opacity-40"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 text-blue-500 hover:text-blue-600 disabled:opacity-40"
               @click.stop="addToDashboard"
             >
               <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 me-1" />
@@ -288,7 +288,7 @@
           <div class="flex items-center space-x-2">
             <button
               v-if="!effectiveStep?.created_entity_id"
-              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 dark:hover:bg-gray-800"
               @click.stop="openEntityModal = true"
             >
               <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 me-1" />
@@ -604,8 +604,8 @@ async function hydrateVisualizationIfNeeded() {
 
 // Widget title from various sources
 const widgetTitle = computed(() => {
-  return widget.value?.title || 
-         effectiveStep.value?.title || 
+  return widget.value?.title ||
+         effectiveStep.value?.title ||
          props.toolExecution?.result_json?.widget_title ||
          'Results'
 })
@@ -690,27 +690,27 @@ const chartHeightClass = computed(() => {
 // Dynamic style for metric card height
 const chartHeightStyle = computed(() => {
   if (!isMetricCardType.value) return {}
-  
+
   const viewObj = visualization.value?.view as any
   const viewConfig = viewObj?.view || viewObj || {}
-  
+
   // Check if sparkline is enabled
   const hasSparkline = viewConfig?.sparkline?.enabled === true
   const sparklineHeight = viewConfig?.sparkline?.height || 64
-  
+
   // Check if comparison/trend is present
   const hasComparison = !!viewConfig?.comparison
-  
+
   // Base height for title + value (with padding)
   let height = 120
   // Add space for comparison row if present
   if (hasComparison) height += 28
   // Add sparkline height if enabled (no extra padding - chart is edge to edge)
   if (hasSparkline) height += sparklineHeight
-  
+
   // Minimum height to ensure good appearance
   height = Math.max(height, 160)
-  
+
   return { height: `${height}px` }
 })
 
@@ -835,14 +835,14 @@ const hasDataForDownload = computed(() => {
 function downloadCSV() {
   const rows = effectiveStep.value?.data?.rows
   const columns = effectiveStep.value?.data?.columns
-  
+
   if (!Array.isArray(rows) || !Array.isArray(columns) || rows.length === 0) {
     return
   }
 
   // Create CSV content
   const headers = columns.map(col => col.field || col.headerName || col.colId || '').join(',')
-  const csvRows = rows.map(row => 
+  const csvRows = rows.map(row =>
     columns.map(col => {
       const field = col.field || col.colId
       const value = row[field] || ''
@@ -854,9 +854,9 @@ function downloadCSV() {
       return stringValue
     }).join(',')
   )
-  
+
   const csvContent = [headers, ...csvRows].join('\n')
-  
+
   // Create and trigger download
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
@@ -951,7 +951,7 @@ onMounted(() => {
       }
     }).catch(() => {})
   }
-  
+
   function handleLayoutChanged(ev: CustomEvent) {
     try {
       const detail: any = (ev as any)?.detail || {}
@@ -1075,7 +1075,7 @@ onMounted(() => {
 onUnmounted(() => {
   // Remove shared filter listener
   try { window.removeEventListener('filter:updated', handleSharedFilterUpdate as any) } catch {}
-  
+
   const handlers: any = (window as any).__tw_preview_handlers__
   if (handlers) {
     try { window.removeEventListener('dashboard:layout_changed', handlers.handleLayoutChanged as any) } catch {}
@@ -1127,7 +1127,7 @@ function addToSpreadsheet() {
 
 function onEditClick() {
   if (!queryId.value) return
-  
+
   // Emit event with query information for opening the editor
   emit('editQuery', {
     queryId: queryId.value,
@@ -1139,7 +1139,7 @@ function onEditClick() {
 
 async function handleEntitySaved() {
   openEntityModal.value = false
-  
+
   // Refresh the step to get the updated created_entity_id
   try {
     const qid = queryId.value
@@ -1165,15 +1165,15 @@ onMounted(() => {
 
 <style scoped>
 .widget-container {
-  @apply mt-2 mb-2 border border-gray-100 rounded-lg bg-white shadow-sm;
+  @apply mt-2 mb-2 border border-gray-100 dark:border-gray-800 rounded-lg bg-white dark:bg-gray-900 shadow-sm;
 }
 
 .widget-header {
-  @apply px-3 py-2 cursor-pointer hover:bg-gray-50 border-b border-gray-100 transition-colors duration-150;
+  @apply px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 transition-colors duration-150;
 }
 
 .widget-title {
-  @apply text-xs font-medium text-gray-700 select-none;
+  @apply text-xs font-medium text-gray-700 dark:text-gray-300 select-none;
 }
 
 .widget-content {
@@ -1204,5 +1204,4 @@ onMounted(() => {
   opacity: 0;
 }
 </style>
-
 

@@ -1,15 +1,15 @@
 <template>
   <div class="mt-6">
-    <h2 class="text-lg font-medium text-gray-900">
+    <h2 class="text-lg font-medium text-gray-900 dark:text-white">
       SMTP Server
-      <p class="text-sm text-gray-500 font-normal mb-6">
+      <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-6">
         The server used to send your organization's <strong>system emails</strong> —
         report shares, scheduled‑report results, and invites. When set, it overrides
         the global SMTP configured in <code>bow-config</code>.
       </p>
     </h2>
 
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 my-3 text-xs text-blue-800 md:w-2/3">
+    <div class="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 my-3 text-xs text-blue-800 dark:text-blue-200 md:w-2/3">
       <strong>SMTP Server vs AI Mailbox.</strong> This SMTP server only sends
       <em>system</em> notifications. It is <em>not</em> used by the AI analyst —
       the analyst's replies and answers always come from the separate
@@ -17,46 +17,46 @@
     </div>
 
     <form class="md:w-2/3 mt-4" @submit.prevent="save">
-      <p class="text-xs text-gray-500 mb-4">
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
         Fill in a host to use a custom SMTP server. Leave the host blank to fall back to the global SMTP from <code>bow-config</code>.
       </p>
 
       <div class="grid grid-cols-2 gap-3 mb-3">
         <div>
           <label class="block text-sm font-medium mb-1">From name</label>
-          <input v-model="form.from_name" type="text" class="w-full border rounded px-2 py-1" placeholder="Acme" />
+          <input v-model="form.from_name" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="Acme" />
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">From address</label>
-          <input v-model="form.from_address" type="email" class="w-full border rounded px-2 py-1" placeholder="noreply@acme.com" />
+          <input v-model="form.from_address" type="email" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="noreply@acme.com" />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <div>
           <label class="block text-sm font-medium mb-1">Host</label>
-          <input v-model="form.host" type="text" class="w-full border rounded px-2 py-1" placeholder="smtp.acme.com" />
+          <input v-model="form.host" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="smtp.acme.com" />
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Port</label>
-          <input v-model.number="form.port" type="number" class="w-full border rounded px-2 py-1" />
+          <input v-model.number="form.port" type="number" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3 mb-1">
         <div>
           <label class="block text-sm font-medium mb-1">Username <span class="text-gray-400 font-normal">(optional)</span></label>
-          <input v-model="form.username" type="text" class="w-full border rounded px-2 py-1" />
+          <input v-model="form.username" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Password <span class="text-gray-400 font-normal">(optional)</span></label>
-          <input v-model="form.password" type="password" class="w-full border rounded px-2 py-1"
+          <input v-model="form.password" type="password" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
             :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
-          <p v-if="passwordSet" class="text-xs text-gray-500 mt-1">Leave blank to keep the saved password.</p>
+          <p v-if="passwordSet" class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to keep the saved password.</p>
         </div>
       </div>
-      <p class="text-xs text-gray-500 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
       <div class="mb-3">
         <label class="block text-sm font-medium mb-1">Security</label>
-        <select v-model="form.security" class="w-full border rounded px-2 py-1">
+        <select v-model="form.security" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
           <option value="starttls">STARTTLS (587)</option>
           <option value="ssl">SSL/TLS (465)</option>
           <option value="none">None</option>
@@ -64,13 +64,13 @@
       </div>
       <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4 cursor-pointer">
         <UToggle v-model="form.validate_certs" />
-        <span class="text-sm text-gray-700">Validate TLS certificates</span>
-        <span class="text-xs text-gray-400">— turn off for self-signed / internal-CA relays</span>
+        <span class="text-sm text-gray-700 dark:text-gray-300">Validate TLS certificates</span>
+        <span class="text-xs text-gray-400 dark:text-gray-600">— turn off for self-signed / internal-CA relays</span>
       </label>
 
       <div class="flex items-center gap-2">
         <button type="button" v-if="form.host" :disabled="testing" @click="test"
-          class="border border-gray-300 text-gray-700 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 disabled:opacity-50">
+          class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
           {{ testing ? 'Testing…' : 'Test connection' }}
         </button>
         <button type="submit" :disabled="saving" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">

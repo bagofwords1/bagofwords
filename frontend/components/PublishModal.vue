@@ -2,10 +2,10 @@
     <UTooltip :text="isPublished ? $t('publish.published') : $t('publish.publish')">
         <button @click="publishModalOpen = true"
             :class="[
-                'text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border',
+                'text-xs items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded border',
                 isPublished
-                    ? 'border-green-200 bg-green-50 text-green-700'
-                    : 'border-gray-200 bg-cyan-100 text-cyan-700'
+                    ? 'border-green-200 bg-green-50 dark:bg-green-950 text-green-700'
+                    : 'border-gray-200 dark:border-gray-700 bg-cyan-100 text-cyan-700'
             ]">
             <Icon name="heroicons:globe-alt" class="w-3.5 h-3.5" />
             <span class="text-xs">{{ isPublished ? $t('publish.published') : $t('publish.publish') }}</span>
@@ -16,11 +16,11 @@
     <UModal v-model="publishModalOpen">
         <div class="p-4 relative">
             <button @click="publishModalOpen = false"
-                class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
+                class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">{{ $t('publish.publishDashboard') }}</h1>
-            <p class="text-sm text-gray-500">{{ $t('publish.publishSubtitle') }}</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('publish.publishSubtitle') }}</p>
             <hr class="my-4" />
             <div class="flex flex-row items-center text-sm">
                 {{ $t('publish.allowPublicAccess') }}
@@ -29,10 +29,10 @@
             <div class="flex flex-col mt-4 text-sm" v-if="isPublished">
                 <div class="my-2 font-semibold">{{ $t('publish.url') }}</div>
                 <div class="flex">
-                    <input :value="reportUrl" type="text" class="py-2 px-2 border border-gray-200 rounded-md w-[95%]"
+                    <input :value="reportUrl" type="text" class="py-2 px-2 border border-gray-200 dark:border-gray-700 rounded-md w-[95%]"
                         disabled />
                     <button @click="copyReportUrl"
-                        class="ms-2 bg-gray-50 border border-gray-200 rounded-md px-3 text-xs hover:bg-gray-100 relative">
+                        class="ms-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 relative">
                         {{ $t('publish.copy') }}
                         <span v-if="showTooltip"
                             class="absolute top-full start-1/2 transform -translate-x-1/2 mt-1 bg-black text-white text-xs rounded py-1 px-2">
@@ -49,9 +49,9 @@
             <NotifyRecipientPicker v-if="smtpEnabled && isPublished" :report-id="report.id"
                 notification-type="share_dashboard" :share-url="reportUrl" />
 
-            <div class="border-t border-gray-200 pt-4 mt-8">
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-8">
                 <button @click="publishModalOpen = false"
-                    class="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs hover:bg-gray-100">{{ $t('publish.close') }}</button>
+                    class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700">{{ $t('publish.close') }}</button>
             </div>
         </div>
     </UModal>
@@ -129,4 +129,3 @@ const copyReportUrl = async () => {
 }
 
 </script>
-

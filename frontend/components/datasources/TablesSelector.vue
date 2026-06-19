@@ -3,14 +3,14 @@
     <div v-if="showHeader" class="mb-2 flex items-center justify-between">
       <div>
         <h1 class="text-lg font-semibold">{{ headerTitle }}</h1>
-        <p class="text-gray-500 text-sm">{{ headerSubtitle }}</p>
+        <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
       </div>
       <div>
         <button
           v-if="showRefresh"
           @click="onRefresh"
           :disabled="loading || refreshing"
-          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50'"
+          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50'"
         >
           <Spinner v-if="loading || refreshing" class="w-4 h-4" />
           <span v-if="!refreshIconOnly">Reload {{ props.itemNoun.plural }}</span>
@@ -22,7 +22,7 @@
         v-if="showRefresh"
         @click="onRefresh"
         :disabled="loading || refreshing"
-        :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50'"
+        :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50'"
       >
         <Spinner v-if="loading || refreshing" class="w-4 h-4" />
         <span v-if="!refreshIconOnly">Reload tables</span>
@@ -32,49 +32,49 @@
     <!-- Search and filters row -->
     <div>
       <div class="relative flex items-center gap-1.5">
-        <input 
-          v-model="searchInput" 
+        <input
+          v-model="searchInput"
           @input="onSearchInput"
-          type="text" 
+          type="text"
           :placeholder="`Search ${props.itemNoun.plural}...`"
-          class="border border-gray-300 rounded px-2 py-1.5 w-full h-7 text-xs focus:outline-none focus:border-blue-500" 
+          class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 w-full h-7 text-xs focus:outline-none focus:border-blue-500"
         />
-        
+
         <!-- Filter button (contains both status and schema filters) -->
         <button
           ref="filterButtonRef"
           type="button"
           @click="toggleFilterMenu"
           class="h-7 w-7 inline-flex items-center justify-center rounded border"
-          :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'"
+          :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'"
           :aria-label="`Filter ${props.itemNoun.plural}`"
         >
           <UIcon name="heroicons-funnel" class="w-4 h-4" />
         </button>
-        
+
         <!-- Sort -->
         <button
           ref="sortButtonRef"
           type="button"
           @click="toggleSortMenu"
-          class="h-7 w-7 inline-flex items-center justify-center rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+          class="h-7 w-7 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           :aria-label="`Sort ${props.itemNoun.plural}`"
         >
           <UIcon name="heroicons-arrows-up-down" class="w-4 h-4" />
         </button>
-        
+
         <!-- Filter menu (multi-level with status and schema) -->
         <div
           v-if="filterMenuOpen"
           ref="filterMenuRef"
-          class="absolute end-8 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg w-48"
+          class="absolute end-8 top-full mt-1 z-20 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg w-48"
         >
           <!-- Status filter section -->
-          <div class="py-1 border-b border-gray-100">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">Status</div>
+          <div class="py-1 border-b border-gray-100 dark:border-gray-800">
+            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-600 uppercase tracking-wider">Status</div>
             <button
               type="button"
-              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSelectedFilter('selected')"
             >
               <span>Selected</span>
@@ -82,42 +82,42 @@
             </button>
             <button
               type="button"
-              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSelectedFilter('unselected')"
             >
               <span>Unselected</span>
               <UIcon v-if="filters.selectedState === 'unselected'" name="heroicons-check" class="w-3 h-3 text-blue-600" />
             </button>
           </div>
-          
+
           <!-- Schema filter section -->
           <div class="py-1">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider flex items-center justify-between">
+            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-600 uppercase tracking-wider flex items-center justify-between">
               <span>Schema</span>
               <button
                 v-if="selectedSchemas.length > 0"
                 type="button"
                 @click.stop="clearSchemaFilter"
-                class="text-[9px] text-gray-400 hover:text-gray-600"
+                class="text-[9px] text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
               >
                 Clear
               </button>
             </div>
-            <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-gray-400">No schemas</div>
+            <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-gray-400 dark:text-gray-600">No schemas</div>
             <div v-else class="max-h-40 overflow-y-auto">
               <template v-for="(group, connName) in groupedSchemas" :key="connName">
-                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-[9px] font-medium text-gray-400 truncate">{{ connName }}</div>
+                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-[9px] font-medium text-gray-400 dark:text-gray-600 truncate">{{ connName }}</div>
                 <label
                   v-for="item in group"
                   :key="item.value"
-                  class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
+                  class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                   :class="connName !== '_default' ? 'ps-4' : ''"
                 >
                   <input
                     type="checkbox"
                     :checked="selectedSchemas.includes(item.value)"
                     @change="toggleSchemaFilter(item.value)"
-                    class="me-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    class="me-1.5 h-3 w-3 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
                   <span class="truncate">{{ item.label }}</span>
                 </label>
@@ -126,14 +126,14 @@
           </div>
 
           <!-- Connection filter section -->
-          <div v-if="availableConnections.length >= 1" class="py-1 border-t border-gray-100">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider flex items-center justify-between">
+          <div v-if="availableConnections.length >= 1" class="py-1 border-t border-gray-100 dark:border-gray-800">
+            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-600 uppercase tracking-wider flex items-center justify-between">
               <span>Connection</span>
               <button
                 v-if="selectedConnections.length > 0"
                 type="button"
                 @click.stop="clearConnectionFilter"
-                class="text-[9px] text-gray-400 hover:text-gray-600"
+                class="text-[9px] text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
               >
                 Clear
               </button>
@@ -142,42 +142,42 @@
               <label
                 v-for="conn in availableConnections"
                 :key="conn.id"
-                class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
+                class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
               >
                 <input
                   type="checkbox"
                   :checked="selectedConnections.includes(conn.id)"
                   @change="toggleConnectionFilter(conn.id)"
-                  class="me-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  class="me-1.5 h-3 w-3 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                 />
                 <span class="truncate">{{ conn.name }}</span>
-                <span class="ms-1 text-[9px] text-gray-400">({{ conn.type }})</span>
+                <span class="ms-1 text-[9px] text-gray-400 dark:text-gray-600">({{ conn.type }})</span>
               </label>
             </div>
           </div>
 
           <!-- Clear all filters -->
-          <div v-if="hasActiveFilters" class="border-t border-gray-100 p-1.5">
+          <div v-if="hasActiveFilters" class="border-t border-gray-100 dark:border-gray-800 p-1.5">
             <button
               type="button"
               @click="clearAllFilters"
-              class="w-full text-[10px] text-gray-500 hover:text-gray-700 py-0.5"
+              class="w-full text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
             >
               Clear all filters
             </button>
           </div>
         </div>
-        
+
         <!-- Sort menu -->
         <div
           v-if="sortMenuOpen"
           ref="sortMenuRef"
-          class="absolute end-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg w-32"
+          class="absolute end-0 top-full mt-1 z-20 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg w-32"
         >
           <div class="py-1">
             <button
               type="button"
-              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSort('name')"
             >
               <span>Name</span>
@@ -185,7 +185,7 @@
             </button>
             <button
               type="button"
-              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSort('is_active')"
             >
               <span>Selected</span>
@@ -194,7 +194,7 @@
             <button
               v-if="props.showStats"
               type="button"
-              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSort('usage')"
             >
               <span>Usage</span>
@@ -203,9 +203,9 @@
           </div>
         </div>
       </div>
-      
+
       <!-- Stats row -->
-      <div class="mt-1 text-[10px] text-gray-500 flex items-center justify-between">
+      <div class="mt-1 text-[10px] text-gray-500 dark:text-gray-400 flex items-center justify-between">
         <span v-if="isPaginated && hasActiveFilters">
           {{ totalMatching }} matching · Showing {{ paginationStart }}-{{ paginationEnd }}
         </span>
@@ -213,13 +213,13 @@
           Showing {{ paginationStart }}-{{ paginationEnd }} of {{ totalTables }}
         </span>
         <span v-else></span>
-        
+
         <!-- Right side: bulk actions -->
         <div v-if="canUpdate" class="flex items-center gap-2">
           <button
             @click="selectAllMatching"
             :disabled="loading || refreshing || bulkUpdating"
-            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
             <span v-if="bulkUpdating">...</span>
             <span v-else-if="hasActiveFilters">Select all ({{ totalMatching }})</span>
@@ -228,7 +228,7 @@
           <button
             @click="deselectAllMatching"
             :disabled="loading || refreshing || bulkUpdating"
-            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
             <span v-if="bulkUpdating">...</span>
             <span v-else-if="hasActiveFilters">Deselect all ({{ totalMatching }})</span>
@@ -236,25 +236,25 @@
           </button>
         </div>
       </div>
-      
+
       <!-- Active count row -->
-      <div class="text-[10px] text-gray-500">
+      <div class="text-[10px] text-gray-500 dark:text-gray-400">
         {{ selectedCount }}/{{ totalTables }} active
       </div>
     </div>
 
     <!-- Loading state -->
-    <div v-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
+    <div v-if="loading" class="text-sm text-gray-500 dark:text-gray-400 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 me-2" />
       Loading schema...
     </div>
 
     <!-- Tables list -->
     <div v-else class="flex-1 flex flex-col h-full">
-      <div v-if="tables.length === 0" class="text-sm text-gray-500 py-4">No {{ props.itemNoun.plural }} found.</div>
+      <div v-if="tables.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-4">No {{ props.itemNoun.plural }} found.</div>
       <div v-else class="flex-1 flex flex-col min-h-full">
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
-          <ul class="divide-y divide-gray-100">
+          <ul class="divide-y divide-gray-100 dark:divide-gray-800">
             <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2">
               <div class="flex items-center">
                 <UCheckbox
@@ -266,16 +266,16 @@
                 />
                 <button type="button" class="flex items-center justify-between text-start flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
-                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 rtl-flip" />
+                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 dark:text-gray-400 rtl-flip" />
                     <template v-if="availableConnections.length > 1">
                       <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
-                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
+                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
-                    <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
-                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
-                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
+                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-950 text-yellow-700">modified</span>
                   </div>
-                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 whitespace-nowrap flex items-center gap-2">
+                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
                     <UTooltip text="Successful executed queries">
                       <span class="inline-flex items-center gap-1">
@@ -306,113 +306,113 @@
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
                 <!-- Columns -->
-                <div v-if="table.columns?.length" class="border border-gray-100 rounded">
-                  <div class="grid grid-cols-2 text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">
+                <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded">
+                  <div class="grid grid-cols-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">
                     <div>Name</div>
                     <div>Type</div>
                   </div>
-                  <div class="divide-y divide-gray-100">
+                  <div class="divide-y divide-gray-100 dark:divide-gray-800">
                     <div v-for="col in table.columns" :key="col.name" class="grid grid-cols-2 text-xs px-2 py-1">
-                      <div class="text-gray-700">{{ col.name }}</div>
-                      <div class="text-gray-500">{{ col.dtype || col.type }}</div>
+                      <div class="text-gray-700 dark:text-gray-300">{{ col.name }}</div>
+                      <div class="text-gray-500 dark:text-gray-400">{{ col.dtype || col.type }}</div>
                     </div>
                   </div>
                 </div>
 
                 <!-- Relationships -->
-                <div v-if="table.fks?.length" class="mt-2 border border-gray-100 rounded">
-                  <div class="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">Relationships</div>
-                  <div class="divide-y divide-gray-100">
-                    <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600">
-                      <span class="text-gray-700">{{ fk.column?.name }}</span>
-                      <span class="text-gray-400 mx-1">→</span>
+                <div v-if="table.fks?.length" class="mt-2 border border-gray-100 dark:border-gray-800 rounded">
+                  <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Relationships</div>
+                  <div class="divide-y divide-gray-100 dark:divide-gray-800">
+                    <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600 dark:text-gray-400">
+                      <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
+                      <span class="text-gray-400 dark:text-gray-600 mx-1">→</span>
                       <span class="text-blue-600">{{ fk.references_name }}</span>
-                      <span class="text-gray-400">.</span>
-                      <span class="text-gray-700">{{ fk.references_column?.name }}</span>
+                      <span class="text-gray-400 dark:text-gray-600">.</span>
+                      <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>
                     </div>
                   </div>
                 </div>
 
                 <!-- Power BI Metadata -->
-                <div v-if="table.metadata_json?.powerbi" class="mt-2 text-xs text-gray-500 space-y-0.5">
+                <div v-if="table.metadata_json?.powerbi" class="mt-2 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
                   <div v-if="table.metadata_json.powerbi.datasetName">
-                    <span class="text-gray-400">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
+                    <span class="text-gray-400 dark:text-gray-600">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
                   </div>
                   <div v-if="table.metadata_json.powerbi.workspaceName">
-                    <span class="text-gray-400">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
+                    <span class="text-gray-400 dark:text-gray-600">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
                   </div>
                   <div v-if="table.metadata_json.powerbi.reports?.length">
-                    <span class="text-gray-400">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
+                    <span class="text-gray-400 dark:text-gray-600">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
                   </div>
                 </div>
 
                 <!-- Power BI Report Server Metadata -->
                 <div v-if="table.metadata_json?.powerbi_report_server" class="mt-2 space-y-2">
-                  <div class="border border-gray-100 rounded">
-                    <div class="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">Report details</div>
-                    <div class="text-xs text-gray-600 px-2 py-1 space-y-0.5">
+                  <div class="border border-gray-100 dark:border-gray-800 rounded">
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Report details</div>
+                    <div class="text-xs text-gray-600 dark:text-gray-400 px-2 py-1 space-y-0.5">
                       <div v-if="table.metadata_json.powerbi_report_server.report_type">
-                        <span class="text-gray-400">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
+                        <span class="text-gray-400 dark:text-gray-600">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.path">
-                        <span class="text-gray-400">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
+                        <span class="text-gray-400 dark:text-gray-600">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.modified_by">
-                        <span class="text-gray-400">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
+                        <span class="text-gray-400 dark:text-gray-600">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.modified_date">
-                        <span class="text-gray-400">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
+                        <span class="text-gray-400 dark:text-gray-600">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
                       </div>
                       <div>
-                        <span class="text-gray-400">Queryable:</span>
-                        <span :class="table.metadata_json.powerbi_report_server.queryable ? 'text-green-600' : 'text-gray-500'">
+                        <span class="text-gray-400 dark:text-gray-600">Queryable:</span>
+                        <span :class="table.metadata_json.powerbi_report_server.queryable ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'">
                           {{ table.metadata_json.powerbi_report_server.queryable ? 'yes' : 'no (metadata only)' }}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 bg-blue-50 rounded">
+                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950 rounded">
                     <div class="text-xs font-medium text-blue-700 px-2 py-1 rounded-t">Upstream source</div>
                     <div class="text-xs text-blue-900 px-2 py-1 break-all">
                       {{ table.metadata_json.powerbi_report_server.upstream_source }}
                     </div>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.data_sources?.length" class="border border-gray-100 rounded">
-                    <div class="grid grid-cols-[80px_1fr_80px] text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t gap-2">
+                  <div v-if="table.metadata_json.powerbi_report_server.data_sources?.length" class="border border-gray-100 dark:border-gray-800 rounded">
+                    <div class="grid grid-cols-[80px_1fr_80px] text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t gap-2">
                       <div>Kind</div>
                       <div>Connection</div>
                       <div>Auth</div>
                     </div>
-                    <div class="divide-y divide-gray-100">
+                    <div class="divide-y divide-gray-100 dark:divide-gray-800">
                       <div
                         v-for="(ds, idx) in table.metadata_json.powerbi_report_server.data_sources"
                         :key="idx"
                         class="grid grid-cols-[80px_1fr_80px] text-xs px-2 py-1 gap-2"
                       >
-                        <div class="text-gray-700">{{ ds.kind || ds.type || '—' }}</div>
-                        <div class="text-gray-600 break-all">{{ ds.connection_string || '—' }}</div>
-                        <div class="text-gray-500">{{ ds.auth_type || '—' }}</div>
+                        <div class="text-gray-700 dark:text-gray-300">{{ ds.kind || ds.type || '—' }}</div>
+                        <div class="text-gray-600 dark:text-gray-400 break-all">{{ ds.connection_string || '—' }}</div>
+                        <div class="text-gray-500 dark:text-gray-400">{{ ds.auth_type || '—' }}</div>
                       </div>
                     </div>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.parameters?.length" class="text-xs text-gray-600">
-                    <span class="text-gray-400">Parameters:</span>
+                  <div v-if="table.metadata_json.powerbi_report_server.parameters?.length" class="text-xs text-gray-600 dark:text-gray-400">
+                    <span class="text-gray-400 dark:text-gray-600">Parameters:</span>
                     <span
                       v-for="(p, idx) in table.metadata_json.powerbi_report_server.parameters"
                       :key="idx"
-                      class="ms-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
+                      class="ms-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                     >{{ p.name }}</span>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.command_text" class="border border-gray-100 rounded">
-                    <div class="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">Command text</div>
-                    <pre class="text-xs text-gray-700 px-2 py-1 whitespace-pre-wrap break-all">{{ table.metadata_json.powerbi_report_server.command_text }}</pre>
+                  <div v-if="table.metadata_json.powerbi_report_server.command_text" class="border border-gray-100 dark:border-gray-800 rounded">
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Command text</div>
+                    <pre class="text-xs text-gray-700 dark:text-gray-300 px-2 py-1 whitespace-pre-wrap break-all">{{ table.metadata_json.powerbi_report_server.command_text }}</pre>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 bg-yellow-50 rounded text-xs text-yellow-800 px-2 py-1">
+                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 dark:border-yellow-950 bg-yellow-50 dark:bg-yellow-950 rounded text-xs text-yellow-800 px-2 py-1">
                     {{ table.metadata_json.powerbi_report_server.query_note }}
                   </div>
                 </div>
@@ -420,37 +420,37 @@
             </li>
           </ul>
         </div>
-        
+
         <!-- Pagination controls -->
         <div v-if="isPaginated && totalPages > 1" class="mt-3 flex items-center justify-center gap-2">
           <button
             @click="goToPage(1)"
             :disabled="page === 1 || loading"
-            class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UIcon name="heroicons-chevron-double-left" class="w-3 h-3" />
           </button>
           <button
             @click="goToPage(page - 1)"
             :disabled="page === 1 || loading"
-            class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UIcon name="heroicons-chevron-left" class="w-3 h-3" />
           </button>
-          <span class="text-xs text-gray-600 px-2">
+          <span class="text-xs text-gray-600 dark:text-gray-400 px-2">
             Page {{ page }} of {{ totalPages }}
           </span>
           <button
             @click="goToPage(page + 1)"
             :disabled="page >= totalPages || loading"
-            class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UIcon name="heroicons-chevron-right" class="w-3 h-3" />
           </button>
           <button
             @click="goToPage(totalPages)"
             :disabled="page >= totalPages || loading"
-            class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <UIcon name="heroicons-chevron-double-right" class="w-3 h-3" />
           </button>
@@ -460,9 +460,9 @@
 
     <!-- Save button -->
     <div v-if="showSave && canUpdate" class="mt-3 flex items-center justify-end">
-      <button 
-        @click="onSave" 
-        :disabled="saving" 
+      <button
+        @click="onSave"
+        :disabled="saving"
         class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
       >
         <span v-if="saving">Saving...</span>
@@ -804,7 +804,7 @@ async function fetchTables() {
   loading.value = true
   try {
     const endpoint = endpointForSchema()
-    
+
     // For full_schema, use paginated endpoint
     if (props.schema === 'full') {
       const params = new URLSearchParams()
@@ -834,10 +834,10 @@ async function fetchTables() {
       }
 
       const res = await useMyFetch(`/data_sources/${props.dsId}/${endpoint}?${params.toString()}`, { method: 'GET' })
-      
+
       if ((res as any)?.status?.value === 'success') {
         const data = (res as any).data?.value
-        
+
         // Check if paginated response
         if (data && typeof data === 'object' && 'tables' in data) {
           const paginatedData = data as PaginatedResponse
@@ -847,7 +847,7 @@ async function fetchTables() {
           totalPages.value = paginatedData.total_pages
           selectedCount.value = paginatedData.selected_count
           totalTables.value = paginatedData.total_tables
-          
+
           // Update available schemas (only on first load or refresh)
           if (paginatedData.schemas && paginatedData.schemas.length > 0) {
             availableSchemas.value = paginatedData.schemas
@@ -856,7 +856,7 @@ async function fetchTables() {
           if (paginatedData.connections && paginatedData.connections.length > 0) {
             availableConnections.value = paginatedData.connections
           }
-          
+
           // Update tracking maps for loaded tables
           for (const table of paginatedData.tables) {
             const key = tableKey(table)
@@ -876,7 +876,7 @@ async function fetchTables() {
           totalTables.value = tables.value.length
           selectedCount.value = tables.value.filter(t => t.is_active).length
           totalPages.value = 1
-          
+
           // Extract schemas from metadata_json
           const schemas = new Set<string>()
           for (const t of tables.value) {
@@ -884,7 +884,7 @@ async function fetchTables() {
             if (s) schemas.add(s)
           }
           availableSchemas.value = Array.from(schemas).sort()
-          
+
           // Initialize tracking
           for (const table of tables.value) {
             const key = tableKey(table)
@@ -951,14 +951,14 @@ function selectAllMatching() {
   if (filters.value.selectedState) {
     filterObj.selected_state = filters.value.selectedState
   }
-  
+
   // Add to pending bulk actions
   pendingBulkActions.value.push({
     action: 'activate',
     filter: Object.keys(filterObj).length > 0 ? filterObj : null,
     count: totalMatching.value
   })
-  
+
   // Update visible tables to show as checked
   for (const table of tables.value) {
     const key = tableKey(table)
@@ -983,14 +983,14 @@ function deselectAllMatching() {
   if (filters.value.selectedState) {
     filterObj.selected_state = filters.value.selectedState
   }
-  
+
   // Add to pending bulk actions
   pendingBulkActions.value.push({
     action: 'deactivate',
     filter: Object.keys(filterObj).length > 0 ? filterObj : null,
     count: totalMatching.value
   })
-  
+
   // Update visible tables to show as unchecked
   for (const table of tables.value) {
     const key = tableKey(table)
@@ -1005,7 +1005,7 @@ async function onSave() {
   if (saving.value) return
   if (!hasPendingChanges.value) { emit('saved', tables.value); return }
   saving.value = true
-  
+
   try {
     // 1. Execute pending bulk actions first (fail fast if any error)
     for (const bulkAction of pendingBulkActions.value) {
@@ -1022,7 +1022,7 @@ async function onSave() {
         throw new Error(errorMsg)
       }
     }
-    
+
     // 2. Execute individual delta changes (for single checkbox toggles)
     const toActivate: string[] = []
     const toDeactivate: string[] = []
@@ -1047,7 +1047,7 @@ async function onSave() {
         }
       })
     }
-    
+
     // 3. Clear all tracking and refresh to get actual state
     pendingBulkActions.value = []
     originalActiveState.value.clear()

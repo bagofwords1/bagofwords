@@ -2,32 +2,32 @@
   <div class="max-w-2xl mx-auto space-y-4">
     <!-- Title -->
     <div>
-      <label class="text-xs font-medium text-gray-700 mb-1 block">Title</label>
-      <input 
-        v-model="localForm.title" 
-        type="text" 
-        placeholder="Revenue by month" 
-        class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" 
+      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">Title</label>
+      <input
+        v-model="localForm.title"
+        type="text"
+        placeholder="Revenue by month"
+        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
       />
     </div>
 
     <!-- Description -->
     <div>
-      <label class="text-xs font-medium text-gray-700 mb-1 block">Description</label>
-      <textarea 
-        v-model="localForm.description" 
-        rows="4" 
-        placeholder="Description" 
-        class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 min-h-[100px]" 
+      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">Description</label>
+      <textarea
+        v-model="localForm.description"
+        rows="4"
+        placeholder="Description"
+        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 min-h-[100px] bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
       />
     </div>
 
     <!-- Data Sources -->
     <div>
-      <label class="text-xs font-medium text-gray-700 mb-1 block">Data Sources</label>
-      <USelectMenu 
-        v-model="selectedDataSourceIds" 
-        :options="dataSourceOptions" 
+      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">Data Sources</label>
+      <USelectMenu
+        v-model="selectedDataSourceIds"
+        :options="dataSourceOptions"
         option-attribute="name"
         value-attribute="id"
         size="xs"
@@ -36,9 +36,9 @@
       >
         <template #label>
           <div class="flex items-center flex-wrap gap-1">
-            <span v-if="selectedDataSourceIds.length === 0" class="text-gray-500">Select data sources</span>
+            <span v-if="selectedDataSourceIds.length === 0" class="text-gray-500 dark:text-gray-400">Select data sources</span>
             <div v-else class="flex items-center flex-wrap gap-1">
-              <span v-for="ds in selectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 text-blue-800 text-[10px] px-1.5 py-0.5 rounded">
+              <span v-for="ds in selectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 dark:bg-blue-900/50 text-blue-800 text-[10px] px-1.5 py-0.5 rounded">
                 <DataSourceIcon :type="ds.type" class="h-3 me-1" />
                 {{ ds.name }}
               </span>
@@ -51,11 +51,11 @@
               <DataSourceIcon :type="option.type" class="h-3 me-2" />
               <span class="text-xs">{{ option.name }}</span>
             </div>
-            <UCheckbox 
-              :model-value="selectedDataSourceIds.includes(String(option.id))" 
-              @update:model-value="toggleDataSource(String(option.id))" 
-              @click.stop 
-              class="flex-shrink-0 ms-2" 
+            <UCheckbox
+              :model-value="selectedDataSourceIds.includes(String(option.id))"
+              @update:model-value="toggleDataSource(String(option.id))"
+              @click.stop
+              class="flex-shrink-0 ms-2"
             />
           </div>
         </template>
@@ -64,13 +64,13 @@
 
     <!-- Status -->
     <div v-if="showStatus">
-      <label class="text-xs font-medium text-gray-600 mb-1.5 block">Status</label>
-      <USelectMenu 
-        size="xs" 
-        v-model="localForm.status" 
-        :options="statusOptions" 
-        option-attribute="label" 
-        value-attribute="value" 
+      <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 block">Status</label>
+      <USelectMenu
+        size="xs"
+        v-model="localForm.status"
+        :options="statusOptions"
+        option-attribute="label"
+        value-attribute="value"
         class="w-full text-xs"
       >
         <template #label>
@@ -141,7 +141,7 @@ const selectedDataSourceObjects = computed(() => {
 // Make status options dynamic based on entity state
 const statusOptions = computed(() => {
   const isEditingSuggested = props.modelValue.global_status === 'suggested'
-  
+
   if (isEditingSuggested) {
     // For suggested entities being reviewed by admin
     return [
@@ -162,7 +162,7 @@ const statusOptions = computed(() => {
 const getCurrentStatusDisplayText = () => {
   const currentStatus = localForm.value.status
   const isEditingSuggested = props.modelValue.global_status === 'suggested'
-  
+
   if (isEditingSuggested) {
     const suggestedStatusMap = {
       draft: 'Draft - Pending Approval',
@@ -206,7 +206,7 @@ const fetchDataSources = async () => {
     const { data, error } = await useMyFetch<DataSource[]>('/data_sources/active', {
       method: 'GET'
     })
-    
+
     if (error.value) {
       console.error('Failed to fetch data sources:', error.value)
     } else if (data.value) {
@@ -240,4 +240,3 @@ onMounted(() => {
   }
 })
 </script>
-

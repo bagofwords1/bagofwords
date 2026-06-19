@@ -1,12 +1,12 @@
 <template>
   <div class="flex justify-center py-40 px-5 sm:px-0">
-    <div class="w-full sm:w-1/3 bg-white rounded-lg shadow p-8 flex flex-col items-center">
+    <div class="w-full sm:w-1/3 bg-white dark:bg-gray-900 rounded-lg shadow p-8 flex flex-col items-center">
       <div class="mb-4">
         <img v-if="platformType === 'teams'" src="/icons/teams.png" alt="Teams" class="w-12 h-12" />
         <img v-else src="/icons/slack.png" alt="Slack" class="w-12 h-12" />
       </div>
       <h1 class="font-bold text-lg mb-2">Verify your {{ platformLabel }} account</h1>
-      <p class="mt-3 text-sm text-gray-700 text-center mb-6">
+      <p class="mt-3 text-sm text-gray-700 dark:text-gray-300 text-center mb-6">
         Please follow the instructions below to activate your {{ platformLabel }} integration.
       </p>
       <div v-if="loading" class="text-blue-500 font-medium">Verifying...</div>

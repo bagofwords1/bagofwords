@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center py-12 px-4">
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="schema_selected" :hideNextButton="true">
         <template #schema>
@@ -11,14 +11,14 @@
             <template v-else>
               <div
                 v-if="indexingConnections.length > 0"
-                class="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-3"
+                class="rounded-lg border border-blue-100 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950 p-3 space-y-3"
               >
                 <div
                   v-for="conn in indexingConnections"
                   :key="conn.id"
                   class="space-y-1"
                 >
-                  <div class="flex items-center gap-2 text-xs text-gray-700">
+                  <div class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
                     <DataSourceIcon class="h-3.5" :type="conn.type" />
                     <span class="font-medium">{{ conn.name }}</span>
                   </div>

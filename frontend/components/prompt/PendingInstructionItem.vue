@@ -1,8 +1,8 @@
 <template>
-  <div class="rounded border border-gray-150 bg-gray-50 mx-1 mb-1">
+  <div class="rounded border border-gray-150 bg-gray-50 dark:bg-gray-900 mx-1 mb-1">
     <!-- Row header -->
     <div
-      class="flex items-start gap-2 px-3 py-1.5 hover:bg-gray-100 rounded"
+      class="flex items-start gap-2 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
       :class="!selected ? 'opacity-60' : ''"
     >
       <UCheckbox
@@ -26,7 +26,7 @@
           >
             {{ inst.isEdit ? $t('prompt.changeEdit', 'edit') : $t('prompt.changeNew', 'new') }}
           </span>
-          <span dir="auto" class="text-[12px] text-gray-700 truncate hover:text-gray-900">{{ inst.title }}</span>
+          <span dir="auto" class="text-[12px] text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ inst.title }}</span>
           <span v-if="inst.lineCount > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ inst.lineCount }}</span>
         </div>
         <div v-if="inst.category" class="text-[10px] text-gray-400 mt-0.5 ms-[18px]">{{ inst.category }}</div>
@@ -46,7 +46,7 @@
         </template>
         <template v-else>
           <button
-            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
             :disabled="isAccepting || isRejecting"
             @click.stop="handleAccept"
           >
@@ -55,7 +55,7 @@
             {{ $t('prompt.acceptShort', 'Accept') }}
           </button>
           <button
-            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
             :disabled="isAccepting || isRejecting"
             @click.stop="handleReject"
           >
@@ -64,7 +64,7 @@
             {{ $t('prompt.rejectShort', 'Reject') }}
           </button>
           <button
-            class="text-[10px] text-gray-500 hover:text-gray-800 px-1.5 py-0.5 rounded hover:bg-gray-200"
+            class="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 px-1.5 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
             @click.stop="$emit('open')"
           >
             {{ $t('prompt.openInstruction', 'Open') }}
@@ -77,11 +77,11 @@
     <div v-if="isExpanded" class="px-3 pb-2">
       <div v-if="isLoading" class="flex items-center gap-2 py-3">
         <Spinner class="w-3 h-3" />
-        <span class="text-[11px] text-gray-500">{{ $t('tools.editInstruction.loadingDiff', 'Loading…') }}</span>
+        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff', 'Loading…') }}</span>
       </div>
 
       <!-- Diff view for edits with a previous version -->
-      <div v-else-if="inst.isEdit && previousText !== null && previousText !== ''" class="border border-gray-200 rounded overflow-hidden bg-white">
+      <div v-else-if="inst.isEdit && previousText !== null && previousText !== ''" class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden bg-white dark:bg-gray-900">
         <ClientOnly>
           <MonacoDiffEditor
             :original="previousText"
@@ -96,7 +96,7 @@
       <div
         v-else-if="currentText"
         dir="auto"
-        class="text-[12px] text-gray-800 leading-relaxed bg-white border border-gray-200 rounded p-2 instruction-content"
+        class="text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 instruction-content"
       >
         <MDC :value="currentText" class="markdown-content" />
       </div>

@@ -4,13 +4,13 @@
         <div v-if="injectedFetchError" />
         <div v-else>
             <!-- Loading state -->
-            <div v-if="!integration" class="text-sm text-gray-500">Loading...</div>
+            <div v-if="!integration" class="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
 
             <!-- Main content -->
             <div v-else>
                 <!-- Header with Add button -->
                 <div class="flex items-center justify-between mb-4" v-if="canManageConnections">
-                    <h2 class="text-sm font-medium text-gray-700">Connections</h2>
+                    <h2 class="text-sm font-medium text-gray-700 dark:text-gray-300">Connections</h2>
                     <UButton
                         color="blue"
                         variant="soft"
@@ -27,14 +27,14 @@
                     <div
                         v-for="conn in connections"
                         :key="conn.id"
-                        class="border border-gray-200 rounded-lg p-4"
+                        class="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
                     >
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-3">
                                 <DataSourceIcon :type="conn.type" class="h-8" />
                                 <div>
-                                    <div class="font-semibold text-gray-900">{{ conn.name }}</div>
-                                    <div class="text-xs text-gray-500">{{ conn.type }}</div>
+                                    <div class="font-semibold text-gray-900 dark:text-white">{{ conn.name }}</div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ conn.type }}</div>
                                 </div>
                             </div>
                             <div class="flex items-center gap-2">
@@ -51,11 +51,11 @@
                                     v-if="canManageConnections"
                                     @click="testConnection(conn.id)"
                                     :disabled="testingConnectionId === conn.id"
-                                    class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-50"
+                                    class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                                     title="Test connection"
                                 >
                                     <Spinner v-if="testingConnectionId === conn.id" class="w-4 h-4" />
-                                    <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-500" />
+                                    <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                                 </button>
                                 <!-- Edit button -->
                                 <UButton
@@ -97,7 +97,7 @@
                                 {{ testResults[conn.id]?.success ? 'Connection successful' : (testResults[conn.id]?.message || 'Connection failed') }}
                             </div>
                             <!-- Timings -->
-                            <div v-if="testResults[conn.id]?.timings" class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500">
+                            <div v-if="testResults[conn.id]?.timings" class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500 dark:text-gray-400">
                                 <span v-for="(ms, key) in testResults[conn.id].timings" :key="key">
                                     {{ key }}: {{ ms }}ms
                                 </span>
@@ -105,7 +105,7 @@
                             <!-- Per-client details -->
                             <div
                                 v-if="testResults[conn.id]?.details && Object.keys(testResults[conn.id].details).length"
-                                class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500"
+                                class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500 dark:text-gray-400"
                             >
                                 <span v-for="(val, key) in testResults[conn.id].details" :key="key">
                                     {{ key }}: {{ typeof val === 'object' ? JSON.stringify(val) : val }}
@@ -115,7 +115,7 @@
 
                         <!-- User Connection (only for user_required auth, non-admin) -->
                         <div class="mt-4 ms-11" v-if="conn.auth_policy === 'user_required' && !isAdmin">
-                            <div class="text-sm text-gray-800 flex items-center space-x-3">
+                            <div class="text-sm text-gray-800 dark:text-gray-200 flex items-center space-x-3">
                                 <template v-if="conn.user_status?.has_user_credentials">
                                     <span class="inline-flex items-center text-green-700 text-xs">
                                         <UIcon name="heroicons-check-circle" class="w-3 h-3 me-1" />

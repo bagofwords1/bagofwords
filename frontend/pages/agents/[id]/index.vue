@@ -6,7 +6,7 @@
             <!-- Indexing banner: shown while any linked connection is discovering schema -->
             <div
                 v-if="indexingConnections.length > 0"
-                class="mb-4 flex items-start gap-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-4 py-3"
+                class="mb-4 flex items-start gap-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 text-blue-800 rounded-lg px-4 py-3"
             >
                 <UIcon name="heroicons-arrow-path" class="w-5 h-5 mt-0.5 animate-spin flex-none" />
                 <div class="flex-1 text-sm">
@@ -28,7 +28,7 @@
             </div>
 
         <div>
-            <div v-if="loading" class="text-xs text-gray-500 text-center">{{ $t('common.loading') }}</div>
+            <div v-if="loading" class="text-xs text-gray-500 dark:text-gray-400 text-center">{{ $t('common.loading') }}</div>
             <div v-else class="md:w-2/3 space-y-6">
 
                 <!-- Primary Instruction -->
@@ -36,7 +36,7 @@
                     <!-- Inline create form -->
                     <div
                         v-if="creatingInstruction"
-                        class="primary-instruction-editor flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
+                        class="primary-instruction-editor flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900"
                         style="height: min(600px, 70vh)"
                     >
                         <InstructionGlobalCreateComponent
@@ -52,7 +52,7 @@
                     <!-- Inline edit form -->
                     <div
                         v-else-if="editingInstruction && dataSource?.primary_instruction"
-                        class="primary-instruction-editor flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
+                        class="primary-instruction-editor flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900"
                         style="height: min(600px, 70vh)"
                     >
                         <InstructionGlobalCreateComponent
@@ -68,7 +68,7 @@
                     <!-- Existing instruction: simple read-only view -->
                     <template v-else-if="dataSource?.primary_instruction">
                         <div class="flex items-center justify-between gap-2 mb-2">
-                            <span class="text-sm font-medium text-gray-800">{{ dataSource.primary_instruction.title || 'Primary instruction' }}</span>
+                            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ dataSource.primary_instruction.title || 'Primary instruction' }}</span>
                             <PrimaryInstructionMenu
                                 v-if="useCan('update_data_source')"
                                 :agent-id="(route.params.id as string)"

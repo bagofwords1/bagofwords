@@ -6,7 +6,7 @@
                     <GoBackChevron v-if="isExcel" />
                     {{ $t('dashboards.title') }}
                 </h1>
-                <p class="mt-2 text-gray-500">{{ $t('dashboards.subtitle') }}</p>
+                <p class="mt-2 text-gray-500 dark:text-gray-400">{{ $t('dashboards.subtitle') }}</p>
             </div>
 
             <div class="mt-6">
@@ -18,7 +18,7 @@
                                 v-model="searchTerm"
                                 type="text"
                                 :placeholder="$t('dashboards.searchPlaceholder')"
-                                class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
@@ -29,13 +29,13 @@
                 </div>
 
                 <!-- Main tabs (My / Shared) -->
-                <div class="border-b border-gray-200 mb-5">
+                <div class="border-b border-gray-200 dark:border-gray-700 mb-5">
                     <nav class="-mb-px flex space-x-6">
                         <button
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
                             :class="activeFilter === 'my'
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'"
                             @click="setActiveFilter('my')"
                         >
                             <span>{{ $t('dashboards.myDashboards') }}</span>
@@ -44,7 +44,7 @@
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
                             :class="activeFilter === 'shared'
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'"
                             @click="setActiveFilter('shared')"
                         >
                             <span>{{ $t('dashboards.sharedWithMe') }}</span>
@@ -58,12 +58,12 @@
                         <div
                             v-for="i in 10"
                             :key="i"
-                            class="bg-gray-100 rounded-xl overflow-hidden"
+                            class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden"
                         >
-                            <div class="aspect-[4/3] bg-gray-200 animate-pulse"></div>
+                            <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
                             <div class="p-3 space-y-2">
-                                <div class="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
-                                <div class="h-3 bg-gray-200 rounded animate-pulse w-1/2"></div>
+                                <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-3/4"></div>
+                                <div class="h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-1/2"></div>
                             </div>
                         </div>
                     </div>
@@ -86,7 +86,7 @@
                         v-if="pagination.total_pages > 1"
                         class="mt-6 flex flex-col md:flex-row gap-3 md:items-center justify-between"
                     >
-                        <div class="text-xs text-gray-500">
+                        <div class="text-xs text-gray-500 dark:text-gray-400">
                             {{ $t('dashboards.showingRange', {
                                 start: ((currentPage - 1) * pagination.limit) + 1,
                                 end: Math.min(currentPage * pagination.limit, pagination.total),
@@ -100,8 +100,8 @@
                                 :class="[
                                     'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors',
                                     currentPage === 1
-                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
-                                        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                                        : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600'
                                 ]"
                             >
                                 <Icon name="heroicons:chevron-left" class="w-4 h-4" />
@@ -114,7 +114,7 @@
                                     'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors min-w-[36px]',
                                     page === currentPage
                                         ? 'bg-blue-500 text-white border-blue-500'
-                                        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                                        : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600'
                                 ]"
                             >
                                 {{ page }}
@@ -125,8 +125,8 @@
                                 :class="[
                                     'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors',
                                     currentPage === pagination.total_pages
-                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
-                                        : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                                        : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600'
                                 ]"
                             >
                                 <Icon name="heroicons:chevron-right" class="w-4 h-4" />
@@ -141,10 +141,10 @@
                         name="heroicons:chart-bar-square"
                         class="mx-auto h-12 w-12 text-gray-400"
                     />
-                    <h3 class="mt-2 text-sm font-medium text-gray-900">
+                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
                         {{ $t('dashboards.empty') }}
                     </h3>
-                    <p class="mt-1 text-sm text-gray-500">
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         {{ $t('dashboards.emptyDescription') }}
                     </p>
                 </div>

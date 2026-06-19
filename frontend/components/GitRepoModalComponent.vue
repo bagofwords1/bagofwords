@@ -4,31 +4,31 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <div>
-                        <h3 class="text-base font-semibold text-gray-900">
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                             {{ headerTitle }}
                         </h3>
-                        <p class="text-sm text-gray-500">
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
                             {{ headerSubtitle }}
                         </p>
                     </div>
                     <UButton icon="i-heroicons-x-mark" color="gray" variant="ghost" size="xs" @click="gitModalOpen = false" />
                 </div>
-                
+
                 <!-- Step Indicators (only for new connection wizard) -->
                 <div v-if="!connectedRepo && !showRepositoryList && isAddingNew" class="flex items-center gap-1.5 mt-2">
-                    <div 
-                        v-for="step in 3" 
+                    <div
+                        v-for="step in 3"
                         :key="step"
                         class="flex items-center gap-1.5"
                     >
-                        <div 
+                        <div
                             class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors"
-                            :class="step <= currentStep ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-400'"
+                            :class="step <= currentStep ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'"
                         >
                             <UIcon v-if="step < currentStep" name="i-heroicons-check" class="w-3 h-3" />
                             <span v-else>{{ step }}</span>
                         </div>
-                        <div v-if="step < 3" class="w-6 h-0.5" :class="step < currentStep ? 'bg-blue-500' : 'bg-gray-200'" />
+                        <div v-if="step < 3" class="w-6 h-0.5" :class="step < currentStep ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'" />
                     </div>
                 </div>
             </template>
@@ -39,12 +39,12 @@
                     <template #header>
                         <div class="flex items-center gap-1.5">
                             <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 text-red-500" />
-                            <h3 class="text-sm font-semibold text-gray-900">Disconnect Repository</h3>
+                            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Disconnect Repository</h3>
                         </div>
                     </template>
                     <div class="space-y-2">
-                        <p class="text-xs text-gray-600">Are you sure you want to disconnect?</p>
-                        <div v-if="linkedInstructionCount > 0" class="bg-red-50 border border-red-200 rounded p-2">
+                        <p class="text-xs text-gray-600 dark:text-gray-400">Are you sure you want to disconnect?</p>
+                        <div v-if="linkedInstructionCount > 0" class="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900/50 rounded p-2">
                             <div class="flex items-start gap-1.5">
                                 <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
                                 <p class="text-xs text-red-800">
@@ -69,13 +69,13 @@
                     <div v-if="loadingRepositories" class="py-8 flex items-center justify-center">
                         <div class="text-center">
                             <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 mx-auto mb-2 text-gray-400 animate-spin" />
-                            <p class="text-sm text-gray-500">Loading repositories...</p>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">Loading repositories...</p>
                         </div>
                     </div>
 
                     <div v-else-if="gitRepositories.length === 0" class="py-8 text-center">
-                        <UIcon name="i-heroicons-code-bracket" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                        <p class="text-sm text-gray-500">No Git repositories connected.</p>
+                        <UIcon name="i-heroicons-code-bracket" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                        <p class="text-sm text-gray-500 dark:text-gray-400">No Git repositories connected.</p>
                         <p class="text-xs text-gray-400 mt-1">Connect a repository to sync instructions from Git.</p>
                         <UButton
                             icon="i-heroicons-plus"
@@ -89,11 +89,11 @@
                     </div>
 
                     <div v-else class="space-y-3">
-                        <div class="divide-y divide-gray-100 -mx-4">
+                        <div class="divide-y divide-gray-100 dark:divide-gray-800 -mx-4">
                             <div
                                 v-for="repo in gitRepositories"
                                 :key="repo.id"
-                                class="px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                                class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
                                 @click="selectRepository(repo)"
                             >
                                 <div class="flex items-center justify-between">
@@ -101,8 +101,8 @@
                                     <div class="flex items-center gap-3 min-w-0 flex-1">
                                         <UIcon :name="getProviderIcon(repo.provider)" class="w-6 h-6 flex-shrink-0" />
                                         <div class="min-w-0">
-                                            <p class="text-sm font-medium text-gray-900 truncate">{{ formatRepoName(repo.repo_url) }}</p>
-                                            <p class="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                                            <p class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ formatRepoName(repo.repo_url) }}</p>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 mt-0.5">
                                                 <span>{{ repo.branch || 'main' }}</span>
                                                 <span v-if="repo.last_indexed_at" class="text-gray-400">
                                                     • {{ formatTimeAgo(repo.last_indexed_at) }}
@@ -128,7 +128,7 @@
                         </div>
 
                         <!-- Add new repository button -->
-                        <div class="pt-2 border-t border-gray-100">
+                        <div class="pt-2 border-t border-gray-100 dark:border-gray-800">
                             <UButton
                                 icon="i-heroicons-plus"
                                 color="blue"
@@ -146,44 +146,44 @@
                 <!-- Connected Repository View -->
                 <div v-else-if="connectedRepo" class="space-y-4">
                     <!-- Repo Info -->
-                    <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                    <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-2 min-w-0">
                                 <UIcon :name="getProviderIcon(connectedRepo.provider)" class="w-5 h-5 flex-shrink-0" />
-                                <span class="text-sm font-medium text-gray-700 truncate">{{ connectedRepo.repo_url }}</span>
+                                <span class="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{{ connectedRepo.repo_url }}</span>
                             </div>
                             <UButton icon="i-heroicons-trash" color="red" variant="ghost" size="xs" :loading="isLoadingCount" @click="confirmDelete" />
                         </div>
-                        
+
                         <div class="grid grid-cols-2 gap-3 text-sm">
                             <div>
                                 <p class="text-gray-400">Branch</p>
-                                <p class="font-medium text-gray-700">{{ connectedRepo.branch }}</p>
+                                <p class="font-medium text-gray-700 dark:text-gray-300">{{ connectedRepo.branch }}</p>
                             </div>
                             <div>
                                 <p class="text-gray-400">Status</p>
                                 <p class="font-medium" :class="statusClass">{{ statusText }}</p>
-                                <p v-if="statusText === 'Indexed' && (connectedRepo.last_indexed_at || metadata_resources?.completed_at)" class="text-xs text-gray-500 mt-0.5">
+                                <p v-if="statusText === 'Indexed' && (connectedRepo.last_indexed_at || metadata_resources?.completed_at)" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {{ formatDate(connectedRepo.last_indexed_at || metadata_resources.completed_at) }}
                                 </p>
                             </div>
                             <div v-if="resourceCount > 0">
                                 <p class="text-gray-400">Files Found</p>
-                                <p class="font-medium text-gray-700">{{ resourceCount }}</p>
+                                <p class="font-medium text-gray-700 dark:text-gray-300">{{ resourceCount }}</p>
                             </div>
                         </div>
-                        
+
                         <!-- Repository ID -->
-                        <div class="mt-3 pt-3 border-t border-gray-200">
+                        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-2 min-w-0">
                                     <p class="text-gray-400 text-sm flex-shrink-0">Git Repo ID</p>
-                                    <p class="font-mono text-xs text-gray-600 truncate">{{ connectedRepo.id }}</p>
+                                    <p class="font-mono text-xs text-gray-600 dark:text-gray-400 truncate">{{ connectedRepo.id }}</p>
                                 </div>
-                                <UButton 
-                                    icon="i-heroicons-clipboard-document" 
-                                    color="gray" 
-                                    variant="ghost" 
+                                <UButton
+                                    icon="i-heroicons-clipboard-document"
+                                    color="gray"
+                                    variant="ghost"
                                     size="xs"
                                     @click="copyRepoId"
                                 />
@@ -191,7 +191,7 @@
                         </div>
 
                         <!-- Capabilities Indicator - always show -->
-                        <div class="mt-3 pt-3 border-t border-gray-200">
+                        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                             <div class="flex items-center gap-3 text-xs">
                                 <div class="flex items-center gap-1" :class="connectedRepo.can_push ? 'text-green-600' : 'text-gray-400'">
                                     <UIcon :name="connectedRepo.can_push ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-3.5 h-3.5" />
@@ -221,7 +221,7 @@
                             <div class="flex items-center gap-2">
                                 <Spinner class="w-3 h-3 text-blue-500 flex-shrink-0" />
                                 <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                                    <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                                         <span class="truncate">{{ indexingPhase || 'Indexing...' }}</span>
                                         <span class="ms-2 flex-shrink-0">{{ indexingProgress }}%</span>
                                     </div>
@@ -234,23 +234,23 @@
                     <!-- Settings -->
                     <div class="space-y-3">
                         <h4 class="text-xs font-medium text-gray-400 uppercase tracking-wider">Instruction Settings</h4>
-                        
+
                         <div class="flex items-center justify-between py-2">
                             <div>
-                                <p class="text-sm text-gray-700">Auto-publish</p>
+                                <p class="text-sm text-gray-700 dark:text-gray-300">Auto-publish</p>
                                 <p class="text-xs text-gray-400">Publish automatically</p>
                             </div>
-                            <UToggle 
-                                color="blue" 
-                                v-model="editSettings.autoPublish" 
-                                size="sm" 
+                            <UToggle
+                                color="blue"
+                                v-model="editSettings.autoPublish"
+                                size="sm"
                                 :disabled="!canEditSettings"
-                                @change="updateSettings" 
+                                @change="updateSettings"
                             />
                         </div>
 
                         <div>
-                            <p class="text-sm text-gray-700 mb-1">Load Mode</p>
+                            <p class="text-sm text-gray-700 dark:text-gray-300 mb-1">Load Mode</p>
                             <USelectMenu
                                 v-model="editSettings.defaultLoadMode"
                                 :options="loadModeOptions"
@@ -264,22 +264,22 @@
                                 @change="updateSettings"
                             />
                         </div>
-                        
+
                         <!-- Write Access Toggle -->
-                        <div class="flex items-center justify-between py-2 border-t border-gray-100 pt-3">
+                        <div class="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-800 pt-3">
                             <div>
-                                <p class="text-sm text-gray-700">Enable write access</p>
+                                <p class="text-sm text-gray-700 dark:text-gray-300">Enable write access</p>
                                 <p class="text-xs text-gray-400">Allow pushing builds to Git and creating PRs</p>
                             </div>
-                            <UToggle 
-                                color="blue" 
-                                v-model="editSettings.writeEnabled" 
-                                size="sm" 
+                            <UToggle
+                                color="blue"
+                                v-model="editSettings.writeEnabled"
+                                size="sm"
                                 :disabled="!canEditSettings"
-                                @change="updateSettings" 
+                                @change="updateSettings"
                             />
                         </div>
-                        
+
                         <!-- Read-only notice for non-admins -->
                         <div v-if="!canEditSettings" class="text-xs text-gray-400 italic">
                             Settings are read-only. Contact an admin to make changes.
@@ -293,15 +293,15 @@
                     <div>
                         <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Provider</label>
                         <div class="grid grid-cols-4 gap-2 mt-2">
-                            <button 
-                                v-for="provider in gitProviders" 
+                            <button
+                                v-for="provider in gitProviders"
                                 :key="provider.type"
-                                @click="selectProvider(provider)" 
+                                @click="selectProvider(provider)"
                                 type="button"
                                 class="p-3 rounded border text-sm flex flex-col items-center gap-1.5 transition-colors"
-                                :class="selectedProvider === provider.type 
-                                    ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                                    : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'"
+                                :class="selectedProvider === provider.type
+                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                             >
                                 <UIcon :name="provider.icon" class="w-5 h-5" />
                                 <span>{{ provider.name }}</span>
@@ -313,11 +313,11 @@
                         <!-- Custom Host -->
                         <div v-if="selectedProvider === 'custom'">
                             <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Custom Host</label>
-                            <input 
+                            <input
                                 v-model="formData.customHost"
                                 type="text"
                                 placeholder="git.customdomain.com"
-                                class="mt-1.5 border border-gray-200 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
+                                class="mt-1.5 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
                             />
                         </div>
 
@@ -325,17 +325,17 @@
                         <div>
                             <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Repository URL</label>
                             <div class="flex gap-2 mt-1.5">
-                                <input 
+                                <input
                                     v-model="formData.repoUrl"
                                     type="text"
                                     placeholder="git@github.com:user/repo.git"
-                                    class="flex-1 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                                    class="flex-1 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                                 />
-                                <input 
+                                <input
                                     v-model="formData.branch"
                                     type="text"
                                     placeholder="main"
-                                    class="w-24 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                                    class="w-24 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                                 />
                             </div>
                         </div>
@@ -347,9 +347,9 @@
                                 <button
                                     type="button"
                                     class="flex-1 px-3 py-2 text-sm rounded border transition-colors"
-                                    :class="authMethod === 'ssh' 
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                                        : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'"
+                                    :class="authMethod === 'ssh'
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                                     @click="authMethod = 'ssh'"
                                 >
                                     <div class="flex items-center justify-center gap-1.5">
@@ -360,9 +360,9 @@
                                 <button
                                     type="button"
                                     class="flex-1 px-3 py-2 text-sm rounded border transition-colors"
-                                    :class="authMethod === 'pat' 
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                                        : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'"
+                                    :class="authMethod === 'pat'
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                                     @click="authMethod = 'pat'"
                                 >
                                     <div class="flex items-center justify-center gap-1.5">
@@ -375,7 +375,7 @@
 
                         <!-- SSH Key Input -->
                         <div v-if="authMethod === 'ssh'">
-                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">SSH Private Key <span class="text-gray-300 font-normal">(optional for public repos)</span></label>
+                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">SSH Private Key <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
                             <UTextarea
                                 v-model="formData.privateKey"
                                 color="blue"
@@ -391,12 +391,12 @@
                         <!-- PAT Input -->
                         <div v-if="authMethod === 'pat'" class="space-y-3">
                             <div>
-                                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Personal Access Token <span class="text-gray-300 font-normal">(optional for public repos)</span></label>
-                                <input 
+                                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Personal Access Token <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
+                                <input
                                     v-model="formData.accessToken"
                                     type="password"
                                     placeholder="ghp_xxxx or glpat-xxxx"
-                                    class="mt-1.5 border border-gray-200 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500 font-mono"
+                                    class="mt-1.5 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500 font-mono"
                                 />
                                 <p class="text-xs text-gray-400 mt-1">Enables clone/push via HTTPS and PR creation.</p>
                             </div>
@@ -404,11 +404,11 @@
                             <!-- Username for Bitbucket Cloud -->
                             <div v-if="selectedProvider === 'bitbucket' && !formData.customHost">
                                 <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Bitbucket Username</label>
-                                <input 
+                                <input
                                     v-model="formData.accessTokenUsername"
                                     type="text"
                                     placeholder="your-username"
-                                    class="mt-1.5 border border-gray-200 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
+                                    class="mt-1.5 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
                                 />
                                 <p class="text-xs text-gray-400 mt-1">Required for Bitbucket Cloud App Passwords.</p>
                             </div>
@@ -417,11 +417,11 @@
                     </div>
 
                     <!-- Connection Status -->
-                    <div v-if="connectionStatus" class="rounded-lg p-3 text-sm" :class="connectionStatus.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+                    <div v-if="connectionStatus" class="rounded-lg p-3 text-sm" :class="connectionStatus.success ? 'bg-green-50 dark:bg-green-950 border border-green-200' : 'bg-red-50 dark:bg-red-950 border border-red-200'">
                         <div class="flex items-start gap-2">
-                            <UIcon 
-                                :name="connectionStatus.success ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" 
-                                class="w-4 h-4 mt-0.5 flex-shrink-0" 
+                            <UIcon
+                                :name="connectionStatus.success ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'"
+                                class="w-4 h-4 mt-0.5 flex-shrink-0"
                                 :class="connectionStatus.success ? 'text-green-500' : 'text-red-500'"
                             />
                             <span :class="connectionStatus.success ? 'text-green-700' : 'text-red-700'">
@@ -435,22 +435,22 @@
                 <div v-else-if="currentStep === 2" class="space-y-4">
                     <div class="text-center py-3">
                         <UIcon name="i-heroicons-check-circle" class="w-10 h-10 text-green-500 mx-auto" />
-                        <p class="text-sm font-medium text-gray-900 mt-2">Connection Successful</p>
-                        <p v-if="displayFileCount" class="text-sm text-gray-500">Found {{ displayFileCount }} files</p>
+                        <p class="text-sm font-medium text-gray-900 dark:text-white mt-2">Connection Successful</p>
+                        <p v-if="displayFileCount" class="text-sm text-gray-500 dark:text-gray-400">Found {{ displayFileCount }} files</p>
                     </div>
 
                     <div class="space-y-4">
                         <h4 class="text-xs font-medium text-gray-400 uppercase tracking-wider">Instruction Settings</h4>
-                        
-                        <div class="flex items-center justify-between py-2 border-b border-gray-100">
+
+                        <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
                             <div>
-                                <p class="text-sm text-gray-700">Auto-publish instructions</p>
+                                <p class="text-sm text-gray-700 dark:text-gray-300">Auto-publish instructions</p>
                             </div>
                             <UToggle color="blue" v-model="formData.autoPublish" size="sm" />
                         </div>
 
                         <div>
-                            <p class="text-sm text-gray-700 mb-1.5">Default Load Mode</p>
+                            <p class="text-sm text-gray-700 dark:text-gray-300 mb-1.5">Default Load Mode</p>
                             <USelectMenu
                                 v-model="formData.defaultLoadMode"
                                 :options="loadModeOptions"
@@ -462,11 +462,11 @@
                                 :ui="{ option: { base: 'text-sm', active: 'text-sm', inactive: 'text-sm' } }"
                             />
                         </div>
-                        
+
                         <!-- Write Access Toggle -->
-                        <div class="flex items-center justify-between py-2 border-t border-gray-100 pt-3">
+                        <div class="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-800 pt-3">
                             <div>
-                                <p class="text-sm text-gray-700">Enable write access</p>
+                                <p class="text-sm text-gray-700 dark:text-gray-300">Enable write access</p>
                                 <p class="text-xs text-gray-400">Allow pushing builds to Git and creating PRs</p>
                             </div>
                             <UToggle color="blue" v-model="formData.writeEnabled" size="sm" />
@@ -480,10 +480,10 @@
                         <div v-if="isIndexing || isReindexing" class="space-y-2">
                             <div class="flex items-center justify-center gap-2">
                                 <Spinner class="w-4 h-4 text-blue-500" />
-                                <p class="text-sm font-medium text-gray-700">Indexing Repository...</p>
+                                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Indexing Repository...</p>
                             </div>
                             <div class="px-4">
-                                <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                                <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                                     <span>{{ indexingPhase || 'Processing...' }}</span>
                                     <span>{{ indexingProgress }}%</span>
                                 </div>
@@ -492,8 +492,8 @@
                         </div>
                         <div v-else class="text-center space-y-1">
                             <UIcon name="i-heroicons-check-circle" class="w-8 h-8 text-green-500 mx-auto" />
-                            <p class="text-sm font-medium text-gray-900">Repository Connected</p>
-                            <p class="text-xs text-gray-500">Indexing complete</p>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">Repository Connected</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">Indexing complete</p>
                         </div>
                     </div>
                 </div>
@@ -548,8 +548,8 @@
                         <!-- Step 1 actions -->
                         <template v-else-if="currentStep === 1">
                             <UButton color="gray" variant="soft" size="sm" @click="gitModalOpen = false">Cancel</UButton>
-                            <UButton 
-                                color="blue" 
+                            <UButton
+                                color="blue"
                                 size="sm"
                                 :loading="isLoading"
                                 :disabled="!canTestConnection"
@@ -562,8 +562,8 @@
                         <!-- Step 2 actions -->
                         <template v-else-if="currentStep === 2">
                             <UButton color="gray" variant="soft" size="sm" @click="gitModalOpen = false">Cancel</UButton>
-                            <UButton 
-                                color="blue" 
+                            <UButton
+                                color="blue"
                                 size="sm"
                                 :loading="isLoading"
                                 @click="saveAndIndex"
@@ -947,7 +947,7 @@ function formatTimeAgo(dateStr: string) {
 
 async function copyRepoId() {
     if (!connectedRepo.value?.id) return
-    
+
     try {
         await navigator.clipboard.writeText(connectedRepo.value.id)
         toast.add({ title: 'Repository ID copied', color: 'green' })
@@ -976,8 +976,8 @@ async function testAndProceed() {
         })
 
         if (response.error.value) {
-            const errorMessage = (response.error.value as any)?.data?.detail || 
-                               (response.error.value as any)?.message || 
+            const errorMessage = (response.error.value as any)?.data?.detail ||
+                               (response.error.value as any)?.message ||
                                'Failed to connect to repository'
             connectionStatus.value = { success: false, message: errorMessage }
         } else {
@@ -988,12 +988,12 @@ async function testAndProceed() {
                 message: success ? 'Connection successful!' : (data?.message || 'Connection failed'),
                 fileCount: data?.file_count
             }
-            
+
             // Store file count if returned
             if (data?.file_count) {
                 detectedFileCount.value = data.file_count
             }
-            
+
             if (success) {
                 // Move to next step after short delay
                 setTimeout(() => {
@@ -1014,7 +1014,7 @@ async function saveAndIndex() {
     indexingProgress.value = 0
     indexingPhase.value = 'starting'
     pendingRepoId.value = null
-    
+
     try {
         const response = await useMyFetch<{ id: string }>(`/git/repositories`, {
             method: 'POST',
@@ -1036,7 +1036,7 @@ async function saveAndIndex() {
             // Store the new repo ID for polling before connectedRepo updates
             pendingRepoId.value = response.data.value?.id || null
             console.log('[GitRepo] Saved repo, pendingRepoId:', pendingRepoId.value)
-            
+
             justSaved.value = true // Preserve form settings when connectedRepo updates
             currentStep.value = 3
             emit('changed')
@@ -1061,7 +1061,7 @@ function finishWizard() {
 
 async function updateSettings() {
     if (!connectedRepo.value?.id || !canEditSettings.value) return
-    
+
     try {
         await useMyFetch(`/git/repositories/${connectedRepo.value.id}`, {
             method: 'PUT',
@@ -1080,19 +1080,19 @@ async function updateSettings() {
 
 async function confirmDelete() {
     if (!connectedRepo.value?.id) return
-    
+
     isLoadingCount.value = true
     try {
         const { data, error } = await useMyFetch<{ instruction_count: number }>(
             `/git/repositories/${connectedRepo.value.id}/linked_instructions_count`,
             { method: 'GET' }
         )
-        
+
         if (error.value) {
             toast.add({ title: 'Failed to check linked instructions', color: 'red' })
             return
         }
-        
+
         linkedInstructionCount.value = data.value?.instruction_count || 0
         showDeleteConfirmation.value = true
     } finally {
@@ -1133,19 +1133,19 @@ async function executeDelete() {
 
 async function reindexRepository() {
     if (!connectedRepo.value?.id) return
-    
+
     isReindexing.value = true
     indexingProgress.value = 0
     indexingPhase.value = 'starting'
-    
+
     try {
         console.log('[GitRepo] Starting reindex...')
         const response = await useMyFetch(`/git/${connectedRepo.value.id}/index`, {
             method: 'POST'
         })
-        
+
         console.log('[GitRepo] Reindex response:', response)
-        
+
         if ((response.status as any).value === 'success') {
             toast.add({ title: 'Sync started', color: 'green' })
             console.log('[GitRepo] Starting polling...')
@@ -1164,12 +1164,12 @@ async function reindexRepository() {
 async function pollJobStatus() {
     // Use connectedRepo.id if available, otherwise use pendingRepoId from save response
     const repoId = connectedRepo.value?.id || pendingRepoId.value
-    
+
     if (!repoId) {
         console.log('[GitRepo] Polling skipped - no repo. repoId:', repoId)
         return
     }
-    
+
     try {
         console.log('[GitRepo] Polling job status for repo:', repoId)
         const { data, error } = await useMyFetch<{
@@ -1182,24 +1182,24 @@ async function pollJobStatus() {
         }>(`/git/${repoId}/job_status`, {
             key: `job-status-${Date.now()}` // Prevent caching
         })
-        
+
         if (error.value) {
             console.error('[GitRepo] Polling error:', error.value)
             return
         }
-        
+
         if (!data.value) {
             console.log('[GitRepo] No data in response')
             return
         }
-        
+
         const jobData = data.value
         console.log('[GitRepo] Job status:', jobData)
-        
+
         // Handle different phases
         const phase = jobData.phase || ''
         const status = jobData.status || ''
-        
+
         if (phase === 'parsing' || (status === 'running' && !jobData.total_files)) {
             indexingPhase.value = 'Parsing files...'
             indexingProgress.value = 15 // Show some progress during parsing
@@ -1218,7 +1218,7 @@ async function pollJobStatus() {
             indexingPhase.value = phase || 'Starting...'
             indexingProgress.value = jobData.progress || 0
         }
-        
+
         if (jobData.status === 'completed') {
             indexingProgress.value = 100
             indexingPhase.value = 'Completed'

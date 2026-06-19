@@ -1,32 +1,32 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Recent Instructions</h3>
-            <p class="text-sm text-gray-500 mt-1">Latest instruction updates - for more go to <nuxt-link to="/instructions" class="text-blue-600 hover:text-blue-800">instructions</nuxt-link> page</p>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recent Instructions</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Latest instruction updates - for more go to <nuxt-link to="/instructions" class="text-blue-600 hover:text-blue-800">instructions</nuxt-link> page</p>
         </div>
         <div class="p-0">
             <div v-if="isLoading" class="flex items-center justify-center h-40">
                 <div class="flex items-center space-x-2">
                     <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                    <span class="text-gray-600">Loading instructions...</span>
+                    <span class="text-gray-600 dark:text-gray-400">Loading instructions...</span>
                 </div>
             </div>
             <div v-else-if="recentInstructions.length === 0" class="text-center py-8">
                 <UIcon name="i-heroicons-document-text" class="mx-auto h-8 w-8 text-gray-400" />
-                <p class="text-sm text-gray-500 mt-2">No recent instructions</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">No recent instructions</p>
             </div>
             <div v-else class="space-y-3 p-4 pt-0">
-                <div v-for="instruction in recentInstructions" :key="instruction.id" 
-                     class="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                <div v-for="instruction in recentInstructions" :key="instruction.id"
+                     class="flex items-start space-x-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
                      @click="openInstruction(instruction)">
-                    
+
                     <!-- Content -->
                     <div class="flex-1 min-w-0">
                         <!-- Instruction Text -->
-                        <div class="text-sm text-gray-900 line-clamp-2" :title="instruction.text">
+                        <div class="text-sm text-gray-900 dark:text-white line-clamp-2" :title="instruction.text">
                             {{ getDisplayText(instruction) }}
                         </div>
-                        
+
                         <!-- Data Sources -->
                         <div class="flex items-center space-x-2 mt-2">
                             <div class="flex items-center space-x-1">
@@ -38,33 +38,33 @@
                                         class="w-4 h-4"
                                         :title="dataSource.name"
                                     />
-                                    <span v-if="instruction.data_sources.length > 3" class="text-xs text-gray-500">
+                                    <span v-if="instruction.data_sources.length > 3" class="text-xs text-gray-500 dark:text-gray-400">
                                         +{{ instruction.data_sources.length - 3 }}
                                     </span>
                                 </div>
-                                <div v-else class="flex items-center text-xs text-gray-500">
+                                <div v-else class="flex items-center text-xs text-gray-500 dark:text-gray-400">
                                     <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 me-1" />
                                     <span>Global</span>
                                 </div>
                             </div>
-                            
+
                             <!-- User -->
-                            <span class="text-xs text-gray-500">•</span>
-                            <span class="text-xs text-gray-500">{{ instruction.user?.name || 'AI Generated' }}</span>
-                            
+                            <span class="text-xs text-gray-500 dark:text-gray-400">•</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ instruction.user?.name || 'AI Generated' }}</span>
+
                             <!-- Date -->
-                            <span class="text-xs text-gray-500">•</span>
-                            <span class="text-xs text-gray-500">{{ formatDate(instruction.created_at) }}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">•</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(instruction.created_at) }}</span>
                         </div>
                     </div>
-                    
+
                     <!-- Status Badge -->
                     <div class="flex-shrink-0">
                         <div class="flex flex-col items-end">
                             <span :class="getStatusClass(instruction)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full">
                                 {{ getDisplayStatus(instruction) }}
                             </span>
-                            <span v-if="getSubStatus(instruction)" class="text-xs text-gray-500 mt-1 text-end">
+                            <span v-if="getSubStatus(instruction)" class="text-xs text-gray-500 dark:text-gray-400 mt-1 text-end">
                                 {{ getSubStatus(instruction) }}
                             </span>
                         </div>
@@ -148,10 +148,10 @@ const recentInstructions = ref<Instruction[]>([])
 const fetchRecentInstructions = async () => {
     // Check if organization is available before making API call
     const { organization, ensureOrganization } = useOrganization()
-    
+
     try {
         await ensureOrganization()
-        
+
         if (!organization.value?.id) {
             console.warn('RecentInstructions: Organization not available, skipping API call')
             return
@@ -160,7 +160,7 @@ const fetchRecentInstructions = async () => {
         console.error('RecentInstructions: Error ensuring organization:', error)
         return
     }
-    
+
     isLoading.value = true
     try {
         const query: Record<string, any> = {
@@ -249,14 +249,14 @@ const getSubStatus = (instruction: Instruction) => {
         return 'Pending Review'
     } else if (instruction.reviewed_by_user_id && instruction.global_status) {
         const reviewerName = instruction.reviewed_by?.name || 'Admin'
-        
+
         if (instruction.global_status === 'approved') {
             return `Approved by ${reviewerName}`
         } else if (instruction.global_status === 'rejected') {
             return `Rejected by ${reviewerName}`
         }
     }
-    
+
     return null
 }
 

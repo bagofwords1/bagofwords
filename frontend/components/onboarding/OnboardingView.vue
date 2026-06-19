@@ -1,16 +1,16 @@
 <template>
-  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm" :class="props.hideSidebar ? 'md:w-2/3 mx-auto' : ''">
+  <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden shadow-sm" :class="props.hideSidebar ? 'md:w-2/3 mx-auto' : ''">
     <div class="grid grid-cols-1 md:grid-cols-3">
       <!-- Left: Progress -->
-      <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-e border-gray-100 md:col-span-1">
+      <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-e border-gray-100 dark:border-gray-800 md:col-span-1">
         <div>
             <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" />
-          <h1 class="text-lg font-semibold text-gray-900">{{ $t('onboarding.welcome') }}</h1>
-          <p class="text-sm text-gray-500 mt-1">{{ $t('onboarding.welcomeSubtitle') }}</p>
+          <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('onboarding.welcome') }}</h1>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('onboarding.welcomeSubtitle') }}</p>
         </div>
 
         <div class="mt-8">
-          <div v-if="loading" class="text-gray-500 text-sm">{{ $t('onboarding.loading') }}</div>
+          <div v-if="loading" class="text-gray-500 dark:text-gray-400 text-sm">{{ $t('onboarding.loading') }}</div>
           <div v-else class="space-y-5">
             <div
               v-if="currentStepKey !== 'onboarding'"
@@ -27,10 +27,10 @@
                 <span v-else>{{ index + 1 }}</span>
               </div>
               <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium" :class="isCurrentStep(item.key) ? 'text-gray-900' : 'text-gray-700'">
+                <div class="text-sm font-medium" :class="isCurrentStep(item.key) ? 'text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'">
                   {{ item.title }}
                 </div>
-                <div class="text-xs text-gray-500 mt-0.5">{{ item.description }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ item.description }}</div>
               </div>
             </div>
           </div>
@@ -41,9 +41,9 @@
       <main class="p-8 md:p-10" :class="props.hideSidebar ? 'md:col-span-3' : 'md:col-span-2'">
         <div :class="props.hideSidebar ? '' : ''">
         <Transition name="fade" mode="out-in">
-          <div v-if="loading" key="loading" class="flex items-center justify-center h-full text-gray-500">{{ $t('onboarding.loading') }}</div>
+          <div v-if="loading" key="loading" class="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">{{ $t('onboarding.loading') }}</div>
 
-          
+
 
           <!-- Removed 'Setup paused' state; users can always continue onboarding -->
 
@@ -51,8 +51,8 @@
             <div class="flex items-start space-x-4">
               <div class="flex-1">
                 <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" v-if="props.hideSidebar" />
-                <h2 class="text-lg font-semibold text-gray-900 mb-2">{{ getCurrentStepTitle() }}</h2>
-                <p class="text-gray-600 mb-6">{{ getCurrentStepDescription() }}</p>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ getCurrentStepTitle() }}</h2>
+                <p class="text-gray-600 dark:text-gray-400 mb-6">{{ getCurrentStepDescription() }}</p>
 
                 <div class="space-y-3">
                   <slot name="onboarding" v-if="currentStepKey === 'onboarding'"></slot>
@@ -64,7 +64,7 @@
 
                 <div class="mt-6 flex items-center gap-3">
                   <button @click="goToCurrentStep" class="bg-gray-900 hidden hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ getCurrentStepButtonText() }}</button>
-                  <button v-if="!props.hideNextButton" @click="goToNextStep" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ $t('onboarding.next') }}</button>
+                  <button v-if="!props.hideNextButton" @click="goToNextStep" class="text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ $t('onboarding.next') }}</button>
                 </div>
               </div>
             </div>
@@ -77,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ 
+const props = defineProps<{
   forcedStepKey?: 'onboarding'|'llm_configured'|'data_source_created'|'schema_selected'|'instructions_added',
   forceCompleted?: boolean,
   hideNextButton?: boolean,
@@ -248,7 +248,7 @@ function isCurrentStep(stepKey: string) {
 function getStepIndicatorClass(status: string, isCurrent: boolean) {
   if (status === 'done') return 'bg-green-100 text-green-600'
   if (isCurrent) return 'bg-gray-900 text-white'
-  return 'bg-gray-100 text-gray-500'
+  return 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
 }
 
 function getCurrentStepTitle() {

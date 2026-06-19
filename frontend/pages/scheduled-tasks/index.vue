@@ -3,7 +3,7 @@
     <div class="max-w-3xl mx-auto px-4">
       <div class="mb-5">
         <div class="flex items-center justify-between">
-          <h1 class="text-lg font-semibold text-gray-900">
+          <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
             <GoBackChevron v-if="isExcel" />
             {{ $t('scheduled.title') }}
           </h1>
@@ -24,17 +24,17 @@
       </div>
 
       <!-- Loading -->
-      <div v-if="isLoading" class="text-xs text-gray-500 inline-flex items-center">
+      <div v-if="isLoading" class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center">
         <Spinner class="me-1" /> {{ $t('scheduled.loading') }}
       </div>
 
       <!-- Empty -->
       <div v-else-if="tasks.length === 0" class="flex flex-col items-center justify-center py-16 px-4">
-        <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
-          <UIcon name="heroicons-clock" class="w-8 h-8 text-gray-400" />
+        <div class="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+          <UIcon name="heroicons-clock" class="w-8 h-8 text-gray-400 dark:text-gray-400" />
         </div>
-        <h3 class="text-sm font-medium text-gray-900 mb-1">{{ $t('scheduled.empty') }}</h3>
-        <p class="text-xs text-gray-500 text-center max-w-sm">
+        <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-1">{{ $t('scheduled.empty') }}</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 text-center max-w-sm">
           {{ $t('scheduled.emptyDescription') }}
         </p>
       </div>
@@ -44,7 +44,7 @@
         <div
           v-for="task in tasks"
           :key="task.id"
-          class="border border-gray-100 bg-white rounded-lg p-4 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer"
+          class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all cursor-pointer"
           @click="openTask(task)"
         >
           <div class="flex items-start justify-between gap-3">
@@ -53,13 +53,13 @@
                 <span
                   class="text-[10px] px-1.5 py-0.5 rounded border"
                   :class="task.is_active
-                    ? 'text-green-700 border-green-200 bg-green-50'
-                    : 'text-gray-700 border-gray-200 bg-gray-50'"
+                    ? 'text-green-700 border-green-200 bg-green-50 dark:bg-green-950'
+                    : 'text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900'"
                 >{{ task.is_active ? $t('scheduled.active') : $t('scheduled.paused') }}</span>
-                <span class="text-[11px] text-gray-400">{{ getCronLabel(task.cron_schedule) }}</span>
-                <span v-if="task.last_run_at" class="text-[11px] text-gray-400">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
+                <span class="text-[11px] text-gray-400 dark:text-gray-400">{{ getCronLabel(task.cron_schedule) }}</span>
+                <span v-if="task.last_run_at" class="text-[11px] text-gray-400 dark:text-gray-400">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
               </div>
-              <div class="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
+              <div class="text-sm font-medium text-gray-900 dark:text-white mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
               <div class="flex items-center gap-3 mt-2">
                 <NuxtLink
                   :to="`/reports/${task.report_id}`"
@@ -69,7 +69,7 @@
                   <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3" />
                   {{ task.report?.title || $t('scheduled.untitledReport') }}
                 </NuxtLink>
-                <span v-if="task.user_name" class="text-[11px] text-gray-400">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
+                <span v-if="task.user_name" class="text-[11px] text-gray-400 dark:text-gray-400">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
             </div>
           </div>
@@ -77,7 +77,7 @@
       </div>
 
       <!-- Results summary -->
-      <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
+      <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-[11px] text-gray-500 dark:text-gray-400">
         {{ $t(pagination.total === 1 ? 'scheduled.showingOne' : 'scheduled.showingMany', { shown: tasks.length, total: pagination.total }) }}
       </div>
 
@@ -86,7 +86,7 @@
         <button
           @click="loadMore"
           :disabled="isLoadingMore"
-          class="text-xs px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+          class="text-xs px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 disabled:opacity-50"
         >
           <template v-if="isLoadingMore"><Spinner class="w-3 h-3 inline me-1" /> {{ $t('scheduled.loading') }}</template>
           <template v-else>{{ $t('scheduled.loadMore') }}</template>

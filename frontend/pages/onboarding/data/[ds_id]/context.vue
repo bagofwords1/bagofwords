@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center py-12 px-4">
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="instructions_added" :hideNextButton="true">
         <template #instructions>
@@ -13,7 +13,7 @@
           <div v-else class="space-y-6 fade-in">
             <!-- Instructions List -->
             <div class="space-y-4">
-              <div v-if="isLoadingInstructions" class="text-xs text-gray-500 flex items-center gap-2">
+              <div v-if="isLoadingInstructions" class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
                 <Spinner class="w-4 h-4" />
                 {{ $t('onboarding.context.loadingInstructions') }}
               </div>
@@ -21,7 +21,7 @@
                 <div 
                   v-for="instruction in paginatedInstructions" 
                   :key="instruction.id"
-                  class="hover:bg-gray-50 bg-white border border-gray-200 rounded-md p-3 transition-colors relative cursor-pointer"
+                  class="hover:bg-gray-50 dark:hover:bg-gray-800 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 transition-colors relative cursor-pointer"
                   @click="openInstructionEditor(instruction)"
                 >
                   <!-- Git and type icons for git-sourced instructions -->
@@ -33,11 +33,11 @@
                       <img :src="getResourceTypeIcon(instruction) ?? undefined" :alt="getResourceTypeTooltip(instruction)" class="h-3 opacity-60" />
                     </UTooltip>
                     <UTooltip v-else-if="getResourceType(instruction)" :text="getResourceTypeTooltip(instruction)">
-                      <UIcon :name="getResourceTypeFallbackIcon(instruction)" class="w-3 h-3 text-gray-400" />
+                      <UIcon :name="getResourceTypeFallbackIcon(instruction)" class="w-3 h-3 text-gray-400 dark:text-gray-600" />
                     </UTooltip>
                   </div>
                   
-                  <div class="text-[12px] text-gray-800 leading-relaxed pe-24 whitespace-normal break-words max-w-full">
+                  <div class="text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed pe-24 whitespace-normal break-words max-w-full">
                     {{ truncateText(instruction.text, 100) }}
                   </div>
                   
@@ -45,19 +45,19 @@
                     <template v-if="instructionAction[instruction.id]">
                       <span 
                         class="px-2 py-0.5 text-[11px] rounded-full border"
-                        :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'"
+                        :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 dark:bg-green-950 text-green-700 border-green-100 dark:border-green-800' : 'bg-red-50 dark:bg-red-950 text-red-700 border-red-100 dark:border-red-800'"
                       >
                         {{ instructionAction[instruction.id] === 'approved' ? $t('onboarding.context.approved') : $t('onboarding.context.removed') }}
                       </span>
                     </template>
                     <template v-else>
-                      <span class="hover:bg-gray-100 rounded cursor-pointer" @click.stop="rejectInstruction(instruction)">
-                        <Icon 
-                          name="heroicons:x-mark" 
-                          class="w-4 h-4 text-red-500 rounded cursor-pointer" 
+                      <span class="hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer" @click.stop="rejectInstruction(instruction)">
+                        <Icon
+                          name="heroicons:x-mark"
+                          class="w-4 h-4 text-red-500 rounded cursor-pointer"
                         />
                       </span>
-                      <span class="hover:bg-gray-100 rounded cursor-pointer" @click.stop="approveInstruction(instruction)">
+                      <span class="hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer" @click.stop="approveInstruction(instruction)">
                         <Icon 
                           name="heroicons:check" 
                           class="w-4 h-4 text-green-500 rounded cursor-pointer" 
@@ -74,7 +74,7 @@
                     :key="page"
                     @click="currentPage = page"
                     class="w-6 h-6 text-xs rounded-full transition-colors"
-                    :class="currentPage === page ? 'bg-blue-500 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                    :class="currentPage === page ? 'bg-blue-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
                   >
                     {{ page }}
                   </button>
@@ -93,7 +93,7 @@
                     </UButton>
                     <button
                       v-if="allInstructions.length === 0 && hasAttemptedLLMSync"
-                      class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
+                      class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-600 p-2 rounded-md"
                       :disabled="isLLMSyncInProgress"
                       @click="runLLMSync"
                     >
@@ -108,14 +108,14 @@
 
             <!-- Git Integration Card -->
             <div 
-              class="bg-blue-50/50 border border-blue-100 rounded-lg p-4 cursor-pointer hover:bg-blue-50 transition-colors"
+              class="bg-blue-50/50 dark:bg-blue-950 border border-blue-100 dark:border-blue-900 rounded-lg p-4 cursor-pointer hover:bg-blue-50 transition-colors"
               @click="showGitModal = true"
             >
               <div class="flex items-center gap-3">
                 <GitBranchIcon class="w-5 h-5 text-blue-500 shrink-0" />
                 <div class="flex-1">
                   <div class="flex items-center gap-2">
-                    <h3 class="text-sm font-semibold text-gray-900">{{ $t('onboarding.context.integrateGit') }}</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('onboarding.context.integrateGit') }}</h3>
                     <div class="flex items-center gap-1">
                       <UTooltip text="Tableau">
                         <img src="/icons/tableau.png" alt="Tableau" class="h-2.5 inline opacity-60" />
@@ -131,7 +131,7 @@
                       </UTooltip>
                     </div>
                   </div>
-                  <p class="text-xs text-gray-500 mt-0.5">
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     <template v-if="integration?.git_repository">
                       <span class="flex items-center gap-1.5">
                         <UIcon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
@@ -165,7 +165,7 @@
         </template>
       </OnboardingView>
       <div class="text-center mt-6">
-        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">{{ $t('onboarding.skip') }}</button>
+        <button @click="skipForNow" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 text-sm">{{ $t('onboarding.skip') }}</button>
       </div>
 
       <!-- Git Modal -->

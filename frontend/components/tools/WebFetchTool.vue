@@ -1,27 +1,27 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="flex items-center text-xs text-gray-500">
+      <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-gray-400" />
           {{ $t('tools.webFetch.fetching') }}
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-500">{{ displayUrl }}</span>
+          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">{{ displayUrl }}</span>
         </span>
-        <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
+        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
           <span>{{ $t('tools.webFetch.fetched') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600">{{ displayUrl }}</span>
+          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
           <span v-if="statusCode" class="ms-1.5 text-[10px] text-gray-400 shrink-0">{{ statusCode }}</span>
         </span>
-        <span v-else class="text-gray-600 flex items-center">
+        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>{{ $t('tools.webFetch.failed') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600">{{ displayUrl }}</span>
+          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
         </span>
       </div>
     </Transition>
 
-    <div v-if="!isSuccess && status !== 'running' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500">
+    <div v-if="!isSuccess && status !== 'running' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
       {{ errorMessage }}
     </div>
   </div>

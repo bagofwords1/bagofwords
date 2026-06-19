@@ -1,7 +1,7 @@
 <template>
   <NuxtLink
     :to="reportLink"
-    class="group block bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg hover:border-blue-300 transition-all duration-200"
+    class="group block bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-lg hover:border-blue-300 transition-all duration-200"
   >
     <!-- Thumbnail -->
     <div class="aspect-[4/3] relative overflow-hidden" :class="!thumbnailUrl || imageError ? badgeStyle.cardBg : ''">
@@ -32,7 +32,7 @@
         @click.prevent="navigateTo(`/reports/${report.id}`)"
       >
         <div class="p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm">
-          <Icon name="heroicons:pencil-square" class="w-4 h-4 text-gray-600" />
+          <Icon name="heroicons:pencil-square" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
         </div>
       </div>
 
@@ -52,7 +52,7 @@
 
     <!-- Content -->
     <div class="p-3 text-start">
-      <h3 class="font-medium text-gray-900 truncate text-sm">
+      <h3 class="font-medium text-gray-900 dark:text-white truncate text-sm">
         {{ report.title || 'Untitled' }}
       </h3>
       <p class="text-xs text-gray-400 mt-1 truncate">
@@ -121,11 +121,11 @@ const reportIcon = computed(() => {
 
 const badgeStyle = computed(() => {
   if (hasSlides.value) {
-    return { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Slides', cardBg: 'bg-purple-50', iconColor: 'text-purple-300' }
+    return { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Slides', cardBg: 'bg-purple-50 dark:bg-purple-950', iconColor: 'text-purple-300' }
   }
   if (hasDashboard.value) {
-    return { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Dashboard', cardBg: 'bg-blue-50', iconColor: 'text-blue-300' }
+    return { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Dashboard', cardBg: 'bg-blue-50 dark:bg-blue-950', iconColor: 'text-blue-300' }
   }
-  return { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Chat', cardBg: 'bg-gray-50', iconColor: 'text-gray-300' }
+  return { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Chat', cardBg: 'bg-gray-50 dark:bg-gray-900', iconColor: 'text-gray-300 dark:text-gray-600' }
 })
 </script>

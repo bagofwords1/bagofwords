@@ -3,26 +3,26 @@
     <!-- Header with type and name -->
     <div class="flex items-center space-x-2">
       <UIcon name="heroicons:document-text" class="w-4 h-4 text-green-600" />
-      <span class="font-medium text-gray-900">{{ resource.name }}</span>
-      <span class="px-2 py-1 text-xs bg-green-100 text-green-700 rounded">Markdown</span>
+      <span class="font-medium text-gray-900 dark:text-white">{{ resource.name }}</span>
+      <span class="px-2 py-1 text-xs bg-green-100 dark:bg-green-900/50 text-green-700 rounded">Markdown</span>
     </div>
 
     <!-- Description -->
-    <div v-if="resource.description" class="text-gray-600 text-sm">
+    <div v-if="resource.description" class="text-gray-600 dark:text-gray-400 text-sm">
       {{ resource.description }}
     </div>
 
     <!-- Content preview -->
     <div class="space-y-2 text-xs">
-      <div v-if="markdownContent" class="bg-gray-100 p-2 rounded">
-        <div class="text-gray-500 mb-1">Content Preview:</div>
-        <div class="prose prose-sm max-w-none text-gray-700">
+      <div v-if="markdownContent" class="bg-gray-100 dark:bg-gray-800 p-2 rounded">
+        <div class="text-gray-500 dark:text-gray-400 mb-1">Content Preview:</div>
+        <div class="prose prose-sm max-w-none text-gray-700 dark:text-gray-300">
           <pre class="whitespace-pre-wrap text-xs">{{ truncateText(markdownContent, 300) }}</pre>
         </div>
       </div>
 
       <!-- File info -->
-      <div class="text-gray-500">
+      <div class="text-gray-500 dark:text-gray-400">
         <span v-if="fileSize">Size: {{ fileSize }}</span>
         <span v-if="lastModified" class="ms-2">Modified: {{ lastModified }}</span>
       </div>
@@ -68,16 +68,16 @@ const rawData = computed(() => {
 
 const markdownContent = computed(() => {
   // Try to get content from various possible locations
-  return rawData.value?.content || 
-         rawData.value?.text || 
-         props.resource.sql_content || 
+  return rawData.value?.content ||
+         rawData.value?.text ||
+         props.resource.sql_content ||
          '';
 });
 
 const fileSize = computed(() => {
   const size = rawData.value?.size;
   if (!size) return null;
-  
+
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -86,7 +86,7 @@ const fileSize = computed(() => {
 const lastModified = computed(() => {
   const modified = rawData.value?.last_modified || rawData.value?.modified_at;
   if (!modified) return null;
-  
+
   try {
     return new Date(modified).toLocaleDateString();
   } catch {

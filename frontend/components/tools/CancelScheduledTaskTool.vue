@@ -2,18 +2,18 @@
   <div class="mt-1">
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-gray-400" />
           Cancelling task…
         </span>
-        <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
+        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-gray-400" />
           <span>Scheduled task cancelled</span>
         </span>
-        <span v-else class="text-gray-600 flex items-center">
+        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
           <span>Couldn't cancel task</span>
           <Icon
@@ -26,7 +26,7 @@
 
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running' && errorMessage" class="mt-2">
-        <div class="text-[10px] text-red-500 bg-red-50/50 rounded px-2 py-1">
+        <div class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

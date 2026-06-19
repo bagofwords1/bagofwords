@@ -8,7 +8,7 @@
                         v-model="searchQuery"
                         type="text"
                         :placeholder="$t('groupsManager.searchPlaceholder')"
-                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
@@ -31,36 +31,36 @@
         </div>
 
         <!-- Table card -->
-        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-100">
-                    <thead class="bg-gray-50/60">
+                <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+                    <thead class="bg-gray-50/60 dark:bg-gray-900">
                         <tr>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colName') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colDescription') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colRoles') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colMembers') }}</th>
-                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colQuota') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colSource') }}</th>
-                            <th v-if="useCan('manage_groups')" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colActions') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('groupsManager.colName') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('groupsManager.colDescription') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('groupsManager.colRoles') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('groupsManager.colMembers') }}</th>
+                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colQuota') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('groupsManager.colSource') }}</th>
+                            <th v-if="useCan('manage_groups')" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('groupsManager.colActions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-100">
+                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
                         <!-- Loading state -->
                         <tr v-if="isLoading">
                             <td :colspan="groupsColspan" class="px-6 py-12 text-center">
-                                <div class="flex items-center justify-center text-gray-500">
+                                <div class="flex items-center justify-center text-gray-500 dark:text-gray-400">
                                     <Spinner class="w-4 h-4 me-2" />
                                     <span class="text-sm">{{ $t('groupsManager.loading') }}</span>
                                 </div>
                             </td>
                         </tr>
                         <template v-else>
-                            <tr v-for="group in filteredGroups" :key="group.id" class="hover:bg-gray-50/70 transition-colors">
+                            <tr v-for="group in filteredGroups" :key="group.id" class="hover:bg-gray-50/70 dark:hover:bg-gray-800 transition-colors">
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex items-center gap-2">
                                         <Icon name="heroicons:user-group" class="h-5 w-5 text-gray-400" />
-                                        <span class="text-sm font-medium text-gray-900">{{ group.name }}</span>
+                                        <span class="text-sm font-medium text-gray-900 dark:text-white">{{ group.name }}</span>
                                         <UBadge v-if="group.external_provider" size="xs" color="gray">
                                             {{ group.external_provider }}
                                         </UBadge>
@@ -141,7 +141,7 @@
                                         </template>
                                     </USelectMenu>
                                 </td>
-                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                     <UBadge v-if="group.external_provider" size="xs" color="blue" variant="subtle">
                                         {{ group.external_provider }}
                                     </UBadge>
@@ -169,16 +169,16 @@
                             </tr>
                             <!-- Empty state -->
                             <tr v-if="filteredGroups.length === 0">
-                                <td :colspan="groupsColspan" class="px-6 py-12 text-center text-gray-500 text-sm">
+                                <td :colspan="groupsColspan" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400 text-sm">
                                     <div class="flex flex-col items-center">
                                         <Icon
                                             name="heroicons:user-group"
                                             class="mx-auto h-12 w-12 text-gray-400"
                                         />
-                                        <h3 class="mt-2 text-sm font-medium text-gray-900">
+                                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
                                             {{ $t('groupsManager.noGroupsFound') }}
                                         </h3>
-                                        <p class="mt-1 text-sm text-gray-500">
+                                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                                             {{ $t('groupsManager.noGroupsHint') }}
                                         </p>
                                     </div>
@@ -193,23 +193,23 @@
         <!-- Create/Edit Modal -->
         <UModal v-model="showFormModal">
             <div class="p-6 relative">
-                <button @click="showFormModal = false" class="absolute top-4 end-4 text-gray-500 hover:text-gray-700 outline-none">
+                <button @click="showFormModal = false" class="absolute top-4 end-4 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
                 <h3 class="text-lg font-semibold">
                     {{ editingGroup ? $t('groupsManager.editGroup') : $t('groupsManager.createGroup') }}
                 </h3>
-                <p class="text-sm text-gray-500">{{ editingGroup ? $t('groupsManager.updateGroupDetails') : $t('groupsManager.createNewGroupHint') }}</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ editingGroup ? $t('groupsManager.updateGroupDetails') : $t('groupsManager.createNewGroupHint') }}</p>
                 <hr class="my-4" />
 
                 <form @submit.prevent="saveGroup" class="space-y-4">
                     <div class="flex flex-col">
-                        <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('groupsManager.nameLabel') }}</label>
+                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('groupsManager.nameLabel') }}</label>
                         <UInput v-model="form.name" :placeholder="$t('groupsManager.namePlaceholder')" required />
                     </div>
 
                     <div class="flex flex-col">
-                        <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('groupsManager.descriptionLabel') }}</label>
+                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('groupsManager.descriptionLabel') }}</label>
                         <UInput v-model="form.description" :placeholder="$t('groupsManager.descriptionPlaceholder')" />
                     </div>
 
@@ -228,11 +228,11 @@
         <!-- Members Modal -->
         <UModal v-model="showMembersModal" :ui="{ width: 'sm:max-w-lg' }">
             <div class="p-6 relative">
-                <button @click="showMembersModal = false" class="absolute top-4 end-4 text-gray-500 hover:text-gray-700 outline-none">
+                <button @click="showMembersModal = false" class="absolute top-4 end-4 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
                 <h3 class="text-lg font-semibold">{{ selectedGroup?.name }} {{ $t('groupsManager.membersSuffix') }}</h3>
-                <p class="text-sm text-gray-500 mb-4">{{ $t('groupsManager.manageMembersHint') }}</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ $t('groupsManager.manageMembersHint') }}</p>
 
                 <!-- Add member -->
                 <div v-if="useCan('manage_groups')" class="flex gap-2 mb-4">
@@ -257,14 +257,14 @@
                 </div>
 
                 <!-- Member list -->
-                <div class="border rounded-lg divide-y divide-gray-200 max-h-80 overflow-y-auto">
-                    <div v-if="groupMembersLoading" class="px-4 py-8 text-center text-gray-500 text-sm">
+                <div class="border rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-80 overflow-y-auto">
+                    <div v-if="groupMembersLoading" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
                         <Spinner class="w-4 h-4 me-2 inline" />
                         {{ $t('groupsManager.loading') }}
                     </div>
                     <div
                         v-else-if="groupMembers.length === 0"
-                        class="px-4 py-8 text-center text-gray-500 text-sm"
+                        class="px-4 py-8 text-center text-gray-500 dark:text-gray-400 text-sm"
                     >
                         {{ $t('groupsManager.noMembers') }}
                     </div>
@@ -274,17 +274,17 @@
                         class="flex items-center justify-between px-4 py-3"
                     >
                         <div class="flex items-center gap-3">
-                            <div class="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center">
-                                <span class="text-gray-500 text-sm font-medium">
+                            <div class="h-8 w-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                                <span class="text-gray-500 dark:text-gray-400 text-sm font-medium">
                                     {{ (member.user_name || member.user_email || '?')[0].toUpperCase() }}
                                 </span>
                             </div>
                             <div>
-                                <div class="text-sm font-medium text-gray-900 flex items-center gap-2">
+                                <div class="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
                                     {{ member.user_name || member.user_email || $t('groupsManager.unknown') }}
                                     <UBadge v-if="member.pending" size="xs" color="yellow" variant="subtle">{{ $t('settings.members.statusPending') }}</UBadge>
                                 </div>
-                                <div class="text-xs text-gray-500">{{ member.user_email }}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ member.user_email }}</div>
                             </div>
                         </div>
                         <UButton

@@ -3,19 +3,19 @@
     <div class="w-full px-4 ps-0 py-4">
       <div>
         <h1 class="text-lg font-semibold text-center">Create Data Agent</h1>
-        <p class="mt-4 text-gray-500 text-center">Set data source, select tables, and define additional context</p>
+        <p class="mt-4 text-gray-500 dark:text-gray-400 text-center">Set data source, select tables, and define additional context</p>
       </div>
       <WizardSteps class="mb-5 mt-4" current="context" :ds-id="dsId" />
 
       <div class="space-y-6">
         <!-- Instruction editor -->
         <div>
-          <h3 class="text-lg font-semibold text-gray-900 mb-1">Add custom AI rules and instructions</h3>
-          <p class="text-sm text-gray-500 mb-3">Business-specific context, glossary, and useful code guidelines.</p>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Add custom AI rules and instructions</h3>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">Business-specific context, glossary, and useful code guidelines.</p>
 
           <!-- outer wrapper is relative so dropdown can overflow the border box -->
           <div class="relative">
-            <div class="border border-gray-200 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
+            <div class="border border-gray-200 dark:border-gray-700 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
               <!-- Loading overlay -->
               <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
                 <Spinner class="w-4 h-4" />
@@ -44,10 +44,10 @@
             <div
               v-if="mentionState.active && (filteredMentionItems.length > 0 || mentionState.query.length < 5)"
               ref="mentionDropdownRef"
-              class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
+              class="absolute z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
               :style="mentionDropdownStyle"
             >
-              <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500">
+              <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
                 Type to search…
               </div>
               <button
@@ -55,8 +55,8 @@
                 :key="item.id"
                 type="button"
                 :data-mention-idx="index"
-                class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
-                :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
+                class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-start gap-2 border-b border-gray-100 dark:border-gray-800 last:border-0"
+                :class="{ 'bg-blue-50 dark:bg-blue-950': index === mentionState.selectedIndex }"
                 @mousedown.prevent="selectMention(item)"
               >
                 <template v-if="item.type === 'instruction'">
@@ -74,14 +74,14 @@
                 </template>
                 <div class="flex-1 min-w-0">
                   <template v-if="item.type === 'instruction'">
-                    <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                    <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
+                    <span v-if="item.name" class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
+                    <span v-else class="text-gray-700 dark:text-gray-300 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
                   </template>
                   <template v-else>
-                    <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
+                    <span class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
                     <div class="flex items-center gap-1 mt-0.5">
                       <DataSourceIcon v-if="item.dataSourceType && item.type !== 'connection_tool'" :type="item.dataSourceType" class="h-2.5" />
-                      <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
+                      <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ item.dataSourceName }}</span>
                     </div>
                   </template>
                 </div>

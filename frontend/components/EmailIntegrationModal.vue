@@ -1,10 +1,10 @@
 <template>
   <div class="p-4">
     <div class="flex items-center gap-2 mb-2">
-      <UIcon name="i-heroicons-envelope" class="w-5 h-5 text-gray-700" />
+      <UIcon name="i-heroicons-envelope" class="w-5 h-5 text-gray-700 dark:text-gray-300" />
       <h1 class="text-lg font-semibold">AI Mailbox</h1>
     </div>
-    <p class="text-sm text-gray-500">
+    <p class="text-sm text-gray-500 dark:text-gray-400">
       The AI analyst's own mailbox — it sends answers/replies from here and
       (optionally) receives questions here. This is separate from the
       <strong>SMTP Server</strong>, which only sends system notifications
@@ -15,18 +15,18 @@
     <!-- Connected view -->
     <div v-if="integrated" class="mb-4">
       <p class="text-green-600 mb-4">Email is currently connected.</p>
-      <div class="bg-gray-50 rounded-lg p-4 mb-4">
-        <h3 class="text-sm font-medium text-gray-700 mb-3">Details</h3>
+      <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Details</h3>
         <div class="space-y-2 text-sm">
-          <div class="flex justify-between"><span class="text-gray-600">From:</span>
+          <div class="flex justify-between"><span class="text-gray-600 dark:text-gray-400">From:</span>
             <span class="font-medium">{{ cfg?.from_name }} &lt;{{ cfg?.from_address }}&gt;</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">Auth:</span>
+          <div class="flex justify-between"><span class="text-gray-600 dark:text-gray-400">Auth:</span>
             <span class="font-mono text-xs">{{ authLabel(cfg?.auth_type) }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">Capabilities:</span>
+          <div class="flex justify-between"><span class="text-gray-600 dark:text-gray-400">Capabilities:</span>
             <span class="font-mono text-xs">{{ (cfg?.capabilities || ['send']).join(' + ') }}</span></div>
-          <div v-if="cfg?.inbound_enabled" class="flex justify-between"><span class="text-gray-600">Allowed domains:</span>
+          <div v-if="cfg?.inbound_enabled" class="flex justify-between"><span class="text-gray-600 dark:text-gray-400">Allowed domains:</span>
             <span class="font-mono text-xs">{{ (cfg?.allowed_domains || []).join(', ') || 'any (auth only)' }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-600">Connected:</span>
+          <div class="flex justify-between"><span class="text-gray-600 dark:text-gray-400">Connected:</span>
             <span class="font-medium">{{ formatDate(integrationData?.created_at) }}</span></div>
         </div>
       </div>
@@ -50,12 +50,12 @@
             :class="[
               'flex flex-col items-center justify-center gap-2 border rounded-lg py-3 px-2 transition',
               authType === opt.value
-                ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300 bg-white',
+                ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50 dark:bg-blue-950'
+                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-900',
             ]">
             <img v-if="opt.img" :src="opt.img" :alt="opt.label" class="w-6 h-6" />
-            <UIcon v-else :name="opt.icon!" class="w-6 h-6 text-gray-600" />
-            <span :class="['text-xs font-medium text-center leading-tight', authType === opt.value ? 'text-blue-700' : 'text-gray-700']">{{ opt.label }}</span>
+            <UIcon v-else :name="opt.icon!" class="w-6 h-6 text-gray-600 dark:text-gray-400" />
+            <span :class="['text-xs font-medium text-center leading-tight', authType === opt.value ? 'text-blue-700' : 'text-gray-700 dark:text-gray-300']">{{ opt.label }}</span>
           </button>
         </div>
 
@@ -97,7 +97,7 @@
 
         <!-- Microsoft 365 fields -->
         <template v-else-if="authType === 'microsoft'">
-          <p class="text-xs text-gray-500 mb-2">Hosts default to Office 365. Provide your Entra app (daemon) credentials:</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Hosts default to Office 365. Provide your Entra app (daemon) credentials:</p>
           <div class="mb-3"><label class="block text-sm font-medium mb-1">Directory (tenant) ID</label>
             <input v-model="msTenantId" type="text" class="w-full border rounded px-2 py-1" required /></div>
           <div class="mb-3"><label class="block text-sm font-medium mb-1">Application (client) ID</label>
@@ -108,7 +108,7 @@
 
         <!-- Google Workspace fields -->
         <template v-else-if="authType === 'google'">
-          <p class="text-xs text-gray-500 mb-2">Paste the service‑account JSON key (with domain‑wide delegation authorized for the mailbox):</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Paste the service‑account JSON key (with domain‑wide delegation authorized for the mailbox):</p>
           <textarea v-model="googleSaJson" rows="6" class="w-full border rounded px-2 py-1 font-mono text-xs" placeholder='{ "type": "service_account", ... }' required></textarea>
         </template>
 
@@ -116,7 +116,7 @@
 
         <!-- Receive inbound email (always enabled) -->
         <div class="mb-3">
-          <span class="text-sm font-semibold text-gray-800">Receive email as a channel</span>
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">Receive email as a channel</span>
         </div>
 
         <div>
@@ -138,10 +138,10 @@
           <div class="mb-3">
             <label class="block text-sm font-medium mb-1">Allowed sender domains</label>
             <input v-model="allowedDomains" type="text" class="w-full border rounded px-2 py-1" placeholder="acme.com, subsidiary.com" />
-            <p class="text-xs text-gray-500 mt-1">Comma‑separated. Blank = rely on an internal‑only mailbox + auth checks.</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Comma‑separated. Blank = rely on an internal‑only mailbox + auth checks.</p>
           </div>
           <label class="flex items-center gap-2 mb-2 cursor-pointer">
-            <UToggle v-model="autoLink" color="blue" /><span class="text-sm">Auto‑verify members by email — <span class="text-gray-500">off (recommended): first email gets a verification link to click</span></span>
+            <UToggle v-model="autoLink" color="blue" /><span class="text-sm">Auto‑verify members by email — <span class="text-gray-500 dark:text-gray-400">off (recommended): first email gets a verification link to click</span></span>
           </label>
           <label class="flex items-center gap-2 mb-4 cursor-pointer">
             <UToggle v-model="requireAuthPass" color="blue" /><span class="text-sm">Require DMARC/DKIM pass (recommended)</span>
@@ -150,7 +150,7 @@
 
         <div class="flex items-center gap-2">
           <button type="button" :disabled="testingForm" @click="testForm"
-            class="border border-gray-300 text-gray-700 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 disabled:opacity-50">
+            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
             {{ testingForm ? 'Testing…' : 'Test connection' }}
           </button>
           <button type="submit" :disabled="submitting" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
@@ -165,15 +165,15 @@
 
       <!-- Right: contextual setup guide -->
       <aside class="md:w-72 md:shrink-0 mt-6 md:mt-0">
-        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <div class="flex items-center gap-2 mb-3">
             <img v-if="activeOption.img" :src="activeOption.img" :alt="activeOption.label" class="w-5 h-5" />
-            <UIcon v-else :name="activeOption.icon!" class="w-5 h-5 text-gray-600" />
-            <h3 class="text-sm font-semibold text-gray-800">{{ activeOption.label }} setup</h3>
+            <UIcon v-else :name="activeOption.icon!" class="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ activeOption.label }} setup</h3>
           </div>
 
           <!-- Microsoft 365 -->
-          <ol v-if="authType === 'microsoft'" class="list-decimal list-outside ps-4 text-xs text-gray-600 space-y-2">
+          <ol v-if="authType === 'microsoft'" class="list-decimal list-outside ps-4 text-xs text-gray-600 dark:text-gray-400 space-y-2">
             <li>Create the mailbox (a shared mailbox is fine — no license needed).</li>
             <li>Entra → <strong>App registrations</strong> → New registration (single tenant). Copy the <strong>tenant ID</strong> + <strong>client ID</strong>.</li>
             <li>API permissions → Office 365 Exchange Online → <strong>Application</strong> → <code>IMAP.AccessAsApp</code> + <code>SMTP.SendAsApp</code> → <strong>Grant admin consent</strong>.</li>
@@ -182,7 +182,7 @@
           </ol>
 
           <!-- Google Workspace -->
-          <ol v-else-if="authType === 'google'" class="list-decimal list-outside ps-4 text-xs text-gray-600 space-y-2">
+          <ol v-else-if="authType === 'google'" class="list-decimal list-outside ps-4 text-xs text-gray-600 dark:text-gray-400 space-y-2">
             <li>Create the mailbox (a licensed Workspace user).</li>
             <li>Google Cloud → new project → enable the <strong>Gmail API</strong> → create a <strong>service account</strong> → create a <strong>JSON key</strong>.</li>
             <li>Admin console → Security → API controls → <strong>Domain‑wide delegation</strong> → add the SA client ID with scope <code>https://mail.google.com/</code>.</li>
@@ -190,7 +190,7 @@
           </ol>
 
           <!-- IMAP / Password -->
-          <div v-else class="text-xs text-gray-600 space-y-2">
+          <div v-else class="text-xs text-gray-600 dark:text-gray-400 space-y-2">
             <p>Connect any mailbox that speaks plain SMTP + IMAP — on‑prem Exchange, a hosting provider, or a personal app password.</p>
             <ul class="list-disc list-outside ps-4 space-y-1">
               <li>Use an <strong>app password</strong> if the provider enforces MFA (basic auth is blocked on Microsoft 365 / Gmail — use those tiles instead).</li>
@@ -205,7 +205,7 @@
       </aside>
     </div>
 
-    <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600" @click="$emit('close')">✕</button>
+    <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" @click="$emit('close')">✕</button>
   </div>
 </template>
 

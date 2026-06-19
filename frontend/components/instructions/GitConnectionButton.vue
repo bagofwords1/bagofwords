@@ -2,20 +2,20 @@
     <UTooltip :text="tooltip">
         <button
             @click="$emit('click')"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300"
         >
             <span class="relative">
                 <!-- GitBranchIcon when not connected -->
-                <GitBranchIcon v-if="!hasConnection" class="w-4 h-4 text-gray-500" />
+                <GitBranchIcon v-if="!hasConnection" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 <!-- Provider icon when connected -->
                 <UIcon v-else :name="providerIcon" class="w-4 h-4" />
                 <!-- Green dot indicator when connected -->
-                <span 
-                    v-if="hasConnection" 
+                <span
+                    v-if="hasConnection"
                     class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 rounded-full bg-green-500"
                 ></span>
             </span>
-            <span class="text-gray-700">{{ label }}</span>
+            <span class="text-gray-700 dark:text-gray-300">{{ label }}</span>
         </button>
     </UTooltip>
 </template>
@@ -73,11 +73,11 @@ const label = computed(() => {
 const tooltip = computed(() => {
     if (props.customTooltip) return props.customTooltip
     if (!props.hasConnection) return 'Connect a Git repository'
-    
-    let tooltipText = props.connectedRepos.length === 1 
-        ? 'Connected' 
+
+    let tooltipText = props.connectedRepos.length === 1
+        ? 'Connected'
         : `${props.connectedRepos.length} repos connected`
-    
+
     if (props.lastIndexedAt) {
         const date = new Date(props.lastIndexedAt)
         const now = new Date()
@@ -85,21 +85,16 @@ const tooltip = computed(() => {
         const diffMins = Math.floor(diffMs / 60000)
         const diffHours = Math.floor(diffMs / 3600000)
         const diffDays = Math.floor(diffMs / 86400000)
-        
+
         let timeAgo = ''
         if (diffMins < 1) timeAgo = 'just now'
         else if (diffMins < 60) timeAgo = `${diffMins}m ago`
         else if (diffHours < 24) timeAgo = `${diffHours}h ago`
         else timeAgo = `${diffDays}d ago`
-        
+
         tooltipText += ` • Last indexed ${timeAgo}`
     }
-    
+
     return tooltipText
 })
 </script>
-
-
-
-
-

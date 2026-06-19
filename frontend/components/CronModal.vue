@@ -1,7 +1,7 @@
 <template>
     <UTooltip text="Schedule or rerun report">
         <button @click="cronModalOpen = true"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
             <Icon name="heroicons:clock" />
         </button>
     </UTooltip>
@@ -10,39 +10,39 @@
     <UModal v-model="cronModalOpen">
         <div class="p-4 relative">
             <button @click="cronModalOpen = false"
-                class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
+                class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Schedule and rerun report</h1>
-            <p class="text-sm text-gray-500">Schedule this report to run on a regular basis</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Schedule this report to run on a regular basis</p>
             <hr class="my-4" />
             <div>
                 <div class="mt-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Schedule Frequency</label>
-                    <select v-model="selectedSchedule" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Schedule Frequency</label>
+                    <select v-model="selectedSchedule" class="w-full rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm">
                         <option v-for="option in cronOptions" :key="option.value" :value="option.value">
                             {{ option.label }}
                         </option>
                     </select>
                 </div>
 
-                <p v-if="report.last_run_at" class="mt-4 text-sm text-gray-500">
+                <p v-if="report.last_run_at" class="mt-4 text-sm text-gray-500 dark:text-gray-400">
                     Last run: {{ formatDate(report.last_run_at) }}
                 </p>
             </div>
 
             <!-- Notification subscribers (save-based, not send-now) -->
-            <div v-if="smtpEnabled && selectedSchedule !== 'None'" class="border-t border-gray-200 pt-4 mt-4">
-                <div class="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+            <div v-if="smtpEnabled && selectedSchedule !== 'None'" class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                <div class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     <Icon name="heroicons:envelope" class="w-4 h-4" />
                     Notify after each run
                 </div>
-                <p class="text-xs text-gray-400 mb-3">Recipients will receive an email with results after each scheduled run.</p>
+                <p class="text-xs text-gray-400 dark:text-gray-600 mb-3">Recipients will receive an email with results after each scheduled run.</p>
 
                 <!-- Recipient input -->
-                <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-md px-2 py-1.5 min-h-[38px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
+                <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 min-h-[38px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
                     <span v-for="(sub, idx) in subscribers" :key="idx"
-                        class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
+                        class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full">
                         {{ sub.type === 'user' ? getMemberName(sub.id) : sub.address }}
                         <button @click="removeSubscriber(idx)" class="hover:text-red-500 outline-none">
                             <Icon name="heroicons:x-mark" class="w-3 h-3" />
@@ -60,23 +60,23 @@
                             @blur="onBlur" />
                         <!-- Autocomplete dropdown -->
                         <div v-if="showDropdown && filteredMembers.length > 0"
-                            class="absolute start-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
+                            class="absolute start-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
                             <button v-for="member in filteredMembers" :key="member.id"
-                                class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 flex flex-col"
+                                class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                                 @mousedown.prevent="addMember(member)">
-                                <span class="text-gray-900">{{ member.name || member.email }}</span>
-                                <span v-if="member.name" class="text-xs text-gray-400">{{ member.email }}</span>
+                                <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
+                                <span v-if="member.name" class="text-xs text-gray-400 dark:text-gray-600">{{ member.email }}</span>
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="border-t border-gray-200 pt-4 mt-8">
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-8">
                 <div class="flex justify-end space-x-2">
                     <button
                         @click="cronModalOpen = false"
-                        class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                        class="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                         Cancel
                     </button>

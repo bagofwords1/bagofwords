@@ -1,7 +1,7 @@
 <template>
-    <div class="mb-6 flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+    <div class="mb-6 flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
         <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-700">{{ $t('monitoring.overview.timePeriod') }}:</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('monitoring.overview.timePeriod') }}:</span>
         </div>
         <div class="flex items-center gap-3">
             <USelectMenu
@@ -12,7 +12,7 @@
                 class="min-w-[140px]"
             />
 
-            <div v-if="selectedPeriod.value !== 'all_time'" class="text-xs text-gray-500">
+            <div v-if="selectedPeriod.value !== 'all_time'" class="text-xs text-gray-500 dark:text-gray-400">
                 {{ formatDateRange() }}
             </div>
         </div>
@@ -63,12 +63,12 @@ const formatDateRange = () => {
     if (!props.dateRange.start || props.selectedPeriod.value === 'all_time') {
         return ''
     }
-    
+
     const start = new Date(props.dateRange.start)
     const end = new Date(props.dateRange.end)
-    
+
     return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
 }
 
 
-</script> 
+</script>

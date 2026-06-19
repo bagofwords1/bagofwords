@@ -17,3 +17,25 @@
 .fade-in-leave-from {
   opacity: 1;
 }
+
+/* Theme switch cross-fade via View Transitions API (Chrome 111+, Safari 18+).
+   Falls back to instant switch on unsupported browsers — no JS change needed. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 300ms;
+  animation-timing-function: ease;
+}
+::view-transition-old(root) {
+  animation-name: theme-fade-out;
+}
+::view-transition-new(root) {
+  animation-name: theme-fade-in;
+}
+@keyframes theme-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

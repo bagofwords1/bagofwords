@@ -2,17 +2,17 @@
   <div class="py-6">
     <div class="max-w-3xl mx-auto px-4">
       <div class="mb-5">
-        <h1 class="text-lg font-semibold text-gray-900">{{ $t('queries.title') }}</h1>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('queries.title') }}</h1>
 
         <!-- Filter tabs -->
-        <div class="mt-3 flex items-center gap-2 border-b border-gray-200">
+        <div class="mt-3 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700">
           <button
             @click="filterType = 'published'"
             :class="[
               'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
               filterType === 'published'
                 ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             ]"
           >
             {{ $t('queries.published') }}
@@ -23,34 +23,34 @@
               'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
               filterType === 'suggested'
                 ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             ]"
           >
             {{ isAdmin ? $t('queries.draftSuggested') : $t('queries.myDrafts') }}
-            <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
+            <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-700">{{ suggestedCount }}</span>
           </button>
         </div>
 
         <div class="mt-3 flex items-center gap-2">
           <input v-model="q" type="text" :placeholder="$t('queries.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2" @keyup.enter="reload()" />
-          <button class="text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50" @click="reload()">{{ $t('queries.search') }}</button>
+          <button class="text-xs px-3 py-2 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="reload()">{{ $t('queries.search') }}</button>
         </div>
       </div>
 
-      <div v-if="loading" class="text-xs text-gray-500 inline-flex items-center">
+      <div v-if="loading" class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center">
         <Spinner class="me-1" /> {{ $t('queries.loading') }}
       </div>
       <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center py-16 px-4">
-        <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
+        <div class="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
           <Icon
             :name="filterType === 'suggested' ? 'heroicons:light-bulb' : 'heroicons:cube'"
             class="w-8 h-8 text-gray-400"
           />
         </div>
-        <h3 class="text-sm font-medium text-gray-900 mb-1">
+        <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-1">
           {{ filterType === 'suggested' ? $t('queries.noDrafts') : $t('queries.noPublished') }}
         </h3>
-        <p class="text-xs text-gray-500 text-center max-w-sm">
+        <p class="text-xs text-gray-500 dark:text-gray-400 text-center max-w-sm">
           {{ filterType === 'suggested'
             ? $t('queries.draftsDescription')
             : $t('queries.publishedDescription')
@@ -62,7 +62,7 @@
         <div
           v-for="item in filteredItems"
           :key="item.id"
-          class="border border-gray-100 bg-white rounded-lg p-4 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer"
+          class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all cursor-pointer"
           @click="navigateToEntity(item.id)"
         >
           <div class="flex items-start justify-between gap-3">
@@ -72,37 +72,37 @@
                   class="text-[10px] px-1.5 py-0.5 rounded border"
                   :class="item.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
                 >{{ (item.type || '').toUpperCase() }}</span>
-                
+
                 <!-- Green check badge for approved/published entities -->
-                <Icon 
-                  v-if="getEntityType(item) === 'global'" 
-                  name="heroicons:check-badge" 
-                  class="w-4 h-4 text-green-600" 
-                  title="Approved" 
+                <Icon
+                  v-if="getEntityType(item) === 'global'"
+                  name="heroicons:check-badge"
+                  class="w-4 h-4 text-green-600"
+                  title="Approved"
                 />
-                
+
                 <!-- Entity workflow status badge -->
                 <span
                   v-if="getEntityType(item) === 'archived'"
-                  class="text-[10px] px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50"
+                  class="text-[10px] px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50 dark:bg-red-950"
                 >{{ $t('queries.archivedBadge') }}</span>
                 <span
                   v-else-if="getEntityType(item) === 'draft'"
-                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
+                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
                 >{{ $t('queries.draftBadge') }}</span>
                 <span
                   v-else-if="getEntityType(item) === 'private'"
-                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
+                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
                 >{{ $t('queries.draftBadge') }}</span>
                 <span
                   v-else-if="getEntityType(item) === 'suggested'"
-                  class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50"
+                  class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950"
                 >{{ $t('queries.suggestedBadge') }}</span>
-                
+
                 <span class="text-[11px] text-gray-400">{{ timeAgo(item.updated_at) }}</span>
               </div>
-              <div class="text-sm font-medium text-gray-900 mb-1">{{ item.title || item.slug }}</div>
-              <div class="text-[12px] text-gray-500 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
+              <div class="text-sm font-medium text-gray-900 dark:text-white mb-1">{{ item.title || item.slug }}</div>
+              <div class="text-[12px] text-gray-500 dark:text-gray-400 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
 
               <!-- Metadata icons -->
               <div class="flex items-center gap-3 mt-3">
@@ -113,14 +113,14 @@
                     :src="dataSourceIcon(ds.type)"
                     :alt="ds.type"
                     :title="ds.name || ds.type"
-                    class="w-4 h-4 rounded border border-gray-100 bg-white object-contain p-0.5"
+                    class="w-4 h-4 rounded border border-gray-100 dark:border-gray-800 bg-white object-contain p-0.5"
                     @error="(e: any) => e.target && (e.target.style.visibility = 'hidden')"
                   />
                   <span v-if="item.data_sources.length > 3" class="text-[11px] text-gray-400">+{{ item.data_sources.length - 3 }}</span>
                 </div>
-                
+
                 <!-- Data stats -->
-                <div v-if="hasStats(item)" class="flex items-center gap-3 text-[11px] text-gray-500">
+                <div v-if="hasStats(item)" class="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
                   <div v-if="item.data?.info?.total_rows !== undefined" class="flex items-center gap-1" :title="$t('queries.rowsTitle')">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
@@ -141,7 +141,7 @@
       </div>
 
       <!-- Results summary -->
-      <div v-if="!loading && filteredItems.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
+      <div v-if="!loading && filteredItems.length > 0" class="mt-6 text-center text-[11px] text-gray-500 dark:text-gray-400">
         {{ summaryLabel }}
       </div>
     </div>
@@ -157,7 +157,7 @@ import { useAuth } from '#imports'
 import Spinner from '~/components/Spinner.vue'
 
 type MinimalDS = { id: string; name?: string; type?: string }
-type EntityList = { 
+type EntityList = {
   id: string
   type: string
   title: string
@@ -215,7 +215,7 @@ const filteredItems = computed(() => {
       const type = getEntityType(item)
       return type === 'private' || type === 'suggested' || type === 'draft'
     })
-    
+
     // If not admin, show only user's own drafts/suggestions
     if (!isAdmin.value) {
       filtered = filtered.filter(item => item.owner_id === currentUserId.value)
@@ -225,8 +225,8 @@ const filteredItems = computed(() => {
   // Apply search filter
   if (q.value) {
     const search = q.value.toLowerCase()
-    filtered = filtered.filter(item => 
-      item.title?.toLowerCase().includes(search) || 
+    filtered = filtered.filter(item =>
+      item.title?.toLowerCase().includes(search) ||
       item.slug?.toLowerCase().includes(search) ||
       item.description?.toLowerCase().includes(search)
     )
@@ -344,9 +344,8 @@ function hasStats(item: EntityList): boolean {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
-  -webkit-box-orient: vertical;  
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
 </style>
-
 

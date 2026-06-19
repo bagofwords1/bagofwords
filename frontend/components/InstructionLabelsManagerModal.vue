@@ -5,8 +5,8 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <div>
-                        <h3 class="text-base font-semibold text-gray-900">Labels</h3>
-                        <p class="text-sm text-gray-500 mt-1">Organize the labels used across instructions.</p>
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white">Labels</h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Organize the labels used across instructions.</p>
                     </div>
                     <div class="flex items-center gap-2">
                         <UButton
@@ -37,7 +37,7 @@
                             v-model="searchQuery"
                             type="text"
                             placeholder="Search all labels"
-                            class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                         />
                         <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2.5 h-4 w-4 text-gray-400" />
                     </div>
@@ -45,7 +45,7 @@
 
                 <!-- Labels List -->
                 <div class="flex items-center justify-between mb-3">
-                    <span class="text-sm text-gray-600">{{ filteredLabels.length }} labels</span>
+                    <span class="text-sm text-gray-600 dark:text-gray-400">{{ filteredLabels.length }} labels</span>
                     <USelectMenu
                         v-model="sortBy"
                         :options="sortOptions"
@@ -54,37 +54,37 @@
                         size="xs"
                     >
                         <template #label>
-                            <span class="text-xs text-gray-600">Sort</span>
+                            <span class="text-xs text-gray-600 dark:text-gray-400">Sort</span>
                         </template>
                     </USelectMenu>
                 </div>
 
-                <div v-if="isLoading" class="py-8 text-center text-sm text-gray-500">
+                <div v-if="isLoading" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                     <div class="flex items-center justify-center gap-2">
                         <Spinner />
                         Loading labels...
                     </div>
                 </div>
-                <div v-else-if="filteredLabels.length === 0" class="py-10 text-center text-sm text-gray-500">
+                <div v-else-if="filteredLabels.length === 0" class="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                     <p v-if="searchQuery">No labels match your search.</p>
                     <p v-else>No labels yet. Create your first label to start organizing instructions.</p>
                 </div>
-                <div v-else class="divide-y divide-gray-100">
+                <div v-else class="divide-y divide-gray-100 dark:divide-gray-800">
                     <div
                         v-for="label in sortedLabels"
                         :key="label.id"
-                        class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-3 hover:bg-gray-50 transition-colors"
+                        class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                     >
                         <div class="flex items-start gap-3 flex-1">
                             <span
-                                class="mt-1 w-3 h-3 rounded-full border border-gray-200 flex-shrink-0"
+                                class="mt-1 w-3 h-3 rounded-full border border-gray-200 dark:border-gray-700 flex-shrink-0"
                                 :style="{ backgroundColor: label.color || '#CBD5F5', borderColor: label.color || '#CBD5F5' }"
                             ></span>
                             <div class="flex-1 min-w-0">
-                                <p class="text-sm font-medium text-gray-900">
+                                <p class="text-sm font-medium text-gray-900 dark:text-white">
                                     {{ label.name }}
                                 </p>
-                                <p v-if="label.description" class="text-xs text-gray-500 mt-0.5">
+                                <p v-if="label.description" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {{ label.description }}
                                 </p>
                             </div>
@@ -99,7 +99,7 @@
                                 <UButton
                                     color="white"
                                     variant="ghost"
-                                    class="text-gray-500 hover:text-gray-900"
+                                    class="text-gray-500 hover:text-gray-900 dark:hover:text-white"
                                     icon="i-heroicons-ellipsis-vertical"
                                 />
                             </UDropdown>

@@ -6,37 +6,37 @@
             <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
                 <!-- Read-only Notice -->
-                <div class="flex items-center gap-1.5 text-[11px] text-gray-400">
+                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-600">
                     <Icon name="heroicons:eye" class="w-3 h-3" />
                     <span>View only</span>
                 </div>
 
                 <!-- Content Display -->
-                <div class="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                <div class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
                     <!-- Header with file path and git sync status -->
-                    <div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                    <div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
                         <div class="flex items-center gap-2 min-w-0">
                             <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
-                            <span v-else class="text-xs font-medium text-gray-500">Content</span>
+                            <span v-if="filePath" class="text-xs font-mono text-gray-600 dark:text-gray-400 truncate">{{ filePath }}</span>
+                            <span v-else class="text-xs font-medium text-gray-500 dark:text-gray-400">Content</span>
                         </div>
                         <div v-if="props.isGitSourced" class="flex items-center gap-2 shrink-0">
-                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded">
+                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded">
                                 <GitBranchIcon class="w-3 h-3" />
                                 Synced
                             </span>
-                            <span v-else class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Unlinked</span>
+                            <span v-else class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">Unlinked</span>
                         </div>
                     </div>
-                    
+
                     <!-- Markdown rendered content (for .md files or non-git-linked) -->
                     <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
                         <MDC :value="sharedForm.text || ''" class="markdown-content" />
                     </div>
-                    
+
                     <!-- Code block for other file types -->
-                    <div v-else class="p-4 bg-gray-50">
-                        <pre class="text-xs leading-relaxed font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto"><code>{{ sharedForm.text }}</code></pre>
+                    <div v-else class="p-4 bg-gray-50 dark:bg-gray-900">
+                        <pre class="text-xs leading-relaxed font-mono text-gray-800 dark:text-gray-200 whitespace-pre-wrap overflow-x-auto"><code>{{ sharedForm.text }}</code></pre>
                     </div>
                 </div>
 
@@ -45,7 +45,7 @@
                     <!-- Category -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Category:</span>
-                        <div class="inline-flex items-center text-gray-700">
+                        <div class="inline-flex items-center text-gray-700 dark:text-gray-300">
                             <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(sharedForm.category) }}
                         </div>
@@ -54,7 +54,7 @@
                     <!-- Load Mode -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Loading:</span>
-                        <div class="inline-flex items-center text-gray-700">
+                        <div class="inline-flex items-center text-gray-700 dark:text-gray-300">
                             <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(sharedForm.load_mode) }}
                         </div>
@@ -82,17 +82,17 @@
                     <!-- Data Sources -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Sources:</span>
-                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">All sources</span>
+                        <span v-if="isAllDataSourcesSelected" class="text-gray-700 dark:text-gray-300">All sources</span>
                         <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex items-center gap-1">
                             <div class="flex -space-x-1">
-                                <DataSourceIcon 
-                                    v-for="ds in getSelectedDataSourceObjects.slice(0, 3)" 
-                                    :key="ds.id" 
-                                    :type="ds.type" 
-                                    class="h-4 border border-white rounded" 
+                                <DataSourceIcon
+                                    v-for="ds in getSelectedDataSourceObjects.slice(0, 3)"
+                                    :key="ds.id"
+                                    :type="ds.type"
+                                    class="h-4 border border-white rounded"
                                 />
                             </div>
-                            <span class="text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
+                            <span class="text-gray-700 dark:text-gray-300">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
                         </div>
                         <span v-else class="text-gray-400">None</span>
                     </div>
@@ -101,14 +101,14 @@
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Tables:</span>
                         <span v-if="selectedReferences.length === 0" class="text-gray-400">None</span>
-                        <span v-else class="text-gray-700">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                        <span v-else class="text-gray-700 dark:text-gray-300">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
                     </div>
                 </div>
 
             </div>
-            
+
             <!-- View Mode Actions (fixed at bottom) -->
-            <div class="shrink-0 bg-white border-t px-5 py-3">
+            <div class="shrink-0 bg-white dark:bg-gray-900 border-t px-5 py-3">
                 <div class="flex justify-end">
                     <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                         Close
@@ -121,20 +121,20 @@
         <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
             <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-                
+
                 <!-- Git Source Info -->
-                <div v-if="props.isGitSourced" class="flex items-center gap-1.5 text-xs text-gray-500">
+                <div v-if="props.isGitSourced" class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
                     <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
                     <span class="truncate font-mono text-[11px]">
                         {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
                     </span>
-                    <span class="text-gray-300">·</span>
-                    <UTooltip 
+                    <span class="text-gray-300 dark:text-gray-600">·</span>
+                    <UTooltip
                         v-if="props.isGitSynced"
                         text="Stop syncing from git. You'll be able to edit manually."
                         :popper="{ placement: 'top' }"
                     >
-                        <button 
+                        <button
                             type="button"
                             class="text-[11px] text-gray-400 hover:text-orange-500 transition-colors"
                             @click="$emit('unlink-from-git')"
@@ -144,11 +144,11 @@
                     </UTooltip>
                     <template v-else>
                         <span class="text-[10px] text-gray-400">Unlinked</span>
-                        <UTooltip 
+                        <UTooltip
                             text="Resume syncing from git"
                             :popper="{ placement: 'top' }"
                         >
-                            <button 
+                            <button
                                 type="button"
                                 class="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
                                 @click="$emit('relink-to-git')"
@@ -160,7 +160,7 @@
                 </div>
 
                 <!-- Build Approval Notice (shown to non-admins creating new instructions) -->
-                <div v-if="showBuildApprovalNotice" class="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+                <div v-if="showBuildApprovalNotice" class="flex items-center gap-2 p-2.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-lg">
                     <Icon name="heroicons:clock" class="w-4 h-4 text-blue-600 shrink-0" />
                     <div class="min-w-0">
                         <span class="text-xs font-medium text-blue-800">Pending Build Approval</span>
@@ -169,15 +169,15 @@
                 </div>
 
                 <!-- Hero Textarea / Code Editor -->
-                <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
+                <div class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
                     <!-- Header with title and code view toggle -->
-                    <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-100">
+                    <div class="flex items-center justify-between px-3 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
                         <div class="flex items-center gap-2 min-w-0">
                             <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
-                            <span v-else class="text-xs font-medium text-gray-500">Instruction</span>
+                            <span v-if="filePath" class="text-xs font-mono text-gray-600 dark:text-gray-400 truncate">{{ filePath }}</span>
+                            <span v-else class="text-xs font-medium text-gray-500 dark:text-gray-400">Instruction</span>
                         </div>
-                        <button 
+                        <button
                             type="button"
                             @click="codeView = !codeView"
                             class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
@@ -186,9 +186,9 @@
                             <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
                         </button>
                     </div>
-                    
+
                     <!-- Normal textarea -->
-                    <textarea 
+                    <textarea
                         v-if="!codeView"
                         :value="sharedForm.text"
                         @input="updateForm({ text: ($event.target as HTMLTextAreaElement).value })"
@@ -196,7 +196,7 @@
 
 Examples:
 • When querying revenue, always filter out cancelled orders
-• Use the customers_v2 table instead of the deprecated customers table  
+• Use the customers_v2 table instead of the deprecated customers table
 • Calculate MRR as sum of active subscription amounts"
                         class="w-full min-h-[210px] text-xs leading-relaxed p-4
                                border-0 resize-y
@@ -204,17 +204,17 @@ Examples:
                                placeholder:text-gray-400"
                         :required="true"
                     />
-                    
+
                     <!-- Code editor (Monaco with white background) -->
                     <ClientOnly v-else>
                         <MonacoEditor
                             :model-value="sharedForm.text"
                             @update:model-value="updateForm({ text: $event })"
                             lang="sql"
-                            :options="{ 
-                                theme: 'vs', 
-                                automaticLayout: true, 
-                                minimap: { enabled: false }, 
+                            :options="{
+                                theme: 'vs',
+                                automaticLayout: true,
+                                minimap: { enabled: false },
                                 wordWrap: 'on',
                                 lineNumbers: 'on',
                                 fontSize: 12,
@@ -223,17 +223,17 @@ Examples:
                             style="height: 210px"
                         />
                     </ClientOnly>
-                    
+
                     <!-- Action buttons row -->
-                    <div class="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
-                        <button 
+                    <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2">
+                        <button
                             type="button"
                             @click="enhanceInstruction"
                             :disabled="isEnhancing || !sharedForm.text?.trim()"
-                            class="inline-flex items-center gap-1 px-2.5 py-1 
-                                   bg-white border border-gray-200 rounded-full
-                                   text-xs text-gray-600
-                                   hover:bg-gray-50 hover:border-gray-300
+                            class="inline-flex items-center gap-1 px-2.5 py-1
+                                   bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full
+                                   text-xs text-gray-600 dark:text-gray-400
+                                   hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600
                                    disabled:opacity-50 disabled:cursor-not-allowed
                                    transition-all"
                         >
@@ -241,13 +241,13 @@ Examples:
                             <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5 text-purple-500" />
                             {{ isEnhancing ? 'Enhancing...' : 'Enhance' }}
                         </button>
-                        <button 
+                        <button
                             type="button"
                             @click="$emit('toggle-analyze')"
-                            class="inline-flex items-center gap-1 px-2.5 py-1 
-                                   bg-white border border-gray-200 rounded-full
-                                   text-xs text-gray-500
-                                   hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700
+                            class="inline-flex items-center gap-1 px-2.5 py-1
+                                   bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full
+                                   text-xs text-gray-500 dark:text-gray-400
+                                   hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300
                                    transition-all"
                         >
                             <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
@@ -257,19 +257,19 @@ Examples:
                 </div>
 
                 <!-- Horizontal Config Row -->
-                <div class="flex flex-wrap items-center gap-2 p-2.5 bg-gray-50 rounded-lg">
+                <div class="flex flex-wrap items-center gap-2 p-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg">
                     <!-- Category -->
-                    <USelectMenu 
+                    <USelectMenu
                         :model-value="sharedForm.category"
                         @update:model-value="updateForm({ category: $event })"
-                        :options="categoryOptions" 
-                        option-attribute="label" 
-                        value-attribute="value" 
+                        :options="categoryOptions"
+                        option-attribute="label"
+                        value-attribute="value"
                         size="xs"
                         class="min-w-[120px]"
                     >
                         <template #label>
-                            <div class="inline-flex items-center text-xs text-gray-700">
+                            <div class="inline-flex items-center text-xs text-gray-700 dark:text-gray-300">
                                 <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 me-1" />
                                 {{ formatCategory(sharedForm.category) }}
                             </div>
@@ -283,18 +283,18 @@ Examples:
                     </USelectMenu>
 
                     <!-- AI Context Loading -->
-                    <USelectMenu 
+                    <USelectMenu
                         :model-value="sharedForm.load_mode"
                         @update:model-value="updateForm({ load_mode: $event })"
-                        :options="loadModeOptions" 
-                        option-attribute="label" 
-                        value-attribute="value" 
+                        :options="loadModeOptions"
+                        option-attribute="label"
+                        value-attribute="value"
                         size="xs"
                         class="w-auto"
                         :ui-menu="{ width: 'w-60' }"
                     >
                         <template #label>
-                            <div class="inline-flex items-center text-xs text-gray-700">
+                            <div class="inline-flex items-center text-xs text-gray-700 dark:text-gray-300">
                                 <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 me-1" />
                                 {{ getLoadModeLabel(sharedForm.load_mode) }}
                             </div>
@@ -305,7 +305,7 @@ Examples:
                                     <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
                                     <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                <span class="text-[10px] text-gray-500 ms-4">{{ option.description }}</span>
+                                <span class="text-[10px] text-gray-500 dark:text-gray-400 ms-4">{{ option.description }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -325,7 +325,7 @@ Examples:
                     >
                         <template #label>
                             <div class="flex items-center flex-wrap gap-1">
-                                <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 text-xs">+ Labels</span>
+                                <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 dark:text-gray-400 text-xs">+ Labels</span>
                                 <span
                                     v-for="label in selectedLabelObjects.slice(0, 2)"
                                     :key="label.id"
@@ -335,7 +335,7 @@ Examples:
                                     <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
                                     {{ label.name }}
                                 </span>
-                                <span v-if="selectedLabelObjects.length > 2" class="text-[10px] text-gray-500">
+                                <span v-if="selectedLabelObjects.length > 2" class="text-[10px] text-gray-500 dark:text-gray-400">
                                     +{{ selectedLabelObjects.length - 2 }}
                                 </span>
                             </div>
@@ -344,7 +344,7 @@ Examples:
                             <div class="flex items-center w-full py-0.5 gap-1">
                                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-[11px] font-medium text-gray-900 truncate">{{ option.name }}</p>
+                                    <p class="text-[11px] font-medium text-gray-900 dark:text-white truncate">{{ option.name }}</p>
                                 </div>
                             </div>
                         </template>
@@ -353,13 +353,13 @@ Examples:
 
                 <!-- Scope Row -->
                 <div class="flex items-center gap-3">
-                    <span class="text-[11px] text-gray-500 shrink-0">Scope:</span>
-                    
+                    <span class="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">Scope:</span>
+
                     <!-- Data Sources -->
-                    <USelectMenu 
+                    <USelectMenu
                         :model-value="selectedDataSources"
                         @update:model-value="updateDataSources"
-                        :options="dataSourceOptions" 
+                        :options="dataSourceOptions"
                         option-attribute="name"
                         value-attribute="id"
                         size="xs"
@@ -367,9 +367,9 @@ Examples:
                         class="min-w-[200px]"
                     >
                         <template #label>
-                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">All sources</span>
+                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700 dark:text-gray-300">All sources</span>
                             <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">Sources</span>
-                            <span v-else class="text-xs text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
+                            <span v-else class="text-xs text-gray-700 dark:text-gray-300">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
                         </template>
                         <template #option="{ option }">
                             <div class="flex items-center justify-between w-full py-0.5 pe-1">
@@ -400,18 +400,18 @@ Examples:
                     >
                         <template #label>
                             <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">Tables</span>
-                            <span v-else class="text-xs text-gray-700">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                            <span v-else class="text-xs text-gray-700 dark:text-gray-300">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
                         </template>
                         <template #option="{ option }">
                             <div class="w-full py-0.5">
                                 <div class="flex items-center gap-1.5">
                                     <UCheckbox :model-value="selectedReferenceIds.includes(String(option.id))" @update:model-value="toggleReference(String(option.id))" @click.stop @mousedown.stop class="flex-shrink-0" />
-                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-500 flex-shrink-0" />
-                                    <span class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</span>
+                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                    <span class="text-xs font-medium text-gray-900 dark:text-white truncate">{{ option.name }}</span>
                                 </div>
                                 <div class="flex items-center gap-1.5 ms-6">
                                     <DataSourceIcon :type="option.data_source_type" class="h-2.5 flex-shrink-0" />
-                                    <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
+                                    <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ option.data_source_name }}</span>
                                 </div>
                             </div>
                         </template>
@@ -419,30 +419,30 @@ Examples:
                 </div>
 
             </div>
-            
+
             <!-- Form Actions (fixed at bottom) -->
-            <div class="shrink-0 bg-white border-t px-5 py-3">
+            <div class="shrink-0 bg-white dark:bg-gray-900 border-t px-5 py-3">
                 <div class="flex justify-between items-center">
                     <!-- Delete button (only show when editing) -->
-                    <UButton 
+                    <UButton
                         v-if="isEditing"
                         size="xs"
-                        color="red" 
-                        variant="ghost" 
+                        color="red"
+                        variant="ghost"
                         @click="confirmDelete"
                         :loading="isDeleting"
                     >
                         <Icon name="heroicons:trash" class="w-3.5 h-3.5 me-1" />
                         Delete
                     </UButton>
-                    
+
                     <div class="flex gap-2" :class="{ 'ms-auto': !isEditing }">
                         <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                             Cancel
                         </UButton>
-                        <UButton 
-                            type="submit" 
-                            size="xs" 
+                        <UButton
+                            type="submit"
+                            size="xs"
                             color="blue"
                             :loading="isSubmitting"
                         >
@@ -473,13 +473,13 @@ interface SharedForm {
     text: string
     status: 'draft' | 'published' | 'archived'
     category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
-    
+
     // Dual-status lifecycle fields
     private_status: string | null
     global_status: string | null
     is_seen: boolean
     can_user_toggle: boolean
-    
+
     // Unified Instructions System fields
     load_mode: 'always' | 'intelligent' | 'disabled'
 }
@@ -586,12 +586,12 @@ const filteredMentionableOptions = computed(() => {
     if (isAllDataSourcesSelected.value) {
         return mentionableOptions.value
     }
-    
+
     return mentionableOptions.value.filter(option => {
         if (option.data_source_id) {
             return props.selectedDataSources.includes(option.data_source_id)
         }
-        
+
         return true
     })
 })
@@ -640,9 +640,9 @@ const updateDataSources = (dataSources: string[]) => {
 
 const enhanceInstruction = async () => {
     if (isEnhancing.value || !props.sharedForm.text?.trim()) return
-    
+
     isEnhancing.value = true
-    
+
     try {
         const response = await useMyFetch('/instructions/enhance', {
             method: 'POST',
@@ -671,7 +671,7 @@ const fetchDataSources = async () => {
         const { data, error } = await useMyFetch<DataSource[]>('/data_sources/active', {
             method: 'GET'
         })
-        
+
         if (error.value) {
             console.error('Failed to fetch data sources:', error.value)
         } else if (data.value) {
@@ -684,7 +684,7 @@ const fetchDataSources = async () => {
 
 const handleDataSourceToggle = (dataSourceId: string) => {
     let newSelectedDataSources = [...props.selectedDataSources]
-    
+
     if (dataSourceId === 'all') {
         if (isAllDataSourcesSelected.value) {
             newSelectedDataSources = newSelectedDataSources.filter(id => id !== 'all')
@@ -693,14 +693,14 @@ const handleDataSourceToggle = (dataSourceId: string) => {
         }
     } else {
         newSelectedDataSources = newSelectedDataSources.filter(id => id !== 'all')
-        
+
         if (newSelectedDataSources.includes(dataSourceId)) {
             newSelectedDataSources = newSelectedDataSources.filter(id => id !== dataSourceId)
         } else {
             newSelectedDataSources.push(dataSourceId)
         }
     }
-    
+
     updateDataSources(newSelectedDataSources)
 }
 
@@ -786,7 +786,7 @@ const fullInstruction = ref<any>(null)
 
 const fetchFullInstruction = async () => {
     if (!props.instruction?.id) return
-    
+
     try {
         const { data, error } = await useMyFetch<any>(`/instructions/${props.instruction.id}`, { method: 'GET' })
         if (!error.value && data.value) {
@@ -799,18 +799,18 @@ const fetchFullInstruction = async () => {
 
 const initReferencesFromInstruction = () => {
     const instruction = fullInstruction.value || props.instruction
-    
+
     if (instruction && Array.isArray(instruction.references)) {
         const map: Record<string, MentionableItem> = {}
         for (const m of mentionableOptions.value) map[m.id] = m
-        
+
         const seenObjectIds = new Set<string>()
         const preselected: MentionableItem[] = []
-        
+
         for (const r of instruction.references) {
             if (seenObjectIds.has(r.object_id)) continue
             seenObjectIds.add(r.object_id)
-            
+
             const existing = map[r.object_id]
             if (existing) {
                 preselected.push({ ...existing, column_name: r.column_name || null })
@@ -832,9 +832,9 @@ const initLabelsFromInstruction = () => {
 // Event handlers
 const submitForm = async () => {
     if (isSubmitting.value) return
-    
+
     isSubmitting.value = true
-    
+
     try {
         // SIMPLIFIED: All instructions are "published" (content ready)
         // Approval workflow is handled by builds, not instruction status
@@ -874,7 +874,7 @@ const submitForm = async () => {
                 description: `Instruction ${isEditing.value ? 'updated' : 'created'} successfully`,
                 color: 'green'
             })
-            
+
             emit('instructionSaved', response.data.value)
         } else {
             throw new Error('Failed to save instruction')
@@ -893,27 +893,27 @@ const submitForm = async () => {
 
 const confirmDelete = async () => {
     if (!props.instruction?.id) return
-    
+
     const confirmed = window.confirm(
         `Are you sure you want to delete this instruction?`
     )
-    
+
     if (!confirmed) return
-    
+
     isDeleting.value = true
-    
+
     try {
         const response = await useMyFetch(`/instructions/${props.instruction.id}`, {
             method: 'DELETE'
         })
-        
+
         if (response.status.value === 'success') {
             toast.add({
                 title: 'Success',
                 description: 'Instruction deleted successfully',
                 color: 'green'
             })
-            
+
             emit('instructionSaved', { deleted: true, id: props.instruction.id })
         } else {
             throw new Error('Failed to delete instruction')
@@ -938,7 +938,7 @@ onMounted(async () => {
     await fetchAvailableReferences()
     initReferencesFromInstruction()
     initLabelsFromInstruction()
-    
+
     // If creating a new instruction and agents are selected, use them as initial scope
     if (!props.instruction && !isAgentAllSelected.value && agentSelectedIds.value.length > 0) {
         emit('updateDataSources', [...agentSelectedIds.value])
@@ -1010,19 +1010,19 @@ watch(() => props.selectedDataSources, () => {
         @apply bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs;
         color: #374151;
     }
-    
+
     /* Regular links - but not inside headings */
-    a { 
+    a {
         @apply text-blue-600 hover:text-blue-800 underline;
     }
-    
-    blockquote { 
-        @apply border-l-4 border-gray-200 pl-4 italic my-3 text-gray-600; 
+
+    blockquote {
+        @apply border-l-4 border-gray-200 pl-4 italic my-3 text-gray-600;
     }
-    
+
     table { @apply w-full border-collapse mb-3; }
     table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
-    
+
     hr {
         @apply my-4 border-gray-200;
     }

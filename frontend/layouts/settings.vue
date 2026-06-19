@@ -8,7 +8,7 @@
                     </h1>
                     
                     <!-- Tabs navigation -->
-                    <div class="border-b border-gray-200 mt-6">
+                    <div class="border-b border-gray-200 dark:border-gray-700 mt-6">
                         <nav class="-mb-px flex space-x-8">
                             <NuxtLink
                                 v-for="tab in visibleTabs"
@@ -17,7 +17,7 @@
                                 :class="[
                                     route.path === `/settings/${tab.name}`
                                         ? 'border-blue-500 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700',
                                     'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium'
                                 ]"
                             >

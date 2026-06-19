@@ -6,51 +6,51 @@
         <div class="flex items-center gap-3">
           <DataSourceIcon :type="connection?.type" class="h-6" />
           <div>
-            <div class="font-medium text-gray-900">{{ connection?.name }}</div>
-            <div class="text-xs text-gray-400">{{ connection?.type }}</div>
+            <div class="font-medium text-gray-900 dark:text-white">{{ connection?.name }}</div>
+            <div class="text-xs text-gray-400 dark:text-gray-600">{{ connection?.type }}</div>
           </div>
         </div>
-        <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600">
+        <button @click="isOpen = false" class="text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
 
       <!-- Status & Info -->
-      <div class="space-y-3 py-4 border-t border-gray-100">
+      <div class="space-y-3 py-4 border-t border-gray-100 dark:border-gray-800">
         <!-- Status -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.status') }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.status') }}</span>
           <div class="flex items-center gap-2">
             <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
-            <span class="text-xs text-gray-700">{{ isConnected ? $t('data.connected') : $t('data.disconnected') }}</span>
+            <span class="text-xs text-gray-700 dark:text-gray-300">{{ isConnected ? $t('data.connected') : $t('data.disconnected') }}</span>
           </div>
         </div>
 
         <!-- Tables (SQL connections) or Tools (MCP/custom_api) -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ isToolProvider ? $t('data.toolsLabel') : $t('data.tablesLabel') }}</span>
-          <span class="text-xs text-gray-700">{{ isToolProvider ? toolCount : tableCount }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ isToolProvider ? $t('data.toolsLabel') : $t('data.tablesLabel') }}</span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">{{ isToolProvider ? toolCount : tableCount }}</span>
         </div>
 
         <!-- Data Agents -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.agentsLabel') }}</span>
-          <span class="text-xs text-gray-700">{{ agentCount }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.agentsLabel') }}</span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">{{ agentCount }}</span>
         </div>
 
         <!-- Last Checked -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.lastChecked') }}</span>
-          <span class="text-xs text-gray-700">{{ lastCheckedDisplay || $t('data.never') }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.lastChecked') }}</span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">{{ lastCheckedDisplay || $t('data.never') }}</span>
         </div>
 
         <!-- Last Indexed (terminal state) — service-principal run, admin-only.
              Per-user viewers get their own "refreshed" line below instead. -->
         <div v-if="canUpdateDataSource && indexingState && !isIndexingActive(indexingState) && indexingState.finished_at" class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">Last indexed</span>
-          <span class="text-xs text-gray-700">
+          <span class="text-xs text-gray-500 dark:text-gray-400">Last indexed</span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">
             {{ lastIndexedDisplay }}
-            <span v-if="indexingState.stats?.elapsed_s != null" class="text-gray-400">
+            <span v-if="indexingState.stats?.elapsed_s != null" class="text-gray-400 dark:text-gray-600">
               · {{ indexingState.stats.elapsed_s }}s
             </span>
           </span>
@@ -59,14 +59,14 @@
         <!-- Per-user "last refreshed" — when the viewer runs on their own creds,
              show when THEY last pulled their accessible tables (not the SP run). -->
         <div v-if="isPerUserViewer && myLastRefreshedDisplay" class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.lastRefreshed') }}</span>
-          <span class="text-xs text-gray-700">{{ myLastRefreshedDisplay }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.lastRefreshed') }}</span>
+          <span class="text-xs text-gray-700 dark:text-gray-300">{{ myLastRefreshedDisplay }}</span>
         </div>
       </div>
 
       <!-- Indexing block — service-principal run (live progress / logs / reindex).
            Admin-only: this is the shared catalog index, not the viewer's. -->
-      <div v-if="canUpdateDataSource" class="py-3 border-t border-gray-100">
+      <div v-if="canUpdateDataSource" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <ConnectionIndexingProgress v-if="indexingState" :indexing="indexingState" :show-logs="true" />
         <div class="mt-2">
           <UButton size="xs" color="gray" variant="soft" :loading="reindexing" @click="reindex">
@@ -79,11 +79,11 @@
       <!-- Auto-reindex schedule (enterprise `scheduled_reindex`). Admin-only.
            Periodically re-indexes the shared catalog so tables stay fresh
            without a manual reindex. -->
-      <div v-if="canUpdateDataSource && !isToolProvider" class="py-3 border-t border-gray-100">
+      <div v-if="canUpdateDataSource && !isToolProvider" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
-            <span class="text-xs font-medium text-gray-700">{{ $t('data.autoReindex') }}</span>
-            <UIcon v-if="!autoReindexLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400" />
+            <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.autoReindex') }}</span>
+            <UIcon v-if="!autoReindexLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400 dark:text-gray-600" />
           </div>
           <UToggle
             :model-value="autoReindexEnabled"
@@ -92,17 +92,17 @@
             @update:model-value="onToggleAutoReindex"
           />
         </div>
-        <p class="text-[11px] text-gray-400 mt-1">
+        <p class="text-[11px] text-gray-400 dark:text-gray-600 mt-1">
           {{ autoReindexLicensed ? $t('data.autoReindexHint') : $t('data.autoReindexEnterprise') }}
         </p>
 
         <!-- Interval picker — only when enabled & licensed. -->
         <div v-if="autoReindexLicensed && autoReindexEnabled" class="mt-2 flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.autoReindexEvery') }}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.autoReindexEvery') }}</span>
           <select
             :value="autoReindexInterval"
             :disabled="savingAutoReindex"
-            class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+            class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
             @change="onChangeInterval(($event.target as HTMLSelectElement).value)"
           >
             <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -117,7 +117,7 @@
 
       <!-- Per-user summary — honest, user-scoped view for OBO viewers: what THEY
            can see, not the service-principal's "Discovered N tables" / logs. -->
-      <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100">
+      <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center gap-1.5 text-xs text-green-700">
           <UIcon name="heroicons-check-circle" class="w-4 h-4 flex-shrink-0" />
           <span>{{ isToolProvider
@@ -127,16 +127,16 @@
       </div>
 
       <!-- Query identity toggle (admin/owner on delegated connections) -->
-      <div v-if="requiresUserAuth && canSwitchIdentity" class="py-3 border-t border-gray-100">
-        <div class="text-xs text-gray-500 mb-2">{{ $t('data.runQueriesAs') }}</div>
+      <div v-if="requiresUserAuth && canSwitchIdentity" class="py-3 border-t border-gray-100 dark:border-gray-800">
+        <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('data.runQueriesAs') }}</div>
         <div class="grid grid-cols-2 gap-2">
           <button
             @click="setIdentity('service_account')"
             :disabled="switchingIdentity"
             :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
                      queryIdentity === 'service_account'
-                       ? 'bg-blue-50 border-blue-300 text-blue-700'
-                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']"
+                       ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 text-blue-700'
+                       : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']"
           >
             <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
             {{ $t('data.serviceAccount') }}
@@ -146,8 +146,8 @@
             :disabled="switchingIdentity"
             :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
                      queryIdentity === 'self'
-                       ? 'bg-blue-50 border-blue-300 text-blue-700'
-                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']"
+                       ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 text-blue-700'
+                       : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']"
           >
             <UIcon name="heroicons-user" class="w-3.5 h-3.5" />
             {{ $t('data.me') }}
@@ -160,19 +160,19 @@
             <button
               @click="openCredentialsModal"
               :disabled="connecting"
-              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Spinner v-if="connecting" class="w-3.5 h-3.5" />
               <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
               {{ $t('data.connect') }}
             </button>
-            <p class="text-xs text-gray-400 mt-1.5 text-center">{{ $t('data.connectToQueryAsYou') }}</p>
+            <p class="text-xs text-gray-400 dark:text-gray-600 mt-1.5 text-center">{{ $t('data.connectToQueryAsYou') }}</p>
           </div>
           <div v-else class="flex items-center gap-2">
             <button
               @click="reloadMySchema"
               :disabled="reloadingMySchema"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             >
               <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
               <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
@@ -181,7 +181,7 @@
             <button
               @click="disconnect"
               :disabled="disconnecting"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white dark:bg-gray-900 border border-red-200 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
             >
               <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
               <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
@@ -189,16 +189,16 @@
             </button>
           </div>
         </div>
-        <p v-else class="mt-2 text-xs text-gray-400">{{ $t('data.serviceAccountNote') }}</p>
+        <p v-else class="mt-2 text-xs text-gray-400 dark:text-gray-600">{{ $t('data.serviceAccountNote') }}</p>
       </div>
 
       <!-- Actions -->
-      <div class="flex items-center gap-2 pt-4 border-t border-gray-100">
+      <div class="flex items-center gap-2 pt-4 border-t border-gray-100 dark:border-gray-800">
         <button
           v-if="canUpdateDataSource"
           @click="testConnection"
           :disabled="testing"
-          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
         >
           <Spinner v-if="testing" class="w-3.5 h-3.5" />
           <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
@@ -208,7 +208,7 @@
         <button
           v-if="canUpdateDataSource"
           @click="openEdit"
-          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
         >
           <UIcon name="heroicons-pencil" class="w-3.5 h-3.5" />
           {{ $t('data.edit') }}
@@ -223,7 +223,7 @@
             v-if="hasUserCredentials"
             @click="reloadMySchema"
             :disabled="reloadingMySchema"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
             <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
@@ -233,7 +233,7 @@
             v-if="hasUserCredentials"
             @click="disconnect"
             :disabled="disconnecting"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white dark:bg-gray-900 border border-red-200 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
           >
             <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
@@ -242,7 +242,7 @@
           <!-- Owner runs via the connection's system (service principal) creds. -->
           <div
             v-else-if="usesServiceAccount"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg"
           >
             <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
             Service account
@@ -251,7 +251,7 @@
             v-else
             @click="openCredentialsModal"
             :disabled="connecting"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Spinner v-if="connecting" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
@@ -266,11 +266,11 @@
       </div>
 
       <!-- Delete Section (only for admins) -->
-      <div v-if="canUpdateDataSource" class="pt-4 mt-4 border-t border-gray-100">
+      <div v-if="canUpdateDataSource" class="pt-4 mt-4 border-t border-gray-100 dark:border-gray-800">
         <div v-if="!confirmingDelete">
           <button
             @click="confirmingDelete = true"
-            class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer"
+            class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 bg-red-50 dark:bg-red-950 border border-red-200 hover:bg-red-100 dark:hover:bg-red-900/50 cursor-pointer"
           >
             <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
             {{ $t('data.deleteConnection') }}
@@ -280,7 +280,7 @@
         <!-- Confirm delete -->
         <div v-else class="space-y-3">
           <!-- Warning for impacted agents -->
-          <div v-if="agentCount > 0" class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <div v-if="agentCount > 0" class="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 rounded-lg">
             <div class="flex items-start gap-2">
               <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
               <div class="text-xs">
@@ -293,12 +293,12 @@
             </div>
           </div>
 
-          <p class="text-xs text-gray-600 text-center">{{ $t('data.deleteConfirm') }}</p>
+          <p class="text-xs text-gray-600 dark:text-gray-400 text-center">{{ $t('data.deleteConfirm') }}</p>
           <div class="flex gap-2">
             <button
               @click="confirmingDelete = false"
               :disabled="deleting"
-              class="flex-1 px-3 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+              class="flex-1 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               {{ $t('data.cancel') }}
             </button>
@@ -330,8 +330,8 @@
       </template>
 
       <div v-if="loadingDetails" class="py-8 text-center">
-        <Spinner class="h-5 w-5 mx-auto text-gray-400" />
-        <p class="text-sm text-gray-500 mt-2">{{ $t('common.loading') }}</p>
+        <Spinner class="h-5 w-5 mx-auto text-gray-400 dark:text-gray-600" />
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
       </div>
 
       <ConnectForm
@@ -486,16 +486,16 @@ const isConnected = computed(() => {
   // Check multiple possible status fields
   const conn = props.connection
   if (!conn) return false
-  
+
   // Direct status fields
   if (conn.last_status === 'success' || conn.status === 'success') return true
   if (conn.last_status === 'error' || conn.status === 'error') return false
-  
+
   // User status
   const userStatus = conn.user_status?.connection
   if (userStatus === 'success') return true
   if (userStatus === 'error' || userStatus === 'offline') return false
-  
+
   // Default to true if connection exists (assume healthy)
   return true
 })
@@ -822,4 +822,3 @@ watch(() => props.connection?.id, () => {
 
 onBeforeUnmount(() => stopPolling())
 </script>
-

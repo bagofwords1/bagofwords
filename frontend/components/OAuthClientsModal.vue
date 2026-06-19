@@ -1,10 +1,10 @@
 <template>
   <div class="p-4">
     <div class="flex items-center gap-2 mb-2">
-      <UIcon name="heroicons-key" class="w-5 h-5 text-gray-700" />
+      <UIcon name="heroicons-key" class="w-5 h-5 text-gray-700 dark:text-gray-300" />
       <h1 class="text-lg font-semibold">OAuth Clients</h1>
     </div>
-    <p class="text-sm text-gray-500">
+    <p class="text-sm text-gray-500 dark:text-gray-400">
       Register external apps that connect to this workspace via OAuth 2.1 (e.g. Claude Web's MCP connector).
     </p>
     <hr class="my-4" />
@@ -16,21 +16,21 @@
 
     <div v-else>
       <!-- Clients list / empty state -->
-      <div v-if="clients.length === 0" class="bg-gray-50 rounded-lg border border-gray-200 border-dashed px-4 py-6 text-center mb-4">
-        <p class="text-sm text-gray-500 mb-3">No OAuth clients registered yet</p>
+      <div v-if="clients.length === 0" class="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-dashed px-4 py-6 text-center mb-4">
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">No OAuth clients registered yet</p>
       </div>
 
-      <div v-else class="border border-gray-200 rounded-lg divide-y divide-gray-200 mb-4">
+      <div v-else class="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 mb-4">
         <div
           v-for="client in clients"
           :key="client.id"
-          class="px-3 py-2 hover:bg-gray-50 transition-colors"
+          class="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
           <div class="flex items-center justify-between">
             <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium text-gray-800 truncate">{{ client.name }}</div>
+              <div class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ client.name }}</div>
               <div class="flex items-center gap-2 mt-0.5">
-                <code class="font-mono text-[11px] text-gray-600 truncate">{{ client.client_id }}</code>
+                <code class="font-mono text-[11px] text-gray-600 dark:text-gray-400 truncate">{{ client.client_id }}</code>
                 <span class="text-[10px] text-gray-400">{{ formatDate(client.created_at) }}</span>
               </div>
             </div>
@@ -76,7 +76,7 @@
           </div>
 
           <!-- Show freshly generated secret inline -->
-          <div v-if="freshSecretByClientId[client.client_id]" class="mt-2 bg-amber-50 border border-amber-200 rounded p-2">
+          <div v-if="freshSecretByClientId[client.client_id]" class="mt-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 rounded p-2">
             <div class="text-[10px] text-amber-700 uppercase tracking-wide mb-1">Client Secret (shown once)</div>
             <div class="flex items-center justify-between gap-2">
               <code class="font-mono text-xs text-amber-900 break-all">{{ freshSecretByClientId[client.client_id] }}</code>
@@ -92,8 +92,8 @@
           </div>
 
           <!-- Inline edit form for redirect URIs -->
-          <div v-if="editingId === client.id" class="mt-2 bg-gray-50 border border-gray-200 rounded p-2">
-            <label class="block text-[11px] text-gray-500 uppercase tracking-wide mb-1">Redirect URIs</label>
+          <div v-if="editingId === client.id" class="mt-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2">
+            <label class="block text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Redirect URIs</label>
             <textarea
               v-model="editRedirectUris"
               rows="3"
@@ -115,15 +115,15 @@
 
           <!-- Registered redirect URIs -->
           <div v-else-if="client.redirect_uris?.length" class="mt-1">
-            <details class="text-[11px] text-gray-500">
-              <summary class="cursor-pointer hover:text-gray-700">
+            <details class="text-[11px] text-gray-500 dark:text-gray-400">
+              <summary class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
                 {{ client.redirect_uris.length }} redirect URI{{ client.redirect_uris.length === 1 ? '' : 's' }}
               </summary>
               <ul class="mt-1 space-y-0.5">
                 <li
                   v-for="uri in client.redirect_uris"
                   :key="uri"
-                  class="font-mono break-all text-gray-600"
+                  class="font-mono break-all text-gray-600 dark:text-gray-400"
                 >{{ uri }}</li>
               </ul>
             </details>
@@ -157,7 +157,7 @@
         </div>
 
         <details class="text-sm">
-          <summary class="cursor-pointer text-gray-500 hover:text-gray-700">
+          <summary class="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
             Custom redirect URIs (optional)
           </summary>
           <div class="mt-2">
@@ -176,15 +176,15 @@
 
       <!-- Claude Web setup instructions -->
       <details class="mt-5 text-sm">
-        <summary class="cursor-pointer text-gray-500 hover:text-gray-700">
+        <summary class="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
           Claude Web setup instructions
         </summary>
-        <div class="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
-          <div class="flex items-center gap-2 text-xs text-gray-500">
+        <div class="mt-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
+          <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             <div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-            <code class="font-mono text-gray-700">{{ mcpServerUrl }}</code>
+            <code class="font-mono text-gray-700 dark:text-gray-300">{{ mcpServerUrl }}</code>
           </div>
-          <ol class="text-sm text-gray-600 space-y-1.5 list-decimal list-inside">
+          <ol class="text-sm text-gray-600 dark:text-gray-400 space-y-1.5 list-decimal list-inside">
             <li>In Claude Web, go to <strong>Settings → Connectors → Add</strong></li>
             <li>Enter the MCP server URL above</li>
             <li>Click <strong>Advanced Settings</strong></li>

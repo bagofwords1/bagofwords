@@ -1,33 +1,33 @@
 <template>
   <UModal v-model="open" :ui="{ width: 'sm:max-w-2xl', height: 'sm:h-[80vh]' }">
-    <div class="h-full flex flex-col bg-gray-50">
+    <div class="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
       <!-- Header -->
-      <div class="px-4 py-3 bg-white border-b flex items-center justify-between flex-shrink-0">
-        <div class="text-sm font-medium text-gray-800">
+      <div class="px-4 py-3 bg-white dark:bg-gray-900 border-b flex items-center justify-between flex-shrink-0">
+        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
           {{ canCreateEntities ? $t('entityCreate.saveQuery') : $t('entityCreate.suggestQuery') }}
         </div>
-        <button class="text-xs text-gray-500 hover:text-gray-700" @click="open = false">{{ $t('entityCreate.close') }}</button>
+        <button class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="open = false">{{ $t('entityCreate.close') }}</button>
       </div>
 
       <div class="flex-1 flex overflow-hidden min-h-0">
         <!-- Single-pane content -->
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
           <div class="flex-1 overflow-auto">
-            <div class="bg-white rounded-lg p-3">
+            <div class="bg-white dark:bg-gray-900 rounded-lg p-3">
               <!-- Info message for non-admins (suggestions) -->
-              <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+              <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-lg text-xs text-blue-800">
                 <div class="font-medium mb-1">{{ $t('entityCreate.suggestHeading') }}</div>
                 <div>{{ $t('entityCreate.suggestBody') }}</div>
               </div>
 
               <!-- Info message for admins -->
-              <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
+              <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 rounded-lg text-xs text-green-800">
                 <div class="font-medium mb-1">{{ $t('entityCreate.adminHeading') }}</div>
                 <div>{{ $t('entityCreate.adminBody') }}</div>
               </div>
 
               <!-- Error message for no permissions -->
-              <div v-if="!canCreateEntities && !canSuggestEntities" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
+              <div v-if="!canCreateEntities && !canSuggestEntities" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800">
                 <div class="font-medium mb-1">{{ $t('entityCreate.noPermissionHeading') }}</div>
                 <div>{{ $t('entityCreate.noPermissionBody') }}</div>
               </div>
@@ -36,8 +36,8 @@
           </div>
 
           <!-- Footer Actions -->
-          <div class="px-4 py-3 bg-white border-t flex items-center justify-end gap-2 flex-shrink-0">
-            <button class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" @click="open = false">{{ $t('entityCreate.cancel') }}</button>
+          <div class="px-4 py-3 bg-white dark:bg-gray-900 border-t flex items-center justify-end gap-2 flex-shrink-0">
+            <button class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="open = false">{{ $t('entityCreate.cancel') }}</button>
             <button
               class="text-white text-xs font-medium py-1.5 px-3 rounded-lg disabled:opacity-50"
               :class="canCreateEntities ? 'bg-blue-500 hover:bg-blue-600' : 'bg-amber-500 hover:bg-amber-600'"
@@ -52,7 +52,7 @@
       </div>
     </div>
   </UModal>
-  
+
 </template>
 
 <script setup lang="ts">
@@ -136,11 +136,11 @@ async function onSave() {
   errorMsg.value = ''
   try {
     if (!props.stepId) throw new Error(t('entityCreate.stepRequired'))
-    
+
     // If user can create entities, respect their status choice
     // If user can only suggest, force it to be a suggestion (draft)
     const publish = canCreateEntities.value ? (form.value.status === 'published') : false
-    
+
     const body: any = {
       type: form.value.type || 'model',
       title: form.value.title || '',
@@ -148,7 +148,7 @@ async function onSave() {
       publish,
       data_source_ids: form.value.data_source_ids || [],
     }
-    
+
     const { data, error } = await useMyFetch(`/api/entities/from_step/${props.stepId}`, { method: 'POST', body })
     if (error.value) throw error.value
     emit('saved', data.value)
@@ -164,5 +164,4 @@ async function onSave() {
 
 <style scoped>
 </style>
-
 

@@ -4,30 +4,30 @@
             <div class="mt-6">
                 <!-- Top metrics -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                        <div class="text-sm font-medium text-gray-600">{{ $t('evals.totalTestCases') }}</div>
-                        <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_cases ?? 0 }}</div>
+                    <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                        <div class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ $t('evals.totalTestCases') }}</div>
+                        <div class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ metrics?.total_test_cases ?? 0 }}</div>
                     </div>
-                    <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                        <div class="text-sm font-medium text-gray-600">{{ $t('evals.totalTestRuns') }}</div>
-                        <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_runs ?? 0 }}</div>
+                    <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                        <div class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ $t('evals.totalTestRuns') }}</div>
+                        <div class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ metrics?.total_test_runs ?? 0 }}</div>
                     </div>
-                    <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                        <div class="text-sm font-medium text-gray-600">{{ $t('evals.lastTestResult') }}</div>
+                    <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                        <div class="text-sm font-medium text-gray-600 dark:text-gray-400">{{ $t('evals.lastTestResult') }}</div>
                         <div class="mt-1">
                             <span v-if="metrics?.last_result_status" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(derivedStatus(metrics?.last_result_status))]">
                                 {{ localizedStatus(derivedStatus(metrics?.last_result_status)) }}
                             </span>
-                            <span v-else class="text-gray-500 text-sm">—</span>
+                            <span v-else class="text-gray-500 dark:text-gray-400 text-sm">—</span>
                         </div>
-                        <div class="text-xs text-gray-500 mt-1" v-if="metrics?.last_result_at">
+                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1" v-if="metrics?.last_result_at">
                             {{ formatDate(metrics?.last_result_at) }}
                         </div>
                     </div>
                 </div>
 
                 <!-- Tabs -->
-                <div class="border-b border-gray-200 mb-6">
+                <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
                     <nav class="-mb-px flex space-x-8" aria-label="Tabs">
                         <button
                             type="button"
@@ -48,10 +48,10 @@
 
                 <!-- Tests tab -->
                 <div v-if="activeTab === 'tests'">
-                    <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-                        <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                             <div class="flex flex-col md:flex-row md:items-center gap-3">
-                                <div class="text-sm font-medium text-gray-700 me-auto">{{ $t('evals.tests.title') }}</div>
+                                <div class="text-sm font-medium text-gray-700 dark:text-gray-300 me-auto">{{ $t('evals.tests.title') }}</div>
                                 <div class="flex items-center gap-2 w-full md:w-auto">
                                     <!-- Suite filter -->
                                     <USelectMenu
@@ -64,7 +64,7 @@
                                         :ui="{ option: { base: 'text-xs py-1.5' } }"
                                     >
                                         <template #option="{ option }">
-                                            <div v-if="option.value === '__manage__'" class="flex items-center gap-1.5 text-xs text-gray-500 border-t border-gray-100 -mx-2 px-2 pt-2 -mb-0.5">
+                                            <div v-if="option.value === '__manage__'" class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800 -mx-2 px-2 pt-2 -mb-0.5">
                                                 <Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
                                                 {{ option.label }}
                                             </div>
@@ -76,7 +76,7 @@
                                         v-model="searchTerm"
                                         type="text"
                                         :placeholder="$t('evals.tests.search')"
-                                        class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
+                                        class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full md:w-56"
                                     />
                                     <!-- Actions -->
                                     <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">{{ $t('evals.tests.runSelected') }}</UButton>
@@ -85,20 +85,20 @@
                             </div>
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead class="bg-gray-50 dark:bg-gray-900">
                                     <tr>
                                         <th class="px-4 py-3 w-10 text-center">
                                             <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
                                         </th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colPrompt') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colRules') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colSuite') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colOptions') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colPrompt') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colRules') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colSuite') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colOptions') }}</th>
                                     </tr>
                                 </thead>
-                                <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                                    <tr v-for="c in filteredTests" :key="c.id" class="hover:bg-gray-50">
+                                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
+                                    <tr v-for="c in filteredTests" :key="c.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                         <td class="px-4 py-3 w-10 text-center">
                                             <div class="flex items-center justify-center">
                                                 <input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleOne(c.id)" />
@@ -107,12 +107,12 @@
                                         <td class="px-6 py-3">
                                             <div class="flex items-center gap-2 max-w-[620px]">
                                                 <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-2 py-0.5 shrink-0" title="Draft — promote to active to include in default suite runs">Draft</span>
-                                                <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
+                                                <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
                                                 <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-[10px] font-medium px-2 py-0.5 shrink-0" title="Auto-drafted by the knowledge harness">Auto</span>
                                                 <span class="block flex-1 truncate" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
                                             </div>
                                         </td>
-                                        <td class="px-6 py-3 text-gray-700">
+                                        <td class="px-6 py-3 text-gray-700 dark:text-gray-300">
                                             <div class="flex flex-wrap gap-1 max-w-[620px]">
                                                 <span
                                                   v-for="cat in categoriesForCase(c)"
@@ -133,13 +133,13 @@
                                         </td>
                                     </tr>
                                     <tr v-if="filteredTests.length === 0">
-                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.tests.empty') }}</td>
+                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500 dark:text-gray-400">{{ $t('evals.tests.empty') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
-                            <div class="text-xs text-gray-500">{{ $t('evals.pagination.showing', { page: testsPage, n: filteredTests.length }) }}</div>
+                        <div class="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.pagination.showing', { page: testsPage, n: filteredTests.length }) }}</div>
                             <div class="flex items-center gap-2">
                                 <USelectMenu
                                   v-model="testsLimit"
@@ -158,10 +158,10 @@
 
                 <!-- Runs tab -->
                 <div v-else>
-                    <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-                        <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                             <div class="flex flex-col md:flex-row md:items-center gap-3">
-                                <div class="text-sm font-medium text-gray-700 me-auto">{{ $t('evals.runs.title') }}</div>
+                                <div class="text-sm font-medium text-gray-700 dark:text-gray-300 me-auto">{{ $t('evals.runs.title') }}</div>
                                 <div class="flex items-center gap-2 w-full md:w-auto">
                                     <USelectMenu
                                       v-model="runSuiteFilter"
@@ -173,7 +173,7 @@
                                       :ui="{ option: { base: 'text-xs py-1.5' } }"
                                     >
                                         <template #option="{ option }">
-                                            <div v-if="option.value === '__manage__'" class="flex items-center gap-1.5 text-xs text-gray-500 border-t border-gray-100 -mx-2 px-2 pt-2 -mb-0.5">
+                                            <div v-if="option.value === '__manage__'" class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800 -mx-2 px-2 pt-2 -mb-0.5">
                                                 <Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
                                                 {{ option.label }}
                                             </div>
@@ -192,27 +192,27 @@
                                       v-model="runSearchTerm"
                                       type="text"
                                       :placeholder="$t('evals.filter.searchRuns')"
-                                      class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
+                                      class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full md:w-56"
                                     />
                                 </div>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead class="bg-gray-50 dark:bg-gray-900">
                                     <tr>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colTitle') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colStarted') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colTrigger') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colBuild') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colStatus') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colResults') }}</th>
-                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colDuration') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colTitle') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colStarted') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colTrigger') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colBuild') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colStatus') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colResults') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colDuration') }}</th>
                                     </tr>
                                 </thead>
-                                <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                                    <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50">
-                                        <td class="px-6 py-3 text-gray-900">
+                                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
+                                    <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                                        <td class="px-6 py-3 text-gray-900 dark:text-white">
                                             <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
                                                 {{ r.title || $t('evals.runs.fallbackTitle') }}
                                             </NuxtLink>
@@ -220,7 +220,7 @@
                                         <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
                                         <td class="px-6 py-3 capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
                                         <td class="px-6 py-3">
-                                            <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600">
+                                            <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600 dark:text-gray-400">
                                                 <Icon name="heroicons:cube" class="w-3 h-3" />
                                                 #{{ r.build_number }}
                                             </span>
@@ -237,13 +237,13 @@
                                         <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                                     </tr>
                                     <tr v-if="filteredRuns.length === 0">
-                                        <td colspan="7" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.runs.empty') }}</td>
+                                        <td colspan="7" class="px-6 py-6 text-center text-gray-500 dark:text-gray-400">{{ $t('evals.runs.empty') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
-                            <div class="text-xs text-gray-500">{{ $t('evals.pagination.showing', { page: runsPage, n: filteredRuns.length }) }}</div>
+                        <div class="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.pagination.showing', { page: runsPage, n: filteredRuns.length }) }}</div>
                             <div class="flex items-center gap-2">
                                 <USelectMenu
                                   v-model="runsLimit"

@@ -4,27 +4,27 @@
         <div v-else>
             <!-- Metric cards -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div class="bg-white p-5 border border-gray-200 rounded-xl">
-                    <div class="text-2xl font-bold text-gray-900">{{ agentCases.length }}</div>
-                    <div class="text-sm text-gray-500 mt-1">{{ $t('evals.totalTestCases') }}</div>
+                <div class="bg-white dark:bg-gray-900 p-5 border border-gray-200 dark:border-gray-700 rounded-xl">
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ agentCases.length }}</div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('evals.totalTestCases') }}</div>
                 </div>
-                <div class="bg-white p-5 border border-gray-200 rounded-xl">
-                    <div class="text-2xl font-bold text-gray-900">{{ agentRuns.length }}</div>
-                    <div class="text-sm text-gray-500 mt-1">{{ $t('evals.totalTestRuns') }}</div>
+                <div class="bg-white dark:bg-gray-900 p-5 border border-gray-200 dark:border-gray-700 rounded-xl">
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ agentRuns.length }}</div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('evals.totalTestRuns') }}</div>
                 </div>
-                <div class="bg-white p-5 border border-gray-200 rounded-xl">
+                <div class="bg-white dark:bg-gray-900 p-5 border border-gray-200 dark:border-gray-700 rounded-xl">
                     <div class="mt-0.5">
                         <span v-if="lastRunStatus" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(lastRunStatus)]">
                             {{ localizedStatus(lastRunStatus) }}
                         </span>
                         <span v-else class="text-gray-400 text-sm">—</span>
                     </div>
-                    <div class="text-sm text-gray-500 mt-1">{{ $t('evals.lastTestResult') }}</div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('evals.lastTestResult') }}</div>
                 </div>
             </div>
 
             <!-- Sub-tabs -->
-            <div class="border-b border-gray-200 mb-4">
+            <div class="border-b border-gray-200 dark:border-gray-700 mb-4">
                 <nav class="-mb-px flex space-x-8">
                     <button type="button" @click="activeTab = 'tests'" :class="tabClass('tests')">{{ $t('evals.tabs.tests') }}</button>
                     <button type="button" @click="activeTab = 'runs'" :class="tabClass('runs')">{{ $t('evals.tabs.runs') }}</button>
@@ -33,14 +33,14 @@
 
             <!-- Tests tab -->
             <div v-if="activeTab === 'tests'">
-                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                    <div class="px-5 py-3 border-b border-gray-200 flex items-center gap-3">
-                        <div class="text-sm font-medium text-gray-700 me-auto">{{ $t('evals.tests.title') }}</div>
+                <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
+                        <div class="text-sm font-medium text-gray-700 dark:text-gray-300 me-auto">{{ $t('evals.tests.title') }}</div>
                         <input
                             v-model="searchTerm"
                             type="text"
                             :placeholder="$t('evals.tests.search')"
-                            class="border border-gray-300 rounded px-2 py-1 text-xs w-44"
+                            class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-44"
                         />
                         <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">
                             {{ $t('evals.tests.runSelected') }}
@@ -50,35 +50,35 @@
                         </UButton>
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-900">
                                 <tr>
                                     <th class="px-4 py-3 w-10">
                                         <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
                                     </th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colPrompt') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colRules') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colSuite') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colOptions') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colPrompt') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colRules') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colSuite') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.tests.colOptions') }}</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200 text-xs">
+                            <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
                                 <tr v-if="loadingCases">
                                     <td colspan="5" class="px-6 py-6 text-center text-gray-400 text-xs">{{ $t('common.loading') }}</td>
                                 </tr>
-                                <tr v-for="c in pagedCases" :key="c.id" class="hover:bg-gray-50">
+                                <tr v-for="c in pagedCases" :key="c.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <td class="px-4 py-3 w-10 text-center">
                                         <input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleOne(c.id)" />
                                     </td>
                                     <td class="px-6 py-3">
                                         <div class="flex items-center gap-1.5 max-w-[520px]">
                                             <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-2 py-0.5 shrink-0">Draft</span>
-                                            <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
+                                            <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
                                             <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-[10px] font-medium px-2 py-0.5 shrink-0">Auto</span>
                                             <span class="truncate flex-1" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
                                         </div>
                                     </td>
-                                    <td class="px-6 py-3 text-gray-700">
+                                    <td class="px-6 py-3 text-gray-700 dark:text-gray-300">
                                         <div class="flex flex-wrap gap-1 max-w-xs">
                                             <span
                                                 v-for="cat in categoriesForCase(c)"
@@ -98,13 +98,13 @@
                                     </td>
                                 </tr>
                                 <tr v-if="!loadingCases && pagedCases.length === 0">
-                                    <td colspan="5" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.tests.empty') }}</td>
+                                    <td colspan="5" class="px-6 py-6 text-center text-gray-500 dark:text-gray-400">{{ $t('evals.tests.empty') }}</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
-                    <div class="px-5 py-3 border-t border-gray-200 flex items-center justify-between">
-                        <div class="text-xs text-gray-500">{{ $t('evals.pagination.showing', { page: casesPage, n: pagedCases.length }) }}</div>
+                    <div class="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.pagination.showing', { page: casesPage, n: pagedCases.length }) }}</div>
                         <div class="flex items-center gap-1.5">
                             <UButton size="xs" variant="soft" :disabled="casesPage <= 1" @click="casesPage--">{{ $t('evals.pagination.prev') }}</UButton>
                             <UButton size="xs" variant="soft" :disabled="!casesHasNext" @click="casesPage++">{{ $t('evals.pagination.next') }}</UButton>
@@ -115,27 +115,27 @@
 
             <!-- Runs tab -->
             <div v-else>
-                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                    <div class="px-5 py-3 border-b border-gray-200">
-                        <div class="text-sm font-medium text-gray-700">{{ $t('evals.runs.title') }}</div>
+                <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+                        <div class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('evals.runs.title') }}</div>
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-900">
                                 <tr>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colTitle') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colStarted') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colTrigger') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colStatus') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colResults') }}</th>
-                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colDuration') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colTitle') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colStarted') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colTrigger') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colStatus') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colResults') }}</th>
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('evals.runs.colDuration') }}</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200 text-xs">
+                            <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
                                 <tr v-if="loadingRuns">
                                     <td colspan="6" class="px-6 py-6 text-center text-gray-400">{{ $t('common.loading') }}</td>
                                 </tr>
-                                <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50">
+                                <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <td class="px-6 py-3">
                                         <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
                                             {{ r.title || $t('evals.runs.fallbackTitle') }}
@@ -154,7 +154,7 @@
                                     <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                                 </tr>
                                 <tr v-if="!loadingRuns && agentRuns.length === 0">
-                                    <td colspan="6" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.runs.empty') }}</td>
+                                    <td colspan="6" class="px-6 py-6 text-center text-gray-500 dark:text-gray-400">{{ $t('evals.runs.empty') }}</td>
                                 </tr>
                             </tbody>
                         </table>

@@ -8,12 +8,12 @@
         option-attribute="label"
         size="md"
         :ui="{
-          trigger: 'ring-0 shadow-none bg-transparent hover:bg-gray-50 font-medium text-gray-900',
+          trigger: 'ring-0 shadow-none bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 font-medium text-gray-900 dark:text-white',
           width: 'w-72'
         }"
       >
         <template #default>
-          <span class="text-base font-medium text-gray-900">{{ selectedLabel }}</span>
+          <span class="text-base font-medium text-gray-900 dark:text-white">{{ selectedLabel }}</span>
           <UIcon name="i-heroicons-chevron-down-20-solid" class="w-5 h-5 text-gray-400 ms-1" />
         </template>
       </USelectMenu>
@@ -36,18 +36,18 @@
   <!-- Loading state -->
   <div v-else-if="isLoading" class="mt-12">
     <div class="flex items-center gap-2 mb-4">
-      <div class="h-5 w-32 bg-gray-200 rounded animate-pulse"></div>
+      <div class="h-5 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
     </div>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <div
         v-for="i in 4"
         :key="i"
-        class="bg-gray-100 rounded-xl overflow-hidden"
+        class="bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden"
       >
-        <div class="aspect-[4/3] bg-gray-200 animate-pulse"></div>
+        <div class="aspect-[4/3] bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
         <div class="p-3 space-y-2">
-          <div class="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
-          <div class="h-3 bg-gray-200 rounded animate-pulse w-1/2"></div>
+          <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-3/4"></div>
+          <div class="h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-1/2"></div>
         </div>
       </div>
     </div>

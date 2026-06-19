@@ -1,35 +1,35 @@
 <template>
   <div class="mb-2">
-    <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
+    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
       <!-- Status icon -->
       <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-      
+
       <!-- Action label with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer">{{ actionLabel }}
       </span>
-      <span v-else class="text-gray-700">{{ actionLabel }}</span>
-      
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ actionLabel }}</span>
+
       <!-- Row count if available -->
-      <span v-if="rowCount" class="ms-2 text-gray-400">{{ rowCount }} rows</span>
-      
+      <span v-if="rowCount" class="ms-2 text-gray-400 dark:text-gray-500">{{ rowCount }} rows</span>
+
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
     </div>
-    
+
     <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-1 ms-4">
         <!-- Minimalistic code display -->
         <div v-if="codeContent" class="text-xs mb-2">
-          <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto">
-            <pre class="text-gray-800 whitespace-pre-wrap">{{ codeContent }}</pre>
+          <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto">
+            <pre class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ codeContent }}</pre>
           </div>
-          
+
           <!-- Run status below code -->
-          <div class="mt-2 text-xs bg-gray-50 rounded-lg px-4 py-3 text-gray-500 flex items-center">
+          <div class="mt-2 text-xs bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
             <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.generic.running') }}</span>
             <span v-else-if="status === 'success'" class="flex items-center">
               <span class="text-green-500 flex items-center">
@@ -50,14 +50,14 @@
 
 
         <!-- Loading state -->
-        <div v-else-if="status === 'running'" class="text-xs text-gray-500 italic">
+        <div v-else-if="status === 'running'" class="text-xs text-gray-500 dark:text-gray-400 italic">
         </div>
-        
+
         <!-- Result summary fallback -->
-        <div v-else-if="resultSummary" class="text-xs text-gray-600">
+        <div v-else-if="resultSummary" class="text-xs text-gray-600 dark:text-gray-400">
           {{ resultSummary }}
         </div>
-        
+
 
       </div>
 
@@ -114,23 +114,23 @@ const resultSummary = computed(() => props.toolExecution.result_summary)
 
 const successDetails = computed(() => {
   if (status.value !== 'success') return null
-  
+
   const details = []
-  
+
   // Get row count
   const totalRows = props.toolExecution.result_json?.stats?.total_rows ||
                    props.toolExecution.result_json?.widget_data?.info?.total_rows
   if (totalRows !== undefined) {
     details.push(`${totalRows.toLocaleString()} rows`)
   }
-  
+
   // Get memory size if available
-  const memorySize = props.toolExecution.result_json?.memory_usage || 
+  const memorySize = props.toolExecution.result_json?.memory_usage ||
                     props.toolExecution.result_json?.memory_size
   if (memorySize) {
     details.push(formatMemorySize(memorySize))
   }
-  
+
   return details.length > 0 ? details.join(' • ') : null
 })
 
@@ -144,7 +144,7 @@ const executionLog = computed(() => {
 
 const dataPreview = computed(() => {
   // Try multiple possible paths for data preview
-  return props.toolExecution.result_json?.data_preview?.rows || 
+  return props.toolExecution.result_json?.data_preview?.rows ||
          props.toolExecution.result_json?.widget_data?.rows || []
 })
 
@@ -191,11 +191,11 @@ function formatCellValue(value: any): string {
 
 function formatMemorySize(bytes: number): string {
   if (bytes === 0) return '0 B'
-  
+
   const units = ['B', 'KB', 'MB', 'GB']
   const k = 1024
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  
+
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`
 }
 
@@ -246,4 +246,3 @@ watch(() => status.value, (newStatus, oldStatus) => {
 	opacity: 1;
 }
 </style>
-

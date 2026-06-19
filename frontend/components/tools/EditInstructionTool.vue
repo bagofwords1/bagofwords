@@ -3,14 +3,14 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
           {{ $t('tools.editInstruction.editing') }}
         </span>
-        <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
+        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-blue-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
           <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
@@ -18,24 +18,24 @@
           <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip"
+            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip"
           />
         </span>
-        <span v-else-if="isRejected" class="text-gray-600 flex items-center">
+        <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>{{ $t('tools.editInstruction.rejected') }}</span>
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
+            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip"
           />
         </span>
-        <span v-else class="text-gray-600 flex items-center">
+        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
           <span>{{ $t('tools.editInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
+            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip"
           />
         </span>
       </div>
@@ -47,27 +47,27 @@
         <!-- Loading state while fetching versions -->
         <div v-if="isLoadingVersions" class="flex items-center justify-center py-4">
           <Spinner class="w-4 h-4 me-2" />
-          <span class="text-[11px] text-gray-500">{{ $t('tools.editInstruction.loadingDiff') }}</span>
+          <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
 
         <!-- Diff view when text was changed -->
         <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 rounded-md overflow-hidden">
-          <div class="px-3 py-1.5 bg-gray-50 border-b border-gray-150 flex items-center justify-between">
-            <span class="text-[10px] text-gray-600 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
-            <span v-if="versionNumber" class="text-[10px] text-gray-500">v{{ versionNumber - 1 }} → v{{ versionNumber }}</span>
+          <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 flex items-center justify-between">
+            <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
+            <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber - 1 }} → v{{ versionNumber }}</span>
           </div>
-          <div class="px-3 py-2 bg-white">
+          <div class="px-3 py-2 bg-white dark:bg-gray-900">
             <TrackedChangesView :diff-ops="diffOps" />
           </div>
         </div>
 
         <!-- Instruction card for non-text changes or when no diff -->
-        <div v-else class="hover:bg-gray-50 border border-gray-150 rounded-md p-3 transition-colors">
+        <div v-else class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 rounded-md p-3 transition-colors">
           <!-- Instruction text - click to edit -->
           <div
             v-if="displayText"
             dir="auto"
-            class="instruction-content text-[12px] text-gray-800 leading-relaxed mb-2 cursor-pointer"
+            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 cursor-pointer"
             @click="handleEdit()"
           >
             <MDC :value="displayText" class="markdown-content" />
@@ -75,7 +75,7 @@
         </div>
 
         <!-- Metadata changes summary -->
-        <div v-if="metadataChanges.length > 0" class="text-[10px] text-gray-500 px-1">
+        <div v-if="metadataChanges.length > 0" class="text-[10px] text-gray-500 dark:text-gray-400 px-1">
           <span class="font-medium">{{ $t('tools.editInstruction.otherChanges') }}</span>
           {{ metadataChanges.join(', ') }}
         </div>
@@ -83,13 +83,13 @@
         <!-- Metadata row -->
         <div class="flex flex-wrap items-center gap-2 text-[10px] px-1">
           <!-- Category -->
-          <span v-if="displayCategory" class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px]">
+          <span v-if="displayCategory" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-[10px]">
             {{ displayCategory }}
           </span>
 
           <!-- Confidence -->
           <div v-if="displayConfidence" class="flex items-center gap-1">
-            <span class="text-gray-500">{{ $t('tools.editInstruction.confidence') }}</span>
+            <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.confidence') }}</span>
             <span
               class="font-medium"
               :class="displayConfidence >= 0.9 ? 'text-green-600' : displayConfidence >= 0.7 ? 'text-yellow-600' : 'text-red-600'"
@@ -100,9 +100,9 @@
 
           <!-- Load mode -->
           <div v-if="displayLoadMode" class="flex items-center gap-1">
-            <span class="text-gray-500">{{ $t('tools.editInstruction.load') }}</span>
+            <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.load') }}</span>
             <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
-              :class="displayLoadMode === 'always' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'"
+              :class="displayLoadMode === 'always' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
             >
               {{ displayLoadMode }}
             </span>
@@ -110,24 +110,24 @@
 
           <!-- Tables scoped -->
           <div v-if="displayTableCount > 0" class="flex items-center gap-1">
-            <Icon name="heroicons-table-cells" class="w-3 h-3 text-gray-400" />
-            <span class="text-gray-600">{{ displayTableCount === 1 ? $t('tools.editInstruction.tableSingular', { n: displayTableCount }) : $t('tools.editInstruction.tablePlural', { n: displayTableCount }) }}</span>
+            <Icon name="heroicons-table-cells" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <span class="text-gray-600 dark:text-gray-400">{{ displayTableCount === 1 ? $t('tools.editInstruction.tableSingular', { n: displayTableCount }) : $t('tools.editInstruction.tablePlural', { n: displayTableCount }) }}</span>
           </div>
         </div>
 
         <!-- Status + Accept/Reject actions -->
-        <div v-if="isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 px-1">
+        <div v-if="isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800 px-1">
           <template v-if="resolution === 'accepted'">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-[10px] font-medium text-gray-600">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
+            <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
           </template>
           <template v-else-if="resolution === 'rejected'">
-            <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-400" />
-            <span class="text-[10px] text-gray-400">{{ $t('tools.editInstruction.rejectedLabel', 'Rejected') }}</span>
+            <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('tools.editInstruction.rejectedLabel', 'Rejected') }}</span>
           </template>
           <template v-else-if="canResolve">
             <button
-              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
               :disabled="isAccepting || isRejecting"
               @click.stop="handleAccept"
             >
@@ -136,25 +136,25 @@
               {{ $t('tools.editInstruction.accept', 'Accept') }}
             </button>
             <button
-              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
               :disabled="isAccepting || isRejecting"
               @click.stop="handleReject"
             >
-              <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400" />
+              <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400 dark:text-gray-500" />
               <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
               {{ $t('tools.editInstruction.reject', 'Reject') }}
             </button>
           </template>
           <template v-else>
-            <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
-            <span class="text-[10px] font-medium text-gray-500">
+            <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <span class="text-[10px] font-medium text-gray-500 dark:text-gray-400">
               {{ $t('tools.editInstruction.stagedInBuild', 'Staged in draft build') }}
             </span>
           </template>
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

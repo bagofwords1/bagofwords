@@ -6,9 +6,9 @@
     @mouseleave="showDropdown = false"
   >
     <button
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
     >
-      <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
+      <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600" />
       {{ uniqueInstructions.length }} Instruction{{ uniqueInstructions.length === 1 ? '' : 's' }}
     </button>
 
@@ -17,11 +17,11 @@
       v-if="showDropdown"
       class="absolute start-0 top-full mt-1 w-80 z-20"
     >
-      <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
+      <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 mb-0">
         <!-- Loading -->
         <div v-if="isLoading" class="flex items-center justify-center px-3 py-2">
           <Spinner class="w-3 h-3 me-1.5" />
-          <span class="text-[11px] text-gray-500">Loading...</span>
+          <span class="text-[11px] text-gray-500 dark:text-gray-400">Loading...</span>
         </div>
 
         <!-- Instructions list -->
@@ -29,7 +29,7 @@
           <div
             v-for="inst in uniqueInstructions"
             :key="inst.instructionId"
-            class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+            class="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
             @click="handleClick(inst)"
           >
             <div class="flex items-center gap-1.5">
@@ -38,10 +38,10 @@
                 class="w-3 h-3 shrink-0"
                 :class="inst.isEdit ? 'text-blue-500' : 'text-green-500'"
               />
-              <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
+              <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ inst.title }}</span>
             </div>
             <div class="flex items-center gap-2 mt-0.5 ms-[18px]">
-              <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
+              <span v-if="inst.category" class="text-[10px] text-gray-400 dark:text-gray-600">{{ inst.category }}</span>
               <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
             </div>
           </div>

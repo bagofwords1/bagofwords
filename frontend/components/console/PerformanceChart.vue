@@ -1,8 +1,8 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.charts.performanceTitle') }}</h3>
-            <p class="text-sm text-gray-500 mt-1 flex items-center">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('monitoring.charts.performanceTitle') }}</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 flex items-center">
                 <span>{{ $t('monitoring.charts.performanceSubtitle') }}</span>
                 <UTooltip v-if="!isJudgeEnabled" :text="$t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-2 text-gray-400 cursor-help" />
@@ -14,17 +14,18 @@
                 <div v-if="isLoading" class="flex items-center justify-center h-full">
                     <div class="flex items-center space-x-2">
                         <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                        <span class="text-gray-600">Loading chart...</span>
+                        <span class="text-gray-600 dark:text-gray-400">Loading chart...</span>
                     </div>
                 </div>
                 <div v-else-if="!chartOptions" class="flex items-center justify-center h-full">
                     <div class="text-center">
-                        <div class="text-gray-400 text-sm">No performance data available</div>
-                        <div class="text-gray-300 text-xs mt-1">No activity with performance metrics found</div>
+                        <div class="text-gray-400 dark:text-gray-600 text-sm">No performance data available</div>
+                        <div class="text-gray-300 dark:text-gray-600 text-xs mt-1">No activity with performance metrics found</div>
                     </div>
                 </div>
                 <VChart
                     v-else
+                    :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                     class="chart"
                     :option="chartOptions"
                     autoresize
@@ -35,6 +36,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -80,10 +82,10 @@ const props = defineProps<Props>()
 
 const chartOptions = computed((): EChartsOption | null => {
     if (!props.performanceMetrics) return null
-    
+
     const accuracy = isJudgeEnabled.value ? props.performanceMetrics.accuracy : []
     const instructionsEffectiveness = isJudgeEnabled.value ? (props.performanceMetrics.instructions_effectiveness || []) : []
-    
+
     // Filter out data points where both accuracy and instructions effectiveness are 0
     const filteredData = (accuracy as typeof props.performanceMetrics.accuracy).map((accuracyItem, index) => {
         const instructionsItem = instructionsEffectiveness[index]
@@ -93,18 +95,18 @@ const chartOptions = computed((): EChartsOption | null => {
             instructions: instructionsItem ? instructionsItem.value : 0
         }
     }).filter(item => item.accuracy > 0 || item.instructions > 0)
-    
+
     // If no data points remain after filtering, return null
     if (filteredData.length === 0) return null
-    
+
     const dates = filteredData.map(item => {
         const date = new Date(item.date)
         return `${date.getMonth() + 1}/${date.getDate()}`
     })
-    
+
     const accuracyData = filteredData.map(item => item.accuracy)
     const instructionsEffectivenessData = filteredData.map(item => item.instructions)
-    
+
     const numDates = dates.length
     let interval = 0
     if (numDates > 20) {
@@ -112,7 +114,7 @@ const chartOptions = computed((): EChartsOption | null => {
     } else if (numDates > 10) {
         interval = Math.floor(numDates / 6)
     }
-    
+
     const series: SeriesOption[] = [
         {
             name: 'Accuracy',
@@ -255,4 +257,4 @@ const chartOptions = computed((): EChartsOption | null => {
     width: 100%;
     height: 100%;
 }
-</style> 
+</style>

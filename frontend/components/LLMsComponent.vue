@@ -7,38 +7,38 @@
                     type="text"
                     v-model="searchQuery"
                     :placeholder="$t('settings.llms.searchPlaceholder')"
-                    class="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:ring-blue-500 focus:border-blue-500 w-full"
+                    class="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm focus:ring-blue-500 focus:border-blue-500 w-full"
                 >
             </div>
             <div class="space-x-2">
-                <button 
+                <button
                     v-if="useCan('manage_llm_settings')"
-                    @click="providerModalOpen = true" 
+                    @click="providerModalOpen = true"
                     class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
                 >
                     {{ $t('settings.llms.integrateModels') }}
                 </button>
             </div>
         </div>
-        <div v-if="models.length > 0" class="bg-white rounded-lg shadow">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
+        <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 rounded-lg shadow">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-900">
                     <tr>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.llms.colModel') }}</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.llms.colProvider') }}</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.llms.colStatus') }}</th>
-                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colModel') }}</th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colProvider') }}</th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colStatus') }}</th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    <tr v-for="model in filteredModels" :key="model.id" class="hover:bg-gray-50">
+                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr v-for="model in filteredModels" :key="model.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                         <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center">
                                     <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-6 w-6" />
                                 </div>
                                 <div class="ms-4">
-                                    <div class="text-sm font-medium text-gray-900">
+                                    <div class="text-sm font-medium text-gray-900 dark:text-white">
                                         {{ model.name }}
                                         <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                                         <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md ms-1">
@@ -47,25 +47,25 @@
                                         </UTooltip>
                                         </span>
                                     </div>
-                                    <div v-if="model.model_id !== model.name" class="text-xs text-gray-500">
+                                    <div v-if="model.model_id !== model.name" class="text-xs text-gray-500 dark:text-gray-400">
                                         {{ $t('settings.llms.modelIdLabel') }}: {{ model.model_id }}
                                     </div>
                                 </div>
                             </div>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                             {{ model.provider.name }}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <UToggle 
-                                v-model="model.is_enabled" 
-                                @change="toggleModel(model.id, $event)" 
-                                :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default" 
+                            <UToggle
+                                v-model="model.is_enabled"
+                                @change="toggleModel(model.id, $event)"
+                                :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default"
                             />
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="useCan('manage_llm_settings')">
                             <UDropdown :items="getDropdownItems(model)">
-                                <UButton class="text-gray-500 hover:text-gray-900 font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
+                                <UButton class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                             </UDropdown>
                         </td>
                     </tr>
@@ -74,12 +74,12 @@
         </div>
 
         <!-- Empty state -->
-        <div v-else class="text-center py-12 bg-white rounded-lg mt-20">
+        <div v-else class="text-center py-12 bg-white dark:bg-gray-900 rounded-lg mt-20">
             <div class="w-48 mx-auto mb-4 flex items-center justify-center">
                 <UIcon name="heroicons-cube-transparent" class="w-12 h-12 text-gray-400" />
             </div>
-            <h3 class="text-lg font-medium text-gray-900 mb-2">{{ $t('settings.llms.emptyTitle') }}</h3>
-            <p class="text-sm text-gray-500 mb-6">{{ $t('settings.llms.emptyHint') }}</p>
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">{{ $t('settings.llms.emptyTitle') }}</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">{{ $t('settings.llms.emptyHint') }}</p>
             <button
                 v-if="useCan('manage_llm_settings')"
                 @click="providerModalOpen = true"
@@ -90,13 +90,13 @@
         </div>
 
         <!-- Provider Modal -->
-        <LLMProviderModalComponent 
+        <LLMProviderModalComponent
             v-model="providerModalOpen"
             :edit-provider-id="editProviderId"
             @update:modelValue="handleProviderModalClose"
         />
 
-        
+
     </div>
 </template>
 
@@ -132,9 +132,9 @@ const editProviderId = ref<string | null>(null);
 const filteredModels = computed<Model[]>(() => {
     const query = searchQuery.value.toLowerCase();
     if (!query) return models.value;
-    
+
     return models.value.filter(model => {
-        return model.name.toLowerCase().includes(query) || 
+        return model.name.toLowerCase().includes(query) ||
                model.provider.name.toLowerCase().includes(query);
     });
 });

@@ -2,13 +2,13 @@
   <div>
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <div>
-        <label class="block text-xs font-medium text-gray-700 mb-1">Connection Name</label>
+        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection Name</label>
         <input v-model="form.name" type="text" :placeholder="props.integrationTitle"
-               class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+               class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
       </div>
 
-      <div class="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 space-y-1">
-        <div class="font-medium text-gray-700">Setup</div>
+      <div class="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+        <div class="font-medium text-gray-700 dark:text-gray-300">Setup</div>
         <div>
           Register an OAuth app at the provider and paste the credentials below.
           Each user signs in individually to access their own data — no shared service account.
@@ -18,7 +18,7 @@
       <div v-if="loadingFields" class="text-xs text-gray-400">Loading…</div>
       <template v-else>
         <div v-for="field in credentialFields" :key="field.key" class="flex flex-col">
-          <label class="block text-xs font-medium text-gray-700 mb-1">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
             {{ field.title }}
             <span v-if="field.required" class="text-red-500">*</span>
           </label>
@@ -27,21 +27,21 @@
             :type="field.format === 'password' ? 'password' : 'text'"
             v-model="form.credentials[field.key]"
             :placeholder="isEditMode && field.format === 'password' ? 'unchanged' : (field.description || '')"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <textarea
             v-else-if="field.type === 'string' && field.format === 'textarea'"
             v-model="form.credentials[field.key]"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <UCheckbox v-else-if="field.type === 'boolean'" v-model="form.credentials[field.key]">{{ field.title }}</UCheckbox>
           <input v-else v-model="form.credentials[field.key]"
-                 class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                 class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           <div v-if="field.description" class="text-[11px] text-gray-400 mt-0.5">{{ field.description }}</div>
         </div>
       </template>
 
-      <div class="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800 flex items-start gap-2">
+      <div class="rounded-md border border-blue-100 bg-blue-50 dark:bg-blue-950 p-3 text-xs text-blue-800 flex items-start gap-2">
         <UIcon name="heroicons-information-circle" class="w-4 h-4 mt-0.5" />
         <div>
           After saving, each user attaches this integration to an agent and signs in individually.
@@ -52,10 +52,10 @@
       <div v-if="!isEditMode" class="flex items-start gap-2 pt-1">
         <UCheckbox v-model="createAgent" class="mt-0.5" />
         <div class="text-xs">
-          <label class="font-medium text-gray-700 cursor-pointer" @click="createAgent = !createAgent">
+          <label class="font-medium text-gray-700 dark:text-gray-300 cursor-pointer" @click="createAgent = !createAgent">
             Create a public agent with this integration
           </label>
-          <div class="text-gray-500">
+          <div class="text-gray-500 dark:text-gray-400">
             We'll create an agent named "{{ agentName || (props.integrationTitle || 'Integration') }}" everyone in your org can use.
             Each user signs in individually before using it.
           </div>
@@ -64,12 +64,12 @@
             v-model="agentName"
             type="text"
             :placeholder="props.integrationTitle"
-            class="mt-2 w-full border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+            class="mt-2 w-full border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
       </div>
 
-      <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+      <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
         {{ testResult.message }}
       </div>
 

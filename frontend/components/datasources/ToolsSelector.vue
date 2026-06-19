@@ -4,7 +4,7 @@
     <div class="mb-4 flex items-center justify-between">
       <div>
         <h1 class="text-lg font-semibold">External Tools</h1>
-        <p class="text-gray-500 text-sm">External tools available to the AI agent for this data source.</p>
+        <p class="text-gray-500 dark:text-gray-400 text-sm">External tools available to the AI agent for this data source.</p>
       </div>
       <div v-if="canUpdate" class="flex items-center gap-2">
         <UButton
@@ -29,10 +29,10 @@
     </div>
 
     <!-- Empty state -->
-    <div v-if="!loading && connections.length === 0" class="py-16 text-center border border-dashed border-gray-200 rounded-lg">
-      <UIcon name="i-heroicons-server-stack" class="w-10 h-10 mx-auto text-gray-300 mb-3" />
-      <p class="text-sm text-gray-500 mb-1">No tool connections yet</p>
-      <p class="text-xs text-gray-400 mb-4">Connect an MCP server or custom API to give the AI agent access to external tools.</p>
+    <div v-if="!loading && connections.length === 0" class="py-16 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+      <UIcon name="i-heroicons-server-stack" class="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+      <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">No tool connections yet</p>
+      <p class="text-xs text-gray-400 dark:text-gray-600 mb-4">Connect an MCP server or custom API to give the AI agent access to external tools.</p>
       <div v-if="canUpdate" class="flex items-center justify-center gap-2">
         <UButton color="blue" variant="soft" size="xs" icon="i-heroicons-plus" @click="$emit('add-mcp')">
           Add MCP Server
@@ -44,22 +44,22 @@
     </div>
 
     <!-- Loading -->
-    <div v-else-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
+    <div v-else-if="loading" class="text-sm text-gray-500 dark:text-gray-400 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 me-2" />
       Loading tools...
     </div>
 
     <!-- Connections with tools -->
     <div v-else class="space-y-4">
-      <div v-for="conn in connections" :key="conn.id" class="border border-gray-200 rounded-lg overflow-hidden">
+      <div v-for="conn in connections" :key="conn.id" class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         <!-- Connection header -->
-        <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+        <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-900">{{ conn.name }}</span>
-            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600 uppercase font-medium tracking-wide">{{ conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
+            <span class="text-sm font-medium text-gray-900 dark:text-white">{{ conn.name }}</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 uppercase font-medium tracking-wide">{{ conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
           </div>
           <div class="flex items-center gap-1.5">
-            <span class="text-[10px] text-gray-400 me-1">
+            <span class="text-[10px] text-gray-400 dark:text-gray-600 me-1">
               {{ getEnabledCount(conn.id) }}/{{ getToolCount(conn.id) }} enabled
             </span>
             <UTooltip text="Refresh tools">
@@ -67,28 +67,28 @@
                 v-if="canUpdate"
                 @click="refreshTools(conn.id)"
                 :disabled="refreshingConn === conn.id"
-                class="p-1 rounded hover:bg-gray-200 disabled:opacity-50"
+                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
               >
                 <Spinner v-if="refreshingConn === conn.id" class="w-3.5 h-3.5" />
-                <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-400" />
+                <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600" />
               </button>
             </UTooltip>
             <UTooltip text="Edit connection">
               <button
                 v-if="canUpdate"
                 @click="$emit('edit-connection', conn)"
-                class="p-1 rounded hover:bg-gray-200"
+                class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
               >
-                <UIcon name="heroicons-pencil-square" class="w-3.5 h-3.5 text-gray-400" />
+                <UIcon name="heroicons-pencil-square" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600" />
               </button>
             </UTooltip>
             <UTooltip text="Remove connection">
               <button
                 v-if="canUpdate"
                 @click="$emit('delete-connection', conn)"
-                class="p-1 rounded hover:bg-red-50"
+                class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950"
               >
-                <UIcon name="heroicons-trash" class="w-3.5 h-3.5 text-gray-400 hover:text-red-500" />
+                <UIcon name="heroicons-trash" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600 hover:text-red-500" />
               </button>
             </UTooltip>
           </div>
@@ -100,16 +100,16 @@
             v-model="searchQuery"
             type="text"
             placeholder="Filter tools..."
-            class="border border-gray-200 rounded px-2 py-1 w-full max-w-xs h-7 text-xs focus:outline-none focus:border-blue-400"
+            class="border border-gray-200 dark:border-gray-700 rounded px-2 py-1 w-full max-w-xs h-7 text-xs focus:outline-none focus:border-blue-400"
           />
         </div>
 
         <!-- Tool list -->
-        <ul v-if="getFilteredTools(conn.id).length > 0" class="divide-y divide-gray-100">
+        <ul v-if="getFilteredTools(conn.id).length > 0" class="divide-y divide-gray-100 dark:divide-gray-800">
           <li
             v-for="tool in getFilteredTools(conn.id)"
             :key="tool.id"
-            class="px-4 py-2 hover:bg-gray-50/50 transition-colors"
+            class="px-4 py-2 hover:bg-gray-50/50 dark:hover:bg-gray-800 transition-colors"
           >
             <div class="flex items-center gap-3">
               <UCheckbox
@@ -125,18 +125,18 @@
               >
                 <UIcon
                   :name="expandedTools[tool.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-                  class="w-3 h-3 text-gray-400 flex-shrink-0 rtl-flip"
+                  class="w-3 h-3 text-gray-400 dark:text-gray-600 flex-shrink-0 rtl-flip"
                 />
-                <code class="text-[13px] text-gray-800 font-medium whitespace-nowrap">{{ tool.name }}</code>
-                <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-400">off</span>
-                <span v-if="!tool.has_overlay" class="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-500" title="Inherits connection default">default</span>
+                <code class="text-[13px] text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap">{{ tool.name }}</code>
+                <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600">off</span>
+                <span v-if="!tool.has_overlay" class="text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500" title="Inherits connection default">default</span>
               </button>
-              <span class="text-[11px] text-gray-400 truncate min-w-0">{{ tool.description }}</span>
+              <span class="text-[11px] text-gray-400 dark:text-gray-600 truncate min-w-0">{{ tool.description }}</span>
               <div v-if="canUpdate" class="flex items-center gap-1 ms-auto flex-shrink-0">
                 <select
                   :value="tool.policy"
                   @change="(e: Event) => setToolPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
-                  class="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-blue-400"
+                  class="text-[10px] border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400"
                   title="Tool policy"
                 >
                   <option value="allow">allow</option>
@@ -146,7 +146,7 @@
                 <button
                   v-if="tool.has_overlay"
                   @click="resetTool(conn.id, tool.id)"
-                  class="text-[10px] text-gray-400 hover:text-gray-600 px-1"
+                  class="text-[10px] text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 px-1"
                   title="Reset to connection default"
                 >reset</button>
               </div>
@@ -154,32 +154,32 @@
 
             <!-- Expanded -->
             <div v-if="expandedTools[tool.id]" class="mt-2 ms-9 space-y-2">
-              <p v-if="tool.description" class="text-xs text-gray-500">{{ tool.description }}</p>
+              <p v-if="tool.description" class="text-xs text-gray-500 dark:text-gray-400">{{ tool.description }}</p>
               <div v-if="tool.input_schema?.properties" class="text-xs">
-                <div class="text-[10px] text-gray-400 uppercase font-medium mb-1">Parameters</div>
+                <div class="text-[10px] text-gray-400 dark:text-gray-600 uppercase font-medium mb-1">Parameters</div>
                 <div class="grid gap-1">
                   <div
                     v-for="(prop, pname) in tool.input_schema.properties"
                     :key="pname"
                     class="flex items-baseline gap-2 text-xs"
                   >
-                    <code class="text-[11px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded">{{ pname }}</code>
-                    <span class="text-gray-400">{{ prop.type || 'any' }}</span>
+                    <code class="text-[11px] text-blue-700 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded">{{ pname }}</code>
+                    <span class="text-gray-400 dark:text-gray-600">{{ prop.type || 'any' }}</span>
                     <span v-if="(tool.input_schema.required || []).includes(pname)" class="text-[9px] text-red-400">required</span>
-                    <span v-if="prop.description" class="text-gray-500 truncate">— {{ prop.description }}</span>
+                    <span v-if="prop.description" class="text-gray-500 dark:text-gray-400 truncate">— {{ prop.description }}</span>
                   </div>
                 </div>
               </div>
-              <details v-if="tool.input_schema" class="text-[10px] text-gray-400">
-                <summary class="cursor-pointer hover:text-gray-600">Raw schema</summary>
-                <pre class="mt-1 bg-gray-50 rounded p-2 text-[10px] font-mono text-gray-500 overflow-x-auto max-h-32 overflow-y-auto">{{ JSON.stringify(tool.input_schema, null, 2) }}</pre>
+              <details v-if="tool.input_schema" class="text-[10px] text-gray-400 dark:text-gray-600">
+                <summary class="cursor-pointer hover:text-gray-600 dark:hover:text-gray-400">Raw schema</summary>
+                <pre class="mt-1 bg-gray-50 dark:bg-gray-900 rounded p-2 text-[10px] font-mono text-gray-500 dark:text-gray-400 overflow-x-auto max-h-32 overflow-y-auto">{{ JSON.stringify(tool.input_schema, null, 2) }}</pre>
               </details>
             </div>
           </li>
         </ul>
 
         <!-- Empty tools -->
-        <div v-else class="px-4 py-6 text-xs text-gray-400 text-center">
+        <div v-else class="px-4 py-6 text-xs text-gray-400 dark:text-gray-600 text-center">
           {{ searchQuery ? 'No matching tools' : 'No tools discovered yet.' }}
           <button v-if="!searchQuery && canUpdate" @click="refreshTools(conn.id)" class="text-blue-500 hover:underline ms-1">Refresh</button>
         </div>

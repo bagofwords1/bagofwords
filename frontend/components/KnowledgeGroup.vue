@@ -2,26 +2,26 @@
   <div v-if="isActive" class="mt-3">
     <!-- Status header -->
     <div
-      class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+      class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
       @click="toggleExpanded"
     >
       <span v-if="isLoading" class="flex items-center flex-wrap gap-1">
-        <Spinner class="w-3 h-3 me-1 text-gray-400 shrink-0" />
+        <Spinner class="w-3 h-3 me-1 text-gray-400 dark:text-gray-600 shrink-0" />
         <span class="knowledge-shimmer">Reviewing Knowledge</span>
         <template v-if="currentActivity">
-          <span class="text-gray-300">·</span>
+          <span class="text-gray-300 dark:text-gray-600">·</span>
           <Transition name="knowledge-fade" mode="out-in">
             <span :key="currentActivity" class="knowledge-shimmer">{{ currentActivity }}</span>
           </Transition>
         </template>
       </span>
-      <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
+      <span v-else class="text-gray-600 dark:text-gray-400 flex items-center flex-wrap gap-1">
         <Icon
           :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
           class="w-3 h-3 me-1 text-gray-400 rtl-flip"
         />
         <span>Knowledge</span>
-        <span class="text-gray-300">·</span>
+        <span class="text-gray-300 dark:text-gray-600">·</span>
         <span>{{ changes.length }} {{ changes.length === 1 ? 'change' : 'changes' }}</span>
         <span v-if="stepCount > 0" class="text-gray-400">in {{ stepCount }} {{ stepCount === 1 ? 'step' : 'steps' }}</span>
         <span v-if="totalAdded > 0" class="text-[10px] font-mono text-green-600">+{{ totalAdded }}</span>
@@ -39,9 +39,9 @@
           <div
             v-for="s in steps"
             :key="s.id"
-            class="flex items-center gap-1 text-[11px] text-gray-500"
+            class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400"
           >
-            <span class="w-1 h-1 rounded-full bg-gray-300 shrink-0 mx-1"></span>
+            <span class="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 mx-1"></span>
             <span class="truncate">{{ s.label }}</span>
           </div>
         </div>
@@ -54,13 +54,13 @@
           v-for="ch in changes"
           :key="ch.id"
           :class="[
-            '-mx-1.5 rounded border border-gray-150 bg-gray-50',
+            '-mx-1.5 rounded border border-gray-150 bg-gray-50 dark:bg-gray-900',
             resolutionFor(ch) === 'rejected' ? 'opacity-50' : '',
             !isBuildPublished && !resolutionFor(ch) && !selectedIds.has(ch.id) ? 'opacity-50' : ''
           ]"
         >
           <div
-            class="flex items-start gap-2 py-1.5 px-2 cursor-pointer hover:bg-gray-100 rounded"
+            class="flex items-start gap-2 py-1.5 px-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             @click="toggleChangeExpanded(ch.id)"
           >
             <UCheckbox
@@ -85,7 +85,7 @@
                 >
                   {{ ch.type === 'create' ? 'new' : 'edit' }}
                 </span>
-                <span class="text-[12px] text-gray-700 truncate hover:text-gray-900">
+                <span class="text-[12px] text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">
                   {{ ch.title }}
                 </span>
                 <span v-if="ch.added > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
@@ -105,14 +105,14 @@
 
           <Transition name="slide">
             <div v-if="expandedChangeIds.has(ch.id)" class="px-2 pb-2">
-              <div class="border border-gray-150 rounded-md overflow-hidden bg-white">
-                <div class="px-3 py-1.5 bg-gray-50 border-b border-gray-150 flex items-center justify-between">
-                  <span class="text-[10px] text-gray-600 font-medium">
+              <div class="border border-gray-150 rounded-md overflow-hidden bg-white dark:bg-gray-900">
+                <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 flex items-center justify-between">
+                  <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">
                     {{ ch.type === 'create' ? 'New instruction' : 'Text changes' }}
                   </span>
                   <button
                     v-if="ch.instructionId"
-                    class="text-[10px] text-gray-500 hover:text-gray-800 flex items-center gap-1"
+                    class="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 flex items-center gap-1"
                     @click.stop="handleEdit(ch)"
                   >
                     <Icon name="heroicons-pencil-square" class="w-3 h-3" />
@@ -120,7 +120,7 @@
                   </button>
                 </div>
                 <div
-                  class="px-3 py-2 bg-white cursor-pointer hover:bg-gray-50"
+                  class="px-3 py-2 bg-white dark:bg-gray-900 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                   @click="handleEdit(ch)"
                 >
                   <TrackedChangesView :diff-ops="diffOpsForChange(ch)" />
@@ -133,7 +133,7 @@
         <!-- Publish button -->
         <div v-if="hasUnresolvedChanges && !isBuildPublished && canCreateInstructions" class="pt-1">
           <button
-            class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+            class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
             :disabled="isPublishingBuild || selectedIds.size === 0"
             @click="handlePublishBuild"
           >

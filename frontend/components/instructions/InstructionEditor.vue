@@ -37,7 +37,7 @@
         <!-- Placeholder when empty -->
         <div
           v-if="editor?.isEmpty && isEditable"
-          class="absolute top-2 left-0 text-xs text-gray-400 pointer-events-none select-none whitespace-pre-line"
+          class="absolute top-2 left-0 text-xs text-gray-400 dark:text-gray-600 pointer-events-none select-none whitespace-pre-line"
         >{{ placeholder || 'Write instructions using markdown... (type @ to mention a table or instruction)' }}</div>
       </div>
 
@@ -45,10 +45,10 @@
       <div
         v-if="mentionState.active && isEditable"
         ref="dropdownRef"
-        class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
+        class="absolute z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
         :style="{ top: mentionState.position.top + 'px', left: mentionState.position.left + 'px' }"
       >
-        <div v-if="mentionState.items.length === 0" class="px-3 py-2 text-xs text-gray-500">
+        <div v-if="mentionState.items.length === 0" class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
           {{ mentionState.query.length < 1 ? 'Type to search...' : 'No results' }}
         </div>
         <button
@@ -56,31 +56,31 @@
           :key="item.id"
           type="button"
           :data-idx="i"
-          class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
-          :class="{ 'bg-blue-50': i === mentionState.selectedIndex }"
+          class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-start gap-2 border-b border-gray-100 dark:border-gray-800 last:border-0"
+          :class="{ 'bg-blue-50 dark:bg-blue-950': i === mentionState.selectedIndex }"
           @mousedown.prevent="selectMentionItem(item)"
         >
           <Icon
             :name="item.type === 'instruction' ? 'heroicons:cube' : item.type === 'connection_tool' ? 'heroicons:wrench-screwdriver' : 'heroicons:table-cells'"
             class="w-3.5 h-3.5 mt-0.5 shrink-0"
-            :class="item.type === 'instruction' ? 'text-indigo-500' : item.type === 'connection_tool' ? 'text-gray-500' : 'text-blue-500'"
+            :class="item.type === 'instruction' ? 'text-indigo-500' : item.type === 'connection_tool' ? 'text-gray-500 dark:text-gray-400' : 'text-blue-500'"
           />
           <div class="flex-1 min-w-0">
             <template v-if="item.type === 'instruction'">
-              <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-              <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
-              <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
+              <span v-if="item.name" class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
+              <span v-else class="text-gray-700 dark:text-gray-300 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
+              <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 dark:text-gray-400 truncate block">{{ item.textPreview }}</span>
             </template>
             <template v-else-if="item.type === 'connection_tool'">
-              <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-              <span v-if="item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
-              <span v-if="item.dataSourceName" class="text-[10px] text-gray-400 truncate block">{{ item.dataSourceName }}</span>
+              <span class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
+              <span v-if="item.textPreview" class="text-[10px] text-gray-500 dark:text-gray-400 truncate block">{{ item.textPreview }}</span>
+              <span v-if="item.dataSourceName" class="text-[10px] text-gray-400 dark:text-gray-600 truncate block">{{ item.dataSourceName }}</span>
             </template>
             <template v-else>
-              <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
+              <span class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
               <div class="flex items-center gap-1 mt-0.5">
                 <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-2.5" />
-                <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
+                <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ item.dataSourceName }}</span>
               </div>
             </template>
           </div>

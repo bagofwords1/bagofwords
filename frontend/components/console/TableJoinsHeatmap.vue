@@ -1,24 +1,25 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Table Joins Heatmap</h3>
-            <p class="text-sm text-gray-500 mt-1">Table relationship patterns</p>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Table Joins Heatmap</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Table relationship patterns</p>
         </div>
         <div class="p-6">
             <div class="h-80">
                 <div v-if="isLoading" class="flex items-center justify-center h-full">
                     <div class="flex items-center space-x-2">
                         <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                        <span class="text-gray-600">Loading chart...</span>
+                        <span class="text-gray-600 dark:text-gray-400">Loading chart...</span>
                     </div>
                 </div>
                 <VChart
                     v-else-if="chartOptions"
+                    :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                     class="chart"
                     :option="chartOptions"
                     autoresize
                 />
-                <div v-else class="flex items-center justify-center h-full text-gray-500">
+                <div v-else class="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
                     No table joins data available
                 </div>
             </div>
@@ -27,6 +28,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { HeatmapChart } from 'echarts/charts'
@@ -69,18 +71,18 @@ const props = defineProps<Props>()
 
 const chartOptions = computed((): EChartsOption | null => {
     if (!props.tableJoinsData?.table_pairs || !props.tableJoinsData?.unique_tables) return null
-    
+
     const tables = props.tableJoinsData.unique_tables.slice(0, 6) // Limit to top 8 tables for readability
     const pairs = props.tableJoinsData.table_pairs
-    
+
     // Create a matrix for the heatmap
     const data = []
     const maxJoinCount = Math.max(...pairs.map(pair => pair.join_count))
-    
+
     for (let i = 0; i < tables.length; i++) {
         for (let j = 0; j < tables.length; j++) {
             if (i !== j) {
-                const pair = pairs.find(p => 
+                const pair = pairs.find(p =>
                     (p.table1 === tables[i] && p.table2 === tables[j]) ||
                     (p.table1 === tables[j] && p.table2 === tables[i])
                 )
@@ -90,7 +92,7 @@ const chartOptions = computed((): EChartsOption | null => {
             }
         }
     }
-    
+
     return {
         tooltip: {
             position: 'top',
@@ -189,4 +191,4 @@ const chartOptions = computed((): EChartsOption | null => {
     width: 100%;
     height: 100%;
 }
-</style> 
+</style>

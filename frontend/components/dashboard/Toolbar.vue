@@ -1,20 +1,20 @@
 <template>
-  <div class="w-full p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 bg-white">
+  <div class="w-full p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 bg-white dark:bg-gray-900">
     <div class="flex items-center gap-2">
       <div class="space-x-0">
         <UTooltip :text="$t('toolbar.collapse')">
-          <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex hover:bg-gray-100 px-0 py-1 rounded">
+          <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex hover:bg-gray-100 dark:hover:bg-gray-700 px-0 py-1 rounded">
             <Icon name="heroicons:x-mark" class="w-4 h-4" />
           </button>
         </UTooltip>
       </div>
       <UTooltip v-if="!props.hideArtifactSwitch" :text="$t('toolbar.switchToArtifact')">
-        <button @click="$emit('toggleArtifactView')" class="font-medium text-gray-700 hover:text-blue-600 flex items-center gap-1">
+        <button @click="$emit('toggleArtifactView')" class="font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 flex items-center gap-1">
           {{ $t('toolbar.dashboard') }}
           <Icon name="heroicons:code-bracket" class="w-3.5 h-3.5 opacity-50" />
         </button>
       </UTooltip>
-      <span v-else class="font-medium text-gray-700">{{ $t('toolbar.dashboard') }}</span>
+      <span v-else class="font-medium text-gray-700 dark:text-gray-300">{{ $t('toolbar.dashboard') }}</span>
     </div>
 
     <div class="space-x-2 flex items-center">
@@ -22,7 +22,7 @@
 
       <UPopover v-if="edit" v-model="showAddMenu" :popper="{ placement: 'bottom-start' }">
         <UTooltip :text="$t('toolbar.addComponent')">
-        <button class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+        <button class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
           <Icon name="heroicons:plus" />
         </button>
         </UTooltip>
@@ -46,19 +46,19 @@
 
       <UPopover v-model="showThemeMenu" :popper="{ placement: 'bottom-start' }">
         <UTooltip :text="$t('toolbar.theme')">
-          <button class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded" type="button">
+          <button class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded" type="button">
             <Icon name="heroicons:paint-brush" />
           </button>
         </UTooltip>
         <template #panel>
           <div class="p-1 min-w-[160px]">
             <div v-for="option in themeOptions" :key="option.value" class="w-full">
-               <UButton 
-                 size="xs" 
-                 color="gray" 
-                 variant="ghost" 
+               <UButton
+                 size="xs"
+                 color="gray"
+                 variant="ghost"
                  :icon="getThemeIconReactive(option)"
-                 class="w-full justify-start capitalize" 
+                 class="w-full justify-start capitalize"
                  @click="selectTheme(option.value)"
                >
                  {{ option.label }}
@@ -69,7 +69,7 @@
       </UPopover>
 
       <UTooltip :text="$t('toolbar.rerun')">
-        <button @click="$emit('rerun')" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+        <button @click="$emit('rerun')" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
           <Icon name="heroicons:play" />
         </button>
       </UTooltip>
@@ -77,13 +77,13 @@
       <CronModal :report="report" />
 
       <UTooltip :text="$t('toolbar.openInNewTab')" v-if="report?.status === 'published'">
-        <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+        <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
           <Icon name="heroicons:arrow-top-right-on-square" />
         </a>
       </UTooltip>
 
       <UTooltip :text="$t('toolbar.fullscreen')">
-        <button @click="$emit('openFullscreen')" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+        <button @click="$emit('openFullscreen')" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
           <Icon name="heroicons:arrows-pointing-out" />
         </button>
       </UTooltip>
@@ -145,9 +145,9 @@ function selectTheme(value: string) {
 // Reactive version for template
 const getThemeIconReactive = (option: any) => {
   const currentTheme = internalTheme.value || ''
-  
+
   let isSelected = false
-  
+
   // Special case: if option.value is empty, it represents the report's default theme
   if (option.value === '') {
     // This option represents "no override" - using the report's original theme

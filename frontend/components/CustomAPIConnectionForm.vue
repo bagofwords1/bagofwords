@@ -2,7 +2,7 @@
   <div>
     <!-- Use existing connection (create mode only) -->
     <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
-      <label class="block text-xs font-medium text-gray-700 mb-1">Use existing connection</label>
+      <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Use existing connection</label>
       <USelectMenu
         v-model="selectedExisting"
         :options="existingConnectionOptions"
@@ -12,26 +12,26 @@
         class="w-full"
       />
       <div v-if="!selectedExistingId" class="relative my-4">
-        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200" /></div>
-        <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-gray-400">— or create new —</span></div>
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200 dark:border-gray-700" /></div>
+        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-gray-400 dark:text-gray-600">— or create new —</span></div>
       </div>
     </div>
 
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <template v-if="!selectedExistingId">
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Connection Name</label>
-          <input v-model="form.name" type="text" placeholder="e.g., Internal API" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection Name</label>
+          <input v-model="form.name" type="text" placeholder="e.g., Internal API" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Base URL</label>
-          <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Base URL</label>
+          <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Authentication</label>
-          <select v-model="form.auth_type" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authentication</label>
+          <select v-model="form.auth_type" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="none">No Auth</option>
             <option value="bearer">Bearer Token</option>
             <option value="api_key">API Key</option>
@@ -39,31 +39,31 @@
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
-          <label class="block text-xs font-medium text-gray-700 mb-1">Bearer Token</label>
-          <input v-model="form.token" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter token'" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bearer Token</label>
+          <input v-model="form.token" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter token'" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div v-if="form.auth_type === 'api_key'" class="space-y-3">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">API Key</label>
-            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter API key'" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter API key'" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Header Name</label>
-            <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Header Name</label>
+            <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
             Custom Headers
-            <span class="text-gray-400 font-normal">(sent with every request)</span>
+            <span class="text-gray-400 dark:text-gray-600 font-normal">(sent with every request)</span>
           </label>
           <div class="space-y-1.5">
             <div v-for="(header, idx) in customHeaders" :key="idx" class="flex items-center gap-2">
-              <input v-model="header.key" type="text" placeholder="Header name" class="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <input v-model="header.value" type="text" placeholder="Value" class="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <button type="button" @click="customHeaders.splice(idx, 1)" class="text-gray-400 hover:text-red-500 p-0.5">
+              <input v-model="header.key" type="text" placeholder="Header name" class="flex-1 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="header.value" type="text" placeholder="Value" class="flex-1 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <button type="button" @click="customHeaders.splice(idx, 1)" class="text-gray-400 dark:text-gray-600 hover:text-red-500 p-0.5">
                 <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -74,9 +74,9 @@
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
             Endpoints
-            <span class="text-gray-400 font-normal">(JSON array of endpoint definitions)</span>
+            <span class="text-gray-400 dark:text-gray-600 font-normal">(JSON array of endpoint definitions)</span>
           </label>
           <textarea
             v-model="form.endpoints_json"
@@ -92,12 +92,12 @@
     ]
   }
 ]'
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+            class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <p v-if="endpointsError" class="text-xs text-red-500 mt-1">{{ endpointsError }}</p>
         </div>
 
-        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
           {{ testResult.message }}
         </div>
       </template>

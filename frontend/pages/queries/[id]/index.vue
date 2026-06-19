@@ -9,7 +9,7 @@
                 class="text-[10px] px-1.5 py-0.5 rounded border"
                 :class="detail?.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
               >{{ (detail?.type || '').toUpperCase() }}</span>
-              
+
               <!-- Green check badge for approved/published entities -->
               <Icon
                 v-if="entityType === 'global'"
@@ -21,19 +21,19 @@
               <!-- Entity workflow status badge -->
               <span
                 v-if="entityType === 'draft'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
               >{{ $t('queries.draftBadge') }}</span>
               <span
                 v-else-if="entityType === 'private'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
               >{{ $t('queries.draftBadge') }}</span>
               <span
                 v-else-if="entityType === 'suggested'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950"
               >{{ $t('queries.suggestedBadge') }}</span>
             </div>
-            <h1 class="text-lg font-semibold text-gray-900">{{ detail?.title || detail?.slug }}</h1>
-            <div class="text-[12px] text-gray-600 mt-1">{{ detail?.description || '—' }}</div>
+            <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
+            <div class="text-[12px] text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
             <!-- Data source icons under description -->
             <div v-if="detail?.data_sources?.length" class="mt-2 flex items-center gap-1.5">
               <img
@@ -41,60 +41,60 @@
                 :key="ds.id"
                 :src="dataSourceIcon(ds.type)"
                 :alt="ds.type"
-                class="w-5 h-5 rounded border border-gray-100 bg-white object-contain p-0.5"
+                class="w-5 h-5 rounded border border-gray-100 dark:border-gray-800 bg-white object-contain p-0.5"
                 @error="(e: any) => e.target && (e.target.style.visibility = 'hidden')"
               />
             </div>
           </div>
           <div class="flex-shrink-0 ms-auto flex items-center gap-2">
-            <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100" @click="deleteEntity" :disabled="deleting">
+            <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 dark:bg-red-950 text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50" @click="deleteEntity" :disabled="deleting">
               <span v-if="deleting">{{ $t('queries.detail.deletingInProgress') }}</span>
               <span v-else>{{ $t('queries.detail.deleteAction') }}</span>
             </button>
-            <button v-if="canUpdateEntities" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="openEdit = true">
+            <button v-if="canUpdateEntities" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="openEdit = true">
               {{ $t('queries.detail.editAction') }}
             </button>
           </div>
         </div>
 
         <div class="mt-3 flex items-center gap-2 flex-wrap">
-          <div v-if="viewType" class="text-[11px] text-gray-500 px-1.5 py-0.5 bg-gray-50 border border-gray-100 rounded">{{ viewType }}</div>
+          <div v-if="viewType" class="text-[11px] text-gray-500 dark:text-gray-400 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded">{{ viewType }}</div>
           <div v-if="detail?.data?.info?.total_rows !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.rowsLabel', { n: formatCount(detail?.data?.info?.total_rows) }) }}</div>
           <div v-if="detail?.data?.info?.total_columns !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.columnsLabel', { n: formatCount(detail?.data?.info?.total_columns) }) }}</div>
           <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">{{ $t('queries.detail.refreshedLabel', { when: timeAgo(detail?.last_refreshed_at as any) }) }}</div>
 
           <!-- Workflow actions -->
-          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" @click="suggestEntity" :disabled="suggesting">
+          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 dark:bg-amber-950 text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50" @click="suggestEntity" :disabled="suggesting">
             <span v-if="suggesting">{{ $t('queries.detail.suggestingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.suggestAction') }}</span>
           </button>
 
-          <button v-if="canWithdraw" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="withdrawSuggestion" :disabled="withdrawing">
+          <button v-if="canWithdraw" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="withdrawSuggestion" :disabled="withdrawing">
             <span v-if="withdrawing">{{ $t('queries.detail.withdrawingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.withdrawAction') }}</span>
           </button>
 
-          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 text-green-700 hover:bg-green-100" @click="approveSuggestion" :disabled="approving">
+          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 dark:bg-green-950 text-green-700 hover:bg-green-100 dark:hover:bg-green-900/50" @click="approveSuggestion" :disabled="approving">
             <span v-if="approving">{{ $t('queries.detail.approvingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.approveAction') }}</span>
           </button>
 
-          <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100" @click="rejectSuggestion" :disabled="rejecting">
+          <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 dark:bg-red-950 text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50" @click="rejectSuggestion" :disabled="rejecting">
             <span v-if="rejecting">{{ $t('queries.detail.rejectingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.rejectAction') }}</span>
           </button>
 
 
-          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
+          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
             <span v-if="refreshing">{{ $t('queries.detail.refreshingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.refreshAction') }}</span>
           </button>
         </div>
 
         <div class="mt-4">
-          <div class="border border-gray-100 rounded bg-white">
+          <div class="border border-gray-100 dark:border-gray-800 rounded bg-white dark:bg-gray-900">
             <!-- Tab Navigation -->
-            <div class="flex border-b border-gray-100">
+            <div class="flex border-b border-gray-100 dark:border-gray-800">
               <button
                 v-if="showVisual"
                 @click="activeTab = 'visual'"
@@ -102,7 +102,7 @@
                   'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
                   activeTab === 'visual'
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 ]"
               >
                 {{ $t('queries.detail.tabVisual') }}
@@ -113,7 +113,7 @@
                   'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
                   activeTab === 'data'
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 ]"
               >
                 <span>{{ $t('queries.detail.tabData') }}</span>
@@ -125,7 +125,7 @@
                   'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
                   activeTab === 'code'
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 ]"
               >
                 {{ $t('queries.detail.tabCode') }}
@@ -161,12 +161,12 @@
 
               <!-- Code Content -->
               <Transition name="fade" mode="out-in">
-                <div v-if="activeTab === 'code'" class="bg-gray-50 rounded p-3 overflow-auto" style="max-height: 400px;">
+                <div v-if="activeTab === 'code'" class="bg-gray-50 dark:bg-gray-900 rounded p-3 overflow-auto" style="max-height: 400px;">
                   <div class="flex items-center justify-between mb-2">
-                    <span class="text-[11px] text-gray-500">&nbsp;</span>
-                    <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-white" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
+                    <span class="text-[11px] text-gray-500 dark:text-gray-400">&nbsp;</span>
+                    <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-800" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
                   </div>
-                  <pre class="text-[11px] text-gray-800"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
+                  <pre class="text-[11px] text-gray-800 dark:text-gray-200"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
                 </div>
               </Transition>
             </div>
@@ -201,7 +201,7 @@ const toast = useToast()
 const { t } = useI18n()
 
 type MinimalDS = { id: string; name?: string; type?: string }
-type EntityDetail = { 
+type EntityDetail = {
   id: string
   type: string
   title: string
@@ -364,7 +364,7 @@ const effectiveStep = computed(() => {
 
 const openEdit = ref(false)
 const editorLang = ref('python')
-const form = ref<{ 
+const form = ref<{
   type: string
   title: string
   description: string | null
@@ -372,11 +372,11 @@ const form = ref<{
   status: string
   data_source_ids?: string[]
   global_status?: string | null
-}>({ 
-  type: 'model', 
-  title: '', 
-  description: null, 
-  code: '', 
+}>({
+  type: 'model',
+  title: '',
+  description: null,
+  code: '',
   status: 'draft',
   data_source_ids: [],
   global_status: null
@@ -608,7 +608,7 @@ function onModalSaved() {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
-  -webkit-box-orient: vertical;  
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
@@ -622,5 +622,4 @@ function onModalSaved() {
   opacity: 0;
 }
 </style>
-
 

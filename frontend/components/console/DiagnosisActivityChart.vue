@@ -2,19 +2,19 @@
     <div class="mb-6">
         <div class="flex items-center justify-between mb-2">
             <div class="flex items-baseline gap-2">
-                <h3 class="text-sm font-semibold text-gray-900">{{ $t('monitoring.diagnosis.activityChartTitle') }}</h3>
-                <span class="text-xs text-gray-400">{{ $t('monitoring.diagnosis.activityChartSubtitle') }}</span>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('monitoring.diagnosis.activityChartTitle') }}</h3>
+                <span class="text-xs text-gray-400 dark:text-gray-600">{{ $t('monitoring.diagnosis.activityChartSubtitle') }}</span>
             </div>
             <div v-if="totals" class="flex items-center gap-4 text-xs">
                 <div class="flex items-center gap-1.5">
                     <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#22c55e"></span>
-                    <span class="text-gray-500">{{ $t('monitoring.diagnosis.activityChartSuccess') }}</span>
-                    <span class="font-semibold text-gray-900">{{ totals.success.toLocaleString() }}</span>
+                    <span class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.activityChartSuccess') }}</span>
+                    <span class="font-semibold text-gray-900 dark:text-white">{{ totals.success.toLocaleString() }}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
                     <span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#ef4444"></span>
-                    <span class="text-gray-500">{{ $t('monitoring.diagnosis.activityChartError') }}</span>
-                    <span class="font-semibold text-gray-900">{{ totals.error.toLocaleString() }}</span>
+                    <span class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.activityChartError') }}</span>
+                    <span class="font-semibold text-gray-900 dark:text-white">{{ totals.error.toLocaleString() }}</span>
                 </div>
             </div>
         </div>
@@ -22,17 +22,18 @@
             <div v-if="isLoading" class="flex items-center justify-center h-full">
                 <div class="flex items-center space-x-2">
                     <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                    <span class="text-gray-500 text-sm">{{ $t('monitoring.diagnosis.activityChartLoading') }}</span>
+                    <span class="text-gray-500 dark:text-gray-400 text-sm">{{ $t('monitoring.diagnosis.activityChartLoading') }}</span>
                 </div>
             </div>
             <VChart
                 v-else-if="chartOptions"
+                :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                 class="chart"
                 :option="chartOptions"
                 autoresize
                 @click="onBarClick"
             />
-            <div v-else class="flex items-center justify-center h-full text-gray-400 text-sm">
+            <div v-else class="flex items-center justify-center h-full text-gray-400 dark:text-gray-600 text-sm">
                 {{ $t('monitoring.diagnosis.activityChartEmpty') }}
             </div>
         </div>
@@ -40,6 +41,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart } from 'echarts/charts'

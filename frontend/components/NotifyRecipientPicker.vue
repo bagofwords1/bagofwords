@@ -1,11 +1,11 @@
 <template>
-    <div class="border-t border-gray-100 pt-4 mt-5">
-        <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">Send via email</label>
+    <div class="border-t border-gray-100 dark:border-gray-800 pt-4 mt-5">
+        <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">Send via email</label>
 
         <!-- Recipient input -->
-        <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5 min-h-[34px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
+        <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 min-h-[34px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
             <span v-for="(email, idx) in recipients" :key="email"
-                class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
+                class="inline-flex items-center gap-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full">
                 {{ email }}
                 <button @click="removeRecipient(idx)" class="hover:text-red-500 outline-none">
                     <Icon name="heroicons:x-mark" class="w-3 h-3" />
@@ -23,11 +23,11 @@
                     @blur="onBlur" />
                 <!-- Autocomplete dropdown -->
                 <div v-if="showDropdown && filteredMembers.length > 0"
-                    class="absolute start-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
+                    class="absolute start-0 top-full mt-1 w-60 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
                     <button v-for="member in filteredMembers" :key="member.email"
-                        class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
+                        class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                         @mousedown.prevent="addMember(member)">
-                        <span class="text-gray-900">{{ member.name || member.email }}</span>
+                        <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
                         <span v-if="member.name" class="text-[11px] text-gray-400">{{ member.email }}</span>
                     </button>
                 </div>
@@ -36,7 +36,7 @@
 
         <!-- Optional message -->
         <input v-model="message" type="text" placeholder="Add a note (optional)"
-            class="mt-2 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
+            class="mt-2 w-full border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
 
         <!-- Send button -->
         <div class="flex items-center justify-between mt-3">

@@ -5,7 +5,7 @@
       contenteditable="true"
       dir="auto"
       :class="[
-        'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-start',
+        'w-full outline-none resize-none bg-transparent text-gray-900 dark:text-white placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
       ]"
       :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
@@ -14,47 +14,47 @@
       @paste.prevent="handlePaste"
       @click="handleClick"
     ></div>
-    
+
     <!-- Dropdown for mentions -->
-    <div 
-      v-if="showDropdown" 
+    <div
+      v-if="showDropdown"
       ref="dropdownRef"
-      class="absolute z-50 w-80 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-md text-start"
+      class="absolute z-50 w-80 max-h-80 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-md text-start"
       :style="dropdownStyle"
     >
       <!-- Loading state -->
-      <div v-if="isLoadingMentions" class="p-2 text-start text-xs text-gray-500 flex items-center gap-2">
+      <div v-if="isLoadingMentions" class="p-2 text-start text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
         <Spinner class="w-3 h-3" />
         <span>{{ $t('mentionInput.loading') }}</span>
       </div>
-      
+
       <!-- Search results view -->
       <div v-else-if="!expandedItem" class="py-2">
         <div v-for="(category, categoryIndex) in filteredCategories" :key="category.name">
-          <div class="px-2 py-1 text-[12px] font-medium text-gray-500">{{ category.label }}</div>
-          <div 
-            v-for="(item, itemIndex) in category.items" 
+          <div class="px-2 py-1 text-[12px] font-medium text-gray-500 dark:text-gray-400">{{ category.label }}</div>
+          <div
+            v-for="(item, itemIndex) in category.items"
             :key="item.id"
             :class="[
-              'group px-2 py-1 cursor-pointer flex items-center justify-between hover:bg-gray-50',
-              { 'bg-blue-50': selectedIndex === getCumulativeIndex(categoryIndex, itemIndex) }
+              'group px-2 py-1 cursor-pointer flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800',
+              { 'bg-blue-50 dark:bg-blue-950': selectedIndex === getCumulativeIndex(categoryIndex, itemIndex) }
             ]"
             :data-idx="getCumulativeIndex(categoryIndex, itemIndex)"
             @click="selectItem(item, category.name)"
           >
             <div class="flex items-center space-x-2 flex-1 min-w-0">
               <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables' || category.name === 'connection_tools'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
-              <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
-              <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500" />
-              <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
+              <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'connection_tools'" name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-[12px] text-gray-900 truncate">{{ item.name }}</span>
+                <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ item.name }}</span>
                 <span v-if="(category.name === 'tables' || category.name === 'connection_tools') && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
               </div>
             </div>
-            
+
             <button
               v-if="['data_sources', 'tables', 'entities'].includes(category.name)"
               @click.stop="expandItem(item, category.name)"
@@ -64,22 +64,22 @@
             </button>
           </div>
         </div>
-        
-        <div v-if="filteredCategories.length === 0" class="px-2 py-4 text-xs text-gray-500">
+
+        <div v-if="filteredCategories.length === 0" class="px-2 py-4 text-xs text-gray-500 dark:text-gray-400">
           {{ $t('mentionInput.noResults') }}
         </div>
       </div>
-      
+
       <!-- Expanded item detail view -->
       <div v-else class="p-2">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2 min-w-0">
-            <button @click="closeItemCard" class="text-gray-500 hover:bg-gray-100 rounded p-1">
+            <button @click="closeItemCard" class="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded p-1">
               <Icon name="heroicons-chevron-left" class="w-4 h-4" />
             </button>
             <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" class="h-3.5 flex-shrink-0" />
-            <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
-            <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
+            <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <div class="text-[13px] font-medium truncate">{{ expandedItem?.name }}</div>
           </div>
           <button @click="selectItem(expandedItem, expandedCategory)" class="text-sm text-blue-600 hover:text-blue-700 font-medium px-1">+</button>
@@ -87,14 +87,14 @@
 
         <!-- Agent details: description + tables + tools -->
         <div v-if="expandedCategory === 'data_sources'" class="space-y-2">
-          <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
+          <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 dark:text-gray-400 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
           <div>
-            <div class="text-[11px] text-gray-500 mb-1">{{ $t('mentionInput.tables') }}</div>
+            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tables') }}</div>
             <div class="max-h-40 overflow-auto border rounded">
               <div
                 v-for="t in tablesForExpandedDataSource"
                 :key="t.id"
-                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50"
+                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <DataSourceIcon :type="t.icon_type" class="h-3" />
                 <span class="truncate">{{ t.name }}</span>
@@ -103,7 +103,7 @@
             </div>
           </div>
           <div>
-            <div class="text-[11px] text-gray-500 mb-1">{{ $t('mentionInput.tools') }}</div>
+            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tools') }}</div>
             <div v-if="isLoadingTools" class="px-2 py-2 text-[12px] text-gray-400 flex items-center gap-1">
               <Spinner class="w-3 h-3" />
             </div>
@@ -111,11 +111,11 @@
               <div
                 v-for="tool in toolsForExpandedDataSource"
                 :key="tool.id"
-                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50"
+                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
                 <div class="min-w-0">
-                  <span class="truncate block text-gray-900">{{ tool.name }}</span>
+                  <span class="truncate block text-gray-900 dark:text-white">{{ tool.name }}</span>
                   <span v-if="tool.description" class="truncate block text-[11px] text-gray-400">{{ tool.description }}</span>
                 </div>
               </div>
@@ -126,16 +126,16 @@
 
         <!-- Table details: connection/data source info + columns list -->
         <div v-else-if="expandedCategory === 'tables'" class="space-y-1">
-          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-[11px] text-gray-500">
-            <span v-if="expandedItem?.connection_name" class="px-1.5 py-0.5 bg-gray-100 rounded">{{ expandedItem.connection_name }}</span>
-            <span v-if="expandedItem?.data_source_name" class="px-1.5 py-0.5 bg-gray-100 rounded">{{ expandedItem.data_source_name }}</span>
+          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+            <span v-if="expandedItem?.connection_name" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{ expandedItem.connection_name }}</span>
+            <span v-if="expandedItem?.data_source_name" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{ expandedItem.data_source_name }}</span>
           </div>
-          <div class="text-[11px] text-gray-500">{{ $t('mentionInput.columns') }}</div>
+          <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('mentionInput.columns') }}</div>
           <div class="flex flex-wrap gap-1 max-h-40 overflow-auto">
-            <span 
-              v-for="(col, idx) in (expandedItem?.columns || [])" 
-              :key="idx" 
-              class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
+            <span
+              v-for="(col, idx) in (expandedItem?.columns || [])"
+              :key="idx"
+              class="px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border text-[11px] text-gray-700 dark:text-gray-300"
             >
               {{ typeof col === 'string' ? col : (col as any).name }}
               <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
@@ -146,26 +146,26 @@
 
         <!-- Entity details: inline description + data preview inside dropdown -->
         <div v-else-if="expandedCategory === 'entities'" class="space-y-2">
-          <div v-if="entityLoading" class="text-[11px] text-gray-500 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
+          <div v-if="entityLoading" class="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
           <template v-else>
-            <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-[11px] text-gray-600 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
+            <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-[11px] text-gray-600 dark:text-gray-400 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
             <div v-if="entityPreviewColumns.length && entityPreviewRows.length" class="overflow-auto border rounded">
               <table class="min-w-full text-[11px]">
-                <thead class="bg-gray-50 sticky top-0 border-b">
+                <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0 border-b">
                   <tr>
-                    <th v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-start font-medium text-gray-700">{{ col }}</th>
+                    <th v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-start font-medium text-gray-700 dark:text-gray-300">{{ col }}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(row, rIdx) in entityPreviewRows" :key="rIdx" class="border-b">
-                    <td v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-gray-800">{{ row[col] }}</td>
+                    <td v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-gray-800 dark:text-gray-200">{{ row[col] }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <div v-else class="text-[12px] text-gray-400">{{ $t('mentionInput.noData') }}</div>
             <div class="pt-1">
-              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">{{ $t('mentionInput.openPage') }}</NuxtLink>
+              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">{{ $t('mentionInput.openPage') }}</NuxtLink>
             </div>
           </template>
         </div>
@@ -265,10 +265,10 @@ const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
 
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []
-  
+
   const mentionText = textContent.value.slice(currentMentionStartIndex.value + 1).toLowerCase()
   const hasSelectedDataSources = props.selectedDataSourceIds.length > 0
-  
+
   return allCategories.value
     .filter(cat => props.categories.includes(cat.name))
     .filter(cat => cat.name !== 'files')
@@ -311,15 +311,15 @@ const filteredCategories = computed(() => {
           items = items.filter(item => Array.isArray((item as any).data_source_ids) && (item as any).data_source_ids.some((dsId: string) => props.selectedDataSourceIds.includes(dsId)))
         }
       }
-      
+
       // Filter by search text
-      items = items.filter(item => 
+      items = items.filter(item =>
         (item.name || '').toLowerCase().includes(mentionText) ||
         (item.subtitle && item.subtitle.toLowerCase().includes(mentionText))
       )
       // Limit to 10 per category
       items = items.slice(0, 10)
-      
+
       return {
         ...category,
         items
@@ -414,10 +414,10 @@ function findLastAtOutsideMentions(element: HTMLElement): number {
 function setCaretPosition(element: HTMLElement, position: number) {
   const range = document.createRange()
   const sel = window.getSelection()
-  
+
   let currentPos = 0
   let found = false
-  
+
   function searchNode(node: Node): boolean {
     if (node.nodeType === Node.TEXT_NODE) {
       const nodeLength = node.textContent?.length || 0
@@ -445,9 +445,9 @@ function setCaretPosition(element: HTMLElement, position: number) {
     }
     return false
   }
-  
+
   searchNode(element)
-  
+
   if (found && sel) {
     sel.removeAllRanges()
     sel.addRange(range)
@@ -456,7 +456,7 @@ function setCaretPosition(element: HTMLElement, position: number) {
 
 function handleInput(event: Event) {
   const target = event.target as HTMLDivElement
-  
+
   // Preserve mention nodes - ensure they don't get broken
   const mentionNodes = target.querySelectorAll('.mention')
   mentionNodes.forEach(node => {
@@ -467,9 +467,9 @@ function handleInput(event: Event) {
       }
     }
   })
-  
+
   textContent.value = target.innerText
-  
+
   const cursorPosition = getCaretPosition(target)
 
   // Find the last @ that is NOT inside a mention span
@@ -506,7 +506,7 @@ function handleInput(event: Event) {
     showDropdown.value = false
     currentMentionStartIndex.value = -1
   }
-  
+
   emit('update:modelValue', textContent.value)
   updateMentionsList()
 }
@@ -560,21 +560,21 @@ function handleKeydown(event: KeyboardEvent) {
       emit('submit')
     }
   }
-  
+
   // Prevent typing inside mentions
   const selection = window.getSelection()
   if (selection && selection.rangeCount > 0) {
     const range = selection.getRangeAt(0)
     const container = range.startContainer
     const mentionElement = container.parentElement?.closest('.mention')
-    
+
     // If we're inside a mention and trying to type a character, prevent it
     if (mentionElement && event.key.length === 1) {
       event.preventDefault()
       return
     }
   }
-  
+
   // Handle backspace/delete on mentions
   if (event.key === 'Backspace' || event.key === 'Delete') {
     const selection = window.getSelection()
@@ -764,7 +764,7 @@ function selectItem(item: MentionItem, category: string) {
   if (currentMentionStartIndex.value !== -1 && inputRef.value) {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return
-    
+
     // Create the mention node
     const mentionNode = document.createElement('span')
     mentionNode.className = 'mention'
@@ -773,22 +773,22 @@ function selectItem(item: MentionItem, category: string) {
     mentionNode.setAttribute('data-mention-type', item.type)
     const dsLabel = item.type === 'datasource_table' ? (item.connection_name || item.data_source_name) : null
     mentionNode.textContent = dsLabel ? `@${dsLabel} / ${item.name}` : `@${item.name}`
-    
+
     // Find the text node and position where @ starts
     const walker = document.createTreeWalker(
       inputRef.value,
       NodeFilter.SHOW_TEXT,
       null
     )
-    
+
     let currentPos = 0
     let targetNode: Node | null = null
     let offsetInNode = 0
-    
+
     while (walker.nextNode()) {
       const node = walker.currentNode
       const nodeLength = node.textContent?.length || 0
-      
+
       if (currentPos + nodeLength > currentMentionStartIndex.value) {
         targetNode = node
         offsetInNode = currentMentionStartIndex.value - currentPos
@@ -796,39 +796,39 @@ function selectItem(item: MentionItem, category: string) {
       }
       currentPos += nodeLength
     }
-    
+
     if (!targetNode) {
       // Fallback: couldn't find the text node, bail out
       console.warn('Could not find text node for mention insertion')
       return
     }
-    
+
     // Calculate how much text to delete (the @ and any search text)
     const currentCursorPos = getCaretPosition(inputRef.value)
     const lengthToDelete = currentCursorPos - currentMentionStartIndex.value
-    
+
     // Split the text node at the @ position
     const textNode = targetNode as Text
     const beforeText = textNode.textContent?.slice(0, offsetInNode) || ''
     const afterText = textNode.textContent?.slice(offsetInNode + lengthToDelete) || ''
-    
+
     // Create a document fragment to hold the new content
     const fragment = document.createDocumentFragment()
-    
+
     if (beforeText) {
       fragment.appendChild(document.createTextNode(beforeText))
     }
-    
+
     fragment.appendChild(mentionNode)
     fragment.appendChild(document.createTextNode(' '))
-    
+
     if (afterText) {
       fragment.appendChild(document.createTextNode(afterText))
     }
-    
+
     // Replace the text node with our fragment
     textNode.parentNode?.replaceChild(fragment, textNode)
-    
+
     // Set cursor after the mention and space
     const range = document.createRange()
     const spaceNode = mentionNode.nextSibling
@@ -838,16 +838,16 @@ function selectItem(item: MentionItem, category: string) {
       selection.removeAllRanges()
       selection.addRange(range)
     }
-    
+
     // Update state
     textContent.value = inputRef.value.innerText
     emit('update:modelValue', textContent.value)
-    
+
     currentMentionStartIndex.value = -1
     showDropdown.value = false
     expandedItem.value = null
     selectedIndex.value = 0
-    
+
     updateMentionsList()
   }
 }
@@ -919,14 +919,14 @@ const entityPreviewRows = computed<any[]>(() => {
 
 function updateMentionsList() {
   if (!inputRef.value) return
-  
+
   const mentionNodes = inputRef.value.querySelectorAll('.mention')
   const newMentions: MentionItem[] = []
-  
+
   mentionNodes.forEach(node => {
     const id = node.getAttribute('data-mention-id')
     const type = node.getAttribute('data-mention-type')
-    
+
     // Find the full item from our categories
     for (const category of allCategories.value) {
       const item = category.items.find(i => i.id === id)
@@ -936,7 +936,7 @@ function updateMentionsList() {
       }
     }
   })
-  
+
   mentions.value = newMentions
   emit('update:mentions', newMentions)
   emit('update:mentionsGroups', buildMentionGroups(newMentions))
@@ -988,7 +988,7 @@ function formatTimeAgo(dateStr: string | null): string {
     const date = new Date(dateStr)
     const now = new Date()
     const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-    
+
     if (seconds < 60) return t('mentionInput.time.justNow')
     if (seconds < 3600) return t('mentionInput.time.minutesAgo', { n: Math.floor(seconds / 60) })
     if (seconds < 86400) return t('mentionInput.time.hoursAgo', { n: Math.floor(seconds / 3600) })
@@ -1014,16 +1014,16 @@ async function fetchAvailableMentions() {
     const url = `/mentions/available${params.toString() ? '?' + params.toString() : ''}`
 
     const { data, error } = await useMyFetch(url, { method: 'GET' })
-    
+
     if (error.value) {
       console.error('Failed to fetch mentions:', error.value)
       return
     }
-    
+
     if (data.value) {
       // Transform API response to include display fields
       const apiData = data.value as any
-      
+
       allCategories.value = [
         {
           name: 'data_sources',
@@ -1159,4 +1159,3 @@ function scrollSelectedIntoView() {
   background-color: rgba(99, 102, 241, 0.15) !important;
 }
 </style>
-

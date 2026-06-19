@@ -1,41 +1,41 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Recently Failed Queries</h3>
-            <p class="text-sm text-gray-500 mt-1">Latest query failures - for more go to <nuxt-link to="/monitoring/diagnosis" class="text-blue-600 hover:text-blue-800">diagnosis</nuxt-link> page</p>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recently Failed Queries</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Latest query failures - for more go to <nuxt-link to="/monitoring/diagnosis" class="text-blue-600 hover:text-blue-800">diagnosis</nuxt-link> page</p>
         </div>
         <div class="p-0">
             <div v-if="isLoading" class="flex items-center justify-center py-8">
                 <div class="flex items-center space-x-2">
                     <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                    <span class="text-sm text-gray-600">Loading...</span>
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Loading...</span>
                 </div>
             </div>
             <div v-else-if="recentQueries.length === 0" class="text-center py-8">
                 <UIcon name="i-heroicons-check-circle" class="mx-auto h-8 w-8 text-green-400" />
-                <p class="text-sm text-gray-500 mt-2">No recent failures</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">No recent failures</p>
             </div>
             <div v-else class="overflow-hidden">
                 <table class="min-w-full table-fixed">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                            <th class="w-3/4 px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Content</th>
-                            <th class="w-1/4 px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Issue Type</th>
+                            <th class="w-3/4 px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Content</th>
+                            <th class="w-1/4 px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Issue Type</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="query in recentQueries" :key="query.id" class="hover:bg-gray-50 cursor-pointer" @click="openTrace(query)">
+                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                        <tr v-for="query in recentQueries" :key="query.id" class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" @click="openTrace(query)">
                             <td class="w-3/4 px-6 py-4">
-                                <div class="text-sm text-gray-900 truncate" :title="getContentText(query)">
+                                <div class="text-sm text-gray-900 dark:text-white truncate" :title="getContentText(query)">
                                     {{ getContentText(query) }}
                                 </div>
-                                <div class="text-xs text-gray-500">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">
                                     {{ formatDate(query.created_at) }}
                                 </div>
                             </td>
                             <td class="w-1/4 px-6 py-4">
                                 <div class="flex items-center">
-                                    <UIcon 
+                                    <UIcon
                                         :name="getIssueIcon(query)"
                                         :class="getIssueIconClass(query)"
                                     />
@@ -49,7 +49,7 @@
                 </table>
             </div>
         </div>
-        
+
         <!-- Trace Modal -->
         <TraceModal
             v-model="showTraceModal"
@@ -138,14 +138,14 @@ const fetchRecentQueries = async () => {
         }
 
         const response = await useMyFetch<AgentExecutionSummariesResponse>(`/api/console/agent_executions/summaries?${params}`)
-        
+
         if (response.error.value) {
             console.error('Error fetching recent queries:', response.error.value)
             recentQueries.value = []
         } else if (response.data.value) {
             // Filter to only show executions with issues (errors or negative feedback)
-            const itemsWithIssues = response.data.value.items.filter(item => 
-                item.agent_execution_status === 'error' || 
+            const itemsWithIssues = response.data.value.items.filter(item =>
+                item.agent_execution_status === 'error' ||
                 item.feedback_direction < 0 ||
                 item.total_failed_tools > 0
             )
@@ -217,12 +217,12 @@ const getContentText = (query: AgentExecutionSummaryItem) => {
     if (query.feedback_direction < 0 && query.feedback_message) {
         return query.feedback_message
     }
-    
+
     // For execution errors, show error message if available
     if (query.agent_execution_status === 'error' && query.error_json?.message) {
         return `Error: ${query.error_json.message}`
     }
-    
+
     // Fallback to prompt
     return query.prompt || 'No content available'
 }

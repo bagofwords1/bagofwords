@@ -4,7 +4,7 @@
             <!-- Header -->
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-base font-semibold text-gray-900">
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                         {{ suggestionsMode ? 'Pending Review' : 'Version Explorer' }}
                     </h3>
                     <UButton
@@ -20,11 +20,11 @@
             <!-- Two-pane layout -->
             <div class="flex h-[600px]">
                 <!-- Left Pane: Builds List -->
-                <div class="w-56 border-e border-gray-200 flex flex-col bg-gray-50/50">
-                    <div class="px-2 py-2 border-b border-gray-200 bg-white relative" ref="dsFilterRef">
+                <div class="w-56 border-e border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50/50">
+                    <div class="px-2 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 relative" ref="dsFilterRef">
                         <button
                             @click="dsFilterDropdownOpen = !dsFilterDropdownOpen"
-                            class="w-full flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-md text-xs hover:bg-gray-50 transition-colors bg-white"
+                            class="w-full flex items-center gap-2 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors bg-white dark:bg-gray-900"
                         >
                             <DataSourceIcon
                                 v-if="selectedDsFilter"
@@ -32,7 +32,7 @@
                                 class="h-4 flex-shrink-0"
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            <span class="truncate flex-1 text-start font-medium text-gray-900">
+                            <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
                                 {{ selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
                             </span>
                             <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 flex-shrink-0" />
@@ -47,11 +47,11 @@
                         >
                             <div
                                 v-if="dsFilterDropdownOpen"
-                                class="absolute z-20 mt-1 start-2 end-2 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden max-h-64 overflow-y-auto"
+                                class="absolute z-20 mt-1 start-2 end-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden max-h-64 overflow-y-auto"
                             >
                                 <button
                                     @click="dsFilterId = null; dsFilterDropdownOpen = false"
-                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-start"
+                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-start"
                                 >
                                     <Icon name="heroicons:funnel" class="w-4 h-4 text-gray-400 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">All data sources</span>
@@ -61,7 +61,7 @@
                                     v-for="d in agentList"
                                     :key="d.id"
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
-                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-start border-t border-gray-100"
+                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-start border-t border-gray-100 dark:border-gray-800"
                                 >
                                     <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" class="h-4 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
@@ -70,15 +70,15 @@
                             </div>
                         </Transition>
                     </div>
-                    <div class="px-3 py-2 border-b border-gray-200 bg-white">
-                        <span class="text-xs font-medium text-gray-600">{{ suggestionsMode ? 'Pending' : 'Builds' }}</span>
+                    <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                        <span class="text-xs font-medium text-gray-600 dark:text-gray-400">{{ suggestionsMode ? 'Pending' : 'Builds' }}</span>
                     </div>
-                    
+
                     <!-- Loading builds -->
                     <div v-if="loadingBuilds" class="flex-1 flex items-center justify-center">
                         <Spinner class="w-5 h-5 text-gray-400" />
                     </div>
-                    
+
                     <!-- Builds list -->
                     <div v-else class="flex-1 overflow-y-auto">
                         <div v-if="!builds.length" class="p-3 text-xs text-gray-400 text-center">
@@ -88,40 +88,40 @@
                             v-for="build in builds"
                             :key="build.id"
                             @click="selectBuild(build)"
-                            class="w-full px-3 py-2 text-start border-b border-gray-100 hover:bg-white transition-colors"
-                            :class="{ 'bg-white border-s-2 border-s-blue-500': selectedBuild?.id === build.id }"
+                            class="w-full px-3 py-2 text-start border-b border-gray-100 dark:border-gray-800 hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                            :class="{ 'bg-white dark:bg-gray-800 border-s-2 border-s-blue-500': selectedBuild?.id === build.id }"
                         >
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-1.5 min-w-0">
-                                    <span class="text-xs font-medium text-gray-800 truncate">{{ buildDisplayTitle(build) }}</span>
+                                    <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{{ buildDisplayTitle(build) }}</span>
                                     <!-- Git indicator with tooltip -->
-                                    <UTooltip 
-                                        v-if="build.git_pr_url" 
+                                    <UTooltip
+                                        v-if="build.git_pr_url"
                                         :text="`PR: ${build.git_pr_url}`"
                                         :popper="{ placement: 'top' }"
                                     >
-                                        <a 
-                                            :href="build.git_pr_url" 
-                                            target="_blank" 
+                                        <a
+                                            :href="build.git_pr_url"
+                                            target="_blank"
                                             @click.stop
                                             class="text-purple-500 hover:text-purple-700"
                                         >
                                             <GitBranchIcon class="w-3 h-3" />
                                         </a>
                                     </UTooltip>
-                                    <UTooltip 
-                                        v-else-if="build.git_pushed_at || build.git_branch_name" 
+                                    <UTooltip
+                                        v-else-if="build.git_pushed_at || build.git_branch_name"
                                         :text="`Branch: ${build.git_branch_name || 'pushed'}`"
                                         :popper="{ placement: 'top' }"
                                     >
                                         <GitBranchIcon class="w-3 h-3 text-gray-400" />
                                     </UTooltip>
                                 </div>
-                                <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded shrink-0">Active</span>
-                                <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded shrink-0">Pending</span>
-                                <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded shrink-0">Rejected</span>
+                                <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 dark:bg-green-900/50 text-green-700 rounded shrink-0">Active</span>
+                                <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 rounded shrink-0">Pending</span>
+                                <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-700 rounded shrink-0">Rejected</span>
                             </div>
-                            <div class="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                            <div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1.5">
                                 <span>#{{ build.build_number }}</span>
                                 <span>•</span>
                                 <span>{{ formatDate(build.created_at) }}</span>
@@ -159,24 +159,24 @@
 
                     <template v-else>
                         <!-- Build Header -->
-                        <div class="px-4 py-3 border-b border-gray-200 bg-white shrink-0">
+                        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0 flex-1">
                                     <div class="flex items-center gap-2 flex-wrap">
-                                        <h4 class="text-sm font-semibold text-gray-900 truncate">
+                                        <h4 class="text-sm font-semibold text-gray-900 dark:text-white truncate">
                                             {{ buildDisplayTitle(selectedBuild) }}
                                         </h4>
-                                        <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full shrink-0">
+                                        <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 dark:bg-green-900/50 text-green-700 rounded-full shrink-0">
                                             Active
                                         </span>
-                                        <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
+                                        <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 rounded-full shrink-0">
                                             Pending
                                         </span>
-                                        <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full shrink-0">
+                                        <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-700 rounded-full shrink-0">
                                             Rejected
                                         </span>
                                     </div>
-                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
                                         <span>#{{ selectedBuild.build_number }} • {{ formatDateTime(selectedBuild.created_at) }}</span>
                                         <span v-if="selectedBuild.created_by_user_name">
                                             • {{ selectedBuild.source === 'ai' ? `AI for ${selectedBuild.created_by_user_name}` : selectedBuild.created_by_user_name }}
@@ -184,7 +184,7 @@
                                         <span v-if="selectedBuild.approved_by_user_name" class="text-green-600">• Approved by {{ selectedBuild.approved_by_user_name }}</span>
                                         <button
                                             @click="copyBuildId"
-                                            class="flex items-center text-gray-400 hover:text-gray-700 transition-colors"
+                                            class="flex items-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
                                             :title="`Copy Build ID: ${selectedBuild.id}`"
                                         >
                                             <UIcon name="i-heroicons-clipboard-document" class="w-3 h-3" />
@@ -193,7 +193,7 @@
                                     <!-- Build description ("commit message") — read-only -->
                                     <div
                                         v-if="selectedBuild.description"
-                                        class="mt-3 mb-3 text-[13px] text-gray-700 markdown-wrapper"
+                                        class="mt-3 mb-3 text-[13px] text-gray-700 dark:text-gray-300 markdown-wrapper"
                                     >
                                         <MDC :value="selectedBuild.description" class="markdown-content" />
                                     </div>
@@ -201,7 +201,7 @@
                                     <button
                                         v-if="canViewConsole && selectedBuild.agent_execution_id && selectedBuild.report_id && selectedBuild.completion_id"
                                         @click="openTraceForSelectedBuild"
-                                        class="mt-1 mb-2 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-900 transition-colors"
+                                        class="mt-1 mb-2 flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                                     >
                                         <Icon name="heroicons-bug-ant" class="w-3.5 h-3.5" />
                                         View source trace
@@ -214,14 +214,14 @@
                                         v-if="selectedBuild.git_pr_url"
                                         :href="selectedBuild.git_pr_url"
                                         target="_blank"
-                                        class="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1"
+                                        class="text-[10px] px-2 py-0.5 bg-purple-100 dark:bg-purple-950 text-purple-700 rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1"
                                     >
                                         <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" />
                                         PR
                                     </a>
                                     <span
                                         v-else-if="selectedBuild.git_branch_name"
-                                        class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full flex items-center gap-1"
+                                        class="text-[10px] px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full flex items-center gap-1"
                                     >
                                         <UIcon name="i-heroicons-code-bracket" class="w-2.5 h-2.5" />
                                         {{ selectedBuild.git_branch_name }}
@@ -239,7 +239,7 @@
                                     >
                                         Push to Git
                                     </UButton>
-                                    
+
                                     <!-- Publish button - only for unpublished builds (draft or pending_approval) -->
                                     <UButton
                                         v-if="!selectedBuild.is_main && (selectedBuild.status === 'draft' || selectedBuild.status === 'pending_approval') && canCreateBuilds"
@@ -255,7 +255,7 @@
                                         </template>
                                         {{ publishingBuild ? 'Publishing...' : 'Publish' }}
                                     </UButton>
-                                    
+
                                     <!-- Reject button - only for pending_approval builds -->
                                     <UButton
                                         v-if="selectedBuild.status === 'pending_approval' && canCreateBuilds"
@@ -268,7 +268,7 @@
                                     >
                                         Reject
                                     </UButton>
-                                    
+
                                     <!-- Rollback button - only show for non-main approved builds with permission -->
                                     <UButton
                                         v-if="!selectedBuild.is_main && selectedBuild.status === 'approved' && canCreateBuilds"
@@ -289,36 +289,36 @@
                         <div v-if="loadingBuildContent" class="flex-1 flex items-center justify-center">
                             <div class="text-center">
                                 <Spinner class="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                                <p class="text-xs text-gray-500">Loading build content...</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Loading build content...</p>
                             </div>
                         </div>
 
                         <!-- Diff Section (if previous build exists) -->
-                        <div v-if="!loadingBuildContent && diffData && hasDiffChanges" class="border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white shrink-0">
+                        <div v-if="!loadingBuildContent && diffData && hasDiffChanges" class="border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white shrink-0">
                             <button
                                 @click="diffExpanded = !diffExpanded"
                                 class="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
                             >
                                 <div class="flex items-center gap-2">
-                                    <UIcon 
-                                        :name="diffExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
+                                    <UIcon
+                                        :name="diffExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
                                         class="w-3 h-3 text-gray-400 rtl-flip"
                                     />
-                                    <span class="text-xs font-medium text-gray-700">Changes (from Build #{{ diffData.build_a_number }})</span>
+                                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Changes (from Build #{{ diffData.build_a_number }})</span>
                                 </div>
                                 <div class="flex gap-1.5">
-                                    <span v-if="diffData.added_count" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
+                                    <span v-if="diffData.added_count" class="text-[9px] px-1.5 py-0.5 bg-green-100 dark:bg-green-900/50 text-green-700 rounded">
                                         +{{ diffData.added_count }}
                                     </span>
-                                    <span v-if="diffData.modified_count" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">
+                                    <span v-if="diffData.modified_count" class="text-[9px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 rounded">
                                         ~{{ diffData.modified_count }}
                                     </span>
-                                    <span v-if="diffData.removed_count" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded">
+                                    <span v-if="diffData.removed_count" class="text-[9px] px-1.5 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-700 rounded">
                                         −{{ diffData.removed_count }}
                                     </span>
                                 </div>
                             </button>
-                            
+
                             <!-- Expanded diff content: unified change list
                                  (mirrors KnowledgeGroup.vue row styling) -->
                             <div v-if="diffExpanded" class="px-4 pb-3 space-y-0.5">
@@ -326,7 +326,7 @@
                                     v-for="item in allDiffItems"
                                     :key="item.instruction_id + ':' + item.change_type"
                                     :class="[
-                                        'py-1 px-1.5 -mx-1.5 rounded hover:bg-gray-50',
+                                        'py-1 px-1.5 -mx-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800',
                                         // Fade out unchecked rows (excludable ones only).
                                         (item.change_type !== 'removed' && !selectedInstructionIds.has(item.instruction_id)) ? 'opacity-50' : ''
                                     ]"
@@ -360,7 +360,7 @@
                                                 >
                                                     {{ item.change_type === 'added' ? 'new' : item.change_type === 'modified' ? 'edit' : 'del' }}
                                                 </span>
-                                                <span class="text-[12px] text-gray-700 truncate">
+                                                <span class="text-[12px] text-gray-700 dark:text-gray-300 truncate">
                                                     {{ item.title || truncateText(item.text, 70) }}
                                                 </span>
                                                 <span
@@ -376,7 +376,7 @@
                                                 <span
                                                     v-for="f in item.changed_fields"
                                                     :key="f"
-                                                    class="inline-flex items-center px-1 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px]"
+                                                    class="inline-flex items-center px-1 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-[9px]"
                                                 >
                                                     {{ f }}
                                                 </span>
@@ -385,7 +385,7 @@
                                         <button
                                             v-if="isBuildEditable && item.change_type !== 'removed'"
                                             @click.stop="openEditInstruction(item)"
-                                            class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                            class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950 rounded transition-colors"
                                             title="Edit instruction"
                                         >
                                             <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
@@ -411,10 +411,10 @@
                                             </div>
                                         </template>
                                         <template v-else-if="item.change_type === 'added'">
-                                            <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 font-sans">{{ item.text }}</pre>
+                                            <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 dark:text-gray-300 font-sans">{{ item.text }}</pre>
                                         </template>
                                         <template v-else>
-                                            <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 font-sans">{{ item.previous_text || item.text }}</pre>
+                                            <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 dark:text-gray-300 font-sans">{{ item.previous_text || item.text }}</pre>
                                         </template>
                                     </div>
                                 </div>
@@ -422,39 +422,39 @@
                         </div>
 
                         <!-- Evals Section - only shown for users with manage_tests permission -->
-                        <div v-if="!loadingBuildContent && canManageTests" class="border-b border-gray-100 shrink-0">
+                        <div v-if="!loadingBuildContent && canManageTests" class="border-b border-gray-100 dark:border-gray-800 shrink-0">
                             <!-- Evals Header -->
                             <button
                                 @click="evalsExpanded = !evalsExpanded"
-                                class="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-100 shrink-0 bg-gray-50/50"
+                                class="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-100 dark:border-gray-800 shrink-0 bg-gray-50/50"
                             >
                                 <div class="flex items-center gap-2">
-                                    <UIcon 
-                                        :name="evalsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
+                                    <UIcon
+                                        :name="evalsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
                                         class="w-3 h-3 text-gray-400 rtl-flip"
                                     />
-                                    <span class="text-xs font-medium text-gray-700">Evals</span>
+                                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Evals</span>
                                     <!-- Show test status badge if available -->
-                                    <span 
+                                    <span
                                         v-if="selectedBuild?.test_status"
                                         class="text-[9px] px-1.5 py-0.5 rounded"
                                         :class="{
-                                            'bg-green-100 text-green-700': selectedBuild.test_status === 'passed',
-                                            'bg-red-100 text-red-700': selectedBuild.test_status === 'failed',
-                                            'bg-amber-100 text-amber-700': selectedBuild.test_status === 'pending'
+                                            'bg-green-100 dark:bg-green-900/50 text-green-700': selectedBuild.test_status === 'passed',
+                                            'bg-red-100 dark:bg-red-900/50 text-red-700': selectedBuild.test_status === 'failed',
+                                            'bg-amber-100 dark:bg-amber-950 text-amber-700': selectedBuild.test_status === 'pending'
                                         }"
                                     >
                                         {{ selectedBuild.test_status }}
                                     </span>
                                 </div>
                             </button>
-                            
+
                             <!-- Evals Content -->
                             <div v-if="evalsExpanded" class="p-3 space-y-3">
                                 <!-- No test suites at all -->
                                 <div v-if="!loadingTestSuites && testSuites.length === 0" class="text-center py-3">
-                                    <p class="text-xs text-gray-500">
-                                        No test cases have been found, create in 
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                                        No test cases have been found, create in
                                         <NuxtLink to="/evals" class="text-blue-600 hover:text-blue-700 hover:underline">/evals</NuxtLink>
                                     </p>
                                 </div>
@@ -477,7 +477,7 @@
                                                 <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400" />
                                             </template>
                                         </USelectMenu>
-                                        
+
                                         <UButton
                                             color="blue"
                                             size="xs"
@@ -492,40 +492,40 @@
                                             Run
                                         </UButton>
                                     </div>
-                                    
+
                                     <!-- No test cases in selected suite -->
                                     <div v-if="selectedSuiteId && !hasTestCases && !loadingTestSuites" class="text-center py-2">
-                                        <p class="text-xs text-gray-500">
-                                            No test cases have been found, create in 
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                                            No test cases have been found, create in
                                             <NuxtLink to="/evals" class="text-blue-600 hover:text-blue-700 hover:underline">/evals</NuxtLink>
                                         </p>
                                     </div>
 
                                     <!-- Current/Active Test Run -->
-                                    <div v-if="activeTestRun" class="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                                    <div v-if="activeTestRun" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
                                         <div class="flex items-center justify-between">
                                             <div class="flex items-center gap-2">
                                                 <Spinner v-if="activeTestRun.status === 'in_progress'" class="w-3.5 h-3.5 text-blue-500" />
-                                                <UIcon 
-                                                    v-else-if="activeTestRun.status === 'success'" 
-                                                    name="i-heroicons-check-circle" 
-                                                    class="w-3.5 h-3.5 text-green-500" 
+                                                <UIcon
+                                                    v-else-if="activeTestRun.status === 'success'"
+                                                    name="i-heroicons-check-circle"
+                                                    class="w-3.5 h-3.5 text-green-500"
                                                 />
-                                                <UIcon 
-                                                    v-else 
-                                                    name="i-heroicons-x-circle" 
-                                                    class="w-3.5 h-3.5 text-red-500" 
+                                                <UIcon
+                                                    v-else
+                                                    name="i-heroicons-x-circle"
+                                                    class="w-3.5 h-3.5 text-red-500"
                                                 />
-                                                <span class="text-xs font-medium text-gray-700">
+                                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">
                                                     {{ activeTestRun.title || 'Test Run' }}
                                                 </span>
                                             </div>
-                                            <span 
+                                            <span
                                                 class="text-[9px] px-1.5 py-0.5 rounded-full"
                                                 :class="{
-                                                    'bg-blue-100 text-blue-700': activeTestRun.status === 'in_progress',
-                                                    'bg-green-100 text-green-700': activeTestRun.status === 'success',
-                                                    'bg-red-100 text-red-700': activeTestRun.status === 'error' || activeTestRun.status === 'fail'
+                                                    'bg-blue-100 dark:bg-blue-950 text-blue-700': activeTestRun.status === 'in_progress',
+                                                    'bg-green-100 dark:bg-green-900/50 text-green-700': activeTestRun.status === 'success',
+                                                    'bg-red-100 dark:bg-red-900/50 text-red-700': activeTestRun.status === 'error' || activeTestRun.status === 'fail'
                                                 }"
                                             >
                                                 {{ prettyStatus(activeTestRun.status) }}
@@ -537,21 +537,21 @@
                                             <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
                                                 Cases: {{ testResultsSummary.total }}
                                             </span>
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-green-50 text-green-700 border-green-200">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-950 text-green-700 border-green-200">
                                                 Pass: {{ testResultsSummary.passed }}
                                             </span>
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-950 text-red-700 border-red-200">
                                                 Fail: {{ testResultsSummary.failed }}
                                             </span>
-                                            <span v-if="testResultsSummary.inProgress > 0" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200">
+                                            <span v-if="testResultsSummary.inProgress > 0" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 dark:bg-blue-950 text-blue-700 border-blue-200">
                                                 <Spinner class="w-2.5 h-2.5" />
                                                 Running: {{ testResultsSummary.inProgress }}
                                             </span>
                                         </div>
 
                                         <!-- Progress bar -->
-                                        <div v-if="activeTestRun.status === 'in_progress'" class="w-full bg-gray-100 rounded-full h-1.5">
-                                            <div 
+                                        <div v-if="activeTestRun.status === 'in_progress'" class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                                            <div
                                                 class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
                                                 :style="{ width: `${testResultsSummary.progressPercent}%` }"
                                             />
@@ -562,8 +562,8 @@
                                             <span class="text-[10px] text-gray-400">
                                                 Started {{ formatTimeAgo(activeTestRun.started_at || activeTestRun.created_at) }}
                                             </span>
-                                            <NuxtLink 
-                                                :to="`/evals/runs/${activeTestRun.id}`" 
+                                            <NuxtLink
+                                                :to="`/evals/runs/${activeTestRun.id}`"
                                                 class="text-[10px] text-blue-500 hover:underline flex items-center gap-0.5"
                                             >
                                                 View details
@@ -574,25 +574,25 @@
 
                                     <!-- Previous test runs for this build -->
                                     <div v-if="buildTestRuns.length > 0 && (!activeTestRun || buildTestRuns.length > 1)">
-                                        <div class="text-[10px] font-medium text-gray-500 mb-1.5">Previous Runs</div>
+                                        <div class="text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">Previous Runs</div>
                                         <div class="space-y-1">
-                                            <div 
-                                                v-for="run in displayedTestRuns" 
+                                            <div
+                                                v-for="run in displayedTestRuns"
                                                 :key="run.id"
-                                                class="flex items-center justify-between px-2 py-1.5 bg-gray-50 rounded text-[10px] hover:bg-gray-100 transition-colors"
+                                                class="flex items-center justify-between px-2 py-1.5 bg-gray-50 dark:bg-gray-900 rounded text-[10px] hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                                             >
                                                 <div class="flex items-center gap-1.5">
-                                                    <UIcon 
-                                                        :name="run.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" 
+                                                    <UIcon
+                                                        :name="run.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'"
                                                         :class="run.status === 'success' ? 'text-green-500' : 'text-red-500'"
-                                                        class="w-3 h-3" 
+                                                        class="w-3 h-3"
                                                     />
-                                                    <span class="text-gray-600">{{ run.title || 'Test Run' }}</span>
+                                                    <span class="text-gray-600 dark:text-gray-400">{{ run.title || 'Test Run' }}</span>
                                                 </div>
                                                 <div class="flex items-center gap-2">
                                                     <span class="text-gray-400">{{ formatTimeAgo(run.created_at) }}</span>
-                                                    <NuxtLink 
-                                                        :to="`/evals/runs/${run.id}`" 
+                                                    <NuxtLink
+                                                        :to="`/evals/runs/${run.id}`"
                                                         class="text-blue-500 hover:underline"
                                                     >
                                                         View
@@ -610,21 +610,21 @@
                             <!-- Instructions Header -->
                             <button
                                 @click="instructionsExpanded = !instructionsExpanded"
-                                class="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-100 shrink-0 bg-gray-50/50"
+                                class="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-50/50 transition-colors border-b border-gray-100 dark:border-gray-800 shrink-0 bg-gray-50/50"
                             >
                                 <div class="flex items-center gap-2">
-                                    <UIcon 
-                                        :name="instructionsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
+                                    <UIcon
+                                        :name="instructionsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
                                         class="w-3 h-3 text-gray-400 rtl-flip"
                                     />
-                                    <span class="text-xs font-medium text-gray-700">Instructions</span>
+                                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Instructions</span>
                                     <span class="text-[10px] text-gray-400">({{ totalInstructions }})</span>
                                 </div>
                             </button>
-                            
+
                             <!-- Instructions Content -->
                             <div v-if="instructionsExpanded" class="flex-1 overflow-auto p-3">
-                                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                                     <InstructionsTable
                                         :instructions="instructions"
                                         :loading="loadingInstructions"
@@ -654,13 +654,13 @@
             </div>
         </UCard>
     </UModal>
-    
+
     <!-- Edit Instruction Modal -->
     <UModal v-model="showEditInstruction" :ui="{ width: 'sm:max-w-2xl' }">
         <UCard :ui="{ body: { padding: '' }, header: { padding: 'px-4 py-3' } }">
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900">Edit Instruction</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Edit Instruction</h3>
                     <UButton
                         color="gray"
                         variant="ghost"
@@ -672,7 +672,7 @@
             </template>
             <div
                 v-if="selectedBuild?.status === 'pending_approval'"
-                class="mx-4 mt-3 mb-1 flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[12px] text-amber-800"
+                class="mx-4 mt-3 mb-1 flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 rounded text-[12px] text-amber-800"
             >
                 <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
@@ -958,14 +958,14 @@ const visiblePages = computed(() => {
     const pages: number[] = []
     const total = totalPages.value
     const current = currentPage.value
-    
+
     let start = Math.max(1, current - 2)
     let end = Math.min(total, start + 4)
-    
+
     if (end - start < 4) {
         start = Math.max(1, end - 4)
     }
-    
+
     for (let i = start; i <= end; i++) {
         pages.push(i)
     }
@@ -978,13 +978,13 @@ const isOpen = computed({
 })
 
 // Computed - filter diff items by type
-const addedItems = computed(() => 
+const addedItems = computed(() =>
     diffData.value?.items.filter(i => i.change_type === 'added') || []
 )
-const modifiedItems = computed(() => 
+const modifiedItems = computed(() =>
     diffData.value?.items.filter(i => i.change_type === 'modified') || []
 )
-const removedItems = computed(() => 
+const removedItems = computed(() =>
     diffData.value?.items.filter(i => i.change_type === 'removed') || []
 )
 const hasDiffChanges = computed(() =>
@@ -1011,14 +1011,14 @@ watch(diffData, (next) => {
 }, { immediate: true })
 
 // Build is editable if it's in draft or pending_approval status (not yet published)
-const isBuildEditable = computed(() => 
+const isBuildEditable = computed(() =>
     (selectedBuild.value?.status === 'draft' || selectedBuild.value?.status === 'pending_approval') && canCreateBuilds.value
 )
 
 const loadingBuildContent = computed(() => loadingDiff.value || loadingInstructions.value)
 
 // Evals computed properties
-const testSuiteOptions = computed(() => 
+const testSuiteOptions = computed(() =>
     testSuites.value.map(s => ({
         value: s.id,
         label: `${s.name} (${s.tests_count || 0} tests)`
@@ -1033,7 +1033,7 @@ const testResultsSummary = computed(() => {
     const inProgress = results.filter(r => r.status === 'in_progress').length
     const completed = passed + failed
     const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0
-    
+
     return { total, passed, failed, inProgress, progressPercent }
 })
 
@@ -1093,7 +1093,7 @@ const fetchBuilds = async () => {
 const selectBuild = async (build: Build) => {
     selectedBuild.value = build
     currentPage.value = 1
-    
+
     // Fetch instructions and diff in parallel
     await Promise.all([
         fetchInstructions(),
@@ -1103,7 +1103,7 @@ const selectBuild = async (build: Build) => {
 
 const fetchInstructions = async () => {
     if (!selectedBuild.value) return
-    
+
     loadingInstructions.value = true
     try {
         const response = await useMyFetch<{ items: BuildContent[], total: number, build_id: string, build_number: number }>(
@@ -1152,11 +1152,11 @@ const fetchMainBuild = async () => {
 
 const fetchDiff = async () => {
     if (!selectedBuild.value) return
-    
+
     // Compare against base_build (what the build was forked from) to show user's actual changes
     // This prevents showing "removed" items for things added to main after this build was created
     let compareToBuildId = selectedBuild.value.base_build_id
-    
+
     // Fallback to main if no base_build_id (for older builds or main build itself)
     if (!compareToBuildId) {
         const mainBuildForDiff = mainBuild.value || builds.value.find(b => b.is_main)
@@ -1164,13 +1164,13 @@ const fetchDiff = async () => {
             compareToBuildId = mainBuildForDiff.id
         }
     }
-    
+
     // Don't diff if this IS the main build or no comparison target exists
     if (!compareToBuildId || compareToBuildId === selectedBuild.value.id) {
         diffData.value = null
         return
     }
-    
+
     loadingDiff.value = true
     try {
         const response = await useMyFetch<BuildDiffDetailedResponse>(
@@ -1193,24 +1193,24 @@ const close = () => {
 
 const rollbackToBuild = async () => {
     if (!selectedBuild.value || rollingBack.value) return
-    
+
     rollingBack.value = true
     try {
         const response = await useMyFetch(`/builds/${selectedBuild.value.id}/rollback`, {
             method: 'POST'
         })
-        
+
         if (response.error.value) {
             throw new Error((response.error.value as any)?.data?.detail || 'Failed to rollback')
         }
-        
+
         toast.add({
             title: 'Rollback successful',
             description: `Created new build from Build #${selectedBuild.value.build_number}`,
             color: 'green',
             icon: 'i-heroicons-check-circle'
         })
-        
+
         // Refresh builds list and select the new main build
         await fetchBuilds()
         const newMainBuild = builds.value.find(b => b.is_main)
@@ -1252,18 +1252,18 @@ const publishBuild = async () => {
             method: 'POST',
             body: { instruction_ids: instructionIds },
         })
-        
+
         if (response.error.value) {
             throw new Error((response.error.value as any)?.data?.detail || 'Failed to publish build')
         }
-        
+
         toast.add({
             title: 'Build published',
             description: `Build #${selectedBuild.value.build_number} is now live`,
             color: 'green',
             icon: 'i-heroicons-rocket-launch'
         })
-        
+
         // Refresh builds list and the currently-selected build's data.
         // In suggestionsMode the list only contains pending_approval builds,
         // so the just-published build will drop out — refetch it by id so
@@ -1295,7 +1295,7 @@ const publishBuild = async () => {
 
 const rejectBuild = async () => {
     if (!selectedBuild.value || rejectingBuild.value) return
-    
+
     rejectingBuild.value = true
     try {
         const response = await useMyFetch(`/builds/${selectedBuild.value.id}/reject`, {
@@ -1304,26 +1304,26 @@ const rejectBuild = async () => {
                 reason: 'Rejected via Version Explorer'
             }
         })
-        
+
         if (response.error.value) {
             throw new Error((response.error.value as any)?.data?.detail || 'Failed to reject build')
         }
-        
+
         toast.add({
             title: 'Build rejected',
             description: `Build #${selectedBuild.value.build_number} has been rejected`,
             color: 'amber',
             icon: 'i-heroicons-x-circle'
         })
-        
+
         // Update local state
         if (selectedBuild.value) {
             selectedBuild.value.status = 'rejected'
         }
-        
+
         // Refresh builds list
         await fetchBuilds()
-        
+
         // Re-select the current build to update the UI
         const updatedBuild = builds.value.find(b => b.id === selectedBuild.value?.id)
         if (updatedBuild) {
@@ -1344,18 +1344,18 @@ const rejectBuild = async () => {
 
 const removeChange = async (item: DiffInstructionItem) => {
     if (!selectedBuild.value || !isBuildEditable.value) return
-    
+
     try {
         if (item.change_type === 'added') {
             // Remove the added instruction from the build
             const response = await useMyFetch(`/builds/${selectedBuild.value.id}/contents/${item.instruction_id}`, {
                 method: 'DELETE'
             })
-            
+
             if (response.error.value) {
                 throw new Error((response.error.value as any)?.data?.detail || 'Failed to remove instruction')
             }
-            
+
             toast.add({
                 title: 'Change removed',
                 description: 'Addition reverted',
@@ -1370,11 +1370,11 @@ const removeChange = async (item: DiffInstructionItem) => {
                     instruction_version_id: item.from_version_id
                 }
             })
-            
+
             if (response.error.value) {
                 throw new Error((response.error.value as any)?.data?.detail || 'Failed to revert change')
             }
-            
+
             toast.add({
                 title: 'Change reverted',
                 description: 'Modification undone',
@@ -1389,11 +1389,11 @@ const removeChange = async (item: DiffInstructionItem) => {
                     instruction_version_id: item.from_version_id
                 }
             })
-            
+
             if (response.error.value) {
                 throw new Error((response.error.value as any)?.data?.detail || 'Failed to restore instruction')
             }
-            
+
             toast.add({
                 title: 'Instruction restored',
                 description: 'Removal undone',
@@ -1401,7 +1401,7 @@ const removeChange = async (item: DiffInstructionItem) => {
                 icon: 'i-heroicons-arrow-uturn-left'
             })
         }
-        
+
         // Refresh the diff
         await fetchDiff()
     } catch (e: any) {
@@ -1419,7 +1419,7 @@ const openEditInstruction = async (item: DiffInstructionItem) => {
     try {
         // Capture build ID at click time (before any async operations)
         editTargetBuildId.value = selectedBuild.value?.id || null
-        
+
         const { data, error } = await useMyFetch<any>(`/instructions/${item.instruction_id}`)
         if (error.value) {
             throw new Error((error.value as any)?.data?.detail || 'Failed to load instruction')
@@ -1446,13 +1446,13 @@ const closeEditInstruction = () => {
 
 const onInstructionSaved = async () => {
     closeEditInstruction()
-    
+
     // Refresh the diff and instructions to show updated content
     await Promise.all([
         fetchDiff(),
         fetchInstructions()
     ])
-    
+
     toast.add({
         title: 'Instruction updated',
         description: 'Build has been updated with the new version',
@@ -1463,7 +1463,7 @@ const onInstructionSaved = async () => {
 
 const pushToGit = async () => {
     if (!selectedBuild.value || !props.gitRepoId || pushingToGit.value) return
-    
+
     pushingToGit.value = true
     try {
         const response = await useMyFetch<{
@@ -1479,13 +1479,13 @@ const pushToGit = async () => {
                 create_pr: true  // Attempt to create PR if PAT is configured
             }
         })
-        
+
         if (response.error.value) {
             throw new Error((response.error.value as any)?.data?.detail || 'Failed to push to Git')
         }
-        
+
         const result = response.data.value
-        
+
         if (result?.pushed) {
             // Update the selected build with git info
             if (selectedBuild.value) {
@@ -1493,11 +1493,11 @@ const pushToGit = async () => {
                 selectedBuild.value.git_pr_url = result.pr_url
                 selectedBuild.value.git_pushed_at = new Date().toISOString()
             }
-            
+
             toast.add({
                 title: 'Pushed to Git',
-                description: result.pr_url 
-                    ? `Created branch ${result.branch_name} and opened PR` 
+                description: result.pr_url
+                    ? `Created branch ${result.branch_name} and opened PR`
                     : `Created branch ${result.branch_name}`,
                 color: 'green',
                 icon: 'i-heroicons-check-circle'
@@ -1556,9 +1556,9 @@ const buildDisplayTitle = (build: any): string => {
 
 const formatDate = (dateStr: string) => {
     try {
-        return new Date(dateStr).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric' 
+        return new Date(dateStr).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric'
         })
     } catch {
         return dateStr
@@ -1567,8 +1567,8 @@ const formatDate = (dateStr: string) => {
 
 const formatDateTime = (dateStr: string) => {
     try {
-        return new Date(dateStr).toLocaleString('en-US', { 
-            month: 'short', 
+        return new Date(dateStr).toLocaleString('en-US', {
+            month: 'short',
             day: 'numeric',
             hour: 'numeric',
             minute: '2-digit'
@@ -1580,7 +1580,7 @@ const formatDateTime = (dateStr: string) => {
 
 const copyBuildId = async () => {
     if (!selectedBuild.value?.id) return
-    
+
     try {
         await navigator.clipboard.writeText(selectedBuild.value.id)
         toast.add({ title: 'Build ID copied', color: 'green' })
@@ -1638,7 +1638,7 @@ const fetchTestSuites = async () => {
 
 const fetchBuildTestRuns = async () => {
     if (!selectedBuild.value) return
-    
+
     try {
         // Fetch test runs that were run against this build
         const response = await useMyFetch<TestRun[]>(`/tests/runs?limit=10`)
@@ -1679,7 +1679,7 @@ const fetchTestResults = async (runId: string) => {
 
 const runEval = async () => {
     if (!selectedBuild.value || !selectedSuiteId.value || runningEval.value) return
-    
+
     runningEval.value = true
     try {
         const response = await useMyFetch<TestRun>('/tests/runs/batch', {
@@ -1690,17 +1690,17 @@ const runEval = async () => {
                 trigger_reason: 'manual'
             }
         })
-        
+
         if (response.error.value) {
             throw new Error((response.error.value as any)?.data?.detail || 'Failed to start test run')
         }
-        
+
         if (response.data.value) {
             activeTestRun.value = response.data.value
             buildTestRuns.value.unshift(response.data.value)
             await fetchTestResults(response.data.value.id)
             startPolling()
-            
+
             toast.add({
                 title: 'Eval started',
                 description: `Running tests for Build #${selectedBuild.value.build_number}`,
@@ -1723,17 +1723,17 @@ const runEval = async () => {
 
 const pollTestRun = async () => {
     if (!activeTestRun.value) return
-    
+
     try {
         const response = await useMyFetch<TestRun>(`/tests/runs/${activeTestRun.value.id}`)
         if (response.data.value) {
             activeTestRun.value = response.data.value
             await fetchTestResults(response.data.value.id)
-            
+
             // Stop polling if run is complete
             if (response.data.value.status !== 'in_progress') {
                 stopPolling()
-                
+
                 // Update build in the builds list with test results
                 updateBuildTestResults()
             }
@@ -1745,10 +1745,10 @@ const pollTestRun = async () => {
 
 const updateBuildTestResults = () => {
     if (!selectedBuild.value) return
-    
+
     const summary = testResultsSummary.value
     const buildIndex = builds.value.findIndex(b => b.id === selectedBuild.value?.id)
-    
+
     if (buildIndex !== -1) {
         // Update the build in the list with test results
         builds.value[buildIndex] = {
@@ -1758,7 +1758,7 @@ const updateBuildTestResults = () => {
             test_failed: summary.failed
         }
     }
-    
+
     // Also update the selected build
     if (selectedBuild.value) {
         selectedBuild.value.test_status = summary.failed > 0 ? 'failed' : (summary.passed > 0 ? 'passed' : 'pending')
@@ -1784,19 +1784,19 @@ watch(() => props.modelValue, async (newValue) => {
     if (newValue) {
         // Fetch builds, test suites, and main build (for diff) in parallel
         const fetches: Promise<void>[] = [fetchBuilds()]
-        
+
         // Fetch test suites only if user has manage_tests permission
         if (canManageTests.value) {
             fetches.push(fetchTestSuites())
         }
-        
+
         // In suggestions mode, fetch main build separately for diff comparison
         if (props.suggestionsMode) {
             fetches.push(fetchMainBuild())
         }
-        
+
         await Promise.all(fetches)
-        
+
         // If a buildId was provided, select it
         if (props.buildId) {
             const build = builds.value.find(b => b.id === props.buildId)

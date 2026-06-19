@@ -1,7 +1,7 @@
 <template>
   <div class="mb-2">
     <!-- Main Header -->
-    <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
+    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 me-1.5 text-blue-500" />
@@ -9,10 +9,10 @@
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.readArtifact.reading') }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ $t('tools.readArtifact.readingPast') }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700">{{ $t('tools.readArtifact.failed') }}</span>
-      <span v-else class="text-gray-700">{{ $t('tools.readArtifact.read') }}</span>
+      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ $t('tools.readArtifact.readingPast') }}</span>
+      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.readArtifact.failed') }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.readArtifact.read') }}</span>
 
       <!-- Mode Badge -->
       <span
@@ -20,8 +20,8 @@
         :class="[
           'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
           artifactMode === 'slides'
-            ? 'bg-purple-100 text-purple-700'
-            : 'bg-blue-100 text-blue-700'
+            ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
+            : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
         ]"
       >
         {{ artifactMode === 'slides' ? 'Slides' : 'Dashboard' }}
@@ -34,7 +34,7 @@
     </div>
 
     <!-- Error message -->
-    <div v-if="status === 'error' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500">
+    <div v-if="status === 'error' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
       {{ errorMessage }}
     </div>
 
@@ -42,11 +42,11 @@
     <Transition name="fade">
       <div v-if="!isCollapsed && status === 'success'" class="mt-2 ms-4 space-y-2">
         <!-- Artifact Info Card -->
-        <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 max-w-xs">
+        <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 max-w-xs">
           <div
             :class="[
               'w-8 h-8 rounded flex-shrink-0 flex items-center justify-center',
-              artifactMode === 'slides' ? 'bg-slate-800' : 'bg-blue-50'
+              artifactMode === 'slides' ? 'bg-slate-800' : 'bg-blue-50 dark:bg-blue-950'
             ]"
           >
             <Icon
@@ -58,14 +58,14 @@
             />
           </div>
           <div class="flex-1 min-w-0">
-            <div class="text-xs font-medium text-gray-700 truncate">{{ artifactTitle || 'Untitled' }}</div>
+            <div class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ artifactTitle || 'Untitled' }}</div>
             <div class="text-[10px] text-gray-400">
               {{ codeStats }}
             </div>
             <button
               v-if="artifactId"
               @click.stop="copyArtifactId"
-              class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 font-mono mt-0.5"
+              class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono mt-0.5"
               title="Click to copy ID"
             >
               <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
@@ -77,7 +77,7 @@
         <!-- Code Toggle -->
         <div class="mt-2">
           <div
-            class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+            class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
             @click.stop="toggleCode"
           >
             <Icon :name="isCodeExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
@@ -89,7 +89,7 @@
           <!-- Code Preview -->
           <Transition name="fade">
             <div v-if="isCodeExpanded" class="mt-2">
-              <pre class="text-[11px] bg-gray-50 border border-gray-200 rounded-md p-2 overflow-x-auto max-h-80 overflow-y-auto"><code class="text-gray-700">{{ artifactCode }}</code></pre>
+              <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-2 overflow-x-auto max-h-80 overflow-y-auto"><code class="text-gray-700 dark:text-gray-300">{{ artifactCode }}</code></pre>
             </div>
           </Transition>
         </div>

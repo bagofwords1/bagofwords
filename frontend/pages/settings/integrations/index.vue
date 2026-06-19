@@ -1,8 +1,8 @@
 <template>
   <div class="mt-6">
-    <h2 class="text-lg font-medium text-gray-900">
+    <h2 class="text-lg font-medium text-gray-900 dark:text-white">
       {{ $t('settings.integrations.title') }}
-      <p class="text-sm text-gray-500 font-normal mb-6">
+      <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-6">
         {{ $t('settings.integrations.subtitle') }}
       </p>
     </h2>
@@ -17,30 +17,30 @@
         :key="item.key"
         type="button"
         class="group w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors"
-        :class="selectedKey === item.key ? 'bg-gray-100' : 'hover:bg-gray-50'"
+        :class="selectedKey === item.key ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'"
         @click="selectedKey = item.key"
       >
         <span class="w-6 h-6 shrink-0 flex items-center justify-center">
           <img v-if="item.iconType === 'img'" :src="item.icon" :alt="item.name" class="w-6 h-6" />
-          <McpIcon v-else-if="item.iconType === 'mcp'" class="w-5 h-5 text-gray-600" />
-          <UIcon v-else :name="item.icon" class="w-5 h-5 text-gray-500" />
+          <McpIcon v-else-if="item.iconType === 'mcp'" class="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <UIcon v-else :name="item.icon" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
         </span>
         <span
           class="flex-1 min-w-0 truncate text-sm"
-          :class="selectedKey === item.key ? 'font-medium text-gray-900' : 'text-gray-600'"
+          :class="selectedKey === item.key ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'"
         >
           {{ item.name }}
         </span>
         <span
           class="w-2 h-2 shrink-0 rounded-full"
-          :class="item.connected ? 'bg-green-500' : 'bg-gray-300'"
+          :class="item.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"
           :title="item.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected')"
         />
       </button>
     </nav>
 
     <!-- Right pane: detail / empty state -->
-    <div class="flex-1 min-w-0 border-l border-gray-100 pl-8">
+    <div class="flex-1 min-w-0 border-l border-gray-100 dark:border-gray-800 pl-8">
       <!-- Empty state: illustration as backdrop with icon + copy centered on top -->
       <div
         v-if="!selectedItem"
@@ -56,12 +56,12 @@
           />
           <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
             <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm">
-              <UIcon name="i-heroicons-squares-plus" class="w-5 h-5 text-gray-400" />
+              <UIcon name="i-heroicons-squares-plus" class="w-5 h-5 text-gray-400 dark:text-gray-400" />
             </div>
-            <h3 class="mt-3 text-[15px] font-medium text-gray-900">
+            <h3 class="mt-3 text-[15px] font-medium text-gray-900 dark:text-white">
               {{ $t('settings.integrations.emptyTitle') }}
             </h3>
-            <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">
+            <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">
               {{ $t('settings.integrations.emptySubtitle') }}
             </p>
           </div>
@@ -71,23 +71,23 @@
       <!-- MCP toggle (no modal component) -->
       <div v-else-if="selectedItem.kind === 'toggle'" class="h-full flex flex-col">
         <div class="flex items-center gap-3">
-          <McpIcon class="w-7 h-7 text-gray-700" />
+          <McpIcon class="w-7 h-7 text-gray-700 dark:text-gray-300" />
           <div class="min-w-0">
-            <h3 class="text-[15px] font-medium text-gray-900 leading-tight">{{ selectedItem.name }}</h3>
-            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-600' : 'text-gray-400'">
-              <span class="w-1.5 h-1.5 rounded-full" :class="selectedItem.connected ? 'bg-green-500' : 'bg-gray-300'" />
+            <h3 class="text-[15px] font-medium text-gray-900 dark:text-white leading-tight">{{ selectedItem.name }}</h3>
+            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-600' : 'text-gray-400 dark:text-gray-400'">
+              <span class="w-1.5 h-1.5 rounded-full" :class="selectedItem.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'" />
               {{ selectedItem.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
             </span>
           </div>
         </div>
-        <p class="mt-4 max-w-md text-sm leading-relaxed text-gray-500">{{ selectedItem.description }}</p>
+        <p class="mt-4 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ selectedItem.description }}</p>
         <div class="mt-6 flex items-center gap-3">
           <UToggle
             v-model="mcpEnabled"
             :loading="mcpUpdating"
             @update:model-value="toggleMcp"
           />
-          <span class="text-sm text-gray-500">
+          <span class="text-sm text-gray-500 dark:text-gray-400">
             {{ mcpEnabled ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
           </span>
         </div>

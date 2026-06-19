@@ -2,12 +2,12 @@
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-sm' }">
         <div class="p-5">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-semibold text-gray-900">Set Labels</h3>
-                <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Set Labels</h3>
+                <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
-            
+
             <USelectMenu
                 v-model="selectedValues"
                 :options="options"
@@ -20,15 +20,15 @@
                 <template #label>
                     <div class="flex items-center gap-1 flex-wrap" v-if="selectedValues.length">
                         <template v-if="isNoneSelected">
-                            <span class="flex items-center gap-1 text-xs text-gray-500">
+                            <span class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                                 <UIcon name="i-heroicons-x-circle" class="w-3.5 h-3.5" />
                                 None
                             </span>
                         </template>
                         <template v-else>
-                            <span 
-                                v-for="val in selectedValues.slice(0, 2)" 
-                                :key="val" 
+                            <span
+                                v-for="val in selectedValues.slice(0, 2)"
+                                :key="val"
                                 class="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full border"
                                 :style="getLabelStyle(val)"
                             >
@@ -52,14 +52,14 @@
                     </div>
                 </template>
             </USelectMenu>
-            
-            <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-gray-100">
+
+            <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
                 <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">
                     Cancel
                 </UButton>
-                <UButton 
-                    color="blue" 
-                    size="xs" 
+                <UButton
+                    color="blue"
+                    size="xs"
                     @click="handleConfirm"
                     :disabled="selectedValues.length === 0"
                 >
@@ -132,7 +132,7 @@ function getLabelStyle(value: string) {
 watch(selectedValues, (newValues, oldValues) => {
     const hadNone = oldValues.includes('none')
     const hasNone = newValues.includes('none')
-    
+
     if (hasNone && !hadNone) {
         // Just selected None - clear other selections
         selectedValues.value = ['none']
@@ -158,4 +158,3 @@ watch(isOpen, (open) => {
     }
 })
 </script>
-

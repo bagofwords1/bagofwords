@@ -1,9 +1,9 @@
 <template>
     <div class="inline">
       <button @click="isFilesOpen = true"
-       class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 flex items-center">
+       class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md p-1 flex items-center">
         <UIcon name="i-heroicons-paper-clip" />
-        <span v-if="allFiles.length > 0" class="truncate max-w-[200px] text-xs ms-1 text-gray-500">
+        <span v-if="allFiles.length > 0" class="truncate max-w-[200px] text-xs ms-1 text-gray-500 dark:text-gray-400">
           <UTooltip :text="allFiles.map(file => file.filename).join(', ')">
           {{ allFiles.length }}
         </UTooltip>
@@ -14,7 +14,7 @@
           <h2 class="text-md font-semibold pb-2">Upload files</h2>
           <hr />
 
-          <span class="text-sm text-gray-500 mt-4 mb-2 block">Upload excel or PDF files to analyze</span>
+          <span class="text-sm text-gray-500 dark:text-gray-400 mt-4 mb-2 block">Upload excel or PDF files to analyze</span>
           <input 
             type="file" 
             ref="fileInput" 
@@ -51,7 +51,7 @@
             <li 
               v-for="(file, index) in allFiles" 
               :key="file.id" 
-              class="text-xs py-2 text-gray-600 flex items-center justify-between border-b border-gray-100 last:border-b-0">
+              class="text-xs py-2 text-gray-600 dark:text-gray-400 flex items-center justify-between border-b border-gray-100 dark:border-gray-800 last:border-b-0">
               <div class="flex items-center gap-1.5">
                 <Spinner v-if="file.status === 'processing'" class="w-3 h-3 text-blue-500 flex-shrink-0" />
                 <Icon v-else-if="file.status === 'uploaded'" name="heroicons-check-circle" class="text-blue-500 w-4 h-4 flex-shrink-0" />
@@ -60,14 +60,14 @@
                 <span class="truncate">{{ file.filename }}</span>
               </div>
               <div>
-              <button @click="removeFile(file)" class="text-gray-500 hover:bg-gray-100 rounded-full ms-auto items-center justify-center"> 
+              <button @click="removeFile(file)" class="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full ms-auto items-center justify-center">
                 <Icon name="heroicons-x-mark" class="w-4 h-4" />
               </button>
             </div>
             </li>
             <li 
-              :class="['text-center items-center py-4 mt-3 rounded-lg transition-all cursor-pointer', 
-                isDragging ? 'bg-blue-50 border-1 border-dashed border-blue-400' : 'border-2 border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/50']" 
+              :class="['text-center items-center py-4 mt-3 rounded-lg transition-all cursor-pointer',
+                isDragging ? 'bg-blue-50 dark:bg-blue-950 border-1 border-dashed border-blue-400' : 'border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-950']"
               v-if="allFiles.length > 0"
               @click="$refs.fileInput.click()">
               <div class="text-sm text-blue-500 flex items-center justify-center gap-2 w-full">

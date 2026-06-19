@@ -4,7 +4,7 @@
             <!-- Full page loading spinner -->
             <div v-if="loading" class="flex flex-col items-center justify-center py-20">
                 <Spinner class="h-4 w-4 text-gray-400" />
-                <p class="text-sm text-gray-500 mt-2">{{ $t('common.loading') }}</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
             </div>
 
             <div v-else>
@@ -15,7 +15,7 @@
                             <GoBackChevron v-if="isExcel" />
                             {{ $t('data.agentsTitle') }}
                         </h1>
-                        <p class="mt-2 text-gray-500">{{ $t('data.agentsSubtitle') }}</p>
+                        <p class="mt-2 text-gray-500 dark:text-gray-400">{{ $t('data.agentsSubtitle') }}</p>
                     </div>
 
                     <!-- Header with search -->
@@ -26,7 +26,7 @@
                                     v-model="searchQuery"
                                     type="text"
                                     :placeholder="$t('data.searchAgents')"
-                                    class="w-full ps-10 pe-4 text-xs py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    class="w-full ps-10 pe-4 text-xs py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 />
                                 <UIcon
                                     name="i-heroicons-magnifying-glass"
@@ -40,7 +40,7 @@
                                 v-if="canViewAllAgents"
                                 :text="$t('data.showAllAgentsHint')"
                             >
-                                <label class="inline-flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+                                <label class="inline-flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
                                     <UToggle v-model="showAllAgents" size="2xs" />
                                     {{ $t('data.showAllAgents') }}
                                 </label>
@@ -68,12 +68,12 @@
                                 :key="`demo-${demo.id}`"
                                 @click="installDemo(demo.id)"
                                 :disabled="installingDemo === demo.id"
-                                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
                                 <DataSourceIcon v-else class="h-4" :type="demo.type" />
                                 {{ demo.name }}
-                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
                             </button>
                         </div>
                     </div>
@@ -83,15 +83,15 @@
                         <div
                             v-for="ds in filteredAgents"
                             :key="ds.id"
-                            class="block p-4 rounded-lg border border-gray-100 bg-white transition-all group"
-                            :class="userHasAccess(ds) ? 'hover:border-gray-200 hover:shadow-md' : 'opacity-75'"
+                            class="block p-4 rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 transition-all group"
+                            :class="userHasAccess(ds) ? 'hover:border-gray-200 dark:hover:border-gray-700 hover:shadow-md' : 'opacity-75'"
                         >
                             <component :is="userHasAccess(ds) ? NuxtLink : 'div'" :to="userHasAccess(ds) ? `/agents/${ds.id}` : undefined" class="block">
                                 <!-- Card header -->
                                 <div class="flex items-center gap-1.5 mb-1">
-                                    <span class="font-medium text-gray-900 text-sm leading-tight">{{ ds.name }}</span>
+                                    <span class="font-medium text-gray-900 dark:text-white text-sm leading-tight">{{ ds.name }}</span>
                                     <UTooltip v-if="ds.admin_only" :text="$t('data.adminOnlyHint')">
-                                        <span class="text-[9px] font-medium uppercase tracking-wide text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
+                                        <span class="text-[9px] font-medium uppercase tracking-wide text-amber-700 bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
                                     </UTooltip>
                                     <!-- Publishing lifecycle badge (only when not the default published) -->
                                     <UTooltip v-if="ds.publish_status && ds.publish_status !== 'published'" :text="publishStatusDescription(ds.publish_status)">
@@ -109,10 +109,10 @@
                                 </div>
 
                                 <!-- Description (2 lines max) -->
-                                <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
+                                <p v-if="ds.description" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
                                     {{ ds.description }}
                                 </p>
-                                <p v-else class="text-xs text-gray-300 italic">
+                                <p v-else class="text-xs text-gray-300 dark:text-gray-600 italic">
                                     {{ $t('data.noDescription') }}
                                 </p>
                             </component>
@@ -122,7 +122,7 @@
                                 v-if="needsUserConnection(ds)"
                                 @click.stop="openCredentialsModal(ds)"
                                 :disabled="connectingId === ds.id"
-                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                                 <Spinner v-if="connectingId === ds.id" class="w-3.5 h-3.5" />
                                 <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
@@ -132,7 +132,7 @@
                                  principal) credentials — no personal sign-in needed. -->
                             <div
                                 v-else-if="usesServiceAccount(ds)"
-                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg"
+                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg"
                             >
                                 <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
                                 Service account
@@ -141,11 +141,11 @@
                     </div>
 
                     <!-- Empty state for search with no results -->
-                    <div v-else-if="searchQuery.trim()" class="py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                    <div v-else-if="searchQuery.trim()" class="py-12 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
                         <div class="text-gray-400 mb-2">
                             <UIcon name="heroicons-magnifying-glass" class="w-8 h-8 mx-auto opacity-50" />
                         </div>
-                        <p class="text-sm text-gray-500 mb-1">{{ $t('data.noAgentsFound') }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.noAgentsFound') }}</p>
                         <p class="text-xs text-gray-400">{{ $t('data.noAgentsHint') }}</p>
                     </div>
                 </div>
@@ -164,7 +164,7 @@
                             {{ $t('data.addConnection') }}
                         </UButton>
                     </div>
-                    <p class="text-gray-500 mb-3">{{ $t('data.subtitle') }}</p>
+                    <p class="text-gray-500 dark:text-gray-400 mb-3">{{ $t('data.subtitle') }}</p>
 
                     <!-- Connection chips (when connections exist) -->
                     <div v-if="connections.length > 0" class="flex flex-wrap items-center gap-2">
@@ -172,7 +172,7 @@
                             v-for="conn in connections"
                             :key="conn.id"
                             @click="openConnectionDetail(conn)"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-all"
                         >
                             <DataSourceIcon class="h-3.5" :type="conn.type" />
                             <span>{{ conn.name }}</span>
@@ -193,9 +193,9 @@
             </div>
 
             <!-- Connection Detail Modal -->
-            <ConnectionDetailModal 
-                v-model="showConnectionModal" 
-                :connection="selectedConnection" 
+            <ConnectionDetailModal
+                v-model="showConnectionModal"
+                :connection="selectedConnection"
                 @updated="refreshData"
             />
 
@@ -395,12 +395,12 @@ function isConnectionHealthy(conn: any): boolean {
     // Check connection's own status fields
     if (conn.last_status === 'success' || conn.status === 'success') return true
     if (conn.last_status === 'error' || conn.status === 'error') return false
-    
+
     // Check user_status if available
     const userStatus = conn.user_status?.connection
     if (userStatus === 'success') return true
     if (userStatus === 'error' || userStatus === 'offline') return false
-    
+
     // Fallback: check if any agent using this connection is connected
     const agentsUsingConn = connected_ds.value.filter(ds =>
         ds.connection?.id === conn.id || ds.connection_id === conn.id
@@ -413,7 +413,7 @@ function isConnectionHealthy(conn: any): boolean {
         })
         if (anyConnected) return true
     }
-    
+
     // Default: assume healthy if we have the connection in the list
     return true
 }

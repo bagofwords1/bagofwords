@@ -1,31 +1,31 @@
 <template>
     <span class="inline-flex items-center">
         <!-- Custom provider: just show chip icon -->
-        <Icon 
+        <Icon
             v-if="isCustomProvider"
-            name="heroicons-cpu-chip" 
-            :class="[computedClass, 'text-gray-500']"
+            name="heroicons-cpu-chip"
+            :class="[computedClass, 'text-gray-500 dark:text-gray-400']"
         />
         <!-- Regular providers: show image -->
-        <img 
+        <img
             v-else-if="!imageError"
-            :src="iconPath" 
-            :class="computedClass" 
+            :src="iconPath"
+            :class="computedClass"
             :alt="`${provider} logo`"
             @error="handleImageError"
             :style="{ objectFit: 'contain', maxWidth: '100%', maxHeight: '100%' }"
         />
         <!-- Fallback for missing images (non-custom) -->
-        <span 
-            v-else 
+        <span
+            v-else
             :class="computedClass"
-            class="flex items-center justify-center text-gray-500"
+            class="flex items-center justify-center text-gray-500 dark:text-gray-400"
         >
             <Icon name="heroicons-cpu-chip" class="w-6 h-6" />
         </span>
-        <button v-if="showAddProvider" 
-                @click="$emit('add-provider')" 
-                class="ms-2 text-gray-500 hover:text-gray-700">
+        <button v-if="showAddProvider"
+                @click="$emit('add-provider')"
+                class="ms-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
             <Icon name="heroicons:plus-circle" class="w-5" />
         </button>
     </span>
@@ -73,5 +73,5 @@ const computedClass = computed(() => {
 const handleImageError = (event: Event) => {
     imageError.value = true;
 };
-       
+
 </script>

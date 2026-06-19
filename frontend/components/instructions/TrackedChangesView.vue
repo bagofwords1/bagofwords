@@ -1,7 +1,7 @@
 <template>
   <div class="tracked-changes-view font-sans">
     <template v-if="diffOps.length === 0">
-      <span class="text-gray-400 italic text-xs">{{ $t('trackedChanges.noChanges', 'No changes') }}</span>
+      <span class="text-gray-400 dark:text-gray-600 italic text-xs">{{ $t('trackedChanges.noChanges', 'No changes') }}</span>
     </template>
     <template v-else>
       <template v-for="(op, i) in diffOps" :key="i">

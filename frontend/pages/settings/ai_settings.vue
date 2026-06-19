@@ -1,7 +1,7 @@
 <template>
     <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900">{{ $t('settings.aiSettingsPage.title') }}
-            <p class="text-sm text-gray-500 font-normal mb-8">
+        <h2 class="text-lg font-medium text-gray-900 dark:text-white">{{ $t('settings.aiSettingsPage.title') }}
+            <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-8">
                 {{ $t('settings.aiSettingsPage.subtitle') }}
             </p>
         </h2>
@@ -31,7 +31,7 @@
                                     <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
                                 <UTooltip v-if="feature.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -56,21 +56,21 @@
                                 @blur="updateConfigFeature(key, feature)"
                                 @keyup.enter="updateConfigFeature(key, feature)"
                             />
-                            <span v-else class="text-sm text-gray-600">
+                            <span v-else class="text-sm text-gray-600 dark:text-gray-400">
                                 {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
                             </span>
                         </div>
-                        <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ feature.description }}</p>
                     </div>
 
                     <!-- Allow LLM See Data - Special highlighted setting at the end -->
-                    <div v-if="configFeatures.allow_llm_see_data" class="flex flex-col md:w-2/3 mt-8 p-4 border-2 border-amber-300 bg-amber-50 rounded-lg">
+                    <div v-if="configFeatures.allow_llm_see_data" class="flex flex-col md:w-2/3 mt-8 p-4 border-2 border-amber-300 bg-amber-50 dark:bg-amber-950 rounded-lg">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
                                 <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
                                 {{ configFeatures.allow_llm_see_data.name }}
                                 <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -90,9 +90,9 @@
             <hr />
             <!-- AI Agents Section -->
             <div v-if="Object.keys(aiFeatures).length > 0" class="hidden">
-                <h3 class="text-base font-semibold text-gray-900 mb-4">{{ $t('settings.aiSettingsPage.aiAgentsTitle') }}</h3>
-                <p class="text-sm text-gray-500 mb-6">{{ $t('settings.aiSettingsPage.aiAgentsSubtitle') }}</p>
-                
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">{{ $t('settings.aiSettingsPage.aiAgentsTitle') }}</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">{{ $t('settings.aiSettingsPage.aiAgentsSubtitle') }}</p>
+
                 <div class="space-y-5">
                     <div v-for="(feature, key) in aiFeatures" :key="`ai_${key}`" class="flex flex-col md:w-2/3">
                         <div class="flex items-center justify-between">
@@ -102,7 +102,7 @@
                                     <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
                                 <UTooltip v-if="feature.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -127,20 +127,20 @@
                                 @blur="updateAIFeature(key, feature)"
                                 @keyup.enter="updateAIFeature(key, feature)"
                             />
-                            <span v-else class="text-sm text-gray-600">
+                            <span v-else class="text-sm text-gray-600 dark:text-gray-400">
                                 {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
                             </span>
                         </div>
-                        <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ feature.description }}</p>
                     </div>
                 </div>
             </div>
 
-      
+
 
             <!-- No settings message -->
             <div v-if="Object.keys(aiFeatures).length === 0 && Object.keys(configFeatures).length === 0" class="text-center py-8">
-                <p class="text-gray-500">{{ $t('settings.aiSettingsPage.noSettings') }}</p>
+                <p class="text-gray-500 dark:text-gray-400">{{ $t('settings.aiSettingsPage.noSettings') }}</p>
             </div>
         </div>
 
@@ -148,23 +148,23 @@
         <UModal v-model="showLlmConfirmModal" :ui="{ width: 'sm:max-w-lg' }">
             <UCard :ui="{ body: { padding: 'p-6' }, header: { padding: 'px-6 py-4' }, footer: { padding: 'px-6 py-4' } }">
                 <template #header>
-                    <h3 class="text-lg font-semibold text-gray-900">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
                         {{ pendingLlmValue ? $t('settings.aiSettingsPage.llmModalTitleEnable') : $t('settings.aiSettingsPage.llmModalTitleDisable') }}
                     </h3>
                 </template>
 
                 <div class="space-y-4">
                     <!-- Enable message -->
-                    <p v-if="pendingLlmValue" class="text-sm text-gray-600">
+                    <p v-if="pendingLlmValue" class="text-sm text-gray-600 dark:text-gray-400">
                         {{ $t('settings.aiSettingsPage.llmEnableMessage') }}
                     </p>
 
                     <!-- Disable message with impact list -->
                     <template v-else>
-                        <p class="text-sm text-gray-600">
+                        <p class="text-sm text-gray-600 dark:text-gray-400">
                             {{ $t('settings.aiSettingsPage.llmDisableIntro') }}
                         </p>
-                        <ul class="text-sm text-gray-600 space-y-2 ms-1">
+                        <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2 ms-1">
                             <li class="flex items-start gap-2">
                                 <Icon name="heroicons:x-circle" class="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
                                 <i18n-t keypath="settings.aiSettingsPage.llmImpactInspect" tag="span">
@@ -176,7 +176,7 @@
                                 <span>{{ $t('settings.aiSettingsPage.llmImpactAccuracy') }}</span>
                             </li>
                             <li class="flex items-start gap-2">
-                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-gray-400 dark:text-gray-400 mt-0.5 flex-shrink-0" />
                                 <span>{{ $t('settings.aiSettingsPage.llmImpactColumns') }}</span>
                             </li>
                             <li class="mt-2 text-xs">
@@ -186,8 +186,8 @@
                     </template>
 
                     <div class="pt-2">
-                        <i18n-t keypath="settings.aiSettingsPage.llmConfirmLabel" tag="label" class="block text-sm text-gray-600 mb-2">
-                            <template #phrase><span class="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('settings.aiSettingsPage.llmConfirmPhrase') }}</span></template>
+                        <i18n-t keypath="settings.aiSettingsPage.llmConfirmLabel" tag="label" class="block text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            <template #phrase><span class="font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{{ $t('settings.aiSettingsPage.llmConfirmPhrase') }}</span></template>
                         </i18n-t>
                         <UInput
                             v-model="llmConfirmText"
@@ -272,12 +272,12 @@ const fetchSettings = async () => {
     error.value = ''
     try {
         const response = await useMyFetch('/api/organization/settings')
-        
+
         if (response.status.value !== 'success') {
             const errorData = response.error?.value?.data || { message: t('settings.aiSettingsPage.fetchError') }
             throw new Error(errorData.message || errorData.detail || t('settings.aiSettingsPage.fetchError'))
         }
-        
+
         const data = response.data.value as SettingsResponse
 
         // Extract AI features
@@ -286,7 +286,7 @@ const fetchSettings = async () => {
         // Extract general configuration features (excluding ai_features)
         const allConfig = data.config || {}
         const generalConfig: Record<string, Feature> = {}
-        
+
         for (const key in allConfig) {
             if (key !== 'ai_features' && typeof allConfig[key] === 'object' && allConfig[key]?.name) {
                 generalConfig[key] = allConfig[key] as Feature
@@ -312,14 +312,14 @@ const fetchSettings = async () => {
 const updateAIFeature = async (featureKey: string, feature: Feature) => {
     const originalValue = !feature.value
     try {
-        const payload = { 
-            config: { 
+        const payload = {
+            config: {
                 ai_features: {
                     [featureKey]: {
                         value: aiFeatures.value[featureKey].value
                     }
                 }
-            } 
+            }
         }
 
         const response = await useMyFetch('/api/organization/settings', {
@@ -373,7 +373,7 @@ const updateAIFeature = async (featureKey: string, feature: Feature) => {
 const updateConfigFeature = async (featureKey: string, feature: Feature) => {
     const originalValue = !feature.value
     try {
-        const payload = { 
+        const payload = {
             config: {
                 [featureKey]: {
                     value: configFeatures.value[featureKey].value

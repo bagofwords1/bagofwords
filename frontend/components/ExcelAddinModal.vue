@@ -5,7 +5,7 @@
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <img src="/data_sources_icons/excel.png" alt="Excel" class="w-6 h-6" />
-                    <h3 class="text-lg font-semibold text-gray-900">Excel Add-in</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Excel Add-in</h3>
                 </div>
                 <UButton
                     color="gray"
@@ -14,31 +14,31 @@
                     @click="$emit('close')"
                 />
             </div>
-            <p class="text-sm text-gray-500 mt-2">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">
                 Sideload the Bag of Words add-in directly from this instance.
             </p>
         </template>
 
         <div v-if="loading" class="py-12 flex items-center justify-center">
-            <p class="text-sm text-gray-500">Loading...</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
         </div>
 
         <div v-else class="space-y-5">
             <!-- Instructions -->
             <div>
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Setup</div>
-                <ol class="text-sm text-gray-600 space-y-1.5 list-decimal list-inside">
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Setup</div>
+                <ol class="text-sm text-gray-600 dark:text-gray-400 space-y-1.5 list-decimal list-inside">
                     <li>Download the manifest file below</li>
                     <li>Open <strong>Excel</strong> (desktop or web)</li>
                     <li>Go to <strong>Home</strong> tab &rarr; <strong>Add-ins</strong> &rarr; <strong>More Add-ins</strong></li>
-                    <li>Click <strong>Upload My Add-in</strong> and upload the <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">manifest.xml</code></li>
+                    <li>Click <strong>Upload My Add-in</strong> and upload the <code class="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">manifest.xml</code></li>
                     <li>The <strong>BOW</strong> button will appear in the Home tab</li>
                 </ol>
             </div>
 
             <!-- Manifest -->
             <div>
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Manifest</div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Manifest</div>
                 <div v-if="error" class="text-sm text-red-500 py-2">{{ error }}</div>
                 <div v-else class="space-y-3">
                     <div class="flex items-center gap-2">
@@ -52,7 +52,7 @@
                         </UButton>
                         <button
                             @click="copyManifest"
-                            class="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+                            class="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                         >
                             <UIcon :name="copied ? 'heroicons-check' : 'heroicons-clipboard-document'" class="w-3.5 h-3.5" />
                             {{ copied ? 'Copied' : 'Copy XML' }}
@@ -60,7 +60,7 @@
                     </div>
                     <button
                         @click="showManifest = !showManifest"
-                        class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                        class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                     >
                         <UIcon
                             :name="showManifest ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -68,16 +68,16 @@
                         />
                         {{ showManifest ? 'Hide XML' : 'Show XML' }}
                     </button>
-                    <div v-if="showManifest" class="relative bg-gray-50 rounded-lg border border-gray-200">
-                        <pre class="px-3 py-2.5 font-mono text-xs text-gray-700 max-h-64 overflow-auto">{{ manifestXml }}</pre>
+                    <div v-if="showManifest" class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <pre class="px-3 py-2.5 font-mono text-xs text-gray-700 dark:text-gray-300 max-h-64 overflow-auto">{{ manifestXml }}</pre>
                     </div>
                 </div>
             </div>
 
             <!-- Tenant-wide deployment -->
-            <div class="pt-2 border-t border-gray-100">
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Tenant-wide deployment</div>
-                <p class="text-sm text-gray-600">
+            <div class="pt-2 border-t border-gray-100 dark:border-gray-800">
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Tenant-wide deployment</div>
+                <p class="text-sm text-gray-600 dark:text-gray-400">
                     For organization-wide rollout, your Microsoft 365 admin can upload this manifest via
                     <strong>Admin Center</strong> &rarr; <strong>Settings</strong> &rarr; <strong>Integrated apps</strong>.
                 </p>

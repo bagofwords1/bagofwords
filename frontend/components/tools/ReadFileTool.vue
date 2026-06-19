@@ -1,15 +1,15 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500">
+      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
           <span>Reading {{ fileLabel }}…</span>
         </span>
-        <span v-else class="text-gray-700 flex items-center">
+        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
           <span>Read {{ fileLabel }}</span>
-          <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">{{ contentType }}</span>
+          <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
           <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
         </span>
@@ -17,21 +17,21 @@
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="hasContent" class="text-xs text-gray-600">
+      <div v-if="hasContent" class="text-xs text-gray-600 dark:text-gray-400">
         <div
-          class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50"
+          class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
           @click="expanded = !expanded"
         >
           <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
-          <span class="text-gray-500">Preview</span>
+          <span class="text-gray-500 dark:text-gray-400">Preview</span>
         </div>
         <Transition name="fade">
           <div v-if="expanded" class="ps-6 pe-1 pb-1">
-            <pre class="text-[11px] bg-gray-50 border border-gray-200 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
-            <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500">
+            <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
+            <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
               <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
               Attached to this conversation as session file
-              <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 text-gray-600">{{ sessionFileId.slice(0, 8) }}…</code>
+              <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ sessionFileId.slice(0, 8) }}…</code>
             </div>
           </div>
         </Transition>

@@ -4,7 +4,7 @@
             <!-- Header -->
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('traceModal.title') }}</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('traceModal.title') }}</h3>
                     <UButton
                         color="gray"
                         variant="ghost"
@@ -13,12 +13,12 @@
                     />
                 </div>
                 <div class="flex items-start justify-between mt-1">
-                    <div class="flex items-center gap-3 text-sm text-gray-500">
+                    <div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
                         <span>{{ $t('traceModal.reportId', { id: reportId }) }}</span>
                         <!-- Timing summary pills -->
                         <template v-if="traceData?.timing_breakdown">
                             <span v-if="traceData.timing_breakdown.total_duration_ms != null"
-                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-xs text-gray-600">
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400">
                                 <UIcon name="i-heroicons-clock" class="w-3 h-3" />
                                 {{ $t('traceModal.total', { duration: formatDuration(traceData.timing_breakdown.total_duration_ms) }) }}
                             </span>
@@ -29,24 +29,24 @@
                         v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)"
                         class="flex items-center gap-2"
                     >
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 me-1">{{ $t('traceModal.aiScoring') }}</div>
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 me-1">{{ $t('traceModal.aiScoring') }}</div>
                         <div
                             v-if="traceData.agent_execution.instructions_effectiveness !== null"
-                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200"
+                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 border-blue-200"
                         >
                             <span class="me-1">{{ $t('traceModal.instructions') }}</span>
                             <span class="font-semibold">{{ traceData.agent_execution.instructions_effectiveness }}/5</span>
                         </div>
                         <div
                             v-if="traceData.agent_execution.context_effectiveness !== null"
-                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200"
+                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-purple-50 dark:bg-purple-950 text-purple-700 border-purple-200"
                         >
                             <span class="me-1">{{ $t('traceModal.context') }}</span>
                             <span class="font-semibold">{{ traceData.agent_execution.context_effectiveness }}/5</span>
                         </div>
                         <div
                             v-if="traceData.agent_execution.response_score !== null"
-                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-green-50 text-green-700 border-green-200"
+                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-green-50 dark:bg-green-950 text-green-700 border-green-200"
                         >
                             <span class="me-1">{{ $t('traceModal.response') }}</span>
                             <span class="font-semibold">{{ traceData.agent_execution.response_score }}/5</span>
@@ -61,30 +61,30 @@
                 <div v-if="isLoading" class="flex-1 flex items-center justify-center">
                     <div class="text-center">
                         <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
-                        <p class="text-sm text-gray-500">{{ $t('traceModal.loading') }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('traceModal.loading') }}</p>
                     </div>
                 </div>
 
                 <!-- Main Content -->
                 <div v-else class="grid grid-cols-5 gap-6 flex-1 min-h-0">
                     <!-- Left Pane: Minimal Block List (2/5 width) -->
-                    <div class="col-span-2 border-e border-gray-200 pe-4 flex flex-col min-h-0">
-                        <div class="text-xs text-gray-600 mb-2">{{ $t('traceModal.executionBlocks') }}</div>
+                    <div class="col-span-2 border-e border-gray-200 dark:border-gray-700 pe-4 flex flex-col min-h-0">
+                        <div class="text-xs text-gray-600 dark:text-gray-400 mb-2">{{ $t('traceModal.executionBlocks') }}</div>
                         <div class="flex-1 min-h-0 overflow-y-auto pe-2">
-                            <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ms-4 ps-3 border-s border-gray-200' : '']">
+                            <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ms-4 ps-3 border-s border-gray-200 dark:border-gray-700' : '']">
                                 <div v-if="item.kind === 'section'"
-                                    class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 hover:text-gray-700 select-none"
+                                    class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 select-none"
                                     @click="toggleHarnessCollapsed()">
                                     <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3 rtl-flip" />
                                     <span>{{ item.title }}</span>
-                                    <span class="text-gray-400">· {{ harnessCount }}</span>
+                                    <span class="text-gray-400 dark:text-gray-600">· {{ harnessCount }}</span>
                                 </div>
                                 <div v-else :class="[
                                 'px-3 py-2 rounded border cursor-pointer text-xs',
-                                selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                                selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-950' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                             ]" @click="selectLeftItem(item)">
                                     <div class="flex items-center justify-between">
-                                        <div class="font-medium text-gray-900 truncate flex items-center gap-1">
+                                        <div class="font-medium text-gray-900 dark:text-white truncate flex items-center gap-1">
                                             <span class="truncate">{{ item.title }}</span>
                                             <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ms-1">
                                                 <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || $t('nav.dataSources')">
@@ -94,7 +94,7 @@
                                         </div>
                                         <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
                                     </div>
-                                    <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
+                                    <div v-if="item.subtitle" class="text-gray-500 dark:text-gray-400 truncate mt-0.5">{{ item.subtitle }}</div>
                                     <div v-if="getItemDurationMs(item) !== null" class="mt-1.5 flex items-center gap-2 justify-end flex-wrap text-[10px]">
                                         <!-- codegen / execution split when available -->
                                         <template v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms != null">
@@ -122,7 +122,7 @@
                                             </span>
                                         </template>
                                         <!-- total -->
-                                        <span class="flex items-center text-gray-400">
+                                        <span class="flex items-center text-gray-400 dark:text-gray-600">
                                             <UIcon name="i-heroicons-bolt" class="w-3 h-3 me-0.5" />
                                             {{ formatDuration(getItemDurationMs(item) || 0) }}
                                         </span>
@@ -138,7 +138,7 @@
 
                     <!-- Right Pane: Details (3/5 width) -->
                     <div class="col-span-3 flex flex-col min-h-0">
-                        <div v-if="!selectedItem" class="flex items-center justify-center h-full text-gray-500">
+                        <div v-if="!selectedItem" class="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
                             <div class="text-center">
                                 <UIcon name="i-heroicons-cursor-arrow-rays" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
                                 <p class="text-xs">{{ $t('traceModal.selectItem') }}</p>
@@ -149,16 +149,16 @@
                             <!-- Item Header -->
                             <div class="mb-4 flex-shrink-0">
                                 <div class="flex items-center mb-2">
-                                    <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 me-2 text-gray-600" />
-                                    <h4 class="text-sm font-medium text-gray-900">{{ getSelectedItemTitle() }}</h4>
+                                    <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 me-2 text-gray-600 dark:text-gray-400" />
+                                    <h4 class="text-sm font-medium text-gray-900 dark:text-white">{{ getSelectedItemTitle() }}</h4>
                                     <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ms-2">
-                                        <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-[11px] text-gray-600">
+                                        <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-600 dark:text-gray-400">
                                             <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
                                             <span>{{ ds.name || ds.type }}</span>
                                         </span>
                                     </span>
                                 </div>
-                                <div class="text-xs text-gray-500">
+                                <div class="text-xs text-gray-500 dark:text-gray-400">
                                     {{ formatDate(selectedItem.created_at) }}
                                 </div>
                             </div>
@@ -167,13 +167,13 @@
 
                                 <!-- User prompt + context (minimal) -->
                                 <template v-if="selectedItem.id === 'user_prompt'">
-                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.userPrompt') }}</div>
-                                    <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
+                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.userPrompt') }}</div>
+                                    <pre class="text-xs text-gray-900 dark:text-white font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
 
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.context') }}</div>
-                                        <ContextBrowser 
-                                            :context-data="traceData.head_context_snapshot.context_view_json || {}" 
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.context') }}</div>
+                                        <ContextBrowser
+                                            :context-data="traceData.head_context_snapshot.context_view_json || {}"
                                             :build="traceData?.build"
                                         />
                                     </div>
@@ -183,60 +183,60 @@
                                 <template v-else-if="selectedItem.kind === 'instructions'">
                                     <div v-if="instructionsSummaryItems.length">
                                         <!-- Summary counts -->
-                                        <div class="flex items-center gap-3 mb-3 text-xs text-gray-600">
+                                        <div class="flex items-center gap-3 mb-3 text-xs text-gray-600 dark:text-gray-400">
                                             <span class="font-medium">{{ $t('traceModal.instructionsCount', { count: instructionsSummaryItems.length }) }}</span>
-                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
-                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
+                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-700">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
+                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
                                         </div>
                                         <!-- Collapsible list -->
                                         <div class="space-y-1">
                                             <div v-for="ins in instructionsSummaryItems" :key="ins.id"
-                                                 class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                                 class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 px-2 py-1.5 rounded bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
                                                  @click="emit('openInstruction', ins.id)">
                                                 <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                 <span class="font-medium flex-1 truncate">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
-                                                <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">{{ ins.category }}</span>
+                                                <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
                                                 <span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
-                                                      :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
+                                                      :class="ins.load_mode === 'always' ? 'bg-green-100 dark:bg-green-900/50 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'">
                                                     {{ ins.load_mode || 'always' }}
                                                 </span>
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-else class="text-xs text-gray-500">{{ $t('traceModal.noInstructions') }}</div>
+                                    <div v-else class="text-xs text-gray-500 dark:text-gray-400">{{ $t('traceModal.noInstructions') }}</div>
                                 </template>
 
                                 <!-- Decision details (minimal) -->
                                 <template v-else>
                                     <!-- Feedback details -->
                                     <div v-if="selectedItem.kind === 'feedback'">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.feedback') }}</div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.feedback') }}</div>
                                         <div class="flex items-center space-x-2 mb-2">
                                             <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                                  :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 text-green-800' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
+                                                  :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
                                                 {{ (selectedItem.direction || 0) > 0 ? $t('traceModal.positive') : (selectedItem.direction || 0) < 0 ? $t('traceModal.negative') : $t('traceModal.neutral') }}
                                             </span>
-                                            <span class="text-xs text-gray-500">{{ formatDate(selectedItem.created_at) }}</span>
+                                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(selectedItem.created_at) }}</span>
                                         </div>
                                         <div v-if="selectedItem.message">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.message') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.message }}</pre>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.message') }}</div>
+                                            <pre class="text-xs text-gray-900 dark:text-white whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.reasoning') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.reasoning') }}</div>
+                                            <pre class="text-xs text-gray-900 dark:text-white whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.content') }}</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.content') }}</div>
+                                            <pre class="text-xs text-gray-900 dark:text-white whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Tool execution with specialized rendering -->
                                         <div v-if="selectedItem.tool_execution" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.toolExecution') }}</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.toolExecution') }}</div>
                                             <!-- Use specialized tool component if available -->
                                             <component
                                                 v-if="shouldUseToolComponent(selectedItem.tool_execution)"
@@ -250,7 +250,7 @@
                                             />
                                             <!-- Error message fallback when result_json is empty -->
                                             <div v-if="selectedItem.tool_execution.status === 'error' && selectedItem.tool_execution.error_message && !selectedItem.tool_execution.result_json"
-                                                 class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+                                                 class="mt-2 text-xs text-red-700 bg-red-50 dark:bg-red-950 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
                                                 {{ selectedItem.tool_execution.error_message }}
                                             </div>
                                         </div>
@@ -258,7 +258,7 @@
                                         <!-- Instructions loaded by this tool -->
                                         <div v-if="selectedItem.tool_execution?.result_json?.related_instructions?.length" class="mt-4">
                                             <div
-                                                class="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 mb-2 cursor-pointer hover:text-gray-700"
+                                                class="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 cursor-pointer hover:text-gray-700"
                                                 @click="showToolInstructions = !showToolInstructions"
                                             >
                                                 <UIcon :name="showToolInstructions ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
@@ -268,11 +268,11 @@
                                             <Transition name="fade">
                                                 <div v-if="showToolInstructions" class="space-y-1">
                                                     <div v-for="ins in selectedItem.tool_execution.result_json.related_instructions" :key="ins.id"
-                                                         class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                                         class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 px-2 py-1.5 rounded bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
                                                          @click="emit('openInstruction', ins.id)">
                                                         <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                         <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
-                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ms-auto">{{ ins.category }}</span>
+                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 ms-auto">{{ ins.category }}</span>
                                                     </div>
                                                 </div>
                                             </Transition>
@@ -280,24 +280,24 @@
 
                                         <!-- Sub-timings: per-query breakdown -->
                                         <div v-if="selectedItemSubTimings" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.queryTiming') }}</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.queryTiming') }}</div>
                                             <div class="space-y-1 text-xs">
                                                 <!-- Phase summary row -->
-                                                <div class="flex items-center gap-3 text-gray-500 mb-2">
+                                                <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400 mb-2">
                                                     <span v-if="selectedItemSubTimings.codegen_ms != null">
-                                                        {{ $t('traceModal.llmCodegen') }} <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
+                                                        {{ $t('traceModal.llmCodegen') }} <span class="font-medium text-gray-700 dark:text-gray-300">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
                                                     </span>
                                                     <span v-if="selectedItemSubTimings.execution_ms != null">
-                                                        {{ $t('traceModal.dataQueryExecution') }} <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
+                                                        {{ $t('traceModal.dataQueryExecution') }} <span class="font-medium text-gray-700 dark:text-gray-300">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
                                                     </span>
                                                     <span v-if="selectedItemSubTimings.retry_count">
                                                         {{ $t('traceModal.retries') }} <span class="font-medium text-red-600">{{ selectedItemSubTimings.retry_count }}</span>
                                                     </span>
                                                 </div>
                                                 <!-- Per-query table -->
-                                                <div v-if="selectedItemSubTimings.queries?.length" class="border border-gray-200 rounded overflow-hidden">
+                                                <div v-if="selectedItemSubTimings.queries?.length" class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
                                                     <table class="w-full text-[11px]">
-                                                        <thead class="bg-gray-50 text-gray-500">
+                                                        <thead class="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
                                                             <tr>
                                                                 <th class="px-2 py-1 text-start font-medium">#</th>
                                                                 <th class="px-2 py-1 text-end font-medium">{{ $t('traceModal.tableTime') }}</th>
@@ -307,14 +307,14 @@
                                                         </thead>
                                                         <tbody>
                                                             <tr v-for="q in selectedItemSubTimings.queries" :key="q.index"
-                                                                :class="q.error ? 'bg-red-50' : 'even:bg-gray-50'">
-                                                                <td class="px-2 py-1 text-gray-500">{{ q.index + 1 }}</td>
+                                                                :class="q.error ? 'bg-red-50 dark:bg-red-950' : 'even:bg-gray-50 dark:even:bg-gray-800'">
+                                                                <td class="px-2 py-1 text-gray-500 dark:text-gray-400">{{ q.index + 1 }}</td>
                                                                 <td class="px-2 py-1 text-end font-mono"
-                                                                    :class="q.query_ms > 3000 ? 'text-red-600 font-semibold' : q.query_ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
+                                                                    :class="q.query_ms > 3000 ? 'text-red-600 font-semibold' : q.query_ms > 1000 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-300'">
                                                                     {{ formatDuration(q.query_ms) }}
                                                                 </td>
-                                                                <td class="px-2 py-1 text-end text-gray-500">{{ q.rows ?? '—' }}</td>
-                                                                <td class="px-2 py-1 text-gray-700 truncate max-w-[200px]" :title="q.sql ?? ''">
+                                                                <td class="px-2 py-1 text-end text-gray-500 dark:text-gray-400">{{ q.rows ?? '—' }}</td>
+                                                                <td class="px-2 py-1 text-gray-700 dark:text-gray-300 truncate max-w-[200px]" :title="q.sql ?? ''">
                                                                     <span v-if="q.error" class="text-red-600">{{ q.error }}</span>
                                                                     <span v-else>{{ q.sql }}</span>
                                                                 </td>
@@ -327,18 +327,18 @@
 
                                         <!-- Stages waterfall -->
                                         <div v-if="filteredStages.length" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.stages') }}</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.stages') }}</div>
                                             <div class="space-y-1">
                                                 <div v-for="s in filteredStages" :key="s.stage"
                                                      class="flex items-center gap-2 text-[11px]">
-                                                    <span class="w-36 text-gray-600 truncate text-end" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
+                                                    <span class="w-36 text-gray-600 dark:text-gray-400 truncate text-end" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
                                                     <span class="w-16 text-end font-mono"
-                                                          :class="s.ms > 5000 ? 'text-red-600 font-semibold' : s.ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
+                                                          :class="s.ms > 5000 ? 'text-red-600 font-semibold' : s.ms > 1000 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-300'">
                                                         {{ formatDuration(s.ms) }}
                                                     </span>
-                                                    <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                                                    <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
                                                         <div class="h-full rounded"
-                                                             :class="s.ms > 5000 ? 'bg-red-400' : s.ms > 1000 ? 'bg-orange-400' : 'bg-gray-300'"
+                                                             :class="s.ms > 5000 ? 'bg-red-400' : s.ms > 1000 ? 'bg-orange-400' : 'bg-gray-300 dark:bg-gray-600'"
                                                              :style="{ width: Math.max(2, (s.ms / Math.max(...filteredStages.map((x: any) => x.ms))) * 100) + '%' }">
                                                         </div>
                                                     </div>
@@ -353,16 +353,16 @@
                             <div v-if="false" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Title</label>
-                                        <p class="text-xs text-gray-900">{{ selectedItem.title }}</p>
+                                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+                                        <p class="text-xs text-gray-900 dark:text-white">{{ selectedItem.title }}</p>
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Status</label>
+                                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
                                         <span :class="[
                                             'inline-flex px-2 py-1 text-xs font-medium rounded-full',
-                                            selectedItem.status === 'success' ? 'bg-green-100 text-green-800' :
-                                            selectedItem.status === 'error' ? 'bg-red-100 text-red-800' :
-                                            'bg-gray-100 text-gray-800'
+                                            selectedItem.status === 'success' ? 'bg-green-100 dark:bg-green-900/50 text-green-800' :
+                                            selectedItem.status === 'error' ? 'bg-red-100 dark:bg-red-900/50 text-red-800' :
+                                            'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                                         ]">
                                             {{ selectedItem.status }}
                                         </span>
@@ -370,29 +370,29 @@
                                 </div>
 
                                 <div v-if="selectedItem.data_model">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Data Model</label>
-                                    <div class="p-3 bg-gray-50 rounded-lg border max-h-32 overflow-y-auto">
-                                        <pre class="text-xs text-gray-900">{{ JSON.stringify(selectedItem.data_model, null, 2) }}</pre>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Data Model</label>
+                                    <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border max-h-32 overflow-y-auto">
+                                        <pre class="text-xs text-gray-900 dark:text-white">{{ JSON.stringify(selectedItem.data_model, null, 2) }}</pre>
                                     </div>
                                 </div>
 
                                 <div v-if="selectedItem.code">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Generated Code</label>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Generated Code</label>
                                     <div class="p-3 bg-gray-900 rounded-lg max-h-40 overflow-y-auto">
                                         <pre class="text-xs text-green-400 font-mono">{{ selectedItem.code }}</pre>
                                     </div>
                                 </div>
 
                                 <div v-if="selectedItem.data">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Data Output</label>
-                                    <div class="border rounded-lg bg-white h-48">
-                                        <RenderTable 
-                                            v-if="selectedItem.data?.columns" 
-                                            :widget="{ id: 'trace-widget' }" 
-                                            :step="selectedItem" 
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Data Output</label>
+                                    <div class="border rounded-lg bg-white dark:bg-gray-900 h-48">
+                                        <RenderTable
+                                            v-if="selectedItem.data?.columns"
+                                            :widget="{ id: 'trace-widget' }"
+                                            :step="selectedItem"
                                         />
-                                        <div v-else class="p-3 bg-gray-50 rounded-lg border h-full overflow-y-auto">
-                                            <pre class="text-xs text-gray-900">{{ JSON.stringify(selectedItem.data, null, 2) }}</pre>
+                                        <div v-else class="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border h-full overflow-y-auto">
+                                            <pre class="text-xs text-gray-900 dark:text-white">{{ JSON.stringify(selectedItem.data, null, 2) }}</pre>
                                         </div>
                                     </div>
                                 </div>
@@ -402,24 +402,24 @@
                             <div v-if="false" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Direction</label>
+                                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Direction</label>
                                         <span :class="[
                                             'inline-flex px-2 py-1 text-xs font-medium rounded-full',
-                                            selectedItem.direction === 1 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                            selectedItem.direction === 1 ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : 'bg-red-100 dark:bg-red-900/50 text-red-800'
                                         ]">
                                             {{ selectedItem.direction === 1 ? 'Positive' : 'Negative' }}
                                         </span>
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Feedback ID</label>
-                                        <p class="text-xs text-gray-900">{{ selectedItem.feedback_id }}</p>
+                                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Feedback ID</label>
+                                        <p class="text-xs text-gray-900 dark:text-white">{{ selectedItem.feedback_id }}</p>
                                     </div>
                                 </div>
 
                                 <div v-if="selectedItem.message">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Message</label>
-                                    <div class="p-3 bg-gray-50 rounded-lg border">
-                                        <p class="text-xs text-gray-900">{{ selectedItem.message }}</p>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Message</label>
+                                    <div class="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border">
+                                        <p class="text-xs text-gray-900 dark:text-white">{{ selectedItem.message }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -695,11 +695,11 @@ const visibleLeftItems = computed(() => {
 // Methods
 const fetchTraceData = async () => {
     if (!props.reportId || !props.completionId) return
-    
+
     isLoading.value = true
     try {
         const response = await useMyFetch<AgentExecutionTraceResponse>(`/api/console/agent_executions/by-completion/${props.completionId}`)
-        
+
         if (response.error.value) {
             console.error('Error fetching trace data:', response.error.value)
         } else if (response.data.value) {
@@ -875,8 +875,8 @@ const hasAnyScores = (item: any) => {
 }
 
 const hasAnyCompletionScores = (completion: any) => {
-    return completion.instructions_effectiveness !== null || 
-           completion.context_effectiveness !== null || 
+    return completion.instructions_effectiveness !== null ||
+           completion.context_effectiveness !== null ||
            completion.response_score !== null
 }
 
@@ -912,4 +912,4 @@ watch(() => props.modelValue, (newValue) => {
         fetchTraceData()
     }
 })
-</script> 
+</script>

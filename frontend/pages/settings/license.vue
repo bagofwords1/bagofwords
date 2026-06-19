@@ -2,8 +2,8 @@
   <div class="mt-4">
     <!-- Header -->
     <div class="mb-6">
-      <h2 class="text-sm font-medium text-gray-900">{{ $t('settings.licensePage.title') }}</h2>
-      <p class="text-xs text-gray-500 mt-0.5">{{ $t('settings.licensePage.subtitle') }}</p>
+      <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.licensePage.title') }}</h2>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.licensePage.subtitle') }}</p>
     </div>
 
     <div v-if="loading" class="py-8 flex justify-center">
@@ -15,7 +15,7 @@
       <div
         :class="[
           'rounded-lg border p-5',
-          isExpired ? 'border-red-200 bg-red-50/40' : 'border-gray-200'
+          isExpired ? 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-950/40' : 'border-gray-200 dark:border-gray-700'
         ]"
       >
         <div class="flex items-start justify-between gap-4">
@@ -23,7 +23,7 @@
             <div
               :class="[
                 'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
-                isLicensed ? 'bg-green-50' : isExpired ? 'bg-red-50' : 'bg-gray-100'
+                isLicensed ? 'bg-green-50 dark:bg-green-950' : isExpired ? 'bg-red-50 dark:bg-red-950' : 'bg-gray-100 dark:bg-gray-800'
               ]"
             >
               <UIcon
@@ -43,10 +43,10 @@
               />
             </div>
             <div>
-              <p class="text-sm font-medium text-gray-900">
+              <p class="text-sm font-medium text-gray-900 dark:text-white">
                 {{ isLicensed ? $t('settings.licensePage.enterprise') : $t('settings.licensePage.community') }}
               </p>
-              <p class="text-xs text-gray-500 mt-0.5">
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 <template v-if="isLicensed && license?.org_name">
                   {{ license.org_name }}
                 </template>
@@ -69,20 +69,20 @@
         </div>
 
         <!-- License Details (if licensed or expired) -->
-        <dl v-if="isLicensed || isExpired" class="mt-5 pt-4 border-t border-gray-100 space-y-2.5">
+        <dl v-if="isLicensed || isExpired" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2.5">
           <div class="flex justify-between items-center text-xs">
-            <dt class="text-gray-500">{{ $t('settings.licensePage.fieldTier') }}</dt>
-            <dd class="text-gray-700 capitalize">{{ license?.tier || '-' }}</dd>
+            <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldTier') }}</dt>
+            <dd class="text-gray-700 dark:text-gray-300 capitalize">{{ license?.tier || '-' }}</dd>
           </div>
           <div class="flex justify-between items-center text-xs">
-            <dt class="text-gray-500">{{ $t('settings.licensePage.fieldLicenseId') }}</dt>
-            <dd class="font-mono text-gray-700">{{ license?.license_id || '-' }}</dd>
+            <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldLicenseId') }}</dt>
+            <dd class="font-mono text-gray-700 dark:text-gray-300">{{ license?.license_id || '-' }}</dd>
           </div>
           <div v-if="expiresAt" class="flex justify-between items-center text-xs">
-            <dt class="text-gray-500">{{ $t('settings.licensePage.fieldExpires') }}</dt>
-            <dd :class="isExpiringSoon || isExpired ? 'text-amber-600 font-medium' : 'text-gray-700'">
+            <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldExpires') }}</dt>
+            <dd :class="isExpiringSoon || isExpired ? 'text-amber-600 font-medium' : 'text-gray-700 dark:text-gray-300'">
               {{ formatDate(expiresAt) }}
-              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="text-gray-400">
+              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="text-gray-400 dark:text-gray-600">
                 · {{ $t('settings.licensePage.inDays', { days: daysUntilExpiry }) }}
               </span>
             </dd>
@@ -111,17 +111,17 @@
       </div>
 
       <!-- Enterprise Info (only show when not licensed and not expired) -->
-      <div v-if="!isLicensed && !isExpired" class="rounded-lg border border-gray-200 p-5">
-        <p class="text-sm text-gray-700 font-medium mb-1">
+      <div v-if="!isLicensed && !isExpired" class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+        <p class="text-sm text-gray-700 dark:text-gray-300 font-medium mb-1">
           {{ $t('settings.licensePage.enterpriseTitle') }}
         </p>
-        <p class="text-sm text-gray-600 mb-3">
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
           {{ $t('settings.licensePage.enterpriseInfo') }}
         </p>
-        <p class="text-xs text-gray-500 mb-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           <i18n-t keypath="settings.licensePage.activateHint" tag="span">
             <template #envvar>
-              <code class="bg-gray-100 px-1 py-0.5 rounded text-xs">BOW_LICENSE_KEY</code>
+              <code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-xs">BOW_LICENSE_KEY</code>
             </template>
           </i18n-t>
         </p>
@@ -136,8 +136,8 @@
       </div>
 
       <!-- Renew CTA when expired -->
-      <div v-if="isExpired" class="rounded-lg border border-gray-200 p-5">
-        <p class="text-sm text-gray-600 mb-3">
+      <div v-if="isExpired" class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
           {{ $t('settings.licensePage.renewInfo') }}
         </p>
         <a

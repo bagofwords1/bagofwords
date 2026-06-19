@@ -24,14 +24,14 @@
                 <span :class="['mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0', publishStatusDotClass(item.value)]" />
                 <div class="min-w-0">
                     <div class="flex items-center gap-1.5">
-                        <span class="text-sm text-gray-900">{{ item.label }}</span>
+                        <span class="text-sm text-gray-900 dark:text-white">{{ item.label }}</span>
                         <UIcon
                             v-if="item.value === status"
                             name="heroicons-check"
                             class="w-3.5 h-3.5 text-blue-600"
                         />
                     </div>
-                    <div class="text-[11px] text-gray-500 whitespace-normal">{{ item.description }}</div>
+                    <div class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-normal">{{ item.description }}</div>
                 </div>
             </div>
         </template>

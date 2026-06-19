@@ -1,24 +1,25 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Table Usage</h3>
-            <p class="text-sm text-gray-500 mt-1">Most accessed data tables</p>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Table Usage</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Most accessed data tables</p>
         </div>
         <div class="p-6">
             <div class="h-80">
                 <div v-if="isLoading" class="flex items-center justify-center h-full">
                     <div class="flex items-center space-x-2">
                         <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                        <span class="text-gray-600">Loading chart...</span>
+                        <span class="text-gray-600 dark:text-gray-400">Loading chart...</span>
                     </div>
                 </div>
                 <VChart
                     v-else-if="chartOptions"
+                    :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                     class="chart"
                     :option="chartOptions"
                     autoresize
                 />
-                <div v-else class="flex items-center justify-center h-full text-gray-500">
+                <div v-else class="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
                     No table usage data available
                 </div>
             </div>
@@ -27,6 +28,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart } from 'echarts/charts'
@@ -68,16 +70,16 @@ const props = defineProps<Props>()
 
 const chartOptions = computed((): EChartsOption | null => {
     if (!props.tableUsageData?.top_tables) return null
-    
+
     // Use only top 7 tables
     const topTables = props.tableUsageData.top_tables.slice(0, 7)
     const data = topTables.map(item => item.usage_count)
     const categories = topTables.map(item => item.table_name)
-    
+
     // Calculate max value for y-axis steps
     const maxValue = Math.max(...data)
     const stepSize = Math.ceil(maxValue / 5) // Create about 5 steps
-    
+
     return {
         tooltip: {
             trigger: 'axis',
@@ -179,4 +181,4 @@ const chartOptions = computed((): EChartsOption | null => {
     width: 100%;
     height: 100%;
 }
-</style> 
+</style>
