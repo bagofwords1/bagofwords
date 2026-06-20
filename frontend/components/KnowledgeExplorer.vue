@@ -970,19 +970,10 @@ const openAgent = async (id: string) => {
   clearRightPane()
   agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
-  // Reflect the agent in the URL (/agents/<id>) WITHOUT a router navigation —
-  // router.replace re-runs the global middleware (auth/onboarding/permissions)
-  // and flickers the page. history.replaceState just updates the address bar.
-  if (process.client && !location.pathname.replace(/\/$/, '').endsWith('/agents/' + id)) {
-    try { history.replaceState({ ...history.state }, '', `/agents/${id}`) } catch {}
-  }
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
 }
-// Close button: clear the view and drop the agent id from the URL.
-const exitAgentView = () => {
-  closeAgentView()
-  if (process.client && /\/agents\/.+/.test(location.pathname)) { try { history.replaceState({ ...history.state }, '', '/agents') } catch {} }
-}
+// Close button: clear the view (the URL sync watcher drops the id from the URL).
+const exitAgentView = () => { closeAgentView() }
 const onAgentClick = (agent: any) => {
   if (needsSignIn(agent)) { openAgentTab(agent.id); return }
   // Re-clicking the already-open agent just collapses its tree node; keeps the pane.
@@ -2132,20 +2123,64 @@ const FilterSection = defineComponent({
   },
 })
 
-// Deep-link: /agents/<id> opens that agent's overview in the explorer.
-// Uses an optional dynamic route ([[id]].vue) so /agents ↔ /agents/<id> share
-// the same component — navigation updates the URL without a remount (stays fast).
+// Deep-link / URL sync. /agents (index.vue) and the catch-all [...slug].vue
+// both render this component, so /agents, /agents/<id>, /agents/<id>/<panel>
+// and /agents/instructions/<id> all resolve here. URLs are written with
+// history.replaceState (NOT a
+// router navigation) so the address bar updates without re-running the global
+// middleware (auth/onboarding/permissions) or remounting/flickering the page.
 const route = useRoute()
-const router = useRouter()
-const openAgentFromRoute = () => {
-  const pid = route.params.id
-  const id = Array.isArray(pid) ? pid[0] : pid
-  if (!id) return
-  if (agentView.value?.agentId === id) return
-  const agent = agents.value.find(a => a.id === id)
-  if (agent) { expand('agent:' + agent.id, true); openAgent(agent.id) }
+const PANEL_KINDS = ['tables', 'tools', 'evals', 'settings'] as const
+
+// The URL that reflects the current right-pane state. Only one of agent /
+// panel / instruction views is open at a time (each open() clears the others).
+const explorerUrl = (): string => {
+  if (panelView.value) return `/agents/${panelView.value.agentId}/${panelView.value.kind}`
+  if (agentView.value) return `/agents/${agentView.value.agentId}`
+  if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
+  return '/agents'
 }
-watch(() => route.params.id, () => openAgentFromRoute())
+const syncUrl = () => {
+  if (!process.client) return
+  const target = explorerUrl()
+  if (location.pathname.replace(/\/$/, '') === target) return
+  try { history.replaceState({ ...history.state }, '', target) } catch {}
+}
+// Reflect every right-pane state change (agent / panel / instruction / close)
+// in the URL from one place, so all open and close paths stay in sync.
+watch([panelView, agentView, selectedId, () => creating.value], () => syncUrl())
+
+// Restore the view from the URL on load and on back/forward navigation.
+const restoreFromRoute = () => {
+  const raw = route.params.slug
+  const seg = (Array.isArray(raw) ? raw : (raw ? [raw] : [])).filter(Boolean) as string[]
+  if (seg.length === 0) return
+  // /agents/instructions/<id>
+  if (seg[0] === 'instructions' && seg[1]) {
+    const insId = seg[1]
+    if (selectedId.value === insId) return
+    const ins = allInstructions.value.find(i => i.id === insId)
+    if (ins) openInstruction(ins)
+    return
+  }
+  const agentId = seg[0]
+  const panel = seg[1] as (typeof PANEL_KINDS)[number] | undefined
+  const agent = agents.value.find(a => a.id === agentId)
+  if (!agent) return
+  // /agents/<id>/<panel>
+  if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
+    if (panelView.value?.kind === panel && panelView.value?.agentId === agentId) return
+    expand('agent:' + agentId, true)
+    if ((panel === 'tables' || panel === 'tools') && !isOpen(panel + ':' + agentId)) expand(panel + ':' + agentId)
+    openPanel(panel, agentId)
+    return
+  }
+  // /agents/<id>
+  if (agentView.value?.agentId === agentId) return
+  expand('agent:' + agentId, true)
+  openAgent(agentId)
+}
+watch(() => route.params.slug, () => restoreFromRoute())
 
 // ── Activity sparkline + total tasks (org-wide, last 14 days) ───────────
 const activitySeries = ref<number[]>([])
@@ -2177,7 +2212,7 @@ const fetchActivity = async (agentId?: string) => {
 
 onMounted(async () => {
   await Promise.all([fetchAgents(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
-  openAgentFromRoute()
+  restoreFromRoute()
 })
 </script>
 
