@@ -107,23 +107,6 @@
               <span class="text-xs text-gray-700">Use LLM to learn agent</span>
             </div>
 
-            <!-- Channel availability -->
-            <div v-if="connectedChannels.length > 0" class="mb-4">
-              <label class="block text-xs font-medium text-gray-700 mb-1">Available in channels</label>
-              <p class="text-[11px] text-gray-400 mb-2">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
-              <div class="space-y-2">
-                <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-2">
-                  <UToggle v-model="channelAvailability[ch.key]" :disabled="creatingFromConnection" size="xs" color="blue" />
-                  <span class="inline-flex items-center gap-1.5 text-xs text-gray-700">
-                    <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
-                    <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600" />
-                    <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-500" />
-                    {{ ch.name }}
-                  </span>
-                </div>
-              </div>
-            </div>
-
             <div v-if="errorMessage" class="p-3 bg-red-50 text-red-700 rounded-lg text-sm mb-4">
               {{ errorMessage }}
             </div>
@@ -181,80 +164,21 @@
             <h3 class="text-base font-semibold text-gray-900 mb-1">Add custom AI rules and instructions</h3>
             <p class="text-sm text-gray-500 mb-3">Business-specific context, glossary, and useful code guidelines.</p>
 
-            <!-- outer wrapper is relative so dropdown can overflow the border box -->
-            <div class="relative">
-              <div class="border border-gray-200 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
-                <!-- Loading overlay -->
-                <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
-                  <Spinner class="w-4 h-4" />
-                  <span>Generating overview instruction…</span>
-                </div>
-
-                <div v-else class="mention-container">
-                  <!-- Highlight backdrop -->
-                  <div ref="backdropRef" class="mention-backdrop" aria-hidden="true" v-html="highlightedText" />
-
-                  <!-- Textarea -->
-                  <textarea
-                    ref="textareaRef"
-                    v-model="instructionText"
-                    placeholder="Describe business rules, metric definitions, or query guidelines…"
-                    class="mention-textarea"
-                    @input="handleTextareaInput"
-                    @keydown="handleTextareaKeydown"
-                    @blur="handleTextareaBlur"
-                    @scroll="syncScroll"
-                  />
-                </div>
+            <div class="border border-gray-200 rounded-md px-3 py-2 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
+              <!-- Loading overlay -->
+              <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
+                <Spinner class="w-4 h-4" />
+                <span>Generating overview instruction…</span>
               </div>
 
-              <!-- @ Mention dropdown — outside overflow container so it can spill out -->
-              <div
-                v-if="mentionState.active && (filteredMentionItems.length > 0 || mentionState.query.length < 5)"
-                ref="mentionDropdownRef"
-                class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
-                :style="mentionDropdownStyle"
-              >
-                <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500">
-                  Type to search…
-                </div>
-                <button
-                  v-for="(item, index) in filteredMentionItems"
-                  :key="item.id"
-                  type="button"
-                  :data-mention-idx="index"
-                  class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
-                  :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
-                  @mousedown.prevent="selectMention(item)"
-                >
-                  <template v-if="item.type === 'instruction'">
-                    <Icon name="heroicons:cube" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-500" />
-                  </template>
-                  <template v-else-if="item.type === 'connection_tool'">
-                    <span class="relative inline-flex shrink-0 mt-0.5">
-                      <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-3.5" />
-                      <Icon v-else name="heroicons:table-cells" class="w-3.5 h-3.5 text-blue-500" />
-                      <Icon name="heroicons:wrench-screwdriver" class="absolute -bottom-0.5 -right-1 w-2 h-2 text-indigo-400" />
-                    </span>
-                  </template>
-                  <template v-else>
-                    <Icon name="heroicons:table-cells" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-500" />
-                  </template>
-                  <div class="flex-1 min-w-0">
-                    <template v-if="item.type === 'instruction'">
-                      <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                      <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
-                    </template>
-                    <template v-else>
-                      <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                      <div class="flex items-center gap-1 mt-0.5">
-                        <DataSourceIcon v-if="item.dataSourceType && item.type !== 'connection_tool'" :type="item.dataSourceType" class="h-2.5" />
-                        <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
-                      </div>
-                    </template>
-                  </div>
-                </button>
-              </div>
+              <InstructionEditor
+                v-else
+                v-model="instructionText"
+                mode="wysiwyg"
+                :editable="true"
+                :data-source-ids="dsId ? [dsId] : []"
+                placeholder="Describe business rules, metric definitions, or query guidelines… (type @ to mention a table or instruction)"
+              />
             </div>
           </div>
 
@@ -289,7 +213,7 @@ import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
-import McpIcon from '~/components/icons/McpIcon.vue'
+import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -335,10 +259,7 @@ watch(isOpen, (val) => {
     instructionText.value = ''
     draftInstructionId.value = null
     integration.value = null
-    connectedChannels.value = []
-    channelAvailability.value = {}
     loadConnections()
-    loadChannels()
   }
 })
 
@@ -359,36 +280,6 @@ const useLlmSync = ref(true)
 const creatingFromConnection = ref(false)
 const errorMessage = ref('')
 const showAddConnectionModal = ref(false)
-
-// ── Channel availability ──────────────────────────────────────────────────────
-interface ChannelInfo { key: string; name: string; connected: boolean }
-const connectedChannels = ref<ChannelInfo[]>([])
-const channelAvailability = ref<Record<string, boolean>>({})
-
-function channelIcon(key: string): { img?: string; mcp?: boolean; uicon?: string } {
-  switch (key) {
-    case 'slack': return { img: '/icons/slack.png' }
-    case 'teams': return { img: '/icons/teams.png' }
-    case 'whatsapp': return { img: '/icons/whatsapp.png' }
-    case 'email': return { uicon: 'i-heroicons-envelope' }
-    case 'mcp': return { mcp: true }
-    default: return { uicon: 'i-heroicons-chat-bubble-left-right' }
-  }
-}
-
-async function loadChannels() {
-  try {
-    const response = await useMyFetch('/data_sources/connected_channels', { method: 'GET' })
-    const all = (response.data.value || []) as ChannelInfo[]
-    connectedChannels.value = all.filter(c => c.connected)
-    // Default every connected channel to available.
-    const avail: Record<string, boolean> = {}
-    for (const c of connectedChannels.value) avail[c.key] = true
-    channelAvailability.value = avail
-  } catch (err) {
-    connectedChannels.value = []
-  }
-}
 
 const canSubmitExisting = computed(() =>
   selectedConnections.value.length > 0 &&
@@ -436,18 +327,6 @@ async function createAgentFromExistingConnection() {
       generate_conversation_starters: false,
       generate_ai_rules: false,
     }
-    // Only send channel_availability when channels exist and at least one is
-    // turned off — a null map means "available everywhere" (the default).
-    if (connectedChannels.value.length > 0) {
-      const map: Record<string, boolean> = {}
-      let anyOff = false
-      for (const c of connectedChannels.value) {
-        const enabled = channelAvailability.value[c.key] !== false
-        map[c.key] = enabled
-        if (!enabled) anyOff = true
-      }
-      if (anyOff) payload.channel_availability = map
-    }
     const response = await useMyFetch('/data_sources', { method: 'POST', body: payload })
     if (response.error.value) {
       const errData = (response.error.value as any).data as any
@@ -481,8 +360,6 @@ watch(step, (s) => {
   if (s === 'context') {
     fetchIntegration()
     loadDraftInstruction()
-    fetchAllMentionItems()
-    fetchMentionItems()
   }
 })
 
@@ -510,195 +387,6 @@ async function loadDraftInstruction() {
   } catch {} finally {
     loadingDraft.value = false
   }
-}
-
-// ── @ Mention ───────────────────────────────────────────────────────────────
-interface MentionItem {
-  id: string
-  type: 'instruction' | 'metadata_resource' | 'datasource_table' | 'connection_tool'
-  name: string | null
-  textPreview: string | null
-  dataSourceId: string | null
-  dataSourceName: string | null
-  dataSourceType: string | null
-}
-
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const backdropRef = ref<HTMLDivElement | null>(null)
-const mentionDropdownRef = ref<HTMLDivElement | null>(null)
-
-const allMentionItems = ref<MentionItem[]>([])
-const mentionSearchResults = ref<MentionItem[]>([])
-const isFetchingMentions = ref(false)
-
-const mentionState = ref({
-  active: false,
-  query: '',
-  startPos: 0,
-  selectedIndex: 0,
-  top: 0,
-  left: 0,
-})
-
-const filteredMentionItems = computed(() => {
-  const instructions = mentionSearchResults.value.filter(i => i.type === 'instruction').slice(0, 3)
-  const tables = mentionSearchResults.value.filter(i => i.type === 'datasource_table' || i.type === 'metadata_resource').slice(0, 3)
-  const tools = mentionSearchResults.value.filter(i => i.type === 'connection_tool').slice(0, 3)
-  return [...instructions, ...tables, ...tools]
-})
-
-const mentionDropdownStyle = computed(() => ({
-  top: `${mentionState.value.top}px`,
-  left: `${mentionState.value.left}px`,
-}))
-
-const fetchAllMentionItems = async () => {
-  try {
-    const params = new URLSearchParams()
-    params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
-    params.set('data_source_filter', dsId.value)
-    const { data, error } = await useMyFetch<any[]>(`/instructions/available-references?${params}`, { method: 'GET' })
-    if (!error.value && data.value) {
-      allMentionItems.value = data.value.map(item => ({
-        id: item.id, type: item.type, name: item.name, textPreview: item.text_preview || null,
-        dataSourceId: item.data_source_id, dataSourceName: item.data_source_name, dataSourceType: item.data_source_type
-      }))
-    }
-  } catch {}
-}
-
-const fetchMentionItems = async (query?: string) => {
-  isFetchingMentions.value = true
-  try {
-    const params = new URLSearchParams()
-    if (query) params.set('q', query)
-    params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
-    params.set('data_source_filter', dsId.value)
-    const { data, error } = await useMyFetch<any[]>(`/instructions/available-references?${params}`, { method: 'GET' })
-    if (!error.value && data.value) {
-      mentionSearchResults.value = data.value.map(item => ({
-        id: item.id, type: item.type, name: item.name, textPreview: item.text_preview || null,
-        dataSourceId: item.data_source_id, dataSourceName: item.data_source_name, dataSourceType: item.data_source_type
-      }))
-    }
-  } catch {} finally {
-    isFetchingMentions.value = false
-  }
-}
-
-let mentionFetchTimeout: ReturnType<typeof setTimeout> | null = null
-watch(() => mentionState.value.query, (q) => {
-  if (mentionFetchTimeout) clearTimeout(mentionFetchTimeout)
-  mentionFetchTimeout = setTimeout(() => fetchMentionItems(q), 150)
-})
-
-const isKnownMention = (text: string) => {
-  const lower = text.toLowerCase()
-  return allMentionItems.value.some(item => {
-    if (item.name?.toLowerCase() === lower) return true
-    if (item.type === 'instruction' && item.textPreview) {
-      if ((item.textPreview.slice(0, 30) + '...').toLowerCase() === lower) return true
-    }
-    return false
-  })
-}
-
-const highlightedText = computed(() => {
-  const text = instructionText.value
-  if (!text) return ''
-  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  html = html.replace(/@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g, (match, captured) => {
-    let name = captured
-    if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1)
-    if (isKnownMention(name)) {
-      return `<mark style="background-color: rgba(99,102,241,0.12); color: transparent; border-radius: 3px; padding: 0;">${match}</mark>`
-    }
-    return match
-  })
-  return html + '\n'
-})
-
-const syncScroll = (e: Event) => {
-  const ta = e.target as HTMLTextAreaElement
-  if (backdropRef.value) backdropRef.value.scrollTop = ta.scrollTop
-}
-
-const handleTextareaInput = (e: Event) => {
-  const ta = e.target as HTMLTextAreaElement
-  const text = ta.value
-  const cursorPos = ta.selectionStart
-  const textBeforeCursor = text.slice(0, cursorPos)
-  const atIndex = textBeforeCursor.lastIndexOf('@')
-
-  if (atIndex !== -1) {
-    const textAfterAt = textBeforeCursor.slice(atIndex + 1)
-    if (!textAfterAt.includes('\n') && !textAfterAt.includes('  ') && textAfterAt.length <= 50) {
-      const lines = textBeforeCursor.split('\n')
-      const lineIndex = lines.length - 1
-      mentionState.value = {
-        active: true, query: textAfterAt, startPos: atIndex, selectedIndex: 0,
-        top: (lineIndex + 1) * 18 + 16,
-        left: Math.min((lines[lineIndex].length - textAfterAt.length) * 7 + 16, 200),
-      }
-      return
-    }
-  }
-  if (mentionState.value.active) mentionState.value.active = false
-}
-
-const scrollMentionIntoView = () => {
-  if (!mentionDropdownRef.value) return
-  const container = mentionDropdownRef.value
-  const el = container.querySelector(`[data-mention-idx="${mentionState.value.selectedIndex}"]`) as HTMLElement | null
-  if (!el) return
-  const top = container.scrollTop, bottom = top + container.clientHeight
-  if (el.offsetTop < top) container.scrollTop = el.offsetTop
-  else if (el.offsetTop + el.offsetHeight > bottom) container.scrollTop = el.offsetTop + el.offsetHeight - container.clientHeight
-}
-
-const handleTextareaKeydown = (e: KeyboardEvent) => {
-  if (!mentionState.value.active) return
-  const items = filteredMentionItems.value
-  if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    mentionState.value.selectedIndex = Math.min(mentionState.value.selectedIndex + 1, items.length - 1)
-    nextTick(scrollMentionIntoView)
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    mentionState.value.selectedIndex = Math.max(mentionState.value.selectedIndex - 1, 0)
-    nextTick(scrollMentionIntoView)
-  } else if (e.key === 'Enter' || e.key === 'Tab') {
-    if (items.length > 0) { e.preventDefault(); selectMention(items[mentionState.value.selectedIndex]) }
-  } else if (e.key === 'Escape') {
-    e.preventDefault(); mentionState.value.active = false
-  }
-}
-
-const handleTextareaBlur = () => setTimeout(() => { mentionState.value.active = false }, 150)
-
-const needsQuotes = (name: string | null) => name && /[\s\-.]/.test(name)
-
-const selectMention = (item: MentionItem) => {
-  const ta = textareaRef.value
-  if (!ta) return
-  const { startPos, query } = mentionState.value
-  let mentionText: string
-  if (!item.name) {
-    mentionText = `@"${item.textPreview?.slice(0, 30)}..."`
-  } else if (needsQuotes(item.name)) {
-    mentionText = `@"${item.name}"`
-  } else {
-    mentionText = `@${item.name}`
-  }
-  const before = instructionText.value.slice(0, startPos)
-  const after = instructionText.value.slice(startPos + 1 + query.length)
-  instructionText.value = before + mentionText + ' ' + after
-  mentionState.value.active = false
-  nextTick(() => {
-    ta.focus()
-    const pos = startPos + mentionText.length + 1
-    ta.setSelectionRange(pos, pos)
-  })
 }
 
 // ── Save (final step) ───────────────────────────────────────────────────────
@@ -752,53 +440,7 @@ async function handleSave() {
 </script>
 
 <style scoped>
-.mention-container {
-  position: relative;
-}
-
-.mention-backdrop,
-.mention-textarea {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 12px;
-  line-height: 1.625;
-  padding: 16px;
-  margin: 0;
-  border: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  letter-spacing: normal;
-  word-spacing: normal;
-}
-
-.mention-backdrop {
-  position: absolute;
-  inset: 0;
-  color: transparent;
-  pointer-events: none;
-  overflow: hidden;
-  background: transparent;
-}
-
-.mention-textarea {
-  position: relative;
-  z-index: 1;
-  width: 100%;
+.instruction-wysiwyg {
   min-height: 280px;
-  resize: vertical;
-  background: transparent;
-  caret-color: #111827;
-  outline: none;
-}
-
-.mention-textarea::placeholder {
-  color: #9ca3af;
-}
-
-.mention-backdrop :deep(mark) {
-  color: transparent;
-  border-radius: 3px;
-  padding: 2px 0;
-  box-decoration-break: clone;
 }
 </style>
