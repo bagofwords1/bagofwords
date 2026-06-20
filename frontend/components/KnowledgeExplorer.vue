@@ -257,6 +257,9 @@
                 <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
               <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-medium hover:bg-blue-100" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
+              <UTooltip text="Manage connections">
+                <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="openConnModal(agentView.agentId)"><UIcon name="i-heroicons-cog-6-tooth" class="w-3.5 h-3.5" /></button>
+              </UTooltip>
             </div>
 
             <!-- Counts (clean) -->
@@ -333,7 +336,7 @@
               <span class="text-[13px] text-gray-500 shrink-0">{{ panelKindLabel }}</span>
               <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
             </div>
-            <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
@@ -349,7 +352,11 @@
                 :show-save="panelCanUpdate"
                 :show-stats="true"
                 max-height="calc(100vh - 240px)"
-              />
+              >
+                <template #reload-left>
+                  <button type="button" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Manage connections" @click="openConnModal(panelView.agentId)"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-gray-400" />Connections</button>
+                </template>
+              </TablesSelector>
               <ToolsSelector
                 v-else
                 :key="'tools-' + panelView.agentId + '-' + toolsRefreshKey"
@@ -689,6 +696,17 @@
     </UModal>
 
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
+
+    <!-- Manage (link/unlink/edit/test) the connections attached to an agent.
+         Opened from the agent overview and the Tables panel. Mirrors the
+         legacy agents Tables view. -->
+    <AgentConnectionsModal
+      v-if="connModalAgentId"
+      v-model="showConnModal"
+      :ds-id="connModalAgentId"
+      :connections="connModalConnections"
+      @changed="onConnModalChanged"
+    />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
@@ -750,6 +768,7 @@ import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
+import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
@@ -1259,6 +1278,25 @@ const onToolsConnectionChanged = async () => {
   const aid = panelView.value?.agentId
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid) }
   await fetchAgents(); toolsRefreshKey.value++
+}
+
+// "Manage connections" modal — opened from the agent overview and the Tables
+// panel. Linking/unlinking a connection changes the agent's catalog, so refresh
+// the agent list (connection chips) and force the TablesSelector to re-fetch.
+const showConnModal = ref(false)
+const connModalAgentId = ref<string | null>(null)
+const connModalConnections = computed(() => {
+  const id = connModalAgentId.value
+  if (!id) return []
+  return ((agents.value.find(a => a.id === id) as any)?.connections) || []
+})
+const openConnModal = (agentId: string) => { connModalAgentId.value = agentId; showConnModal.value = true }
+const onConnModalChanged = async () => {
+  const aid = connModalAgentId.value
+  await fetchAgents()
+  if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid) }
+  tablesRefreshKey.value++
+  if (agentView.value?.agentId === aid) await refreshAgentDetail()
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
