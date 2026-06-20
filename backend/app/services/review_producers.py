@@ -23,6 +23,93 @@ from app.services.review_service import review_service
 logger = logging.getLogger(__name__)
 
 DEFAULT_WINDOW_HOURS = 24 * 7
+SLOW_QUERY_MS = 90_000                        # > 90s is "slow"
+QUERY_TOOLS = ("create_data", "read_query")   # tools that run a data query
+
+
+async def _org_and_data_sources_for_report(db, report_id) -> Tuple[Optional[str], List[str]]:
+    """Resolve a report to its org + the data sources (agents) it's attached to.
+    A report can belong to several agents → callers fan one item out per agent."""
+    from app.models.report import Report
+    from app.models.report_data_source_association import report_data_source_association as assoc
+    report = await db.get(Report, str(report_id))
+    if report is None:
+        return None, []
+    ds_rows = (await db.execute(
+        select(assoc.c.data_source_id).where(assoc.c.report_id == str(report_id))
+    )).all()
+    return str(report.organization_id), [str(d[0]) for d in ds_rows]
+
+
+# ── slow query (event emitter, fired when a query tool finishes) ─────────────
+async def emit_slow_query_for_tool_execution(db, te) -> int:
+    """Bump a per-agent slow-query item when a data-query tool ran over the
+    latency budget. Fired once per slow execution from ``ToolExecutionService``;
+    ``group_count`` accumulates occurrences until the item is resolved/dismissed.
+
+    The cheap guards (tool name + duration, both already on ``te``) short-circuit
+    before any DB work, so the common fast-query path costs nothing."""
+    if te is None or te.tool_name not in QUERY_TOOLS:
+        return 0
+    if te.duration_ms is None or te.duration_ms <= SLOW_QUERY_MS:
+        return 0
+    from app.models.agent_execution import AgentExecution
+    ae = await db.get(AgentExecution, str(te.agent_execution_id))
+    if ae is None or not ae.report_id or getattr(ae, "is_eval_run", False):
+        return 0  # eval/test runs are synthetic — don't surface them in the feed
+    org_id, ds_ids = await _org_and_data_sources_for_report(db, ae.report_id)
+    org_id = (str(ae.organization_id) if ae.organization_id else None) or org_id
+    if not org_id or not ds_ids:
+        return 0
+    secs = SLOW_QUERY_MS // 1000
+    actual = int(te.duration_ms // 1000)
+    n = 0
+    for ds_id in ds_ids:
+        await review_service.emit(
+            db, organization_id=org_id, type=TYPE_SLOW_QUERY,
+            data_source_id=ds_id, severity=SEVERITY_WARNING,
+            title=f"Slow data queries (>{secs}s)",
+            why=f"A data query on this agent ran {actual}s, over the {secs}s budget. Consider a guardrail instruction or an index.",
+            group_key=f"slow_query:{ds_id}",
+            subject={"kind": "query_group", "threshold_ms": SLOW_QUERY_MS},
+            source_run_id=str(te.agent_execution_id),
+            respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
+        )
+        n += 1
+    return n
+
+
+# ── low confidence (event emitter, fired when the judge scores a completion) ──
+async def emit_low_confidence_for_completion(db, completion) -> int:
+    """Bump a per-agent low-confidence item when a completion is scored below
+    3/5. Fired once per low score from the judge-score persist path;
+    ``group_count`` accumulates occurrences until resolved/dismissed."""
+    score = getattr(completion, "response_score", None)
+    if score is None or score >= 3:
+        return 0
+    # Skip eval/test runs — synthetic, shouldn't surface in the feed.
+    from app.models.agent_execution import AgentExecution
+    ae = (await db.execute(
+        select(AgentExecution).where(AgentExecution.completion_id == str(completion.id)).limit(1)
+    )).scalar_one_or_none()
+    if ae is not None and getattr(ae, "is_eval_run", False):
+        return 0
+    org_id, ds_ids = await _org_and_data_sources_for_report(db, completion.report_id)
+    if not org_id or not ds_ids:
+        return 0
+    n = 0
+    for ds_id in ds_ids:
+        await review_service.emit(
+            db, organization_id=org_id, type=TYPE_LOW_CONFIDENCE,
+            data_source_id=ds_id, severity=SEVERITY_WARNING,
+            title="Low-confidence answers",
+            why="An answer on this agent was scored below 3/5. Run training to close the gaps.",
+            group_key=f"low_confidence:{ds_id}",
+            subject={"kind": "low_confidence"},
+            respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
+        )
+        n += 1
+    return n
 
 
 # ── instruction suggestions (non-admin user edits + AI/harness) ─────────────
