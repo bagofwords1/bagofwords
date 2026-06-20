@@ -20,7 +20,7 @@
                 </div>
             </template>
 
-            <div v-if="!integration" class="py-6 text-center text-sm text-gray-400">Loading…</div>
+            <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">Loading…</div>
 
             <div v-else-if="connections.length === 0" class="py-8 text-center">
                 <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
@@ -183,9 +183,17 @@ import {
 } from '~/composables/useConnectionStatus'
 import type { Ref } from 'vue'
 
-const props = defineProps<{ modelValue: boolean }>()
+const props = defineProps<{
+    modelValue: boolean
+    // When used standalone (e.g. KnowledgeExplorer) the parent passes the
+    // agent id + its connections directly. When omitted, we fall back to the
+    // injected `integration` provided by the legacy agents layout.
+    dsId?: string
+    connections?: any[]
+}>()
 const emit = defineEmits<{
     (e: 'update:modelValue', val: boolean): void
+    (e: 'changed'): void
 }>()
 
 const isOpen = computed({
@@ -195,13 +203,21 @@ const isOpen = computed({
 
 const route = useRoute()
 const toast = useToast()
-const dsId = computed(() => String(route.params.id || ''))
 const canManageConnections = computed(() => useCan('manage_connections'))
 
 const integration = inject<Ref<any>>('integration', ref(null))
 const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
 
-const connections = computed(() => integration.value?.connections || [])
+// Prefer explicit props (standalone use); fall back to the injected integration.
+const dsId = computed(() => props.dsId ?? String(route.params.id || ''))
+const connections = computed(() => props.connections ?? (integration.value?.connections || []))
+const ready = computed(() => props.dsId != null || !!integration.value)
+
+// Refresh both the legacy layout (via inject) and the standalone parent (via emit).
+async function refresh() {
+    await fetchIntegration()
+    emit('changed')
+}
 
 const testingConnectionId = ref<string | null>(null)
 const testResults = ref<Record<string, any>>({})
@@ -238,7 +254,7 @@ async function testConnection(connectionId: string) {
     try {
         const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
         testResults.value[connectionId] = (response.data as any)?.value || null
-        await fetchIntegration()
+        await refresh()
     } finally {
         testingConnectionId.value = null
     }
@@ -247,7 +263,7 @@ async function testConnection(connectionId: string) {
 async function reindexConnection(connectionId: string) {
     try {
         await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
-        await fetchIntegration()
+        await refresh()
     } catch (e: any) {
         toast.add({ title: 'Failed to restart indexing', color: 'red' })
     }
@@ -261,7 +277,7 @@ function openEditModal(conn: any) {
 function handleEditSuccess() {
     showEditModal.value = false
     editingConnection.value = null
-    fetchIntegration()
+    refresh()
 }
 
 async function openLinkModal() {
@@ -284,7 +300,7 @@ async function linkConnection() {
         toast.add({ title: 'Connection linked', color: 'green' })
         showLinkModal.value = false
         selectedConnectionId.value = null
-        await fetchIntegration()
+        await refresh()
     } catch (e: any) {
         toast.add({ title: 'Failed to link connection', color: 'red' })
     } finally {
@@ -297,7 +313,7 @@ async function unlinkConnection(connectionId: string) {
     try {
         await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
         toast.add({ title: 'Connection unlinked', color: 'green' })
-        await fetchIntegration()
+        await refresh()
     } catch (e: any) {
         toast.add({ title: 'Failed to unlink connection', color: 'red' })
     }

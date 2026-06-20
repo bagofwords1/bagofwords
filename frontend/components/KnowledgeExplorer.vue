@@ -333,7 +333,10 @@
               <span class="text-[13px] text-gray-500 shrink-0">{{ panelKindLabel }}</span>
               <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
             </div>
-            <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button v-if="panelView.kind === 'tables'" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Manage connections" @click="showTablesConnModal = true"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-gray-400" />Connections</button>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            </div>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
@@ -689,6 +692,16 @@
     </UModal>
 
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
+
+    <!-- Manage (link/unlink/edit/test) the connections attached to the agent
+         whose Tables panel is open. Mirrors the legacy agents Tables view. -->
+    <AgentConnectionsModal
+      v-if="panelView?.kind === 'tables'"
+      v-model="showTablesConnModal"
+      :ds-id="panelView.agentId"
+      :connections="panelAgent?.connections || []"
+      @changed="onPanelConnectionsChanged"
+    />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
@@ -750,6 +763,7 @@ import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
+import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
@@ -1259,6 +1273,18 @@ const onToolsConnectionChanged = async () => {
   const aid = panelView.value?.agentId
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid) }
   await fetchAgents(); toolsRefreshKey.value++
+}
+
+// "Manage connections" modal for the open Tables panel. Linking/unlinking a
+// connection changes the agent's catalog, so refresh the agent list (for the
+// connection chips) and force the TablesSelector to re-fetch its schema.
+const showTablesConnModal = ref(false)
+const onPanelConnectionsChanged = async () => {
+  const aid = panelView.value?.agentId
+  await fetchAgents()
+  if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid) }
+  tablesRefreshKey.value++
+  if (agentView.value?.agentId === aid) await refreshAgentDetail()
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
