@@ -100,7 +100,11 @@ class InstructionService:
         # - Admin: build auto-approved and promoted to main
         instruction.status = instruction_data.status or "published"
         # Leave private_status and global_status as NULL (deprecated)
-            
+
+        # Skills always use 'intelligent' (smart) retrieval — enforce server-side
+        # so the load_mode can never drift to 'always'/'disabled' for a skill.
+        self._enforce_skill_load_mode(instruction)
+
         db.add(instruction)
         await db.commit()
         # Refresh ID + any relationships that will be set below
@@ -759,7 +763,12 @@ class InstructionService:
             await self._handle_owner_edit(instruction, instruction_data)
         else:
             raise HTTPException(status_code=403, detail="Permission denied")
-        
+
+        # Skills always use 'intelligent' (smart) retrieval. Enforce after the
+        # edit handlers run so a kind→skill change (or a skill whose load_mode
+        # was passed as 'always'/'disabled') is normalized before versioning.
+        self._enforce_skill_load_mode(instruction)
+
         # Handle data source associations
         if instruction_data.data_source_ids is not None:
             if instruction_data.data_source_ids:
@@ -915,6 +924,7 @@ class InstructionService:
             instruction_id=instruction.id,
             text=target_version.text,
             title=target_version.title,
+            description=target_version.description,
             structured_data=target_version.structured_data,
             formatted_content=target_version.formatted_content,
             status=target_version.status or 'published',
@@ -1007,6 +1017,7 @@ class InstructionService:
                 instruction_id=instruction.id,
                 text=text,
                 title=title if title is not None else (meta_src.title if meta_src else getattr(instruction, 'title', None)),
+                description=(meta_src.description if meta_src else getattr(instruction, 'description', None)),
                 structured_data=(meta_src.structured_data if meta_src else None),
                 formatted_content=None,
                 status=(meta_src.status if meta_src else 'published') or 'published',
@@ -1213,6 +1224,7 @@ class InstructionService:
         new_version = await self.version_service.create_version_from_data(
             db, instruction_id=instruction.id, text=new_text,
             title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
+            description=(meta_src.description if meta_src else getattr(instruction, "description", None)),
             structured_data=(meta_src.structured_data if meta_src else None), formatted_content=None,
             status=(meta_src.status if meta_src else "published") or "published",
             load_mode=(meta_src.load_mode if meta_src else getattr(instruction, "load_mode", "always")) or "always",
@@ -1273,6 +1285,7 @@ class InstructionService:
         new_version = await self.version_service.create_version_from_data(
             db, instruction_id=instruction.id, text=new_text,
             title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
+            description=(meta_src.description if meta_src else getattr(instruction, "description", None)),
             structured_data=(meta_src.structured_data if meta_src else None), formatted_content=None,
             status=(meta_src.status if meta_src else "published") or "published",
             load_mode=(meta_src.load_mode if meta_src else getattr(instruction, "load_mode", "always")) or "always",
@@ -1626,7 +1639,15 @@ class InstructionService:
                 if bulk_update.load_mode:
                     instruction.load_mode = bulk_update.load_mode
                     content_modified = True
-                
+
+                # Skills always use 'intelligent' (smart) retrieval. Override any
+                # bulk-applied load_mode for skills so they can't be forced to
+                # 'always'/'disabled'.
+                if getattr(instruction, "kind", "instruction") == "skill" \
+                        and instruction.load_mode != "intelligent":
+                    instruction.load_mode = "intelligent"
+                    content_modified = True
+
                 # Set labels (replace all) - METADATA ONLY, no build
                 if labels_to_set is not None:
                     instruction.labels = list(labels_to_set)
@@ -2165,12 +2186,25 @@ class InstructionService:
         """Handle owner editing their own private instruction"""
 
         # Owner can only edit text/title/category/toggles. Ignore any status changes silently.
-        allowed_fields = ['text', 'title', 'category', 'kind', 'is_seen', 'can_user_toggle']
+        allowed_fields = ['text', 'title', 'description', 'category', 'kind', 'is_seen', 'can_user_toggle']
         
         # Apply allowed changes only (ignore status/private/global fields if present)
         for field in allowed_fields:
             if hasattr(instruction_data, field) and getattr(instruction_data, field) is not None:
                 setattr(instruction, field, getattr(instruction_data, field))
+
+    @staticmethod
+    def _enforce_skill_load_mode(instruction: Instruction) -> None:
+        """Skills always use 'intelligent' (smart) retrieval.
+
+        A skill is meant to be surfaced contextually (advertised in the prompt and
+        pulled on demand via read_instruction), never force-loaded. Enforce this
+        server-side so the load_mode can never drift to 'always'/'disabled' for a
+        skill regardless of what the caller passed.
+        """
+        if getattr(instruction, "kind", "instruction") == "skill":
+            if instruction.load_mode != "intelligent":
+                instruction.load_mode = "intelligent"
 
     def _is_admin_permissions(self, user_permissions: set) -> bool:
         """MVP: org-level manage_instructions is the admin gate."""

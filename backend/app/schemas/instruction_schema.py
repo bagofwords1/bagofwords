@@ -83,7 +83,10 @@ class InstructionBase(BaseModel):
     
     # Display title (especially for git-sourced instructions)
     title: Optional[str] = None
-    
+
+    # Optional user-authored description (advertised for skills)
+    description: Optional[str] = None
+
     # Structured data (raw resource data) + formatted content (readable text)
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
@@ -110,6 +113,7 @@ class InstructionUpdate(BaseModel):
     # Unified Instructions System fields
     load_mode: Optional[str] = None  # 'always' | 'intelligent' | 'disabled'
     title: Optional[str] = None
+    description: Optional[str] = None
     source_sync_enabled: Optional[bool] = None  # Set to False to unlink from git
 
     # Build targeting - if set, update within this existing build instead of creating new one
@@ -215,6 +219,7 @@ class InstructionListSchema(BaseModel):
     source_sync_enabled: bool = True
     load_mode: str = "always"
     title: Optional[str] = None
+    description: Optional[str] = None
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
 

@@ -525,8 +525,12 @@
             <!-- Scrollable content: title + body -->
             <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
               <div class="max-w-3xl">
-                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
-                <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
+                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-2" />
+                <h2 v-else class="text-lg font-semibold text-gray-900 mb-2">{{ displayTitle(detail) }}</h2>
+                <!-- Optional description (advertised for skills) -->
+                <input v-if="editing" v-model="draft.description" placeholder="Add a description (optional)" class="w-full text-sm text-gray-600 outline-none placeholder:text-gray-300 mb-4" />
+                <p v-else-if="detail?.description" class="text-sm text-gray-500 mb-4">{{ detail.description }}</p>
+                <div v-else class="mb-4"></div>
                 <div class="prose-instruction">
                   <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
                 </div>
@@ -546,8 +550,11 @@
                   <!-- Status -->
                   <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
-                  <!-- Loading -->
-                  <KSelect v-if="metaEditable" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
+                  <!-- Loading (skills are always 'Smart' — locked) -->
+                  <template v-if="metaEditable">
+                    <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
+                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-500 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />Smart</span>
+                  </template>
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
                   <!-- Category -->
                   <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
@@ -568,7 +575,7 @@
                   <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple placeholder="+ Label" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
                   <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]">{{ l.name }}</span>
                   <!-- Kind (last) -->
-                  <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
                 </div>
                 <!-- Source + author/timestamps -->
@@ -781,8 +788,8 @@ const detail = ref<Instruction | null>(null)
 const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
-const draft = reactive<{ title: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
-  { title: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
+const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
+  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
 )
 const kindOpts = [{ value: 'instruction', label: 'Instruction' }, { value: 'skill', label: 'Skill' }]
 // Reference options come from the selected agents' tables (valid datasource_table ids).
@@ -1780,7 +1787,7 @@ const openInstruction = async (ins: Instruction) => {
   await loadPending(ins.id)
 }
 const syncDraft = (ins: Instruction) => {
-  draft.title = ins.title || ''; draft.text = ins.text || ''
+  draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
   draft.kind = (ins as any).kind || 'instruction'
   draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
   draft.category = ins.category || 'general'
@@ -1792,7 +1799,7 @@ const syncDraft = (ins: Instruction) => {
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
-  draft.title = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
+  draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -1803,7 +1810,7 @@ const cancelEdit = () => { if (creating.value) { creating.value = false; editing
 const save = async () => {
   saving.value = true
   try {
-    const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
     if (creating.value) {
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
@@ -1853,7 +1860,7 @@ const saveMeta = async () => {
   if (!detail.value || creating.value || editing.value) return
   savingMeta.value = true
   try {
-    const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
     const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
@@ -1866,6 +1873,8 @@ const saveMeta = async () => {
 }
 // Fire after a metadata control changes (user-initiated only — not on load/edit).
 const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
+// Skills always use 'intelligent' (smart) retrieval — force it when switching to skill.
+const onKindChange = () => { if (draft.kind === 'skill') draft.load_mode = 'intelligent'; onMetaChange() }
 
 // ── Analyze (related instructions + impact) ─────────────
 const analysis = reactive<{ related: any[]; tokens: string[]; impactedPrompts: any[]; impactScore: number; impactMatched: number; impactTotal: number }>(

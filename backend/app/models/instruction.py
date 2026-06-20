@@ -74,7 +74,11 @@ class Instruction(BaseSchema):
     
     # Display title (especially for git-sourced instructions)
     title = Column(String(255), nullable=True)
-    
+
+    # Optional user-authored description / blurb. For skills this is advertised
+    # in the <available_skills> catalog instead of a text snippet.
+    description = Column(Text, nullable=True)
+
     # Structured data (raw resource data) + formatted content (readable text)
     structured_data = Column(JSON, nullable=True)
     formatted_content = Column(Text, nullable=True)
