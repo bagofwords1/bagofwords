@@ -34,6 +34,7 @@
           :initialSelectedDataSources="selectedDataSources"
           :compact="true"
           @update:modelValue="handlePromptUpdate"
+          @openInstructions="showInstructionsModal = true"
         />
       </div>
     </div>
@@ -104,6 +105,7 @@
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
               @update:modelValue="handlePromptUpdate"
+              @openInstructions="showInstructionsModal = true"
           />
       </div>
       <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="selectedDataSources">
@@ -177,6 +179,20 @@
   </div>
 
   <McpModal v-model="showMcpModal" />
+
+  <!-- Instructions: the agent panel scoped to the prompt box's selection
+       (auto-mode selects every agent, so it shows all), plus an always-present
+       Global entry for instructions attached to no agent. -->
+  <UModal v-model="showInstructionsModal" :ui="{ width: 'sm:max-w-3xl' }">
+    <div class="h-[78vh] flex flex-col">
+      <ReportAgentPanel
+        :agents="instructionPanelAgents"
+        :show-close="true"
+        @close="showInstructionsModal = false"
+        @starter-click="onInstructionStarter"
+      />
+    </div>
+  </UModal>
 </template>
 
 <script setup lang="ts">
@@ -187,6 +203,7 @@ import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 import RecentReports from '~/components/home/RecentReports.vue';
 import McpModal from '~/components/McpModal.vue';
+import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue';
 import LibraryIcon from '~/components/icons/LibraryIcon.vue';
 import ActivityIcon from '~/components/icons/ActivityIcon.vue';
 import McpIcon from '~/components/icons/McpIcon.vue';
@@ -203,6 +220,20 @@ const hasLoadedModels = ref(false)
 
 // Use selected agents from AgentSelector as the data sources
 const selectedDataSources = computed(() => selectedAgentObjects.value)
+
+// Instructions modal: the agents the panel shows = the prompt box's current
+// selection (in auto-mode that's every agent) followed by an always-present
+// "Global" entry for instructions attached to no agent.
+const showInstructionsModal = ref(false)
+const instructionPanelAgents = computed(() => [
+  ...(selectedDataSources.value || []),
+  { id: '__global__', name: 'Global', isGlobal: true },
+])
+const onInstructionStarter = (starter: string) => {
+  const nl = (starter || '').indexOf('\n')
+  updateTextarea(nl === -1 ? starter : starter.slice(nl + 1).trim())
+  showInstructionsModal.value = false
+}
 
 const getModels = async () => {
   try {
@@ -273,7 +304,7 @@ const menuItems = computed(() => {
     { label: t('nav.reports'), icon: 'i-heroicons-chat-bubble-left-right', to: '/reports' },
     { label: t('nav.dashboards'), icon: 'i-heroicons-chart-bar-square', to: '/dashboards' },
     { label: t('nav.scheduled'), icon: 'i-heroicons-clock', to: '/scheduled-tasks' },
-    { label: t('nav.instructions'), icon: 'i-heroicons-cube', to: '/instructions' },
+    { label: t('nav.instructions'), icon: 'i-heroicons-cube', to: '/agents' },
     { label: t('nav.queries'), slot: 'queries', to: '/queries' },
   ]
   if (isAdmin.value) {

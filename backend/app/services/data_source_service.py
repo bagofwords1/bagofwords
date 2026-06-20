@@ -310,6 +310,7 @@ class DataSourceService:
         config = data_source_dict.pop("config", None)
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
+        channel_availability = data_source_dict.pop("channel_availability", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
@@ -439,6 +440,7 @@ class DataSourceService:
             "organization_id": organization.id,
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
+            "channel_availability": channel_availability,
             "owner_user_id": current_user.id
         }
         
@@ -599,7 +601,9 @@ class DataSourceService:
             is_active=final_data_source.is_active,
             is_public=final_data_source.is_public,
             publish_status=getattr(final_data_source, "publish_status", "published") or "published",
+            reliability_status=getattr(final_data_source, "reliability_status", "training") or "training",
             use_llm_sync=final_data_source.use_llm_sync,
+            channel_availability=getattr(final_data_source, "channel_availability", None),
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
             git_repository=final_data_source.git_repository,
             memberships=final_data_source.data_source_memberships,
@@ -888,7 +892,9 @@ class DataSourceService:
             is_active=data_source.is_active,
             is_public=data_source.is_public,
             publish_status=getattr(data_source, "publish_status", "published") or "published",
+            reliability_status=getattr(data_source, "reliability_status", "training") or "training",
             use_llm_sync=data_source.use_llm_sync,
+            channel_availability=getattr(data_source, "channel_availability", None),
             owner_user_id=data_source.owner_user_id,
             git_repository=data_source.git_repository,
             memberships=data_source.data_source_memberships,
@@ -910,15 +916,18 @@ class DataSourceService:
         return list_available_data_sources()
 
     async def _publish_visibility(self, db: AsyncSession, current_user: User, organization: Organization):
-        """Returns (is_governance, manageable_ds_ids).
+        """Returns (is_governance, manageable_ds_ids, resolved).
 
         Used to decide whether a non-published agent (draft/disabled) is visible
         to the caller. Managers — org-wide governance (full_admin_access /
         manage_connections) or a per-DS ``manage`` grant — can see their drafts;
-        everyone else only sees ``published`` agents.
+        everyone else only sees ``published`` agents. ``resolved`` is returned so
+        callers can also gate ``development`` agents on ``manage_evals`` (agent
+        admin) without resolving permissions twice. It may be ``None`` when there
+        is no user or resolution fails.
         """
         if current_user is None:
-            return False, set()
+            return False, set(), None
         try:
             from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
             resolved = await resolve_permissions(
@@ -933,9 +942,26 @@ class DataSourceService:
                 for (rtype, rid), perms in resolved.resource_permissions.items()
                 if rtype == "data_source" and "manage" in perms
             }
-            return is_gov, manage_ids
+            return is_gov, manage_ids, resolved
         except Exception:
-            return False, set()
+            return False, set(), None
+
+    @staticmethod
+    def _development_hidden(reliability_status, ds_id, is_gov, resolved) -> bool:
+        """Is this ``development`` agent hidden from the current caller?
+
+        ``development`` agents are pulled from regular users entirely — they only
+        stay visible to agent admins (``manage_evals`` on this agent, which
+        org-level manage_evals / full_admin imply) and to org governance.
+        """
+        if (reliability_status or "training") != "development":
+            return False
+        if is_gov:
+            return False
+        return not (
+            resolved is not None
+            and resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
+        )
 
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization, show_all: bool = False) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
@@ -988,12 +1014,17 @@ class DataSourceService:
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Non-published agents (draft/disabled) are only visible to managers.
-        is_gov, manage_ids = await self._publish_visibility(db, current_user, organization)
+        is_gov, manage_ids, resolved = await self._publish_visibility(db, current_user, organization)
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
             publish_status = getattr(d, "publish_status", "published") or "published"
             if publish_status != "published" and not (is_gov or str(d.id) in manage_ids):
+                continue
+            # `development` agents are hidden from everyone but agent admins.
+            if self._development_hidden(
+                getattr(d, "reliability_status", "training"), d.id, is_gov, resolved
+            ):
                 continue
             # Build connections list
             connections_list = await self._build_connections_list(
@@ -1011,7 +1042,9 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                is_public=bool(d.is_public),
                 publish_status=publish_status,
+                reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1028,8 +1061,18 @@ class DataSourceService:
             schemas.append(s)
         return schemas
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False) -> List[DataSourceListItemSchema]:
-        """Get all active data sources for an organization that the user has access to, compact list shape"""
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False, channel: str | None = None) -> List[DataSourceListItemSchema]:
+        """Get all active data sources for an organization that the user has access to, compact list shape.
+
+        When ``channel`` is provided (an external channel type such as ``"slack"``,
+        ``"teams"`` or ``"mcp"``), agents that have been configured as unavailable
+        in that channel are excluded. ``None`` (internal/web) applies no channel
+        gating.
+
+        When ``show_all`` is requested AND the caller holds org-wide data-source
+        governance, the membership filter is dropped (admin "show all" view) and
+        entries the caller isn't a member of are flagged ``admin_only``.
+        """
         # See get_data_sources above for the lazyload("*") rationale — same
         # cascade applies here. The list schema doesn't expose
         # data_source_memberships, so we don't eager-load it.
@@ -1045,17 +1088,32 @@ class DataSourceService:
             )
         )
         
-        # Apply access control if user is provided (same logic as get_data_sources)
+        # Apply access control if user is provided (same logic as get_data_sources).
+        # When ``show_all`` is requested AND the caller holds org-wide data-source
+        # governance, drop the membership filter and return every DS in the org —
+        # the admin "show all" view. Entries the admin isn't a member of are
+        # flagged ``admin_only`` below.
+        member_id_set: set = set()
+        show_all_effective = False
         if current_user:
-            from app.core.permission_resolver import get_member_data_source_ids
+            from app.core.permission_resolver import (
+                get_member_data_source_ids,
+                can_view_all_data_sources,
+            )
             member_ids = await get_member_data_source_ids(
                 db, str(current_user.id), str(organization.id)
             )
-            clauses = [DataSource.is_public == True]
-            if member_ids:
-                clauses.append(DataSource.id.in_(member_ids))
-            stmt = stmt.filter(or_(*clauses))
-            
+            member_id_set = {str(m) for m in member_ids}
+            if show_all:
+                show_all_effective = await can_view_all_data_sources(
+                    db, str(current_user.id), str(organization.id)
+                )
+            if not show_all_effective:
+                clauses = [DataSource.is_public == True]
+                if member_ids:
+                    clauses.append(DataSource.id.in_(member_ids))
+                stmt = stmt.filter(or_(*clauses))
+
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
         
@@ -1064,6 +1122,7 @@ class DataSourceService:
         has_update_perm = False
         is_gov = False
         manage_ids: set = set()
+        resolved = None
         if current_user:
             try:
                 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
@@ -1087,6 +1146,7 @@ class DataSourceService:
                 }
             except Exception:
                 has_update_perm = False
+                resolved = None
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1098,6 +1158,15 @@ class DataSourceService:
             if publish_status == "disabled":
                 continue
             if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
+                continue
+            # `development` agents are hidden from the selector for everyone but
+            # agent admins (manage_evals on this agent).
+            if self._development_hidden(
+                getattr(d, "reliability_status", "training"), d.id, is_gov, resolved
+            ):
+                continue
+            # Channel availability gating (external channels only).
+            if not d.is_available_in(channel):
                 continue
             # Build connections list
             connections_list = await self._build_connections_list(
@@ -1115,12 +1184,21 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
+                is_public=bool(d.is_public),
                 publish_status=publish_status,
+                reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
                 user_status=connections_list[0].user_status if connections_list else None,
+                # Flag entries surfaced only by the admin "show all" view:
+                # private and not an explicit membership of the caller.
+                admin_only=(
+                    show_all_effective
+                    and not bool(d.is_public)
+                    and str(d.id) not in member_id_set
+                ),
             )
 
             # Exclude user_required data sources lacking user credentials,
@@ -1138,11 +1216,14 @@ class DataSourceService:
             items.append(s)
         return items
 
-    async def get_public_data_sources(self, db: AsyncSession, organization: Organization) -> List[DataSourceListItemSchema]:
+    async def get_public_data_sources(self, db: AsyncSession, organization: Organization, channel: str | None = None) -> List[DataSourceListItemSchema]:
         """
         Get only public active data sources with system_only auth for an organization.
         Used for Slack channel mentions where we can't rely on individual user credentials.
         Only includes data sources that use system-level credentials (auth_policy="system_only").
+
+        When ``channel`` is provided, agents configured as unavailable in that
+        channel are excluded.
         """
         stmt = (
             select(DataSource)
@@ -1165,6 +1246,9 @@ class DataSourceService:
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            # Channel availability gating (external channels only).
+            if not d.is_available_in(channel):
+                continue
             conn = d.connections[0] if d.connections else None
             # Only include data sources with system_only auth policy
             # Skip user_required data sources since channel mentions can't use individual user credentials
@@ -1187,6 +1271,7 @@ class DataSourceService:
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
                 publish_status=getattr(d, "publish_status", "published") or "published",
+                reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
@@ -1194,6 +1279,49 @@ class DataSourceService:
             )
             items.append(s)
         return items
+
+    # Channels an agent can be made available in. Keeping this catalog here (vs.
+    # hard-coded in the route/UI) keeps the backend the single source of truth.
+    CHANNEL_CATALOG = [
+        {"key": "slack", "name": "Slack"},
+        {"key": "teams", "name": "Microsoft Teams"},
+        {"key": "whatsapp", "name": "WhatsApp"},
+        {"key": "email", "name": "Email"},
+        {"key": "mcp", "name": "MCP"},
+    ]
+
+    async def get_connected_channels(self, db: AsyncSession, organization: Organization) -> List[dict]:
+        """Return the channel catalog annotated with whether each channel is
+        connected for this organization.
+
+        A platform channel (Slack/Teams/WhatsApp/email) is "connected" when an
+        active ``ExternalPlatform`` row exists; MCP is "connected" when the
+        ``mcp_enabled`` org setting is on. The new-agent UI uses this to render a
+        channel-availability toggle for each connected channel.
+        """
+        from app.models.external_platform import ExternalPlatform
+
+        result = await db.execute(
+            select(ExternalPlatform.platform_type).where(
+                ExternalPlatform.organization_id == organization.id,
+                ExternalPlatform.is_active == True,
+            )
+        )
+        active_types = {row for row in result.scalars().all()}
+
+        mcp_enabled = False
+        try:
+            if organization.settings:
+                cfg = organization.settings.get_config("mcp_enabled")
+                mcp_enabled = bool(cfg and getattr(cfg, "value", False))
+        except Exception:
+            mcp_enabled = False
+
+        channels = []
+        for c in self.CHANNEL_CATALOG:
+            connected = (c["key"] == "mcp" and mcp_enabled) or (c["key"] in active_types)
+            channels.append({**c, "connected": connected})
+        return channels
 
     async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User, auth_type: str | None = None, auth_policy: str | None = None):
         try:
@@ -2629,7 +2757,28 @@ class DataSourceService:
             )
         )
         total_selected = selected_count_result.scalar() or 0
-        
+
+        # A newly-activated table changes what the agent can use → re-measure.
+        # Only fire on activation (newly-in-scope tables); deactivation only
+        # shrinks scope and won't introduce new failures worth a loop.
+        if activated_count:
+            try:
+                from app.services.agent_reliability_service import AgentReliabilityService
+                from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+                AgentReliabilityService().schedule(
+                    organization_id=str(organization.id),
+                    data_source_id=str(data_source_id),
+                    trigger=TRIGGER_TABLE_CHANGE,
+                    changed_hint=f"{activated_count} table(s) activated",
+                )
+                from app.services.review_producers import emit_schema_changed
+                await emit_schema_changed(
+                    db, str(organization.id), str(data_source_id),
+                    summary=f"{activated_count} table(s) activated on this connection.",
+                )
+            except Exception:
+                logger.debug("update_tables_status_delta: reliability trigger skipped", exc_info=True)
+
         return DeltaUpdateTablesResponse(
             activated_count=activated_count,
             deactivated_count=deactivated_count,
@@ -3828,6 +3977,18 @@ class DataSourceService:
         )
         existing_rows = existing.scalars().all()
         existing_by_conn_table_id = {t.connection_table_id: t for t in existing_rows if t.connection_table_id}
+
+        # Snapshot the per-table column structure BEFORE we overwrite it below,
+        # so we can detect a real structural change (added/removed column or a
+        # dtype change) after the refresh and trigger the agent-reliability
+        # loop. Keyed by table name; value is a stable signature of the columns.
+        # Captured for active tables only — the agent only "uses" active tables,
+        # so an inactive table's schema drift isn't worth a re-eval.
+        pre_schema_sig = {
+            t.name: self._column_signature(t.columns)
+            for t in existing_rows
+            if getattr(t, "is_active", False)
+        }
         # Unlinked rows (connection_table_id is NULL) keyed by name. These are
         # legacy name-keyed rows from the old save_or_update_tables path. We adopt
         # them below instead of creating a duplicate linked row, which both
@@ -3983,6 +4144,53 @@ class DataSourceService:
         # If too many tables for auto-select, use smart selection algorithm
         if needs_smart_selection and max_auto_select:
             await self._select_active_tables_sql(db, str(data_source.id), max_auto_select)
+
+        # Detect a structural change vs. the pre-refresh snapshot and fire the
+        # agent-reliability loop (debounced to one schedule per sync). Skipped on
+        # the initial population (empty pre-snapshot) so onboarding doesn't storm
+        # the loop. Best-effort: never let trigger wiring break a schema sync.
+        try:
+            post_rows = (await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.datasource_id == data_source.id,
+                    DataSourceTable.is_active == True,  # noqa: E712
+                )
+            )).scalars().all()
+            post_schema_sig = {t.name: self._column_signature(t.columns) for t in post_rows}
+            if pre_schema_sig:
+                changed = sorted({
+                    name for name in (set(pre_schema_sig) | set(post_schema_sig))
+                    if pre_schema_sig.get(name) != post_schema_sig.get(name)
+                })
+                if changed:
+                    from app.services.agent_reliability_service import AgentReliabilityService
+                    from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+                    hint = "Table/column structure changed: " + ", ".join(changed[:8])
+                    AgentReliabilityService().schedule(
+                        organization_id=str(data_source.organization_id),
+                        data_source_id=str(data_source.id),
+                        trigger=TRIGGER_TABLE_CHANGE,
+                        changed_hint=hint,
+                    )
+                    from app.services.review_producers import emit_schema_changed
+                    await emit_schema_changed(
+                        db, str(data_source.organization_id), str(data_source.id), summary=hint,
+                    )
+        except Exception:
+            logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)
+
+    @staticmethod
+    def _column_signature(columns) -> tuple:
+        """Stable, order-independent signature of a table's columns for change
+        detection: a sorted tuple of (name, dtype). Tolerates missing/None
+        column lists and varied dict shapes."""
+        sig = []
+        for col in (columns or []):
+            if isinstance(col, dict):
+                sig.append((str(col.get("name", "")), str(col.get("dtype", "") or col.get("type", ""))))
+            else:
+                sig.append((str(col), ""))
+        return tuple(sorted(sig))
 
     async def get_domain_connections(
         self,

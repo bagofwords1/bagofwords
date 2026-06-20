@@ -411,7 +411,10 @@ class CodeContextBuilder:
         # We only need accessible DS ids here — bypass get_active_data_sources
         # (which builds full Pydantic list items + per-DS user_status) and
         # query ids directly.
-        from app.core.permission_resolver import get_accessible_data_source_ids
+        from app.core.permission_resolver import (
+            get_accessible_data_source_ids,
+            resolve_permissions,
+        )
         from sqlalchemy import or_
 
         is_admin, accessible_ids = await get_accessible_data_source_ids(
@@ -428,6 +431,31 @@ class CodeContextBuilder:
             if accessible_ids:
                 clauses.append(DataSource.id.in_(accessible_ids))
             stmt = stmt.where(or_(*clauses))
+
+        # `development` agents are pulled from regular users — never feed their
+        # schema into AI context unless the caller is an agent admin (manage_evals
+        # on that agent; org-level manage_evals / full_admin imply it). Admins
+        # (is_admin) already see everything.
+        if not is_admin:
+            resolved = await resolve_permissions(
+                self.db, str(self.current_user.id), str(self.organization.id)
+            )
+            eval_admin_ids = {
+                str(rid)
+                for (rtype, rid), perms in resolved.resource_permissions.items()
+                if rtype == "data_source" and "manage_evals" in perms
+            }
+            if resolved.has_org_permission("manage_evals"):
+                # Org-wide eval admin → no development agents are hidden.
+                pass
+            else:
+                not_dev = or_(
+                    DataSource.reliability_status != "development",
+                    DataSource.reliability_status.is_(None),
+                )
+                if eval_admin_ids:
+                    not_dev = or_(not_dev, DataSource.id.in_(eval_admin_ids))
+                stmt = stmt.where(not_dev)
         rows = await self.db.execute(stmt)
         allowed_ds_ids: Set[str] = {str(r[0]) for r in rows.all()}
 

@@ -60,6 +60,15 @@ class Completion(BaseSchema):
     context_effectiveness = Column(Integer, nullable=True, default=4)
     response_score = Column(Integer, nullable=True, default=4)  # 1-5 rating of AI performance, where 1=poor and 5=excellent
 
+    # LLM judge's per-dimension score + free-text rationale. Single JSON blob so
+    # the shape can evolve; the scalar score columns above stay as the queryable
+    # source for diagnosis filters/metrics (and the display fallback). Only
+    # populated when the judge actually ran. Shape:
+    #   {"instructions": {"score": int, "reasoning": str},
+    #    "context":      {"score": int, "reasoning": str},
+    #    "response":     {"score": int, "reasoning": str}}
+    judge_json = Column(JSON, nullable=True, default=None)
+
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
     feedbacks = relationship("CompletionFeedback", back_populates="completion", cascade="all, delete-orphan", lazy='select')
     

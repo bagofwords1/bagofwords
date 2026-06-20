@@ -133,6 +133,8 @@
                 {{ $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
               </span>
             </template>
+            <!-- Resolved evals for this agent, pinned to the draft build -->
+            <ResolvedEvalStrip v-if="buildId" :instruction-id="instructionId" :build-id="buildId" class="ms-auto" />
           </div>
 
           <!-- Error message -->
@@ -158,6 +160,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
+import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
 import { dispatchInstructionResolved, INSTRUCTION_RESOLVED_EVENT } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()

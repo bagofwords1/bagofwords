@@ -10,6 +10,8 @@
 ## Version 0.0.412 (June 16, 2026)
 - **Apache Druid data source** — connect to Apache Druid and query it as a new data source.
 - **Trino data source** — connect to the Trino distributed SQL engine and query it as a new data source.
+- Agents page redesign - easier navigation around instructions, tools, tables, tc
+- **Continual Learning** - trigger evals -> retrain loop on table change or instruction change for high autonomy
 
 ## Version 0.0.411 (June 15, 2026)
 - **⌘K command palette** — a global **⌘K / Ctrl+K** palette for quick navigation and creation, opened from anywhere in the app. One input searches across **recent reports**, **agents**, and **instructions** (server-side search for reports/instructions, client-side filtering for agents; recents shown by default), with pinned, query-echoing create actions: `New report "…"` (creates and navigates) and a permission-aware `New instruction "…"` / `Suggest instruction "…"` that opens the instruction modal pre-filled with the typed text. No-match queries still surface the create actions.

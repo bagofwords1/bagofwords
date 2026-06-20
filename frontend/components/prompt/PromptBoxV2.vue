@@ -89,10 +89,10 @@
                         <span v-if="props.pendingTrainingBuildDiff?.removed_lines" class="font-mono text-red-500">-{{ props.pendingTrainingBuildDiff.removed_lines }}</span>
                         <span v-if="props.pendingTrainingBuild" class="text-gray-200">|</span>
                         <button
-                            v-if="props.pendingTrainingBuild"
+                            v-if="props.pendingTrainingBuild && canCreateInstructions"
                             class="inline-flex items-center gap-1 text-[11px] text-sky-600 hover:text-sky-700 transition-colors disabled:opacity-60"
-                            :disabled="isApprovingBuild || selectedInstructionIds.size === 0"
-                            @click.stop="handleApproveTrainingBuild"
+                            :disabled="isApprovingBuild || props.trainingInstructions.length === 0"
+                            @click.stop="handleApproveAll"
                         >
                             <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-sky-600" />
                             {{ isApprovingBuild ? $t('prompt.approving', 'Publishing…') : $t('prompt.saveChanges', 'Save changes') }}
@@ -103,44 +103,43 @@
                         class="absolute start-0 bottom-full w-[28rem] z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-2 mb-0">
-                            <div class="px-3 pb-1.5 flex items-center gap-1.5 text-[11px] text-gray-500">
-                                <span class="font-medium text-gray-700">{{ $t('prompt.pendingChanges', 'Pending changes') }}</span>
-                                <span class="text-gray-300">·</span>
-                                <span>{{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.changeSingular', 'change') : $t('prompt.changePlural', 'changes') }}</span>
+                            <div class="px-3 pb-1.5 flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-1.5 text-[11px] text-gray-500 min-w-0">
+                                    <span class="font-medium text-gray-700">{{ $t('prompt.pendingChanges', 'Pending changes') }}</span>
+                                    <span class="text-gray-300">·</span>
+                                    <span class="truncate">{{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.changeSingular', 'change') : $t('prompt.changePlural', 'changes') }}</span>
+                                </div>
+                                <!-- Batch actions: accept everything (publish build) or reject everything (discard build). -->
+                                <div v-if="props.pendingTrainingBuild && canCreateInstructions" class="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors disabled:opacity-60"
+                                        :disabled="isDiscardingBuild || isApprovingBuild"
+                                        @click.stop="handleDiscardTrainingBuild"
+                                    >
+                                        <Icon name="heroicons-x-mark" class="w-3 h-3 text-gray-400" />
+                                        {{ isDiscardingBuild ? $t('prompt.rejecting', 'Rejecting…') : $t('prompt.rejectAll', 'Reject all') }}
+                                    </button>
+                                    <button
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded transition-colors disabled:opacity-60"
+                                        :disabled="isApprovingBuild"
+                                        @click.stop="handleApproveAll"
+                                    >
+                                        <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-emerald-600" />
+                                        <Icon v-else name="heroicons-check" class="w-3 h-3" />
+                                        {{ isApprovingBuild ? $t('prompt.approving', 'Publishing…') : $t('prompt.acceptAll', 'Accept all') }}
+                                    </button>
+                                </div>
                             </div>
                             <div class="max-h-[28rem] overflow-y-auto">
+                                <!-- Per-instruction inline per-hunk review (Google-docs style). -->
                                 <PendingInstructionItem
                                     v-for="inst in props.trainingInstructions"
                                     :key="inst.instructionId"
                                     :inst="inst"
-                                    :selected="selectedInstructionIds.has(inst.instructionId)"
-                                    @update:selected="toggleInstructionSelection(inst.instructionId, $event)"
+                                    :can-approve="canCreateInstructions"
                                     @open="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
-                                    @accept="handleAcceptInstruction(inst)"
-                                    @reject="handleRejectInstruction(inst)"
+                                    @changed="onInstructionHunkResolved(inst)"
                                 />
-                            </div>
-                            <div
-                                v-if="props.pendingTrainingBuild"
-                                class="flex items-center gap-2 px-3 pt-2 border-t border-gray-100 mt-1"
-                            >
-                                <button
-                                    class="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium text-white bg-sky-600 hover:bg-sky-700 rounded transition-colors disabled:opacity-60"
-                                    :disabled="isApprovingBuild || selectedInstructionIds.size === 0"
-                                    @click.stop="handleApproveTrainingBuild"
-                                >
-                                    <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-white me-1" />
-                                    <Icon v-else name="heroicons-check" class="w-3 h-3" />
-                                    {{ approveButtonText }}
-                                </button>
-                                <button
-                                    class="inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors disabled:opacity-60"
-                                    :disabled="isDiscardingBuild"
-                                    @click.stop="handleDiscardTrainingBuild"
-                                >
-                                    <Icon name="heroicons-x-mark" class="w-3 h-3" />
-                                    {{ isDiscardingBuild ? $t('prompt.rejecting', 'Rejecting…') : $t('prompt.rejectBuild', 'Reject') }}
-                                </button>
                             </div>
                         </div>
                         <div class="h-1"></div>
@@ -586,69 +585,36 @@ const props = defineProps({
 
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
 
-function handleAcceptInstruction(inst: any) {
-    if (!props.pendingTrainingBuild) return
-    // Reuse the existing batch-approval emit with a single instruction id.
-    emit('approveTrainingBuild', {
-        buildId: props.pendingTrainingBuild.id,
-        instructionIds: [inst.instructionId],
-    })
-}
-
-function handleRejectInstruction(inst: any) {
-    if (!props.pendingTrainingBuild) return
-    // Tell parent to remove this instruction from the pending build (DELETE
-    // /builds/{id}/contents/{instruction_id}). Parent owns the API call.
-    emit('discardTrainingInstruction', {
-        buildId: props.pendingTrainingBuild.id,
-        instructionId: inst.instructionId,
-    })
-}
+// Whether the current user may publish/resolve instruction changes. Gates the
+// batch Accept/Reject controls; the server enforces the real permission.
+const canCreateInstructions = computed(() => useCan('manage_instructions'))
 
 const isApprovingBuild = computed(() => props.isPublishingBuild)
 const isDiscardingBuild = ref(false)
-const selectedInstructionIds = ref<Set<string>>(new Set())
 
-// Select all changes by default; preserve user selections across list updates.
-watch(
-    () => props.trainingInstructions,
-    (next, prev) => {
-        const prevIds = new Set((prev || []).map((i: any) => i.instructionId))
-        const sel = new Set(selectedInstructionIds.value)
-        for (const inst of next || []) {
-            if (!prevIds.has(inst.instructionId)) sel.add(inst.instructionId)
-        }
-        const currentIds = new Set((next || []).map((i: any) => i.instructionId))
-        for (const id of sel) {
-            if (!currentIds.has(id)) sel.delete(id)
-        }
-        selectedInstructionIds.value = sel
-    },
-    { immediate: true, deep: true }
-)
-
-function toggleInstructionSelection(id: string, checked: boolean) {
-    const next = new Set(selectedInstructionIds.value)
-    if (checked) next.add(id)
-    else next.delete(id)
-    selectedInstructionIds.value = next
-}
-
-const approveButtonText = computed(() => {
-    if (isApprovingBuild.value) return t('prompt.approving', 'Approving…')
-    const n = selectedInstructionIds.value.size
-    if (n === 0) return t('prompt.approveBuild', 'Approve & publish')
-    if (n === 1) return t('prompt.approveOne', 'Publish 1 change')
-    return t('prompt.approveMany', { n, default: `Publish ${n} changes` })
-})
-
-function handleApproveTrainingBuild() {
+// "Accept all" = publish the whole staged build in one atomic pass. Per-hunk
+// acceptance happens inline inside each row (InstructionTrackedChanges).
+function handleApproveAll() {
     if (!props.pendingTrainingBuild || isApprovingBuild.value) return
-    if (selectedInstructionIds.value.size === 0) return
+    const instructionIds = props.trainingInstructions.map((i: any) => i.instructionId)
+    if (instructionIds.length === 0) return
     emit('approveTrainingBuild', {
         buildId: props.pendingTrainingBuild.id,
-        instructionIds: Array.from(selectedInstructionIds.value),
+        instructionIds,
     })
+}
+
+// A row resolved one or more hunks inline (already applied to main server-side).
+// Broadcast so the report page refreshes the summary/pill + historical list.
+function onInstructionHunkResolved(inst: any) {
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(new CustomEvent('instruction:resolved', {
+        detail: {
+            instructionId: inst?.instructionId || null,
+            buildId: props.pendingTrainingBuild?.id || null,
+            action: 'accept',
+        },
+    }))
 }
 async function handleDiscardTrainingBuild() {
     if (!props.pendingTrainingBuild || isDiscardingBuild.value) return

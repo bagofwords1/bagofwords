@@ -18,6 +18,15 @@ class RunEvalInput(BaseModel):
         default=None,
         description="Run all active cases in this suite. Mutually exclusive with case_ids.",
     )
+    build_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Instruction build to evaluate against (the immutable snapshot the "
+            "eval is pinned to). Pass the specific suggestion build to measure "
+            "exactly that change in isolation. When omitted, falls back to the "
+            "agent's draft build in context, then to the current main build."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one(self):

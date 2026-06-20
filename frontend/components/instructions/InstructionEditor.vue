@@ -141,7 +141,7 @@ const { organization } = useOrganization()
 
 const md = new MarkdownIt({ html: true, breaks: false, linkify: false })
 
-function preprocessMentions(text: string): string {
+function convertMentions(text: string): string {
   return text.replace(
     /@([A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*|"[^"]+")/g,
     (_, captured) => {
@@ -154,10 +154,38 @@ function preprocessMentions(text: string): string {
   )
 }
 
+// Convert @mentions to mention spans, but NEVER inside code (fenced blocks or
+// inline `code`). markdown-it escapes any HTML it finds in code, so a mention
+// injected there would render as a literal "<span …>" in a code box (and then
+// round-trip back into the stored text). Tokenize so code regions pass verbatim.
+function preprocessMentions(text: string): string {
+  const TOKEN = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`+[^`]*`+)/g
+  return text.split(TOKEN).map((seg, i) => (i % 2 === 1 ? seg : convertMentions(seg))).join('')
+}
+
+// Repair: a literal mention-span in the stored markdown is never authored — it's
+// residue from a prior bad round-trip (often wrapped in backticks). Restore it to
+// @label so it renders as a chip again instead of escaped HTML.
+function normalizeMentionHtml(text: string): string {
+  const toAt = (raw: string): string => {
+    const label = (raw || '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim()
+    return /[\s\-."]/.test(label) ? `@"${label.replace(/"/g, '')}"` : `@${label}`
+  }
+  return text
+    .replace(/`?\s*<span[^>]*data-type=["']mention["'][^>]*data-label=["']([^"']*)["'][^>]*>\s*<\/span>\s*`?/g, (_, l) => toAt(l))
+    .replace(/`?\s*<span[^>]*data-type=["']mention["'][^>]*data-id=["']([^"']*)["'][^>]*>\s*<\/span>\s*`?/g, (_, l) => toAt(l))
+    .replace(/`?\s*<span[^>]*data-type=["']mention["'][^>]*>([^<]*)<\/span>\s*`?/g, (_, l) => toAt(l))
+}
+
 function markdownToHtml(text: string): string {
   if (!text?.trim()) return ''
-  const preprocessed = preprocessMentions(text)
-  return md.render(preprocessed)
+  const preprocessed = preprocessMentions(normalizeMentionHtml(text))
+  // Render block-by-block (split on paragraph breaks) so runs of blank lines are
+  // preserved as empty paragraphs. md.render() alone collapses any number of
+  // blank lines into a single paragraph break; the serializer joins paragraphs
+  // with "\n\n", so an empty paragraph round-trips back to a blank line.
+  const blocks = preprocessed.split('\n\n')
+  return blocks.map((b) => (b.length === 0 ? '<p></p>' : md.render(b))).join('')
 }
 
 function serializeInlineMarks(text: string, marks: any[]): string {

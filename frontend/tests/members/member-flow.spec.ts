@@ -25,9 +25,10 @@ test.describe.serial('Member Flow', () => {
     });
     const page = await context.newPage();
 
-    // Navigate to settings/members
-    await page.goto('/settings/members');
-    await page.waitForLoadState('networkidle');
+    // Navigate to settings/members. 'networkidle' is unreliable on CI; commit
+    // the navigation and give the SPA a beat to hydrate/redirect.
+    await page.goto('/settings/members', { waitUntil: 'commit' });
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(3000);
 
     // If redirected to onboarding, dismiss it first

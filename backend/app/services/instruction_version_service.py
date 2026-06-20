@@ -71,6 +71,7 @@ class InstructionVersionService:
         version_data = {
             "text": instruction.text,
             "title": instruction.title,
+            "description": instruction.description,
             "structured_data": instruction.structured_data,
             "formatted_content": instruction.formatted_content,
             "status": effective_status,
@@ -88,6 +89,7 @@ class InstructionVersionService:
             version_number=version_number,
             text=instruction.text,
             title=instruction.title,
+            description=instruction.description,
             structured_data=instruction.structured_data,
             formatted_content=instruction.formatted_content,
             status=effective_status,
@@ -112,6 +114,7 @@ class InstructionVersionService:
         instruction_id: str,
         text: str,
         title: Optional[str] = None,
+        description: Optional[str] = None,
         structured_data: Optional[dict] = None,
         formatted_content: Optional[str] = None,
         status: str = 'published',
@@ -133,6 +136,7 @@ class InstructionVersionService:
         version_data = {
             "text": text,
             "title": title,
+            "description": description,
             "structured_data": structured_data,
             "formatted_content": formatted_content,
             "status": status,
@@ -143,13 +147,14 @@ class InstructionVersionService:
             "category_ids": category_ids,
         }
         content_hash = self.compute_content_hash(version_data)
-        
+
         # Create version
         version = InstructionVersion(
             instruction_id=instruction_id,
             version_number=version_number,
             text=text,
             title=title,
+            description=description,
             structured_data=structured_data,
             formatted_content=formatted_content,
             status=status,
@@ -324,6 +329,7 @@ class InstructionVersionService:
         current_data = {
             "text": instruction.text,
             "title": instruction.title,
+            "description": instruction.description,
             "structured_data": instruction.structured_data,
             "formatted_content": instruction.formatted_content,
             "status": instruction.status,
@@ -353,8 +359,8 @@ class InstructionVersionService:
             return {"error": "One or both versions not found"}
         
         changes = []
-        fields = ['text', 'title', 'structured_data', 'formatted_content', 
-                  'status', 'load_mode', 'references_json', 'data_source_ids', 
+        fields = ['text', 'title', 'description', 'structured_data', 'formatted_content',
+                  'status', 'load_mode', 'references_json', 'data_source_ids',
                   'label_ids', 'category_ids']
         
         for field in fields:

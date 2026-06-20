@@ -246,6 +246,19 @@ class RunEvalTool(Tool):
             total = len(target_case_ids)
             timeout_s = min(total * _PER_CASE_TIMEOUT_S, _MAX_TIMEOUT_S)
 
+            # --- Pin the candidate build so evals test the *staged* hunks ---
+            # Resolution order, most-specific first:
+            #   1. ``data.build_id`` — an explicit suggestion build chosen by the
+            #      caller. This is how "run eval on Change 1" targets exactly
+            #      that suggestion's snapshot (main + only its hunks), unaffected
+            #      by any sibling suggestion on the same instruction.
+            #   2. ``runtime_ctx['training_build_id']`` — the draft the agent is
+            #      accumulating in training / knowledge mode.
+            #   3. ``None`` — fall back to the current main build.
+            # Without (1)/(2) the run would silently measure MAIN and never
+            # exercise the just-authored instructions.
+            candidate_build_id = data.build_id or runtime_ctx.get("training_build_id")
+
             # --- Kick off the TestRun ---
             run, _results = await run_service.create_and_execute_background(
                 db=db,
@@ -253,6 +266,7 @@ class RunEvalTool(Tool):
                 current_user=user,
                 case_ids=target_case_ids,
                 trigger_reason="agent_run_eval",
+                build_id=candidate_build_id,
             )
             run_id = str(run.id)
 

@@ -38,6 +38,40 @@ class DataSource(BaseSchema):
     # admins) can see them. Sharing org-wide is an opt-in (set is_public=True).
     is_public = Column(Boolean, nullable=False, default=False)
 
+    # Per-agent channel availability: which connected channels (Slack, Teams,
+    # WhatsApp, email, MCP) may query this agent. A JSON map of
+    # ``{channel_type: bool}`` — e.g. ``{"slack": true, "teams": false}``.
+    #   NULL / missing key  → available in every connected channel (default,
+    #                         preserves pre-existing behaviour, no regression).
+    #   explicit ``false``  → this agent is hidden from that channel.
+    # Channel availability is gating *in addition* to is_public / publish_status
+    # / membership; it never widens access, only narrows which channels can use
+    # an otherwise-accessible agent. The in-app/web experience is never gated by
+    # this map (only external channels pass a ``channel`` to the selectors).
+    channel_availability = Column(JSON, nullable=True)
+
+    # Per-agent reliability-automation override. A (possibly partial)
+    # AgentAutomationPolicy dict; only the keys present here override the org
+    # default (OrganizationSettings.config['agent_automation_defaults']). None /
+    # empty means "fully inherit the org default".
+    automation_settings = Column(JSON, nullable=True)
+
+    # Lifecycle of the reliability loop, orthogonal to publish_status. The
+    # automation system writes this; humans set publish_status. Keeping them
+    # separate lets an agent stay "published" while still in "training", instead
+    # of forcing it offline.
+    #   training     — default for new agents; still fully accessible to users
+    #                  while the loop measures / improves it.
+    #   development  — repeated eval failures the loop couldn't fix; pulled from
+    #                  regular users and hidden from the selector + AI context.
+    #                  Only agent admins (manage_evals on this agent) can see or
+    #                  use it, so they can keep fixing it. publish_status is left
+    #                  untouched — this never disables the agent for admins.
+    #   ok           — verified healthy by a passing reliability run.
+    reliability_status = Column(
+        String, nullable=False, default="training", server_default="training"
+    )
+
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     context = Column(Text, nullable=True)
@@ -365,6 +399,21 @@ class DataSource(BaseSchema):
         # Build context for just this data source
         return await context_builder.build([self])
     
+    def is_available_in(self, channel: str | None) -> bool:
+        """Whether this agent may be queried from the given channel.
+
+        ``channel`` is an external channel type (e.g. ``"slack"``, ``"teams"``,
+        ``"mcp"``). ``None`` means an internal/web context that is never gated by
+        channel availability. Defaults to available unless the agent's
+        ``channel_availability`` map explicitly turns that channel off.
+        """
+        if not channel:
+            return True
+        mapping = self.channel_availability
+        if not isinstance(mapping, dict):
+            return True
+        return mapping.get(channel, True) is not False
+
     def has_membership(self, user_id: str) -> bool:
         """
         Check if a user has explicit membership to this data source.

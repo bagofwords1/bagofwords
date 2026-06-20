@@ -1,16 +1,14 @@
 <template>
-    <div class="flex justify-center ps-2 md:ps-4 text-sm h-full">
-        <div class="w-full max-w-7xl px-4 ps-0 py-2 h-full">
-            <ConsoleInstructions show-header />
-        </div>
-    </div>
+    <div />
 </template>
 
 <script setup lang="ts">
-import ConsoleInstructions from '~/components/ConsoleInstructions.vue'
-
+// The instructions page has moved to the Agents explorer at /agents.
+// Keep this route as a redirect so existing links/bookmarks still work.
 definePageMeta({
     auth: true,
     layout: 'default'
 })
+
+await navigateTo('/agents', { replace: true })
 </script>

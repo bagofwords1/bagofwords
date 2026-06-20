@@ -517,6 +517,16 @@ class QueryCapturingClientWrapper:
             "sql": query[:500] if isinstance(query, str) else None,
         }
 
+    def query(self, query: str, *args, **kwargs):
+        """Alias for execute_query.
+
+        Model-generated code often calls `.query(...)` instead of
+        `.execute_query(...)`. Route it through our own `execute_query` so the
+        call is still captured, timed, and metered — delegating via __getattr__
+        would hit the raw client and bypass all of that instrumentation.
+        """
+        return self.execute_query(query, *args, **kwargs)
+
     def __getattr__(self, name):
         """Delegate all other attributes to the original client."""
         return getattr(self._original, name)

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from pydantic import BaseModel
 
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
@@ -304,6 +305,137 @@ async def analyze_instruction_endpoint(
     )
 
 
+# NB: declared before /instructions/{instruction_id} so the literal segment
+# isn't captured as a path param.
+@router.get("/instructions/pending-changes")
+async def get_pending_change_instruction_ids(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Instruction IDs that have at least one LIVE hunk in the per-hunk review
+    (cherry-pick model). Authoritative: a suggestion build whose hunks are all
+    accepted/rejected/already-applied no longer counts. Drives the per-row
+    pending dots so they match exactly what the review shows."""
+    from sqlalchemy import select as _select, and_ as _and
+    from app.models.instruction_build import InstructionBuild
+    from app.models.build_content import BuildContent
+
+    org_id = str(organization.id)
+    # Candidate instructions: those present in any non-main draft/pending build.
+    cand_rows = (await db.execute(
+        _select(BuildContent.instruction_id)
+        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+        .where(_and(
+            InstructionBuild.organization_id == org_id,
+            InstructionBuild.is_main.is_(False),
+            InstructionBuild.deleted_at.is_(None),
+            InstructionBuild.status.in_(["draft", "pending_approval"]),
+            InstructionBuild.source.in_(["user", "ai", "git"]),
+        )).distinct()
+    )).all()
+    changed_ids = []
+    for (iid,) in cand_rows:
+        try:
+            r = await instruction_service.review_hunks(db, str(iid), organization=organization, current_user=current_user)
+            if r and r.get("suggestions"):
+                changed_ids.append(str(iid))
+        except Exception:
+            pass
+    return {"instruction_ids": sorted(set(changed_ids))}
+
+
+async def _get_pending_change_instruction_ids_legacy(organization, db, current_user):
+    from sqlalchemy import select as _select, and_ as _and
+    from app.models.instruction_build import InstructionBuild
+    from app.models.build_content import BuildContent
+    from app.models.instruction_version import InstructionVersion
+    from app.services.suggestion_merge import covers as _covers
+
+    org_id = str(organization.id)
+
+    # 1) Main build contents → instruction_id -> (version_id, text)
+    main_rows = (
+        await db.execute(
+            _select(BuildContent.instruction_id, InstructionVersion.id, InstructionVersion.text)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
+            .where(_and(
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+            ))
+        )
+    ).all()
+    main_version = {str(i): str(v) for i, v, _t in main_rows}
+    main_text = {str(i): (t or "") for i, _v, t in main_rows}
+
+    # 2) Pending (non-main) builds → id -> base_build_id
+    pend_builds = (
+        await db.execute(
+            _select(InstructionBuild.id, InstructionBuild.base_build_id)
+            .where(_and(
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.is_main.is_(False),
+                InstructionBuild.deleted_at.is_(None),
+                InstructionBuild.status.in_(["draft", "pending_approval"]),
+            ))
+        )
+    ).all()
+    base_of = {str(bid): (str(base) if base else None) for bid, base in pend_builds}
+    if not base_of:
+        return {"instruction_ids": []}
+
+    # 3) Base builds' contents → (base_build_id, instruction_id) -> version_id
+    base_ids = [b for b in base_of.values() if b]
+    base_version: dict = {}
+    if base_ids:
+        base_rows = (
+            await db.execute(
+                _select(BuildContent.build_id, BuildContent.instruction_id, BuildContent.instruction_version_id)
+                .where(BuildContent.build_id.in_(base_ids))
+            )
+        ).all()
+        for b_id, i_id, v_id in base_rows:
+            base_version[(str(b_id), str(i_id))] = str(v_id)
+
+    # Versions that are the base of some pending build (per instruction) — a
+    # pending build whose own version is one of these is an intermediate snapshot
+    # of a chained edit (v15->v16->v17) and is superseded by its child/leaf.
+    superseded_pairs = {(i_id, v_id) for (_b, i_id), v_id in base_version.items()}
+
+    # 4) Pending builds' contents (with text) → decide "really changed vs base"
+    pend_rows = (
+        await db.execute(
+            _select(BuildContent.build_id, BuildContent.instruction_id, BuildContent.instruction_version_id, InstructionVersion.text)
+            .join(InstructionVersion, InstructionVersion.id == BuildContent.instruction_version_id)
+            .where(BuildContent.build_id.in_(list(base_of.keys())))
+        )
+    ).all()
+
+    changed: set = set()
+    for b_id, i_id, v_id, v_text in pend_rows:
+        b_id, i_id, v_id = str(b_id), str(i_id), str(v_id)
+        base_id = base_of.get(b_id)
+        if base_id:
+            base_vid = base_version.get((base_id, i_id))
+            really_changed = (base_vid != v_id) if base_vid is not None else True
+        else:
+            really_changed = (i_id not in main_version) or (main_version.get(i_id) != v_id)
+        if not really_changed:
+            continue
+        # A stale sibling (base behind current) is still a real pending change —
+        # the per-instruction view rebases its intended change onto current. We
+        # no longer exclude it on freshness; only genuine no-ops below drop out.
+        if (i_id, v_id) in superseded_pairs:
+            continue  # intermediate snapshot of a chained edit — leaf covers it
+        if i_id in main_text and ((v_text or "") == main_text[i_id] or _covers(v_text or "", main_text[i_id])):
+            continue  # already live (no-op) — exact, or fully contained in current
+        changed.add(i_id)
+
+    return {"instruction_ids": sorted(changed)}
+
+
 # STANDARD CRUD
 @router.get("/instructions/{instruction_id}", response_model=InstructionSchema)
 async def get_instruction(
@@ -531,13 +663,294 @@ async def revert_instruction_to_version(
     return reverted
 
 
+class ResolveSuggestionRequest(BaseModel):
+    """Apply a partial (per-hunk) resolution of a suggested change.
+
+    The client computes two full texts from the inline diff:
+    - ``promote_text``: current text + the accepted hunks → promoted as a new
+      version (a build-of-one) if it differs from the live text.
+    - ``remaining_text``: what should stay proposed (current text + the hunks
+      still pending). If it equals the live text, the suggestion is fully
+      resolved and the instruction is dropped from the source build.
+    """
+    build_id: Optional[str] = None
+    promote_text: str = ""
+    remaining_text: str = ""
+    title: Optional[str] = None
+
+
+@router.post("/instructions/{instruction_id}/resolve", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def resolve_instruction_suggestion(
+    instruction_id: str,
+    body: ResolveSuggestionRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Accept/reject part of a suggested change at hunk granularity.
+
+    Accepting promotes the accepted hunks immediately (build-of-one); the
+    remaining hunks stay pending against the new current text. Used by the
+    inline tracked-changes review UI.
+    """
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+
+    resolved = await instruction_service.resolve_suggestion(
+        db, instruction_id,
+        build_id=body.build_id,
+        promote_text=body.promote_text,
+        remaining_text=body.remaining_text,
+        title=body.title,
+        organization=organization,
+        current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
+# ==================== Per-hunk tracked changes (cherry-pick model) ===========
+
+@router.get("/instructions/{instruction_id}/review-hunks")
+async def get_instruction_review_hunks(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Server-authoritative tracked changes for an instruction: every pending
+    suggestion as word-level hunks diffed against current main (rejected hunks
+    filtered out). The unit of accept/reject is the hunk."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    result = await instruction_service.review_hunks(db, instruction_id, organization=organization, current_user=current_user)
+    if result is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return result
+
+
+class AcceptHunkRequest(BaseModel):
+    build_id: str
+    hunk_key: str
+    against_main_version_id: Optional[str] = None
+
+
+class RejectHunkRequest(BaseModel):
+    build_id: str
+    hunk_key: str
+
+
+@router.post("/instructions/{instruction_id}/hunks/accept", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def accept_instruction_hunk(
+    instruction_id: str,
+    body: AcceptHunkRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Cherry-pick one hunk of a suggestion onto main (new immutable build)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+    resolved, status = await instruction_service.accept_hunk(
+        db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
+        against_main_version_id=body.against_main_version_id,
+        organization=organization, current_user=current_user,
+    )
+    if status == "conflict":
+        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
+@router.post("/instructions/{instruction_id}/hunks/reject", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def reject_instruction_hunk(
+    instruction_id: str,
+    body: RejectHunkRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Reject one hunk of a suggestion (records it; build snapshot stays immutable)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+    resolved, _status = await instruction_service.reject_hunk(
+        db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
+        organization=organization, current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
+class AcceptAllRequest(BaseModel):
+    against_main_version_id: Optional[str] = None
+
+
+@router.post("/instructions/{instruction_id}/hunks/accept-all", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def accept_all_instruction_hunks(
+    instruction_id: str,
+    body: AcceptAllRequest = AcceptAllRequest(),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Accept every live hunk in one pass (single new build)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
+    resolved, status = await instruction_service.accept_all_hunks(
+        db, instruction_id, against_main_version_id=body.against_main_version_id,
+        organization=organization, current_user=current_user,
+    )
+    if status == "conflict":
+        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
+@router.post("/instructions/{instruction_id}/hunks/reject-all", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def reject_all_instruction_hunks(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Reject every live hunk in one pass (records them; main unchanged)."""
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
+    resolved, _status = await instruction_service.reject_all_hunks(
+        db, instruction_id, organization=organization, current_user=current_user,
+    )
+    if resolved is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return resolved
+
+
 # ==================== Pending Builds (Tracked Changes) ====================
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from app.models.instruction_build import InstructionBuild
 from app.models.build_content import BuildContent
 from app.models.instruction_version import InstructionVersion
+
+
+@router.get("/instructions/{instruction_id}/resolved-evals")
+async def get_instruction_resolved_evals(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Evals that 'resolve' for an instruction — the active eval cases scoped to
+    the agent(s) this instruction is attached to. Used by the editor / suggestion
+    review to show, per pending build, what running an eval would actually
+    measure. A run is launched separately via POST /tests/runs with the chosen
+    build_id (the suggestion build) so it tests exactly that change.
+
+    Global instructions (no data sources) resolve to every agent's cases — we
+    return the aggregate count + agent count rather than inlining them all.
+    """
+    from app.models.eval import TestCase, TestSuite, TEST_CASE_STATUS_ACTIVE
+    from app.models.data_source import DataSource as _DS
+    from app.services.agent_reliability_service import AgentReliabilityService
+
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+
+    org_id = str(organization.id)
+    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    is_global = len(ds_ids) == 0
+    rel = AgentReliabilityService()
+
+    if is_global:
+        # Aggregate across the whole org — count only, don't inline.
+        agent_count = (await db.execute(
+            select(func.count()).select_from(_DS).where(
+                _DS.organization_id == org_id, _DS.deleted_at.is_(None)
+            )
+        )).scalar() or 0
+        case_rows = (await db.execute(
+            select(TestCase.id)
+            .join(TestSuite, TestSuite.id == TestCase.suite_id)
+            .where(
+                TestSuite.organization_id == org_id,
+                TestCase.status == TEST_CASE_STATUS_ACTIVE,
+                TestCase.deleted_at.is_(None),
+            )
+        )).all()
+        return {
+            "instruction_id": instruction_id,
+            "is_global": True,
+            "data_source_ids": [],
+            "agent_count": int(agent_count),
+            "case_count": len(case_rows),
+            "cases": [],  # not inlined for global — UI shows count + link
+        }
+
+    # Scoped: union of each attached agent's active cases.
+    case_ids: list[str] = []
+    seen: set = set()
+    for ds_id in ds_ids:
+        for cid in await rel.list_agent_eval_case_ids(db, org_id, ds_id):
+            if cid not in seen:
+                seen.add(cid); case_ids.append(cid)
+    cases = []
+    if case_ids:
+        rows = (await db.execute(
+            select(TestCase.id, TestCase.name).where(TestCase.id.in_(case_ids))
+        )).all()
+        cases = [{"id": str(i), "name": n} for i, n in rows]
+    return {
+        "instruction_id": instruction_id,
+        "is_global": False,
+        "data_source_ids": ds_ids,
+        "agent_count": len(ds_ids),
+        "case_count": len(cases),
+        "cases": cases,
+    }
 
 
 @router.get("/instructions/{instruction_id}/pending-builds")
@@ -558,12 +971,13 @@ async def get_instruction_pending_builds(
     if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
-    # Exclude builds that contain this instruction at the same version the
-    # MAIN build already has — those are drafts that just inherited the main
-    # build's content without making a real change. Compared against main
-    # (not against `instruction.current_version_id`) so that a brand-new
-    # instruction created inside a draft (and not yet in main) still surfaces
-    # as a pending suggestion.
+    # A pending build is only a *suggestion for this instruction* if it actually
+    # changed this instruction relative to its OWN base (the main build it forked
+    # from) — not merely relative to current main. Otherwise a build that forked
+    # from an older main and only touched some other instruction would show up
+    # here for every instruction whenever main later moved ahead (the "stale
+    # snapshot" noise). We compare each build's version against its base build's
+    # version below; main is used only to drop already-applied (no-op) leftovers.
     main_version_stmt = (
         select(BuildContent.instruction_version_id)
         .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
@@ -579,6 +993,18 @@ async def get_instruction_pending_builds(
     )
     main_version_id = (await db.execute(main_version_stmt)).scalar_one_or_none()
 
+    # Text of the current main version — used to drop suggestions that no longer
+    # propose a real change (e.g. after a hunk was accepted, the leftover build
+    # points at a different version row but identical text). Comparing text makes
+    # "empty diff" suggestions self-resolve out of the review queue.
+    main_text = None
+    if main_version_id is not None:
+        main_text = (
+            await db.execute(
+                select(InstructionVersion.text).where(InstructionVersion.id == main_version_id)
+            )
+        ).scalar_one_or_none()
+
     where_clauses = [
         BuildContent.instruction_id == instruction_id,
         InstructionBuild.organization_id == str(organization.id),
@@ -586,8 +1012,6 @@ async def get_instruction_pending_builds(
         InstructionBuild.status.in_(["draft", "pending_approval"]),
         InstructionBuild.is_main.is_(False),
     ]
-    if main_version_id is not None:
-        where_clauses.append(BuildContent.instruction_version_id != main_version_id)
 
     stmt = (
         select(BuildContent, InstructionBuild, InstructionVersion)
@@ -602,9 +1026,134 @@ async def get_instruction_pending_builds(
     )
     rows = (await db.execute(stmt)).all()
 
+    # For each candidate build, look up what version of THIS instruction its base
+    # build had, so we can tell "intentionally changed here" from "inherited".
+    base_build_ids = [str(b.base_build_id) for _c, b, _v in rows if getattr(b, "base_build_id", None)]
+    base_version_by_build: dict = {}
+    if base_build_ids:
+        base_rows = (
+            await db.execute(
+                select(BuildContent.build_id, BuildContent.instruction_version_id)
+                .where(
+                    and_(
+                        BuildContent.build_id.in_(base_build_ids),
+                        BuildContent.instruction_id == instruction_id,
+                    )
+                )
+            )
+        ).all()
+        for b_id, v_id in base_rows:
+            base_version_by_build[str(b_id)] = str(v_id)
+
+    # Text of each base version, so the client can rebase a suggestion's
+    # *intended change* (base_text -> pending_text) onto the current text rather
+    # than diffing the full snapshot. This keeps a still-valid sibling suggestion
+    # applicable after another sibling was accepted (main advanced past its
+    # base), and avoids spurious "re-add removed text" hunks.
+    base_text_by_vid: dict = {}
+    base_vids = [v for v in base_version_by_build.values() if v]
+    if base_vids:
+        bt_rows = (
+            await db.execute(
+                select(InstructionVersion.id, InstructionVersion.text)
+                .where(InstructionVersion.id.in_(base_vids))
+            )
+        ).all()
+        for v_id, txt in bt_rows:
+            base_text_by_vid[str(v_id)] = txt or ""
+
+    def _base_text_for(build) -> str:
+        base_id = getattr(build, "base_build_id", None)
+        if not base_id:
+            return ""  # no base → suggestion adds the instruction from scratch
+        base_vid = base_version_by_build.get(str(base_id))
+        if base_vid is None:
+            return ""  # instruction not present in base → newly added here
+        return base_text_by_vid.get(str(base_vid), "")
+
+    # Supersede chained edits: if pending build A forked from pending build B
+    # (a chain v15 -> v16 -> v17 from sequential chat edits), then B is an
+    # intermediate snapshot fully contained in A. Showing both produces
+    # overlapping/duplicated diff hunks ("hello world hello world"). Only the
+    # leaf should surface. A version is superseded iff it is the base version
+    # of some OTHER pending build. base_version_by_build holds, for each pending
+    # build's base, the instruction version that base carried — so any of those
+    # values that is itself a pending build's version is an intermediate.
+    superseded_versions = set(base_version_by_build.values())
+
+    def _build_changed_instruction(build, version) -> bool:
+        """True if `build` actually changed this instruction vs its own base."""
+        base_id = getattr(build, "base_build_id", None)
+        if base_id:
+            base_vid = base_version_by_build.get(str(base_id))
+            if base_vid is not None:
+                return base_vid != str(version.id)  # changed vs base
+            return True  # not present in base → newly added in this build
+        # No recorded base → fall back to comparing against current main.
+        return main_version_id is None or str(version.id) != str(main_version_id)
+
+    # Resolve the originating report for AI suggestions, so the UI can show a
+    # "generated from <report>" provenance link on each suggestion. The chain is
+    # build.agent_execution_id -> AgentExecution.report_id.
+    from app.models.agent_execution import AgentExecution
+    exec_ids = [str(b.agent_execution_id) for _c, b, _v in rows if getattr(b, "agent_execution_id", None)]
+    trace_by_exec: dict = {}
+    if exec_ids:
+        exec_rows = (
+            await db.execute(
+                select(AgentExecution.id, AgentExecution.report_id, AgentExecution.completion_id)
+                .where(AgentExecution.id.in_(exec_ids))
+            )
+        ).all()
+        for ex_id, report_id, completion_id in exec_rows:
+            trace_by_exec[str(ex_id)] = {
+                "report_id": str(report_id) if report_id else None,
+                "completion_id": str(completion_id) if completion_id else None,
+            }
+
+    def _passes_basic(build, version) -> bool:
+        # Only builds that intentionally changed THIS instruction (vs their base).
+        if not _build_changed_instruction(build, version):
+            return False
+        # Skip intermediate snapshots of a chained edit — only the leaf (the
+        # build no other pending build forked from) is a real suggestion.
+        if str(version.id) in superseded_versions:
+            return False
+        # Skip suggestions that contribute nothing to the live (main) text —
+        # already applied / no-op leftover. This covers both an exact match and
+        # the case where current already contains everything the suggestion
+        # proposes (its text is a pure-insertion subset of main), e.g. after the
+        # change was accepted via a slightly different version row. A *stale*
+        # sibling that still has genuinely new content is kept (the client
+        # rebases its intended change onto current).
+        from app.services.suggestion_merge import covers
+        if main_text is not None and (
+            (version.text or "") == (main_text or "")
+            or covers(version.text or "", main_text or "")
+        ):
+            return False
+        return True
+
+    # Content-level supersede: when sequential edits (often separate chat turns)
+    # produce sibling builds that DON'T chain via base_build_id but whose text is
+    # a cumulative superset of one another, keep only the maximal (leaf) one. This
+    # collapses "+lorem" and "+lorem +hello" into the single cumulative suggestion
+    # instead of rendering the shared text twice.
+    from app.services.suggestion_merge import superseded_by_containment
+    cand_by_build = {
+        str(build.id): ((version.text or ""), _base_text_for(build))
+        for _c, build, version in rows if _passes_basic(build, version)
+    }
+    superseded_by_content = superseded_by_containment(cand_by_build)
+
     result = []
     for _content, build, version in rows:
+        if not _passes_basic(build, version):
+            continue
+        if str(build.id) in superseded_by_content:
+            continue  # an intermediate snapshot a later sibling already covers
         creator = getattr(build, "created_by_user", None)
+        trace = trace_by_exec.get(str(build.agent_execution_id)) if getattr(build, "agent_execution_id", None) else None
         result.append({
             "build_id": str(build.id),
             "build_number": build.build_number,
@@ -618,7 +1167,17 @@ async def get_instruction_pending_builds(
             "pending_version_id": str(version.id),
             "pending_version_number": version.version_number,
             "pending_text": version.text or "",
+            # The text this suggestion forked from — lets the client rebase the
+            # intended change onto current text (3-way merge) so siblings stay
+            # applicable after one is accepted.
+            "base_text": _base_text_for(build),
             "pending_title": version.title,
+            # Build-level "commit message": auto-generated summary + free-text rationale.
+            "build_title": build.title,
+            "message": build.description,
+            # Provenance: which report/completion generated this suggestion (AI only).
+            "report_id": (trace or {}).get("report_id"),
+            "completion_id": (trace or {}).get("completion_id"),
         })
     return result
 

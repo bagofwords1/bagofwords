@@ -119,7 +119,23 @@
                     Open
                   </button>
                 </div>
+                <!-- Pending: inline per-hunk accept/reject, collapsed to changed regions -->
                 <div
+                  v-if="ch.instructionId && canCreateInstructions && resolutionFor(ch) === null"
+                  class="px-3 py-2 bg-white"
+                >
+                  <InstructionTrackedChanges
+                    :instruction-id="ch.instructionId"
+                    :can-approve="canCreateInstructions"
+                    compact
+                    collapse-context
+                    @changed="refreshChangeResolution(ch)"
+                    @empty="refreshChangeResolution(ch)"
+                  />
+                </div>
+                <!-- Resolved / read-only: static diff -->
+                <div
+                  v-else
                   class="px-3 py-2 bg-white cursor-pointer hover:bg-gray-50"
                   @click="handleEdit(ch)"
                 >
@@ -163,6 +179,7 @@ import DiffMatchPatch from 'diff-match-patch'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
+import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import {
   dispatchInstructionResolved,
   INSTRUCTION_RESOLVED_EVENT,

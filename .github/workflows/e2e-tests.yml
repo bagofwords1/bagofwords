@@ -110,10 +110,24 @@ jobs:
         timeout 60 bash -c 'until curl -s http://localhost:8000/health > /dev/null 2>&1; do sleep 1; done'
         echo "Backend is ready"
 
-    - name: Start frontend dev server
+    - name: Build frontend (production)
+      working-directory: ./frontend
+      env:
+        NODE_OPTIONS: "--max-old-space-size=4096"
+      run: |
+        echo "Building frontend for production..."
+        yarn build
+        echo "Build complete"
+
+    - name: Start frontend (production server)
       working-directory: ./frontend
       run: |
-        yarn dev &
+        # Production build instead of `yarn dev`: routes are pre-compiled, so the
+        # SPA hydrates fast and reliably under parallel workers (dev mode's
+        # on-demand Vite compilation was thrashing the server and timing out
+        # page loads). @nuxt-alt/proxy runs in this output server too
+        # (experimental.listener), so /api still proxies to the backend.
+        node .output/server/index.mjs &
         echo "Waiting for frontend to start..."
         timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null 2>&1; do sleep 1; done'
         echo "Frontend is ready"
@@ -122,6 +136,8 @@ jobs:
       run: |
         echo "Warming up frontend and backend..."
         curl -s http://localhost:3000/users/sign-up > /dev/null || true
+        # Sanity-check the /api proxy works through the production server.
+        curl -s http://localhost:3000/api/settings > /dev/null || true
         curl -s http://localhost:8000/api/settings > /dev/null || true
         sleep 3
         echo "Warmup complete"

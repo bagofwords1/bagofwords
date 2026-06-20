@@ -9,6 +9,7 @@ class InstructionVersionBase(BaseModel):
     """Base schema for InstructionVersion."""
     text: str
     title: Optional[str] = None
+    description: Optional[str] = None
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
     load_mode: str = Field(default='always', description="Loading behavior: always | intelligent | disabled")
@@ -32,6 +33,7 @@ class InstructionVersionSchema(BaseModel):
     # Content
     text: str
     title: Optional[str] = None
+    description: Optional[str] = None
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
     

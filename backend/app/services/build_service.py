@@ -853,6 +853,7 @@ class BuildService:
         db: AsyncSession,
         build_id: str,
         user_id: Optional[str] = None,
+        trigger_reliability: bool = True,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
@@ -907,6 +908,7 @@ class BuildService:
                 BuildContent.instruction_version_id,
                 InstructionVersion.text,
                 InstructionVersion.title,
+                InstructionVersion.description,
                 InstructionVersion.load_mode,
                 InstructionVersion.category_ids,
                 InstructionVersion.status,
@@ -917,7 +919,7 @@ class BuildService:
             )
             .where(BuildContent.build_id == build_id)
         )
-        for instruction_id, version_id, v_text, v_title, v_load_mode, v_category_ids, v_status in rows.all():
+        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_category_ids, v_status in rows.all():
             category = None
             if v_category_ids:
                 category = v_category_ids[0] if isinstance(v_category_ids, list) else v_category_ids
@@ -926,6 +928,8 @@ class BuildService:
                 values["text"] = v_text
             if v_title is not None:
                 values["title"] = v_title
+            # description is nullable and clearable — always sync it to the version's value
+            values["description"] = v_description
             if v_load_mode is not None:
                 values["load_mode"] = v_load_mode
             if category is not None:
@@ -958,6 +962,20 @@ class BuildService:
                 details={"build_number": build.build_number, "title": build.title},
                 commit=False,
             )
+        except Exception:
+            pass
+
+        # Trigger the agent-reliability loop for agents affected by this build.
+        # Skip AI-sourced builds: those are produced *by* the reliability loop
+        # (and the knowledge harness), so re-triggering on their promotion would
+        # recurse. User/git instruction edits are what we want to validate.
+        try:
+            if trigger_reliability and getattr(build, "source", None) != "ai":
+                from app.services.agent_reliability_service import AgentReliabilityService
+                AgentReliabilityService().schedule_for_build(
+                    organization_id=str(build.organization_id),
+                    build_id=str(build.id),
+                )
         except Exception:
             pass
 
