@@ -64,6 +64,7 @@ async def scan_slow_queries(db: AsyncSession, organization_id: str, *,
             why=f"{count} data quer{'y' if count == 1 else 'ies'} on this agent ran over {secs}s in the last {days}d. Consider a guardrail instruction or an index.",
             group_key=f"slow_query:{ds_id}", occurrences=count,
             subject={"kind": "query_group", "threshold_ms": threshold_ms, "window_hours": window_hours},
+            respect_dismissal=True, resurface_after_hours=window_hours,
         )
         n += 1
     return n
@@ -100,6 +101,7 @@ async def scan_low_confidence(db: AsyncSession, organization_id: str, *,
             why=f"{count} answer{' was' if count == 1 else 's were'} scored below 3/5 on this agent in the last {days}d. Run training to close the gaps.",
             group_key=f"low_confidence:{ds_id}", occurrences=count,
             subject={"kind": "low_confidence", "window_hours": window_hours},
+            respect_dismissal=True, resurface_after_hours=window_hours,
         )
         n += 1
     return n
@@ -365,6 +367,7 @@ async def emit_schema_changed(db, organization_id: str, data_source_id: str, *,
         why=summary or "Tables or columns changed on this connection. Re-run evals or training to keep instructions accurate.",
         group_key=f"schema_changed:{data_source_id}",
         subject={"kind": "schema", "summary": summary},
+        respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
     )
 
 

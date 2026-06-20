@@ -99,8 +99,9 @@
             <div class="flex items-center gap-1 shrink-0 self-center" @click.stop>
               <template v-if="row.status === 'open' || row.status === 'snoozed'">
                 <button v-for="a in rowActions(row)" :key="a.id"
-                        class="h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40 bg-gray-50 hover:bg-gray-100 border border-gray-150 text-gray-700"
-                        :disabled="busy === row.key"
+                        class="h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-gray-50 hover:bg-gray-100 border border-gray-150 text-gray-700"
+                        :disabled="busy === row.key || !!actionUnavailable(row, a)"
+                        :title="actionUnavailable(row, a) || a.label"
                         @click="runAction(row, a)">
                   <UIcon v-if="busy === row.key" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin text-gray-400" />
                   <UIcon v-else-if="a.id === 'run_eval'" name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400" />
@@ -247,6 +248,14 @@ const rowActions = (row: any) => {
   return (row.rep.actions || []).filter((a: any) => a.id !== 'dismiss')
 }
 
+// run_eval/run_training need the agent to have at least one active eval; the
+// backend reports this per item. Returns a reason string when unavailable.
+const actionUnavailable = (row: any, a: any): string | null => {
+  if ((a.id === 'run_eval' || a.id === 'run_training') && row.rep?.agent_has_evals === false)
+    return 'No evals for this agent — add a test case first'
+  return null
+}
+
 const fmtDate = (s: string) => {
   if (!s) return ''
   const d = new Date(s); const diff = (Date.now() - d.getTime()) / 1000
@@ -266,10 +275,16 @@ const fetchItems = async () => {
     const { data } = await useMyFetch<any>('/api/review', { method: 'GET', query: q })
     items.value = data.value?.items || []
     unread.value = data.value?.unread || 0
-    emit('count', unread.value)
+    emit('count', openCount.value)
   } catch (e) { /* noop */ } finally { loading.value = false }
 }
 const refresh = () => fetchItems()
+
+// "To review" count = active (unresolved) items, matching /api/review/count's
+// `open`. Kept distinct from `unread` (the header's read/unread badge) so
+// marking an item read doesn't make the parent's "N to review" badge vanish.
+const openCount = computed(() => items.value.filter((i: any) => i.status !== 'resolved' && i.status !== 'dismissed').length)
+watch(openCount, (n) => emit('count', n))
 
 watch([agentFilter, showResolved], fetchItems)
 
@@ -279,28 +294,56 @@ const runAction = async (row: any, a: any) => {
     if (s.instruction_id) emit('open-instruction', { instructionId: s.instruction_id, buildId: s.build_id })
     return
   }
+  const reason = actionUnavailable(row, a)
+  if (reason) { toast.add({ title: 'Nothing to run', description: reason, color: 'amber' }); return }
   busy.value = row.key
   try {
     // Single-item (non-instruction) actions resolve the representative item.
-    const { error } = await useMyFetch<any>(`/api/review/${row.rep.id}/resolve`, { method: 'POST', body: { action_id: a.id } })
+    const { data, error } = await useMyFetch<any>(`/api/review/${row.rep.id}/resolve`, { method: 'POST', body: { action_id: a.id } })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    const resp = data.value
+    // The backend may decline (e.g. no evals) with a 200 + { ok: false }.
+    if (resp && resp.ok === false) {
+      const msg = resp.error === 'no_evals'
+        ? (resp.message || 'No evals for this agent — add a test case first.')
+        : (resp.message || resp.error || 'Action unavailable')
+      toast.add({ title: 'Nothing to run', description: msg, color: 'amber' })
+      await fetchItems()
+      return
+    }
     const label = a.id === 'run_training' ? 'Training started' : a.id === 'run_eval' ? 'Eval started' : 'Done'
     toast.add({ title: label, color: 'blue' })
     await fetchItems()
   } catch (e: any) { toast.add({ title: 'Action failed', description: e?.message, color: 'red' }) } finally { busy.value = null }
 }
 const dismiss = async (row: any) => {
+  const ids = new Set((row.items || []).map((it: any) => it.id))
+  const prev = items.value
+  // Optimistic: drop the row now, reconcile (and roll back) from the server.
+  items.value = items.value.filter((it: any) => !ids.has(it.id))
   try {
-    await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/dismiss`, { method: 'POST' })))
+    const res = await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/dismiss`, { method: 'POST' })))
+    if (res.some((r: any) => r?.error?.value)) throw new Error('Failed')
     await fetchItems()
-  } catch {}
+  } catch (e: any) {
+    items.value = prev
+    toast.add({ title: 'Failed to dismiss', description: e?.message, color: 'red' })
+  }
 }
 const toggleRead = async (row: any) => {
   const next = !row.read
+  const ids = new Set((row.items || []).map((it: any) => it.id))
+  const prev = items.value
+  // Optimistic flip so the dot/bold update instantly.
+  items.value = items.value.map((it: any) => ids.has(it.id) ? { ...it, read: next } : it)
   try {
-    await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/read`, { method: 'POST', body: { read: next } })))
+    const res = await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/read`, { method: 'POST', body: { read: next } })))
+    if (res.some((r: any) => r?.error?.value)) throw new Error('Failed')
     await fetchItems()
-  } catch {}
+  } catch (e: any) {
+    items.value = prev
+    toast.add({ title: 'Failed to update', description: e?.message, color: 'red' })
+  }
 }
 const markAllRead = async () => {
   try { await useMyFetch('/api/review/read-all', { method: 'POST', body: { agent_id: agentFilter.value } }); await fetchItems() } catch {}
