@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, and_, or_, func
@@ -109,12 +109,21 @@ class ReviewService:
         caused_by_id: Optional[str] = None,
         disposition: str = DISPOSITION_NOTIFY,
         occurrences: Optional[int] = None,
-    ) -> ReviewItem:
+        respect_dismissal: bool = False,
+        resurface_after_hours: Optional[int] = None,
+    ) -> Optional[ReviewItem]:
         """Create or bump a review item. At most one ACTIVE item per
         (org, agent, type, group_key) — repeats bump group_count + last_seen.
 
         ``occurrences`` lets a sweep SET the absolute count (recomputed over a
-        window) instead of incrementing by one."""
+        window) instead of incrementing by one.
+
+        ``respect_dismissal`` makes a prior dismissal stick: if the dedup slot
+        has no active item but a recent DISMISSED one, don't resurrect it (so a
+        re-scan/cron doesn't immediately re-create what a human just cleared).
+        ``resurface_after_hours`` lets it come back after that long (None =
+        suppress until the condition's group_key changes). Returns ``None`` when
+        emission is suppressed by a dismissal."""
         now = datetime.utcnow()
         if group_key:
             existing = (
@@ -129,6 +138,25 @@ class ReviewService:
                     )).limit(1)
                 )
             ).scalar_one_or_none()
+            if existing is None and respect_dismissal:
+                dismissed = (
+                    await db.execute(
+                        select(ReviewItem).where(and_(
+                            ReviewItem.organization_id == organization_id,
+                            ReviewItem.data_source_id == data_source_id,
+                            ReviewItem.type == type,
+                            ReviewItem.group_key == group_key,
+                            ReviewItem.status == STATUS_DISMISSED,
+                            ReviewItem.deleted_at.is_(None),
+                        )).order_by(ReviewItem.updated_at.desc()).limit(1)
+                    )
+                ).scalar_one_or_none()
+                if dismissed is not None:
+                    if resurface_after_hours is None:
+                        return None
+                    last = dismissed.updated_at or dismissed.last_seen_at or dismissed.created_at
+                    if last is not None and last >= now - timedelta(hours=resurface_after_hours):
+                        return None
             if existing is not None:
                 existing.group_count = occurrences if occurrences is not None else (existing.group_count or 1) + 1
                 existing.last_seen_at = now

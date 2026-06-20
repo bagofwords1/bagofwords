@@ -182,7 +182,12 @@
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
         <!-- Review feed -->
-        <ReviewFeed v-if="reviewView" :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
+        <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
+          <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
+          <div v-if="reviewNavLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
+            <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-gray-400 animate-spin" />
+          </div>
+        </div>
         <!-- Agent overview -->
         <template v-else-if="agentView">
           <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100">
@@ -1124,11 +1129,20 @@ const openReview = (agentId: string | null = null) => {
   reviewView.value = { agentId }
 }
 // Open an instruction (from a Review item) and surface its pending diff.
+// Resolve the instruction BEFORE swapping panes so the Review feed → detail
+// transition happens in one tick (no flash of the agents list underneath). The
+// Review pane stays mounted with a spinner overlay while we fetch.
+const reviewNavLoading = ref(false)
 const openInstructionFromReview = async (p: { instructionId: string; buildId?: string }) => {
-  closeReview()
   let ins = allInstructions.value.find(i => i.id === p.instructionId)
-  if (!ins) { try { const { data } = await useMyFetch<any>(`/api/instructions/${p.instructionId}`, { method: 'GET' }); ins = data.value } catch {} }
+  if (!ins) {
+    reviewNavLoading.value = true
+    try { const { data } = await useMyFetch<any>(`/api/instructions/${p.instructionId}`, { method: 'GET' }); ins = data.value } catch {}
+    reviewNavLoading.value = false
+  }
+  // openInstruction() closes the Review pane and sets detail synchronously.
   if (ins) openInstruction(ins)
+  else closeReview()
 }
 
 // tree pane resize

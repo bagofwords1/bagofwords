@@ -266,10 +266,16 @@ const fetchItems = async () => {
     const { data } = await useMyFetch<any>('/api/review', { method: 'GET', query: q })
     items.value = data.value?.items || []
     unread.value = data.value?.unread || 0
-    emit('count', unread.value)
+    emit('count', openCount.value)
   } catch (e) { /* noop */ } finally { loading.value = false }
 }
 const refresh = () => fetchItems()
+
+// "To review" count = active (unresolved) items, matching /api/review/count's
+// `open`. Kept distinct from `unread` (the header's read/unread badge) so
+// marking an item read doesn't make the parent's "N to review" badge vanish.
+const openCount = computed(() => items.value.filter((i: any) => i.status !== 'resolved' && i.status !== 'dismissed').length)
+watch(openCount, (n) => emit('count', n))
 
 watch([agentFilter, showResolved], fetchItems)
 
@@ -290,17 +296,33 @@ const runAction = async (row: any, a: any) => {
   } catch (e: any) { toast.add({ title: 'Action failed', description: e?.message, color: 'red' }) } finally { busy.value = null }
 }
 const dismiss = async (row: any) => {
+  const ids = new Set((row.items || []).map((it: any) => it.id))
+  const prev = items.value
+  // Optimistic: drop the row now, reconcile (and roll back) from the server.
+  items.value = items.value.filter((it: any) => !ids.has(it.id))
   try {
-    await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/dismiss`, { method: 'POST' })))
+    const res = await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/dismiss`, { method: 'POST' })))
+    if (res.some((r: any) => r?.error?.value)) throw new Error('Failed')
     await fetchItems()
-  } catch {}
+  } catch (e: any) {
+    items.value = prev
+    toast.add({ title: 'Failed to dismiss', description: e?.message, color: 'red' })
+  }
 }
 const toggleRead = async (row: any) => {
   const next = !row.read
+  const ids = new Set((row.items || []).map((it: any) => it.id))
+  const prev = items.value
+  // Optimistic flip so the dot/bold update instantly.
+  items.value = items.value.map((it: any) => ids.has(it.id) ? { ...it, read: next } : it)
   try {
-    await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/read`, { method: 'POST', body: { read: next } })))
+    const res = await Promise.all((row.items || []).map((it: any) => useMyFetch(`/api/review/${it.id}/read`, { method: 'POST', body: { read: next } })))
+    if (res.some((r: any) => r?.error?.value)) throw new Error('Failed')
     await fetchItems()
-  } catch {}
+  } catch (e: any) {
+    items.value = prev
+    toast.add({ title: 'Failed to update', description: e?.message, color: 'red' })
+  }
 }
 const markAllRead = async () => {
   try { await useMyFetch('/api/review/read-all', { method: 'POST', body: { agent_id: agentFilter.value } }); await fetchItems() } catch {}
