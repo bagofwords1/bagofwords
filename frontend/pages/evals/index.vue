@@ -7,7 +7,7 @@
                     <img src="/assets/empty-states/empty-meadow.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
                     <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('evals.tests.empty') }}</h3>
                     <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">{{ $t('evals.tests.emptyDescription') }}</p>
-                    <button class="mt-5 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 transition-colors" @click="addNewTest">{{ $t('evals.tests.addNew') }} <span aria-hidden="true">→</span></button>
+                    <button class="mt-5 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="addNewTest"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('evals.tests.addNew') }}</button>
                 </div>
                 <template v-else>
                 <!-- Top metrics -->
