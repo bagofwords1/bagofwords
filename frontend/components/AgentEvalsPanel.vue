@@ -118,13 +118,6 @@
                         Run evals now
                     </UButton>
                 </div>
-                <div v-if="canManage && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                    <div class="flex items-center gap-2 text-xs text-gray-600">
-                        <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500 shrink-0" />
-                        Self Learning is off — auto-run evals &amp; self-heal instructions when things change.
-                    </div>
-                    <button type="button" class="shrink-0 h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700" @click="showSelfLearning = true">Set up</button>
-                </div>
                 <table class="min-w-full text-xs">
                     <thead>
                         <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
