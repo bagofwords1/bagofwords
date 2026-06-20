@@ -17,7 +17,10 @@
         </button>
       </div>
     </div>
-    <div v-else class="mb-2 flex items-center justify-end">
+    <div v-else class="mb-2 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-1.5">
+        <slot name="reload-left" />
+      </div>
       <button
         v-if="showRefresh"
         @click="onRefresh"
