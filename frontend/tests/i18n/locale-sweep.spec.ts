@@ -99,7 +99,12 @@ async function gotoWithLocale(page: Page, url: string, locale: Locale) {
   await page.addInitScript((loc) => {
     try { localStorage.setItem('bow.locale', loc); } catch {}
   }, locale);
-  await page.goto(url);
+  // The browser 'load'/'networkidle' events are unreliable on CI (goto can hang
+  // until the per-test timeout). Commit the navigation, then gate on the SPA
+  // having booted — the i18n plugin sets <html lang> once Nuxt has hydrated —
+  // so the assertions that follow run against a ready page.
+  await page.goto(url, { waitUntil: 'commit' });
+  await expect(page.locator('html')).toHaveAttribute('lang', locale, { timeout: 20000 });
 }
 
 async function expectNoRawI18nArtifacts(page: Page) {
@@ -143,7 +148,7 @@ for (const [locale, expected] of Object.entries(CASES) as [Locale, typeof CASES[
       await expect(page.locator('html')).toHaveAttribute('lang', locale);
       await expect(page.locator('html')).toHaveAttribute('dir', expected.dir);
       // Heading is an h1 that interpolates $t('auth.signIn')
-      await expect(page.locator('h1').first()).toContainText(expected.signInHeading);
+      await expect(page.locator('h1').first()).toContainText(expected.signInHeading, { timeout: 15000 });
       await expectNoRawI18nArtifacts(page);
       expect(warnings, `vue-i18n warnings: ${warnings.join(' | ')}`).toEqual([]);
     });

@@ -57,7 +57,7 @@ class Judge:
             return False, "Failed to parse response from the LLM"
         
         
-    async def score_instructions_and_context(self, prompt, instructions_context, schemas, previous_messages) -> tuple[int, int]:
+    async def score_instructions_and_context(self, prompt, instructions_context, schemas, previous_messages) -> tuple[int, int, str]:
         """
         Score the relevance of instructions and context for the user's request.
         Returns (instructions_score, context_score) both 1-5 scale.
@@ -112,18 +112,19 @@ class Judge:
                 scores = json.loads(response)
                 instructions_score = max(1, min(5, int(scores.get("instructions_score", 3))))
                 context_score = max(1, min(5, int(scores.get("context_score", 3))))
-                return instructions_score, context_score
+                reasoning = str(scores.get("reasoning") or "").strip()
+                return instructions_score, context_score, reasoning
             except (json.JSONDecodeError, ValueError, TypeError):
 
 
                 # Fallback to default scores if JSON parsing fails
-                return 3, 3
+                return 3, 3, ""
 
         except Exception as e:
             print(f"Error in score_instructions_and_context: {e}")
-            return 3, 3  # Default middle scores on error
+            return 3, 3, ""  # Default middle scores on error
 
-    async def score_response_quality(self, original_prompt, messages_context, observation_data=None) -> int:
+    async def score_response_quality(self, original_prompt, messages_context, observation_data=None) -> tuple[int, str]:
         """
         Score the overall quality of the agent's response against the original user intent.
         Returns response_score 1-5 scale.
@@ -186,19 +187,20 @@ class Judge:
             try:
                 score_data = json.loads(response)
                 response_score = max(1, min(5, int(score_data.get("response_score", 3))))
-                return response_score
+                reasoning = str(score_data.get("reasoning") or "").strip()
+                return response_score, reasoning
             except (json.JSONDecodeError, ValueError, TypeError):
                 # Fallback to default score if JSON parsing fails
-                return 3
+                return 3, ""
 
         except Exception as e:
             print(f"Error in score_response_quality: {e}")
-            return 3  # Default middle score on error
+            return 3, ""  # Default middle score on error
 
     # --------------------------------------------------------------
     # ContextHub helpers (AgentV2 integration)
     # --------------------------------------------------------------
-    async def score_instructions_and_context_from_planner_input(self, planner_input: PlannerInput) -> tuple[int, int]:
+    async def score_instructions_and_context_from_planner_input(self, planner_input: PlannerInput) -> tuple[int, int, str]:
         """Use the exact same context that PlannerV2 used (via PlannerInput)."""
         try:
             return await self.score_instructions_and_context(
@@ -208,9 +210,9 @@ class Judge:
                 previous_messages=planner_input.messages_context,
             )
         except Exception:
-            return 3, 3
+            return 3, 3, ""
 
-    async def score_response_quality_with_hub(self, original_prompt, context_hub) -> int:
+    async def score_response_quality_with_hub(self, original_prompt, context_hub) -> tuple[int, str]:
         """
         Convenience wrapper that pulls observation data from ContextHub for AgentV2.
         """
@@ -220,4 +222,4 @@ class Judge:
 
             return await self.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
         except Exception:
-            return 3
+            return 3, ""

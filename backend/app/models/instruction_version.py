@@ -22,6 +22,7 @@ class InstructionVersion(BaseSchema):
     # === Content fields ===
     text = Column(Text, nullable=False)
     title = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
     structured_data = Column(JSON, nullable=True)
     formatted_content = Column(Text, nullable=True)
     

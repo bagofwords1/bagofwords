@@ -298,7 +298,7 @@ function goToCurrentStep() {
     case 'schema_selected':
       return router.push('/agents')
     case 'instructions_added':
-      return router.push('/instructions')
+      return router.push('/agents')
     default:
       return router.push('/')
   }

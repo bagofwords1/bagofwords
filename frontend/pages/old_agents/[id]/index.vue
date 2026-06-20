@@ -22,7 +22,7 @@
                         </div>
                     </div>
                 </div>
-                <NuxtLink :to="`/agents/${route.params.id}/connection`" class="text-xs font-medium underline">
+                <NuxtLink :to="`/old_agents/${route.params.id}/connection`" class="text-xs font-medium underline">
                     View progress
                 </NuxtLink>
             </div>

@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.415 (June 20, 2026)
+- **Knowledge Explorer** — a new three-pane workspace (at `/instructions`) for browsing and managing everything an agent knows: global instructions, skills, per-agent resources, pending reviews, and each agent's tables and tools. Tree navigation with search and filtering (by status, load mode, source, category), inline editing of titles/descriptions/conversation starters, file upload and preview, and a version-history pane with diff view.
+- **Agent management** — a guided **New Agent wizard**, a dedicated **Agent Settings** panel, and per-agent **automation settings**, plus a clearer public/private agent distinction surfaced across the UI.
+- **Continual & self-learning** — agents can automatically run evals and a retrain/reliability loop (e.g. on instruction or table changes), surfaced in a new **Agent Evals** panel, so higher-autonomy agents keep improving on their own.
+- **Skills with smart loading** — instructions can now be authored as **skills** that load on demand: the prompt carries a lightweight skills catalog and the agent reads a skill's full body only when it needs it (`read_skill`), keeping context lean.
+- **Suggestions & review workflow** — a **pending-review feed** with **per-hunk tracked changes** (accept or reject individual edits), diff visualization, and an approval flow for instruction suggestions.
+- **Better instruction management** — instruction **descriptions**, table-scoped instructions with name-based datasource fallback, and improved reference resolution (connection-table IDs, bare and schema-prefixed table names).
+
 ## Version 0.0.414 (June 18, 2026)
 - **Fix — long instructions hid the Edit button in the instruction modal** — in the global create/edit instruction modal, a long instruction body made the content area un-scrollable and pushed the action footer (Edit in view mode; Update/Cancel in edit mode) off the bottom of the modal, so the instruction couldn't be edited. The modal now keeps a properly bounded flex layout so the content scrolls internally and the footer stays visible.
 
@@ -10,6 +18,8 @@
 ## Version 0.0.412 (June 16, 2026)
 - **Apache Druid data source** — connect to Apache Druid and query it as a new data source.
 - **Trino data source** — connect to the Trino distributed SQL engine and query it as a new data source.
+- Agents page redesign - easier navigation around instructions, tools, tables, tc
+- **Continual Learning** - trigger evals -> retrain loop on table change or instruction change for high autonomy
 
 ## Version 0.0.411 (June 15, 2026)
 - **⌘K command palette** — a global **⌘K / Ctrl+K** palette for quick navigation and creation, opened from anywhere in the app. One input searches across **recent reports**, **agents**, and **instructions** (server-side search for reports/instructions, client-side filtering for agents; recents shown by default), with pinned, query-echoing create actions: `New report "…"` (creates and navigates) and a permission-aware `New instruction "…"` / `Suggest instruction "…"` that opens the instruction modal pre-filled with the typed text. No-match queries still surface the create actions.

@@ -7,7 +7,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.schemas.agent_execution_schema import ContextSnapshotSchema
-from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
+from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse, ConversationTraceResponse
 from app.services.console_service import ConsoleService
 
 import logging
@@ -51,3 +51,14 @@ async def get_agent_execution_trace_by_completion(
 ):
     """Get agent execution trace for the latest execution attached to a completion."""
     return await console_service.get_agent_execution_trace_by_completion(db, organization, completion_id)
+
+@router.get("/console/reports/{report_id}/conversation", response_model=ConversationTraceResponse)
+@requires_permission("manage_settings")
+async def get_report_conversation(
+    report_id: str,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get the whole report conversation as ordered turns for the trace modal."""
+    return await console_service.get_report_conversation(db, organization, report_id)

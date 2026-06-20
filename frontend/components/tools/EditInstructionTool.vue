@@ -50,7 +50,20 @@
           <span class="text-[11px] text-gray-500">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
 
-        <!-- Diff view when text was changed -->
+        <!-- Pending: per-hunk tracked-changes review (inline accept/reject,
+             collapsed to changed regions). Same component as the editor. -->
+        <div v-else-if="canResolve && instructionId" class="border border-gray-150 rounded-md overflow-hidden">
+          <InstructionTrackedChanges
+            :instruction-id="instructionId"
+            :can-approve="canCreateInstructions"
+            compact
+            collapse-context
+            @changed="onInlineResolved"
+            @empty="resolution = resolution || 'accepted'"
+          />
+        </div>
+
+        <!-- Resolved / read-only: show the version diff -->
         <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 border-b border-gray-150 flex items-center justify-between">
             <span class="text-[10px] text-gray-600 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
@@ -115,8 +128,9 @@
           </div>
         </div>
 
-        <!-- Status + Accept/Reject actions -->
-        <div v-if="isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 px-1">
+        <!-- Status row (accepted / rejected / staged). When still resolvable the
+             embedded per-hunk review shows the state + inline actions instead. -->
+        <div v-if="isSuccess && instructionId && !canResolve" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 px-1">
           <template v-if="resolution === 'accepted'">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
             <span class="text-[10px] font-medium text-gray-600">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
@@ -126,24 +140,7 @@
             <span class="text-[10px] text-gray-400">{{ $t('tools.editInstruction.rejectedLabel', 'Rejected') }}</span>
           </template>
           <template v-else-if="canResolve">
-            <button
-              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
-              :disabled="isAccepting || isRejecting"
-              @click.stop="handleAccept"
-            >
-              <Spinner v-if="isAccepting" class="w-2.5 h-2.5 text-green-600" />
-              <Icon v-else name="heroicons:check" class="w-2.5 h-2.5" />
-              {{ $t('tools.editInstruction.accept', 'Accept') }}
-            </button>
-            <button
-              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
-              :disabled="isAccepting || isRejecting"
-              @click.stop="handleReject"
-            >
-              <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400" />
-              <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
-              {{ $t('tools.editInstruction.reject', 'Reject') }}
-            </button>
+            <!-- Accept/reject is handled inline per-hunk by the embedded review. -->
           </template>
           <template v-else>
             <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
@@ -151,6 +148,12 @@
               {{ $t('tools.editInstruction.stagedInBuild', 'Staged in draft build') }}
             </span>
           </template>
+        </div>
+
+        <!-- Resolved evals for this agent, pinned to the draft build this edit
+             was staged into (training-mode self-check). -->
+        <div v-if="isSuccess && instructionId && buildId" class="mt-1.5 px-1">
+          <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" />
         </div>
 
         <!-- Error message -->
@@ -167,7 +170,9 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DiffMatchPatch from 'diff-match-patch'
 import Spinner from '~/components/Spinner.vue'
+import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
+import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import {
   dispatchInstructionResolved,
   INSTRUCTION_RESOLVED_EVENT,
@@ -233,6 +238,13 @@ async function handleAccept() {
   } finally {
     isAccepting.value = false
   }
+}
+
+// A hunk was accepted/rejected inline via the embedded review — refresh the
+// resolution state and tell the panel to refresh its instruction list.
+async function onInlineResolved() {
+  emit('instruction-updated')
+  await refreshResolutionState()
 }
 
 async function handleReject() {

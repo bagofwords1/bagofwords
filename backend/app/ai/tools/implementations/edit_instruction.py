@@ -332,6 +332,7 @@ class EditInstructionTool(Tool):
                     instruction_id=str(instruction.id),
                     text=new_text,
                     title=new_title,
+                    description=instruction.description,
                     structured_data=instruction.structured_data,
                     formatted_content=instruction.formatted_content,
                     # AI-suggested edit: stage as 'published' so promote_build

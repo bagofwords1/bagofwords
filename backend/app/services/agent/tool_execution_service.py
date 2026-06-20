@@ -1,7 +1,10 @@
+import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutionService:
@@ -64,6 +67,13 @@ class ToolExecutionService:
         db.add(te)
         await db.commit()
         await db.refresh(te)
+        # Surface a Review item when a data query ran over the latency budget.
+        # Cheap-guarded inside the emitter; never fatal to tool execution.
+        try:
+            from app.services.review_producers import emit_slow_query_for_tool_execution
+            await emit_slow_query_for_tool_execution(db, te)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("review: emit_slow_query failed for tool_execution %s: %s", te.id, e)
         return te
 
 

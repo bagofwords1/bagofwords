@@ -786,24 +786,47 @@ class ProjectManager:
         await db.refresh(completion)
         return completion
         
-    async def update_completion_scores(self, db, completion, instructions_score=None, context_score=None):
-        """Update instructions and context effectiveness scores for a completion."""
+    async def update_completion_scores(self, db, completion, instructions_score=None, context_score=None, reasoning=None):
+        """Update instructions/context scores (+ judge rationale) for a completion.
+
+        Scores go to the queryable scalar columns; the judge's combined
+        rationale is merged into judge_json under the instructions/context keys.
+        """
         if instructions_score is not None:
             completion.instructions_effectiveness = instructions_score
         if context_score is not None:
             completion.context_effectiveness = context_score
-        
+
+        judge = dict(completion.judge_json or {})
+        if instructions_score is not None:
+            judge["instructions"] = {"score": instructions_score, "reasoning": reasoning or ""}
+        if context_score is not None:
+            judge["context"] = {"score": context_score, "reasoning": reasoning or ""}
+        completion.judge_json = judge  # reassign so SQLAlchemy detects the JSON change
+
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
         return completion
 
-    async def update_completion_response_score(self, db, completion, response_score):
-        """Update response score for a completion."""
+    async def update_completion_response_score(self, db, completion, response_score, reasoning=None):
+        """Update response score (+ judge rationale) for a completion."""
         completion.response_score = response_score
+
+        judge = dict(completion.judge_json or {})
+        judge["response"] = {"score": response_score, "reasoning": reasoning or ""}
+        completion.judge_json = judge  # reassign so SQLAlchemy detects the JSON change
+
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
+        # Surface a Review item when the judge scored this answer low (<3/5).
+        # Cheap-guarded inside the emitter; never fatal to scoring.
+        try:
+            from app.services.review_producers import emit_low_confidence_for_completion
+            await emit_low_confidence_for_completion(db, completion)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning("review: emit_low_confidence failed for completion %s: %s", completion.id, e)
         return completion
 
     async def create_instruction_from_draft(

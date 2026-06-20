@@ -74,14 +74,67 @@
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">
-            Endpoints
-            <span class="text-gray-400 font-normal">(JSON array of endpoint definitions)</span>
-          </label>
-          <textarea
-            v-model="form.endpoints_json"
-            rows="8"
-            placeholder='[
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-medium text-gray-700">
+              Endpoints
+              <span class="text-gray-400 font-normal">(operations exposed as tools)</span>
+            </label>
+            <button type="button" @click="toggleRawMode" class="text-[11px] text-blue-600 hover:text-blue-800">
+              {{ rawMode ? 'Visual editor' : 'Advanced (raw JSON)' }}
+            </button>
+          </div>
+
+          <!-- Visual builder -->
+          <div v-if="!rawMode" class="space-y-3">
+            <div v-for="(ep, epIdx) in endpoints" :key="epIdx" class="border border-gray-200 rounded-md p-3 space-y-2">
+              <div class="flex items-center gap-2">
+                <select v-model="ep.method" class="border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                  <option v-for="m in methodOptions" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <input v-model="ep.name" type="text" placeholder="tool_name" class="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <button type="button" @click="endpoints.splice(epIdx, 1)" class="text-gray-400 hover:text-red-500 p-0.5" title="Remove endpoint">
+                  <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <input v-model="ep.path" type="text" placeholder="/customers/{id}" class="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="ep.description" type="text" placeholder="Description (helps the agent decide when to use this)" class="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+
+              <div>
+                <div class="text-[11px] font-medium text-gray-500 mb-1">Parameters</div>
+                <div v-if="ep.parameters.length" class="space-y-1.5">
+                  <div v-for="(p, pIdx) in ep.parameters" :key="pIdx" class="flex items-center gap-1.5">
+                    <input v-model="p.name" type="text" placeholder="name" class="flex-1 border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <select v-model="p.in" class="border border-gray-300 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option v-for="loc in inOptions" :key="loc" :value="loc">{{ loc }}</option>
+                    </select>
+                    <select v-model="p.type" class="border border-gray-300 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
+                    </select>
+                    <label class="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                      <input type="checkbox" v-model="p.required" /> req
+                    </label>
+                    <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 hover:text-red-500 p-0.5" title="Remove parameter">
+                      <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <button type="button" @click="ep.parameters.push(newParam())" class="mt-1 text-[11px] text-blue-600 hover:text-blue-800">
+                  + Add parameter
+                </button>
+              </div>
+            </div>
+            <button type="button" @click="endpoints.push(newEndpoint())" class="text-xs text-blue-600 hover:text-blue-800">
+              + Add endpoint
+            </button>
+            <p v-if="endpointsError" class="text-xs text-red-500 mt-1">{{ endpointsError }}</p>
+          </div>
+
+          <!-- Raw JSON (advanced) -->
+          <div v-else>
+            <textarea
+              v-model="form.endpoints_json"
+              rows="8"
+              placeholder='[
   {
     "name": "get_customers",
     "method": "GET",
@@ -92,9 +145,10 @@
     ]
   }
 ]'
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <p v-if="endpointsError" class="text-xs text-red-500 mt-1">{{ endpointsError }}</p>
+              class="w-full border border-gray-300 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <p v-if="endpointsError" class="text-xs text-red-500 mt-1">{{ endpointsError }}</p>
+          </div>
         </div>
 
         <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
@@ -152,6 +206,83 @@ const form = reactive({
 
 const customHeaders = reactive<{ key: string; value: string }[]>([])
 
+// --- Endpoints: visual builder + synced raw-JSON view ---
+type EndpointParam = { name: string; in: string; type: string; description: string; required: boolean }
+type Endpoint = { name: string; method: string; path: string; description: string; parameters: EndpointParam[] }
+
+const methodOptions = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const inOptions = ['query', 'path', 'body']
+const typeOptions = ['string', 'number', 'integer', 'boolean']
+
+const endpoints = reactive<Endpoint[]>([])
+const rawMode = ref(false)
+
+function newParam(): EndpointParam {
+  return { name: '', in: 'query', type: 'string', description: '', required: false }
+}
+function newEndpoint(): Endpoint {
+  return { name: '', method: 'GET', path: '', description: '', parameters: [] }
+}
+
+function setEndpoints(arr: Endpoint[]) {
+  endpoints.splice(0, endpoints.length, ...arr)
+}
+
+// Coerce arbitrary parsed JSON into the builder shape so round-tripping is safe.
+function normalizeEndpoints(arr: any[]): Endpoint[] {
+  return arr.map((ep: any) => ({
+    name: ep?.name || '',
+    method: String(ep?.method || 'GET').toUpperCase(),
+    path: ep?.path || '',
+    description: ep?.description || '',
+    parameters: Array.isArray(ep?.parameters)
+      ? ep.parameters.map((p: any) => ({
+          name: p?.name || '',
+          in: p?.in || 'query',
+          type: p?.type || 'string',
+          description: p?.description || '',
+          required: !!p?.required,
+        }))
+      : [],
+  }))
+}
+
+// Serialize builder state into the backend endpoint shape, trimming empties.
+function serializeEndpoints(): any[] {
+  return endpoints.map((ep) => {
+    const out: any = { name: ep.name.trim(), method: ep.method, path: ep.path.trim() }
+    if (ep.description.trim()) out.description = ep.description.trim()
+    const params = ep.parameters
+      .filter((p) => p.name.trim())
+      .map((p) => {
+        const po: any = { name: p.name.trim(), in: p.in, type: p.type }
+        if (p.description.trim()) po.description = p.description.trim()
+        if (p.required) po.required = true
+        return po
+      })
+    if (params.length) out.parameters = params
+    return out
+  })
+}
+
+function toggleRawMode() {
+  if (rawMode.value) {
+    // Raw -> visual: only switch if the JSON is a valid array.
+    try {
+      const parsed = JSON.parse(form.endpoints_json)
+      if (!Array.isArray(parsed)) return
+      setEndpoints(normalizeEndpoints(parsed))
+      rawMode.value = false
+    } catch {
+      // Stay in raw; endpointsError surfaces the problem.
+    }
+  } else {
+    // Visual -> raw: serialize current builder state.
+    form.endpoints_json = JSON.stringify(serializeEndpoints(), null, 2)
+    rawMode.value = true
+  }
+}
+
 watch(() => props.editConnection, async (conn) => {
   if (conn) {
     try {
@@ -165,6 +296,7 @@ watch(() => props.editConnection, async (conn) => {
         form.token = ''
         form.api_key = ''
         form.api_key_header = config.api_key_header || 'X-API-Key'
+        setEndpoints(Array.isArray(config.endpoints) ? normalizeEndpoints(config.endpoints) : [])
         form.endpoints_json = config.endpoints ? JSON.stringify(config.endpoints, null, 2) : '[]'
         customHeaders.splice(0)
         const hdrs = config.headers || {}
@@ -184,13 +316,23 @@ const submitting = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
 
 const endpointsError = computed(() => {
-  try {
-    const parsed = JSON.parse(form.endpoints_json)
-    if (!Array.isArray(parsed)) return 'Must be a JSON array'
-    return null
-  } catch {
-    return 'Invalid JSON'
+  if (rawMode.value) {
+    try {
+      const parsed = JSON.parse(form.endpoints_json)
+      if (!Array.isArray(parsed)) return 'Must be a JSON array'
+      return null
+    } catch {
+      return 'Invalid JSON'
+    }
   }
+  // Visual builder validation.
+  for (const ep of endpoints) {
+    if (!ep.name.trim()) return 'Every endpoint needs a name'
+    if (!ep.path.trim()) return `Endpoint "${ep.name.trim()}" needs a path`
+  }
+  const names = endpoints.map((e) => e.name.trim())
+  if (new Set(names).size !== names.length) return 'Endpoint names must be unique'
+  return null
 })
 
 function buildCredentials(): Record<string, any> | undefined {
@@ -207,10 +349,15 @@ function buildHeaders(): Record<string, string> {
   return h
 }
 
+function buildEndpoints(): any[] {
+  if (rawMode.value) {
+    try { return JSON.parse(form.endpoints_json) } catch { return [] }
+  }
+  return serializeEndpoints()
+}
+
 function buildConfig(): Record<string, any> {
-  let endpoints: any[] = []
-  try { endpoints = JSON.parse(form.endpoints_json) } catch { /* empty */ }
-  return { base_url: form.base_url, auth_type: form.auth_type, headers: buildHeaders(), endpoints }
+  return { base_url: form.base_url, auth_type: form.auth_type, headers: buildHeaders(), endpoints: buildEndpoints() }
 }
 
 async function testConnection() {
