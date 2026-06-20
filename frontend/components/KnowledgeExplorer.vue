@@ -2123,9 +2123,10 @@ const FilterSection = defineComponent({
   },
 })
 
-// Deep-link / URL sync. An optional catch-all route ([[...slug]].vue) lets
-// /agents, /agents/<id>, /agents/<id>/<panel> and /agents/instructions/<id>
-// all share this component. URLs are written with history.replaceState (NOT a
+// Deep-link / URL sync. /agents (index.vue) and the catch-all [...slug].vue
+// both render this component, so /agents, /agents/<id>, /agents/<id>/<panel>
+// and /agents/instructions/<id> all resolve here. URLs are written with
+// history.replaceState (NOT a
 // router navigation) so the address bar updates without re-running the global
 // middleware (auth/onboarding/permissions) or remounting/flickering the page.
 const route = useRoute()
