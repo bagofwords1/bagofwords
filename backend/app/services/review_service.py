@@ -67,7 +67,7 @@ def actions_for(item: ReviewItem) -> List[Dict[str, Any]]:
     return menu
 
 
-def to_dict(item: ReviewItem) -> Dict[str, Any]:
+def to_dict(item: ReviewItem, *, agent_has_evals: Optional[bool] = None) -> Dict[str, Any]:
     return {
         "id": str(item.id),
         "type": item.type,
@@ -79,6 +79,9 @@ def to_dict(item: ReviewItem) -> Dict[str, Any]:
         "subject": item.subject_json or {},
         "group_count": item.group_count,
         "agent_id": str(item.data_source_id) if item.data_source_id else None,
+        # Whether the item's agent has any active eval to run/train against —
+        # drives whether run_eval/run_training are offered. None = N/A (global).
+        "agent_has_evals": agent_has_evals,
         "resolution": item.resolution_json,
         "spawned": item.spawned_json or [],
         "source_run_id": item.source_run_id,
@@ -88,6 +91,32 @@ def to_dict(item: ReviewItem) -> Dict[str, Any]:
         "last_seen_at": (item.last_seen_at or item.created_at).isoformat() if (item.last_seen_at or item.created_at) else None,
         "actions": actions_for(item),
     }
+
+
+async def _agents_with_active_evals(db: AsyncSession, organization_id: str) -> tuple[bool, set[str]]:
+    """(any_auto_eval, {agent_id, …}) over active eval cases in the org. An
+    Auto/empty-scope case applies to *every* agent (like a global instruction),
+    so it's tracked separately."""
+    from app.models.eval import TestCase, TestSuite, TEST_CASE_STATUS_ACTIVE
+    rows = (await db.execute(
+        select(TestCase.data_source_ids_json)
+        .join(TestSuite, TestSuite.id == TestCase.suite_id)
+        .where(and_(
+            TestSuite.organization_id == str(organization_id),
+            TestCase.deleted_at.is_(None),
+            TestCase.status == TEST_CASE_STATUS_ACTIVE,
+        ))
+    )).all()
+    any_auto = False
+    agents: set[str] = set()
+    for (ds_ids_json,) in rows:
+        ds_list = ds_ids_json or []
+        if isinstance(ds_list, list) and len(ds_list) > 0:
+            for x in ds_list:
+                agents.add(str(x))
+        else:
+            any_auto = True
+    return any_auto, agents
 
 
 class ReviewService:
@@ -295,7 +324,18 @@ class ReviewService:
             -((r.last_seen_at or r.created_at or datetime.min).timestamp()),
         ))
         unread = sum(1 for r in rows if r.read_at is None and r.status in (STATUS_OPEN, STATUS_IN_PROGRESS))
-        return {"items": [to_dict(r) for r in rows], "total": len(rows), "unread": unread}
+        # Gate run_eval/run_training on whether the agent actually has evals.
+        any_auto, agents_with_evals = await _agents_with_active_evals(db, str(organization.id))
+
+        def _has_evals(r: ReviewItem) -> Optional[bool]:
+            if r.data_source_id is None:
+                return None  # global item — eval actions don't apply
+            return any_auto or str(r.data_source_id) in agents_with_evals
+
+        return {
+            "items": [to_dict(r, agent_has_evals=_has_evals(r)) for r in rows],
+            "total": len(rows), "unread": unread,
+        }
 
     async def count_open(self, db, organization, user) -> Dict[str, int]:
         res = await self.list_items(db, organization, user)
@@ -367,6 +407,20 @@ class ReviewService:
         if kind in ("run_eval", "run_training"):
             if not item.data_source_id:
                 return {"ok": False, "error": "no_agent"}
+            # Pre-flight: both run_eval and run_training measure against the
+            # agent's eval suite (training is eval-driven), so with no active
+            # evals the workflow is a guaranteed no-op. Reject synchronously
+            # with a clear reason instead of spinning up a run that resolves to
+            # "no_evals" and silently marks the item done.
+            from app.services.agent_reliability_service import AgentReliabilityService
+            case_ids = await AgentReliabilityService().list_agent_eval_case_ids(
+                db, str(organization.id), str(item.data_source_id)
+            )
+            if not case_ids:
+                return {
+                    "ok": False, "error": "no_evals",
+                    "message": "No active evals are scoped to this agent. Add a test case before running an eval or training.",
+                }
             # Fire the existing agent workflow in the background, scoped to THIS
             # agent only (even if the suggestion is shared across agents).
             train_override = "auto" if kind == "run_training" else "off"
@@ -448,14 +502,19 @@ class ReviewService:
                         spawned.append(s)
                     item.spawned_json = spawned
                     item.source_run_id = run_id or item.source_run_id
-                    # Eval/training fired: mark resolved (the loop's own outputs —
-                    # e.g. new suggestions — surface as their own items).
-                    item.status = STATUS_RESOLVED
                     item.resolution_json = {
                         "action": kind, "ref": run_id, "by": user_id,
                         "at": datetime.utcnow().isoformat(), "outcome": outcome_status,
                     }
-                    item.resolved_by_user_id = user_id
+                    # Only a productive outcome resolves the item. A no-op or
+                    # failure (no_evals / skipped / error / gave_up) reopens it so
+                    # it stays actionable instead of showing a misleading green
+                    # "Resolved". The loop's own outputs surface as their own items.
+                    if outcome_status in ("passed", "passed_pending"):
+                        item.status = STATUS_RESOLVED
+                        item.resolved_by_user_id = user_id
+                    else:
+                        item.status = STATUS_OPEN
                     await db.commit()
         except Exception as e:  # noqa: BLE001
             logger.exception("review workflow %s: failed to record outcome: %s", kind, e)
