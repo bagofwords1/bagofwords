@@ -535,9 +535,12 @@ onMounted(async () => {
   await loadBuilds()
   await loadCatalog()
   await loadJudgeModels()
-  // Prepopulate when editing
+  // Prepopulate when editing; otherwise seed create defaults (agent + Judge rule)
+  // here — the open watch doesn't fire when the modal mounts already-open (v-if).
   if (isEditing.value && props.caseId) {
     await loadCaseForEdit(props.caseId)
+  } else {
+    resetFormForCreate()
   }
 })
 
@@ -649,21 +652,21 @@ function makeFieldRuleFor(cat: CategoryDescriptor, field: FieldDescriptor): Fiel
 }
 
 const addCategory = async () => {
-  let firstCat = categories.value[0]
-  if (!firstCat) {
-    await loadCatalog()
-    firstCat = categories.value[0]
-  }
-  if (!firstCat) return
-  const firstField = firstCat.fields[0]
+  if (!categories.value.length) await loadCatalog()
+  // Judge is the default expectation for a new rule.
+  const cat = categories.value.find(c => c.id === 'judge') || categories.value[0]
+  if (!cat) return
+  const firstField = cat.fields[0]
   if (!firstField) return
-  const fieldRule = makeFieldRuleFor(firstCat, firstField)
-  categoryRules.value.push({
-    key: `${firstCat.id}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
-    categoryId: firstCat.id,
-    categoryKind: firstCat.kind,
+  const fieldRule = makeFieldRuleFor(cat, firstField)
+  const entry: CategoryRuleUI = {
+    key: `${cat.id}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
+    categoryId: cat.id,
+    categoryKind: cat.kind,
     fieldRules: [fieldRule],
-  })
+  }
+  categoryRules.value.push(entry)
+  if (cat.id === 'judge') ensureDefaultJudgeModel(entry)
 }
 
 const addField = (cat: CategoryRuleUI) => {
@@ -830,9 +833,10 @@ function resetFormForCreate() {
   testUploadedFiles.value = []
   testMentions.value = []
   selectedSuiteIdLocal.value = props.suiteId || ''
-  // Reset rules to empty for new case
+  // New cases default the expectation to a Judge rule (not create_data).
   categoryRules.value = []
   otherRules.value = []
+  void addCategory()
 }
 
 const save = async () => {

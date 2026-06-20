@@ -63,6 +63,7 @@ from app.schemas.agent_automation_schema import (
     AUTONOMY_AUTO,
     ON_FAILURE_DEVELOPMENT,
     ON_FAILURE_TRAINING,
+    MODE_EVAL_AUTO,
 )
 
 logger = logging.getLogger(__name__)
@@ -907,17 +908,27 @@ class AgentReliabilityService:
             green = result["failed"] == 0 and result["errored"] == 0
 
             if green:
-                # auto_run_eval implies auto-approve on a green run.
-                try:
-                    if build.status == "draft":
-                        await bs.submit_build(db, str(build_id), user_id=str(actor.id))
-                    await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
-                    # Don't re-fan-out: we just measured this exact build.
-                    await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False)
-                    status, reason = STATUS_PASSED, "suggestion evals green; auto-promoted"
-                except Exception as e:
-                    logger.exception("run_for_suggestion.promote_failed build=%s: %s", build_id, e)
-                    status, reason = STATUS_PASSED_PENDING, f"evals green but promote failed: {e}; left for review"
+                # Promote on green only if every eval-gating agent is in
+                # eval_auto mode; an eval_review agent wants a human to approve.
+                promote = all(pol.mode == MODE_EVAL_AUTO for _ds, pol in eval_agents)
+                if promote:
+                    try:
+                        if build.status == "draft":
+                            await bs.submit_build(db, str(build_id), user_id=str(actor.id))
+                        await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
+                        # Don't re-fan-out: we just measured this exact build.
+                        await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False)
+                        status, reason = STATUS_PASSED, "suggestion evals green; auto-promoted"
+                    except Exception as e:
+                        logger.exception("run_for_suggestion.promote_failed build=%s: %s", build_id, e)
+                        status, reason = STATUS_PASSED_PENDING, f"evals green but promote failed: {e}; left for review"
+                else:
+                    try:
+                        if build.status == "draft":
+                            await bs.submit_build(db, str(build_id), user_id=str(actor.id))
+                    except Exception:
+                        pass
+                    status, reason = STATUS_PASSED_PENDING, "suggestion evals green; awaiting human approval"
             else:
                 # Failed proposal: main is untouched, so nothing to revert and
                 # the live agent is NOT demoted. Leave it in Review marked failed.

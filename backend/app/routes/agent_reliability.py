@@ -37,6 +37,9 @@ class AutomationSettingsResponse(BaseModel):
     org_defaults: Dict[str, Any]
     # The resolved/effective policy the orchestrator uses.
     effective: Dict[str, Any]
+    # Active eval cases resolved for this agent (incl. Auto/global cases). Used
+    # by the UI to disable the "Run evals…" modes when there's nothing to run.
+    eval_case_count: int = 0
 
 
 class AutomationRunSchema(BaseModel):
@@ -85,6 +88,10 @@ async def _build_settings_response(
             org_defaults = getattr(org_defaults, "value", {}) or {}
     except Exception:
         org_defaults = {}
+    try:
+        eval_case_count = len(await rel_service.list_agent_eval_case_ids(db, str(organization.id), str(ds.id)))
+    except Exception:
+        eval_case_count = 0
     return AutomationSettingsResponse(
         data_source_id=str(ds.id),
         reliability_status=ds.reliability_status or "training",
@@ -92,6 +99,7 @@ async def _build_settings_response(
         override=ds.automation_settings or {},
         org_defaults=org_defaults if isinstance(org_defaults, dict) else {},
         effective=effective.model_dump(),
+        eval_case_count=eval_case_count,
     )
 
 

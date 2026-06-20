@@ -27,6 +27,7 @@
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
+                    <button v-if="canManage" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
                     <input
                         v-if="activeTab === 'tests'"
                         v-model="searchTerm"
@@ -117,8 +118,12 @@
                         Run evals now
                     </UButton>
                 </div>
-                <div v-if="canManage && autoEnabled === false" class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    Automation is off for this agent. Turn it on in the Automation tab to auto-run evals and self-heal instructions when tables or instructions change.
+                <div v-if="canManage && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                    <div class="flex items-center gap-2 text-xs text-gray-600">
+                        <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500 shrink-0" />
+                        Self Learning is off — auto-run evals &amp; self-heal instructions when things change.
+                    </div>
+                    <button type="button" class="shrink-0 h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700" @click="showSelfLearning = true">Set up</button>
                 </div>
                 <table class="min-w-full text-xs">
                     <thead>
@@ -175,11 +180,26 @@
             @created="onCaseCreated"
             @updated="onCaseUpdated"
         />
+
+        <!-- Self Learning (per-agent automation policy) -->
+        <UModal v-model="showSelfLearning" :ui="{ width: 'sm:max-w-lg' }">
+            <div class="p-5">
+                <div class="flex items-center gap-2 mb-1">
+                    <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500" />
+                    <div class="text-sm font-semibold text-gray-900">Self Learning</div>
+                </div>
+                <AgentAutomationSettings v-if="showSelfLearning && agentId" :agent-id="agentId" @saved="onSelfLearningSaved" />
+                <div class="flex justify-end mt-4">
+                    <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50" @click="showSelfLearning = false">Close</button>
+                </div>
+            </div>
+        </UModal>
     </div>
 </template>
 
 <script setup lang="ts">
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
+import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -556,117 +576,15 @@ const canManage = computed(() =>
     agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false,
 )
 
-const AUTONOMY_OPTS = [
-    { value: 'off', label: 'Off' },
-    { value: 'suggest', label: 'Suggest' },
-    { value: 'auto', label: 'Auto' },
-]
-// Per-stage dials shown under "Advanced". The three eval triggers are collapsed
-// into a single control (see `evalTrigger`); on_repeated_failure + max_iterations
-// are rendered explicitly in the template.
-const advancedDials = [
-    { key: 'train_on_failure', label: 'Train on failure', help: 'When evals fail, draft instructions that fix them.', options: AUTONOMY_OPTS },
-    { key: 'approve_instructions', label: 'Approve instructions', help: 'Push a passing build live. Auto = no human in the loop.', options: AUTONOMY_OPTS },
-    { key: 'auto_promote_evals', label: 'Auto-promote thumbs-up evals', help: 'Promote auto-drafted evals (from a thumbs-up) straight to active.', options: AUTONOMY_OPTS },
-]
-
-const showAdvanced = ref(false)
-
-// One control bundles the master switch + autonomy. "Off" is simply
-// enabled=false (a manual "Run evals now" still works regardless). "Manual" is
-// folded into Off for that reason. Presets don't touch on_repeated_failure or
-// max_iterations — those stay independent knobs under Advanced.
-const PRESETS: Record<string, { trigger: string; train_on_failure: string; approve_instructions: string; auto_promote_evals: string }> = {
-    assisted:   { trigger: 'auto', train_on_failure: 'auto', approve_instructions: 'suggest', auto_promote_evals: 'off' },
-    autonomous: { trigger: 'auto', train_on_failure: 'auto', approve_instructions: 'auto',    auto_promote_evals: 'auto' },
-}
-type Mode = 'off' | 'assisted' | 'autonomous' | 'custom'
-const mode = ref<Mode>('off')
-const modeOptions = computed(() => {
-    const base: { value: Mode; label: string }[] = [
-        { value: 'off', label: 'Off' },
-        { value: 'assisted', label: 'Assisted' },
-        { value: 'autonomous', label: 'Autonomous' },
-    ]
-    // 'Custom' is only ever reached by diverging the Advanced dials, never picked.
-    if (mode.value === 'custom') base.push({ value: 'custom', label: 'Custom' })
-    return base
-})
-const modeHelp = computed(() => ({
-    off: 'Paused. Nothing runs automatically — use “Run evals now” to check on demand.',
-    assisted: 'Runs evals on changes and drafts fixes — you approve before anything goes live.',
-    autonomous: 'Measures, fixes, and promotes end to end. No human in the loop.',
-    custom: 'Custom per-stage settings — see Advanced below.',
-} as Record<string, string>)[mode.value])
-
-function detectMode(): Mode {
-    if (!form.value.enabled) return 'off'
-    const f = form.value
-    const triggersEqual = f.eval_on_table_change === f.eval_on_change && f.eval_on_change === f.eval_on_global_change
-    if (triggersEqual) {
-        for (const name of ['assisted', 'autonomous'] as const) {
-            const p = PRESETS[name]
-            if (f.eval_on_change === p.trigger && f.train_on_failure === p.train_on_failure
-                && f.approve_instructions === p.approve_instructions && f.auto_promote_evals === p.auto_promote_evals) {
-                return name
-            }
-        }
-    }
-    return 'custom'
-}
-function applyMode(next?: Mode) {
-    const m = next ?? mode.value
-    mode.value = m
-    if (m === 'off') { form.value.enabled = false; markDirty(); return }
-    form.value.enabled = true
-    const p = PRESETS[m]
-    if (p) {  // 'custom' isn't directly selectable, so nothing to apply
-        form.value.eval_on_table_change = p.trigger
-        form.value.eval_on_change = p.trigger
-        form.value.eval_on_global_change = p.trigger
-        form.value.train_on_failure = p.train_on_failure
-        form.value.approve_instructions = p.approve_instructions
-        form.value.auto_promote_evals = p.auto_promote_evals
-    }
-    markDirty()
-}
-// Single control standing in for the three eval-trigger dials.
-const evalTrigger = computed<string>({
-    get: () => form.value.eval_on_change,
-    set: (v: string) => {
-        form.value.eval_on_table_change = v
-        form.value.eval_on_change = v
-        form.value.eval_on_global_change = v
-        onAdvancedChange()
-    },
-})
-function onAdvancedChange() { markDirty(); mode.value = detectMode() }
-
-const defaultForm = () => ({
-    enabled: false,
-    eval_on_table_change: 'suggest',
-    eval_on_change: 'suggest',
-    eval_on_global_change: 'suggest',
-    train_on_failure: 'suggest',
-    approve_instructions: 'suggest',
-    auto_promote_evals: 'off',
-    on_repeated_failure: 'training',
-    max_iterations: 3,
-})
-const form = ref<Record<string, any>>(defaultForm())
-const storedOverride = ref<Record<string, any>>({})
-const dirty = ref(false)
-const savingSettings = ref(false)
-const savedOk = ref(false)
 const autoEnabled = ref<boolean | null>(null)
 const reliabilityStatus = ref('training')
 const publishStatus = ref('published')
+const showSelfLearning = ref(false)
+function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings saved', color: 'green' }) }
 
 const autoRuns = ref<any[]>([])
 const loadingAutoRuns = ref(false)
 const triggering = ref(false)
-
-function markDirty() { dirty.value = true; savedOk.value = false }
 
 const reliabilityLabel = computed(() => {
     if (publishStatus.value === 'disabled') return 'Disabled'
@@ -743,13 +661,7 @@ async function loadAutomation() {
         if (!data) return
         reliabilityStatus.value = data.reliability_status || 'training'
         publishStatus.value = data.publish_status || 'published'
-        autoEnabled.value = !!(data.effective?.enabled)
-        storedOverride.value = data.override || {}
-        // form = effective, so unset rows show the inherited value
-        form.value = { ...defaultForm(), ...(data.effective || {}) }
-        mode.value = detectMode()
-        dirty.value = false
-        savedOk.value = false
+        autoEnabled.value = !!(data.effective?.mode && data.effective.mode !== 'off')
     } catch (e) { /* noop */ }
 }
 
@@ -762,23 +674,6 @@ async function loadAutoRuns() {
         autoRuns.value = (res.data.value as any[]) || []
     } catch (e) { autoRuns.value = [] }
     finally { loadingAutoRuns.value = false }
-}
-
-async function saveSettings() {
-    const id = agentId.value
-    if (!id) return
-    savingSettings.value = true
-    savedOk.value = false
-    try {
-        // Send the full form as the override (explicit is clearer than diffing
-        // against the inherited org default for v1).
-        await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value } })
-        savedOk.value = true
-        dirty.value = false
-        await loadAutomation()
-    } catch (e) {
-        toast.add({ title: 'Failed to save automation settings', color: 'red' })
-    } finally { savingSettings.value = false }
 }
 
 async function runAutomationNow() {

@@ -29,16 +29,11 @@ test('Self Learning per-agent automation modal', async ({ page }) => {
   await expect(btn).toBeVisible({ timeout: 10000 });
   await btn.click();
   await page.waitForTimeout(1200);
-  await expect(page.getByText('Auto-approve suggestions?')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByText('When a new suggestion comes in…')).toBeVisible({ timeout: 8000 });
   await page.screenshot({ path: 'screenshots/sl-2-modal-tree.png', fullPage: true });
 
-  // --- expand Advanced to show the failure handling ---
-  await page.getByRole('button', { name: /^Advanced$/ }).click().catch(() => {});
-  await page.waitForTimeout(600);
+  // --- select "Run evals & auto-approve" to reveal Advanced ---
+  await page.locator('select').first().selectOption('eval_auto').catch(() => {});
+  await page.waitForTimeout(500);
   await page.screenshot({ path: 'screenshots/sl-3-modal-advanced.png', fullPage: true });
-
-  // --- toggle Auto-approve to show the summary collapse the eval branch ---
-  await page.getByText('Auto-approve suggestions?').click().catch(() => {});
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: 'screenshots/sl-4-modal-autoapprove.png', fullPage: true });
 });
