@@ -277,7 +277,7 @@ UI (Playwright) — once backend `:8000` + frontend `:3000` are up:
 | A4 authorize URL | ✅ | `GET /api/auth/entra/authorize` → correct tenant/client/PKCE/`access_as_user`, `redirect_uri=http://localhost:3000/api/auth/entra/callback` |
 | Tier-1 (logic) tests | ⚠️ | 13 passed, **2 failed** (stale Fabric scope assertion — see Findings F-1) |
 | Tier-2 (live tokens) | ✅ | **10 passed, 1 skipped** — client-creds (Graph/Fabric/PowerBI), demo1+demo2 ROPC login, OBO→Fabric (both users), OBO→PowerBI, `exchange_obo_token`, token refresh. ⚠️ used the test's `api.fabric.microsoft.com` scope, not the production `database.windows.net` scope (F-1) |
-| Tier-3 (Fabric SQL) | ⛔ | blocked — no ODBC Driver 18 in sandbox |
+| Tier-3 (Fabric SQL) | ⛔ | ODBC 18 + pyodbc now installed, but **port 1433 (TDS) blocked** by sandbox egress (443 open) — live SQL ACL proof can't run here. OBO token exchange to the **production** scope verified instead (F-6) |
 | **UI Playwright — Entra SSO login (A2/B2)** | ✅ | **demo1 real Microsoft login → callback → BOW JWT → SPA lands on `/onboarding`.** `frontend/tests/entra/entra-login.spec.ts` via `playwright.entra.config.ts` |
 | Enterprise license | ✅ | `BOW_LICENSE_KEY` set → "Enterprise (dev)" |
 
@@ -305,6 +305,31 @@ backend log `/tmp/bow_backend.log`, frontend log `/tmp/bow_frontend.log`.
   `/users/sign-in?access_token=<JWT>&email=<user>`; `sign-in.vue` `onMounted`
   consumes the token then routes to `/` or `/organizations/new` (first user → `/onboarding`).
   A Playwright assertion must wait for that second hop, not the first.
+
+- **F-5 (test bug):** `TestFabricClientDelegated` in `test_oauth_delegated.py` is
+  dead code — it imports `MSFabricClient` (real class is `MsFabricClient`) and
+  calls `client.connect()` / `client.get_schemas()` in a shape that doesn't match
+  the client (`connect()` is a `@contextmanager`; tables come from `get_tables()`).
+  These per-user ACL tests have never actually executed. Fix the import + API usage.
+- **F-6 (sandbox network limit):** Outbound **TCP 1433 (SQL/TDS) is blocked**;
+  443 is open (to both the Fabric host and AAD). So `MsFabricClient.connect()` →
+  `HYT00 Login timeout expired`, and **no live Fabric SQL can run in this sandbox**
+  regardless of ODBC. Verified separately that OBO exchange to the **production**
+  scope `https://database.windows.net/user_impersonation` succeeds for demo1 +
+  demo2 (so F-1's production scope is correct and AAD-accepted). The SQL ACL proof
+  (demo1 sees finance / demo2 doesn't) needs an environment with 1433 egress.
+
+- **F-7 (product, low):** `POST /api/connections` response omits
+  `allowed_user_auth_modes` (returns `null`) even though it is persisted
+  correctly (confirmed in DB and via `GET /api/connections`). Cosmetic API gap.
+- **F-8 (product, high for model mgmt):** `routes/llm.py` calls
+  `llm_service.create_model` (:126), `update_model` (:138), `delete_model` (:149)
+  — none exist on `LLMService` (only `_create_models`/`_update_models`/
+  `toggle_model`/`set_default_model`). So **create/update/delete of a custom LLM
+  model all 500** (`AttributeError`). Presets, toggle, and set-default work via
+  other methods, so the app still runs once a model row exists (worked around
+  here by inserting the Claude Haiku model row directly). Fix: wire routes to the
+  existing private methods or add public wrappers.
 
 ### How to run the Entra UI test
 

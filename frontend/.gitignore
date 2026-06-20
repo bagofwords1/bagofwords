@@ -1,1 +1,6 @@
 screenshots/
+
+# Playwright live-OBO test secrets & artifacts (never commit)
+tests/entra/.auth/
+test-results/
+playwright-report/
