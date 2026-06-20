@@ -278,7 +278,8 @@ UI (Playwright) — once backend `:8000` + frontend `:3000` are up:
 | Tier-1 (logic) tests | ⚠️ | 13 passed, **2 failed** (stale Fabric scope assertion — see Findings F-1) |
 | Tier-2 (live tokens) | ✅ | **10 passed, 1 skipped** — client-creds (Graph/Fabric/PowerBI), demo1+demo2 ROPC login, OBO→Fabric (both users), OBO→PowerBI, `exchange_obo_token`, token refresh. ⚠️ used the test's `api.fabric.microsoft.com` scope, not the production `database.windows.net` scope (F-1) |
 | Tier-3 (Fabric SQL) | ⛔ | blocked — no ODBC Driver 18 in sandbox |
-| UI Playwright | ☐ | needs registered redirect URI or token injection |
+| **UI Playwright — Entra SSO login (A2/B2)** | ✅ | **demo1 real Microsoft login → callback → BOW JWT → SPA lands on `/onboarding`.** `frontend/tests/entra/entra-login.spec.ts` via `playwright.entra.config.ts` |
+| Enterprise license | ✅ | `BOW_LICENSE_KEY` set → "Enterprise (dev)" |
 
 Env: `source /tmp/bow_env.sh` (all secrets; not committed). Servers:
 backend log `/tmp/bow_backend.log`, frontend log `/tmp/bow_frontend.log`.
@@ -296,7 +297,21 @@ backend log `/tmp/bow_backend.log`, frontend log `/tmp/bow_frontend.log`.
   for its **live** OBO exchanges — so the live OBO tests exercise a scope the SQL
   endpoint would reject, not the production scope. Update tests to the
   `database.windows.net/user_impersonation` scope.
-- **F-2 (caveat):** App runs in **Community** license mode here (no `BOW_LICENSE_KEY`).
-  Confirm whether `auth_policy=user_required` + query-identity toggle are EE-gated
-  before concluding a UI test "passes/fails" for the wrong reason.
+- **F-2 (resolved):** With `BOW_LICENSE_KEY` set the app runs **Enterprise (dev)**.
+- **F-3 (sandbox gotcha):** Chromium can't reach `login.microsoftonline.com`
+  (`ERR_CERT_AUTHORITY_INVALID`) because the sandbox uses a TLS-intercepting proxy.
+  Playwright needs `ignoreHTTPSErrors: true`. Python/httpx is unaffected (system CA).
+- **F-4 (Entra SSO verified):** The OAuth landing is
+  `/users/sign-in?access_token=<JWT>&email=<user>`; `sign-in.vue` `onMounted`
+  consumes the token then routes to `/` or `/organizations/new` (first user → `/onboarding`).
+  A Playwright assertion must wait for that second hop, not the first.
+
+### How to run the Entra UI test
+
+```bash
+cd frontend
+source /tmp/bow_env.sh                      # demo creds + secrets (uncommitted)
+export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+npx playwright test --config=playwright.entra.config.ts
+```
 
