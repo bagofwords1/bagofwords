@@ -281,15 +281,6 @@ class ReviewService:
         search: Optional[str] = None,
         limit: int = 200,
     ) -> Dict[str, Any]:
-        # Self-populate from current pending builds so the feed reflects reality
-        # regardless of how a suggestion was created (harness, non-admin, or
-        # pre-existing). Cheap + idempotent (deduped, dismiss-aware). Never fatal.
-        try:
-            from app.services.review_producers import scan_instruction_suggestions
-            await scan_instruction_suggestions(db, str(organization.id))
-        except Exception as e:  # noqa: BLE001
-            logger.warning("review: scan_instruction_suggestions on list failed: %s", e)
-
         is_admin, ds_ids = await self._visible(db, organization, user)
         if not is_admin and not ds_ids:
             return {"items": [], "total": 0, "unread": 0}
