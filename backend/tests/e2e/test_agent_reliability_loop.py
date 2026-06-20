@@ -148,7 +148,7 @@ async def _run(stub, org_id, ds_id, trigger=TRIGGER_TABLE_CHANGE):
 @pytest.mark.asyncio
 async def test_baseline_green_no_training():
     """All evals pass at baseline → PASSED, no training."""
-    settings = {"enabled": True, "eval_on_table_change": "auto", "train_on_failure": "auto"}
+    settings = {"mode": "eval_auto", "auto_fix_on_failure": True}
     org_id, ds_id, cases = await _seed(settings)
     stub = _StubReliability(eval_script=[(cases, [])])  # all pass
     run, ds = await _run(stub, org_id, ds_id)
@@ -161,7 +161,7 @@ async def test_baseline_green_no_training():
 @pytest.mark.asyncio
 async def test_trigger_off_is_skipped():
     """Master switch off → SKIPPED, nothing runs."""
-    org_id, ds_id, cases = await _seed({"enabled": False})
+    org_id, ds_id, cases = await _seed({"mode": "off"})
     stub = _StubReliability(eval_script=[(cases, [])])
     run, _ = await _run(stub, org_id, ds_id)
     assert run.status == STATUS_SKIPPED
@@ -172,7 +172,7 @@ async def test_trigger_off_is_skipped():
 @pytest.mark.asyncio
 async def test_no_evals_is_noop():
     """Agent has no evals → NO_EVALS."""
-    settings = {"enabled": True, "eval_on_table_change": "auto"}
+    settings = {"mode": "eval_auto"}
     org_id, ds_id, _ = await _seed(settings, n_cases=0)
     stub = _StubReliability(eval_script=[([], [])])
     run, _ = await _run(stub, org_id, ds_id)
@@ -185,9 +185,7 @@ async def test_train_fixes_and_autopromotes():
     """Baseline fails, training fixes it on iteration 1, auto-approve on →
     PASSED with a promoted build."""
     settings = {
-        "enabled": True, "eval_on_table_change": "auto",
-        "train_on_failure": "auto", "approve_instructions": "auto",
-        "max_iterations": 3,
+        "mode": "eval_auto", "auto_fix_on_failure": True, "max_iterations": 3,
     }
     org_id, ds_id, cases = await _seed(settings)
     # baseline: case[1] fails; after training: all pass
@@ -201,28 +199,11 @@ async def test_train_fixes_and_autopromotes():
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_train_fixes_but_suggest_only_pends():
-    """Fix works, but approve_instructions=suggest → PASSED_PENDING (awaits
-    human), no promotion."""
-    settings = {
-        "enabled": True, "eval_on_table_change": "auto",
-        "train_on_failure": "auto", "approve_instructions": "suggest",
-    }
-    org_id, ds_id, cases = await _seed(settings)
-    stub = _StubReliability(eval_script=[([cases[0]], [cases[1]]), (cases, [])])
-    run, _ = await _run(stub, org_id, ds_id)
-    assert run.status == STATUS_PASSED_PENDING
-    assert stub.promoted_builds == []
-
-
-@pytest.mark.e2e
-@pytest.mark.asyncio
 async def test_regression_guard_blocks_promotion():
     """Training makes the failing case pass but regresses a previously-passing
     case → not accepted; loop exhausts and gives up."""
     settings = {
-        "enabled": True, "eval_on_table_change": "auto",
-        "train_on_failure": "auto", "approve_instructions": "auto",
+        "mode": "eval_auto", "auto_fix_on_failure": True,
         "max_iterations": 2, "on_repeated_failure": "training",
     }
     org_id, ds_id, cases = await _seed(settings, n_cases=2)
@@ -246,8 +227,7 @@ async def test_gives_up_and_moves_to_development():
     is pulled from regular users (reliability_status=development) while
     publish_status is left untouched (admins keep access)."""
     settings = {
-        "enabled": True, "eval_on_table_change": "auto",
-        "train_on_failure": "auto", "max_iterations": 2,
+        "mode": "eval_auto", "auto_fix_on_failure": True, "max_iterations": 2,
         "on_repeated_failure": "development",
     }
     org_id, ds_id, cases = await _seed(settings)
@@ -262,11 +242,10 @@ async def test_gives_up_and_moves_to_development():
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_train_off_reports_only():
-    """Evals fail but train_on_failure=off → GAVE_UP (report-only), no training,
-    outcome still applied per policy."""
+    """Evals fail under eval_review (no auto-fix) → GAVE_UP (report-only), no
+    training, outcome still applied per policy."""
     settings = {
-        "enabled": True, "eval_on_table_change": "auto",
-        "train_on_failure": "off", "on_repeated_failure": "training",
+        "mode": "eval_review", "on_repeated_failure": "training",
     }
     org_id, ds_id, cases = await _seed(settings)
     stub = _StubReliability(eval_script=[([cases[0]], [cases[1]])])
@@ -278,9 +257,10 @@ async def test_train_off_reports_only():
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_manual_trigger_runs_even_when_table_change_off():
-    """A manual trigger ignores per-stage trigger autonomy (the human asked)."""
-    settings = {"enabled": True, "eval_on_table_change": "off", "train_on_failure": "auto"}
+async def test_manual_trigger_runs_even_when_mode_off():
+    """A manual trigger runs evals even when the agent's mode is off (the human
+    asked for it)."""
+    settings = {"mode": "off"}
     org_id, ds_id, cases = await _seed(settings)
     stub = _StubReliability(eval_script=[(cases, [])])
     run, _ = await _run(stub, org_id, ds_id, trigger=TRIGGER_MANUAL)
