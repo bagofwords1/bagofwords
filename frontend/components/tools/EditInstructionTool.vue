@@ -150,6 +150,12 @@
           </template>
         </div>
 
+        <!-- Resolved evals for this agent — run them against the draft build
+             this edit was staged into (training-mode self-check). -->
+        <div v-if="isSuccess && instructionId && buildId" class="mt-2 pt-2 border-t border-gray-100">
+          <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" />
+        </div>
+
         <!-- Error message -->
         <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 rounded px-2 py-1">
           {{ errorMessage }}
@@ -164,6 +170,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DiffMatchPatch from 'diff-match-patch'
 import Spinner from '~/components/Spinner.vue'
+import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import {

@@ -328,7 +328,7 @@ import CreateSuiteModal from '~/components/monitoring/CreateSuiteModal.vue'
 // Use agent selector for initial data source selection
 const { selectedAgentObjects } = useAgent()
 
-const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string }>()
+const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'created', payload: any): void
@@ -816,10 +816,16 @@ const close = () => emit('update:modelValue', false)
 
 function resetFormForCreate() {
   promptText.value = ''
-  // Initialize data sources from agent selector (useAgent)
-  // If specific agents are selected, use those; otherwise use all agents
+  // Default the "Agents" selection. An explicit in-context agent (modal opened
+  // from an agent's panel) wins; otherwise fall back to the globally-selected
+  // agents; otherwise leave empty (= Auto / all agents).
   const agentSelection = selectedAgentObjects.value || []
-  testSelectedDataSources.value = agentSelection.map((a: any) => ({ id: a.id, name: a.name, type: a.type }))
+  if (props.agentId) {
+    const match = agentSelection.find((a: any) => a.id === props.agentId)
+    testSelectedDataSources.value = [match ? { id: match.id, name: match.name, type: match.type } : { id: props.agentId }]
+  } else {
+    testSelectedDataSources.value = agentSelection.map((a: any) => ({ id: a.id, name: a.name, type: a.type }))
+  }
   testSelectedModelId.value = ''
   testUploadedFiles.value = []
   testMentions.value = []

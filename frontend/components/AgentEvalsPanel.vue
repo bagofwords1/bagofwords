@@ -171,6 +171,7 @@
             v-model="showAddCase"
             :suite-id="selectedSuiteId"
             :case-id="selectedCaseId"
+            :agent-id="agentId"
             @created="onCaseCreated"
             @updated="onCaseUpdated"
         />
@@ -228,7 +229,9 @@ const agentCases = computed(() => {
     if (!id) return []
     const term = searchTerm.value.trim().toLowerCase()
     return allCases.value.filter(c => {
-        const hasAgent = (c.data_source_ids_json || []).includes(id)
+        // Auto / empty data sources => "all agents" (like a global instruction).
+        const dsids = c.data_source_ids_json || []
+        const hasAgent = dsids.length === 0 || dsids.includes(id)
         if (!hasAgent) return false
         if (term) return (c.prompt_json?.content || '').toLowerCase().includes(term)
         return true

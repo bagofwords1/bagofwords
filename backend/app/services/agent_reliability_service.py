@@ -111,16 +111,20 @@ class AgentReliabilityService:
     async def list_agent_eval_case_ids(
         self, db, organization_id: str, data_source_id: str, statuses: Optional[Set[str]] = None
     ) -> List[str]:
-        """Active eval cases scoped to this agent.
+        """Active eval cases that belong to this agent.
 
-        Cases store their scope as a JSON list in ``data_source_ids_json``. We
-        do a portable substring match on the serialized column (the ids are
-        UUIDs, so false positives are effectively impossible) and confirm
-        membership in Python.
+        Membership = the case's ``data_source_ids_json`` either **includes** this
+        agent, or is **Auto/empty** (no explicit agents), which means "all agents"
+        — the test-case analogue of a global instruction. Org-scoped via the
+        suite chain so Auto cases from other orgs don't leak in.
         """
+        from app.models.eval import TestSuite
         statuses = statuses or {TEST_CASE_STATUS_ACTIVE}
-        stmt = select(TestCase).where(
-            cast(TestCase.data_source_ids_json, SAString).ilike(f"%{data_source_id}%")
+        stmt = (
+            select(TestCase)
+            .join(TestSuite, TestSuite.id == TestCase.suite_id)
+            .where(TestSuite.organization_id == str(organization_id))
+            .where(TestCase.deleted_at.is_(None))
         )
         rows = (await db.execute(stmt)).scalars().all()
         out: List[str] = []
@@ -128,7 +132,8 @@ class AgentReliabilityService:
             if c.status not in statuses:
                 continue
             ds_ids = c.data_source_ids_json or []
-            if isinstance(ds_ids, list) and str(data_source_id) in [str(x) for x in ds_ids]:
+            is_auto = not (isinstance(ds_ids, list) and len(ds_ids) > 0)
+            if is_auto or str(data_source_id) in [str(x) for x in ds_ids]:
                 out.append(str(c.id))
         return out
 
