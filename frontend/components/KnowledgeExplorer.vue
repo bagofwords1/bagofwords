@@ -408,6 +408,8 @@
                 <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="startEdit">Edit</button>
               </template>
               <template v-else-if="!diff">
+                <button v-if="!creating && canApprove" class="h-7 px-3 rounded-md text-red-600 text-xs font-medium hover:bg-red-50 disabled:opacity-50" :disabled="deleting || saving" title="Delete this instruction" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? 'Deleting…' : 'Delete' }}</span></button>
+                <span v-if="!creating && canApprove" class="w-px h-4 bg-gray-200 mx-0.5"></span>
                 <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelEdit">Cancel</button>
                 <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
               </template>
@@ -788,6 +790,7 @@ const detail = ref<Instruction | null>(null)
 const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
 const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
   { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
 )
@@ -1807,6 +1810,23 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
 }
 const startEdit = () => { if (detail.value) { syncDraft(detail.value); editing.value = true } }
 const cancelEdit = () => { if (creating.value) { creating.value = false; editing.value = false; draft.references = [] } else { if (detail.value) syncDraft(detail.value); editing.value = false } }
+const deleteInstruction = async () => {
+  if (!detail.value || creating.value) return
+  const id = detail.value.id
+  const label = detail.value.title || 'this instruction'
+  if (!window.confirm(`Delete "${label}"? This can't be undone.`)) return
+  deleting.value = true
+  try {
+    const { error } = await useMyFetch(`/api/instructions/${id}`, { method: 'DELETE' })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Delete failed')
+    toast.add({ title: 'Deleted', color: 'green' })
+    allInstructions.value = allInstructions.value.filter(i => i.id !== id)
+    editing.value = false; detail.value = null; selectedId.value = null; versions.value = []
+    fetchPendingMap()
+  } catch (e: any) {
+    toast.add({ title: 'Error', description: e?.message, color: 'red' })
+  } finally { deleting.value = false }
+}
 const save = async () => {
   saving.value = true
   try {
