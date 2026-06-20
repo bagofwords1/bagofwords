@@ -97,18 +97,6 @@ async def dismiss_review(
     return {"ok": item is not None}
 
 
-@router.post("/review/scan")
-async def scan_review(
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization),
-):
-    """Run the sweep producers (slow queries, low confidence, instruction
-    suggestions) for this org and emit/refresh items. Admin/cron entrypoint."""
-    from app.services.review_producers import run_scans
-    return await run_scans(db, str(organization.id))
-
-
 @router.post("/review/{item_id}/resolve")
 async def resolve_review(
     item_id: str,
