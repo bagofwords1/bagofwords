@@ -9,17 +9,16 @@
       <!-- Full-page empty state (no tasks, no active search) -->
       <div v-if="!isLoading && tasks.length === 0 && !searchTerm" class="flex flex-col items-center justify-center text-center py-20 px-4">
         <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
-        <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm"><UIcon name="heroicons-clock" class="w-5 h-5 text-gray-400" /></div>
-        <h3 class="mt-3 text-base font-medium text-gray-900">{{ $t('scheduled.empty') }}</h3>
-        <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ $t('scheduled.emptyDescription') }}</p>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('scheduled.empty') }}</h3>
+        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">{{ $t('scheduled.emptyDescription') }}</p>
         <button
           @click="openNewTask"
           :disabled="creatingTask"
-          class="mt-4 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+          class="mt-5 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
         >
           <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
-          <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
           {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
+          <span v-if="!creatingTask" aria-hidden="true">→</span>
         </button>
       </div>
 

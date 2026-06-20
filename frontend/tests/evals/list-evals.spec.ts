@@ -7,8 +7,8 @@ test('can view evals page', async ({ page }) => {
   // On a fresh org with no test cases or runs, /evals renders the
   // full-page empty state (metric cards / tabs / table are intentionally
   // hidden until there is data).
-  await expect(page.getByRole('heading', { name: 'No tests found' }))
+  await expect(page.getByRole('heading', { name: 'No tests yet' }))
     .toBeVisible({ timeout: 15000 });
-  await expect(page.getByRole('button', { name: 'Add New Test' }).first())
+  await expect(page.getByRole('button', { name: /Add New Test/ }).first())
     .toBeVisible({ timeout: 10000 });
 });

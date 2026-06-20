@@ -39,7 +39,7 @@ test('capture empty-state illustrations', async ({ page }) => {
   }
 
   // visit /scheduled-tasks first to warm the default layout
-  await shot('/scheduled-tasks', 'empty-scheduled.png', /No scheduled tasks/i)
-  await shot('/evals', 'empty-evals.png', /No tests found/i)
-  await shot('/queries', 'empty-queries.png', /No published|No drafts/i)
+  await shot('/scheduled-tasks', 'empty-scheduled.png', /Nothing scheduled/i)
+  await shot('/evals', 'empty-evals.png', /No tests yet/i)
+  await shot('/queries', 'empty-queries.png', /Nothing published/i)
 })

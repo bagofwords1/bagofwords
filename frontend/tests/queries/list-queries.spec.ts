@@ -11,6 +11,6 @@ test('can view queries page', async ({ page }) => {
   // On a fresh org with no entities, /queries renders the full-page empty
   // state (filter tabs / search input are intentionally hidden until there
   // is data).
-  await expect(page.getByRole('heading', { name: 'No published entities' }))
+  await expect(page.getByRole('heading', { name: 'Nothing published yet' }))
     .toBeVisible({ timeout: 10000 });
 });

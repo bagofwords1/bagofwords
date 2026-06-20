@@ -86,7 +86,7 @@ test.describe('Admin-only page visibility', () => {
 
     // Admin should see the evals page content. On a fresh org with no
     // test cases this is the full-page empty state.
-    await expect(adminPage.getByRole('heading', { name: 'No tests found' }))
+    await expect(adminPage.getByRole('heading', { name: 'No tests yet' }))
       .toBeVisible({ timeout: 10000 });
   });
 
