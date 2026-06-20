@@ -1,6 +1,14 @@
 <template>
   <div class="py-6">
     <div class="max-w-3xl mx-auto px-4">
+      <!-- Full-page empty state (no published, no drafts, no search) -->
+      <div v-if="!loading && isPageEmpty" class="flex flex-col items-center justify-center text-center py-20 px-4">
+        <img src="/assets/empty-states/empty-leaves.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+        <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('queries.noPublished') }}</h3>
+        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">{{ $t('queries.publishedDescription') }}</p>
+      </div>
+
+      <template v-else>
       <div class="mb-5">
         <h1 class="text-lg font-semibold text-gray-900">{{ $t('queries.title') }}</h1>
 
@@ -40,17 +48,18 @@
       <div v-if="loading" class="text-xs text-gray-500 inline-flex items-center">
         <Spinner class="me-1" /> {{ $t('queries.loading') }}
       </div>
-      <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center py-16 px-4">
-        <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
+      <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center text-center py-10 px-4">
+        <img src="/assets/empty-states/empty-leaves.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+        <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm">
           <Icon
             :name="filterType === 'suggested' ? 'heroicons:light-bulb' : 'heroicons:cube'"
-            class="w-8 h-8 text-gray-400"
+            class="w-5 h-5 text-gray-400"
           />
         </div>
-        <h3 class="text-sm font-medium text-gray-900 mb-1">
+        <h3 class="mt-3 text-base font-medium text-gray-900">
           {{ filterType === 'suggested' ? $t('queries.noDrafts') : $t('queries.noPublished') }}
         </h3>
-        <p class="text-xs text-gray-500 text-center max-w-sm">
+        <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">
           {{ filterType === 'suggested'
             ? $t('queries.draftsDescription')
             : $t('queries.publishedDescription')
@@ -144,6 +153,7 @@
       <div v-if="!loading && filteredItems.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
         {{ summaryLabel }}
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -200,6 +210,7 @@ const suggestedCount = computed(() => {
 })
 
 // Filter items based on current filter type and user permissions
+const isPageEmpty = computed(() => !q.value && items.value.length === 0 && suggestedCount.value === 0)
 const filteredItems = computed(() => {
   let filtered = allItems.value
 
