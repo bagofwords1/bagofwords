@@ -180,17 +180,12 @@
 
   <McpModal v-model="showMcpModal" />
 
-  <!-- Instructions: the agent panel scoped to the prompt box's selection
-       (auto-mode selects every agent, so it shows all), plus an always-present
-       Global entry for instructions attached to no agent. -->
-  <UModal v-model="showInstructionsModal" :ui="{ width: 'sm:max-w-3xl' }">
+  <!-- Instructions: a tree of the prompt box's selected agents (auto-mode
+       selects every agent, so it shows all) → their instructions, plus an
+       always-present Global group for instructions attached to no agent. -->
+  <UModal v-model="showInstructionsModal" :ui="{ width: 'sm:max-w-4xl' }">
     <div class="h-[78vh] flex flex-col">
-      <ReportAgentPanel
-        :agents="instructionPanelAgents"
-        :show-close="true"
-        @close="showInstructionsModal = false"
-        @starter-click="onInstructionStarter"
-      />
+      <InstructionsTree :agents="selectedDataSources" :show-close="true" @close="showInstructionsModal = false" />
     </div>
   </UModal>
 </template>
@@ -203,7 +198,7 @@ import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 import RecentReports from '~/components/home/RecentReports.vue';
 import McpModal from '~/components/McpModal.vue';
-import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue';
+import InstructionsTree from '~/components/instructions/InstructionsTree.vue';
 import LibraryIcon from '~/components/icons/LibraryIcon.vue';
 import ActivityIcon from '~/components/icons/ActivityIcon.vue';
 import McpIcon from '~/components/icons/McpIcon.vue';
@@ -221,19 +216,9 @@ const hasLoadedModels = ref(false)
 // Use selected agents from AgentSelector as the data sources
 const selectedDataSources = computed(() => selectedAgentObjects.value)
 
-// Instructions modal: the agents the panel shows = the prompt box's current
-// selection (in auto-mode that's every agent) followed by an always-present
-// "Global" entry for instructions attached to no agent.
+// Instructions modal: a tree scoped to the prompt box's current selection
+// (auto-mode = every agent); InstructionsTree adds the Global group itself.
 const showInstructionsModal = ref(false)
-const instructionPanelAgents = computed(() => [
-  ...(selectedDataSources.value || []),
-  { id: '__global__', name: 'Global', isGlobal: true },
-])
-const onInstructionStarter = (starter: string) => {
-  const nl = (starter || '').indexOf('\n')
-  updateTextarea(nl === -1 ? starter : starter.slice(nl + 1).trim())
-  showInstructionsModal.value = false
-}
 
 const getModels = async () => {
   try {
