@@ -3,7 +3,7 @@
     <div class="max-w-3xl mx-auto px-4">
       <!-- Full-page empty state (no tasks, no active search) -->
       <div v-if="!isLoading && tasks.length === 0 && !searchTerm" class="flex flex-col items-center justify-center text-center py-24 px-4">
-        <img src="/assets/empty-states/empty-waterfall.png" alt="" class="w-full max-w-[260px] opacity-90 select-none pointer-events-none" />
+        <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
         <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm"><UIcon name="heroicons-clock" class="w-5 h-5 text-gray-400" /></div>
         <h3 class="mt-3 text-base font-medium text-gray-900">{{ $t('scheduled.empty') }}</h3>
         <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ $t('scheduled.emptyDescription') }}</p>
