@@ -820,6 +820,13 @@ class ProjectManager:
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
+        # Surface a Review item when the judge scored this answer low (<3/5).
+        # Cheap-guarded inside the emitter; never fatal to scoring.
+        try:
+            from app.services.review_producers import emit_low_confidence_for_completion
+            await emit_low_confidence_for_completion(db, completion)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning("review: emit_low_confidence failed for completion %s: %s", completion.id, e)
         return completion
 
     async def create_instruction_from_draft(
