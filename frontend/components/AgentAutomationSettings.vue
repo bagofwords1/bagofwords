@@ -17,26 +17,15 @@
         <UToggle v-model="form.auto_approve_suggestions" :disabled="!canManage" @update:model-value="onAutoApprove" />
       </div>
 
-      <!-- Q2: auto-run eval (only when not auto-approving) -->
+      <!-- Q2: auto-run eval — implies auto-approve on a green run -->
       <div v-if="!form.auto_approve_suggestions" class="flex items-start justify-between px-3 py-3">
         <div class="pe-4">
-          <div class="text-sm font-medium text-gray-900">Auto-run eval?</div>
+          <div class="text-sm font-medium text-gray-900">Auto-run eval &amp; approve on pass?</div>
           <div class="text-[11px] text-gray-500 mt-0.5 max-w-sm">
-            Evaluate each suggestion against a candidate build (main + the new hunks). Otherwise it just waits in Review.
+            Evaluate each suggestion against a candidate build (main + the new hunks) and promote it automatically if the evals pass. Otherwise it waits in Review.
           </div>
         </div>
         <UToggle v-model="form.auto_run_eval" :disabled="!canManage" @update:model-value="markDirty" />
-      </div>
-
-      <!-- Q3: auto-approve on success (only when auto-run-eval) -->
-      <div v-if="!form.auto_approve_suggestions && form.auto_run_eval" class="flex items-start justify-between px-3 py-3 bg-gray-50/60">
-        <div class="pe-4">
-          <div class="text-sm font-medium text-gray-900">Auto-approve on success?</div>
-          <div class="text-[11px] text-gray-500 mt-0.5 max-w-sm">
-            Promote automatically when the evals pass. If off, a passing candidate waits for a human.
-          </div>
-        </div>
-        <UToggle v-model="form.auto_approve_on_success" :disabled="!canManage" @update:model-value="markDirty" />
       </div>
     </div>
 
@@ -66,9 +55,8 @@
             <div class="text-[11px] text-gray-500">When the fix loop can't reach green.</div>
           </div>
           <select v-model="form.on_repeated_failure" :disabled="!canManage" @change="markDirty" class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
-            <option value="none">Do nothing</option>
-            <option value="training">Keep in training</option>
-            <option value="development">Move to development</option>
+            <option value="training">Move to training (keeps serving)</option>
+            <option value="development">Move to development (pull from users)</option>
           </select>
         </div>
         <div class="flex items-center justify-between px-3 py-2.5">
@@ -105,7 +93,6 @@ const showAdvanced = ref(false)
 const defaultForm = () => ({
   auto_approve_suggestions: false,
   auto_run_eval: false,
-  auto_approve_on_success: false,
   auto_fix_on_failure: false,
   on_repeated_failure: 'training',
   max_iterations: 3,
@@ -119,7 +106,7 @@ function markDirty() { dirty.value = true; savedOk.value = false }
 // Auto-approve short-circuits the eval branch — clear it so we never persist a
 // contradictory (auto-approve + auto-eval) state.
 function onAutoApprove(v: boolean) {
-  if (v) { form.value.auto_run_eval = false; form.value.auto_approve_on_success = false }
+  if (v) { form.value.auto_run_eval = false }
   markDirty()
 }
 
@@ -127,8 +114,7 @@ const summary = computed(() => {
   const f = form.value
   if (f.auto_approve_suggestions) return 'New suggestions are promoted to this agent immediately — no evals, no human review.'
   if (!f.auto_run_eval) return 'New suggestions wait in the Review feed for a human. Nothing runs automatically.'
-  if (f.auto_approve_on_success) return 'Each suggestion is evaluated on a candidate build; it auto-promotes if evals pass' + (f.auto_fix_on_failure ? ', and a fix loop runs on failure.' : '. On failure it stays in Review.')
-  return 'Each suggestion is evaluated on a candidate build; a passing candidate waits for a human to approve' + (f.auto_fix_on_failure ? ', and a fix loop runs on failure.' : '.')
+  return 'Each suggestion is evaluated on a candidate build and auto-promoted if the evals pass' + (f.auto_fix_on_failure ? '; on failure a fix loop runs.' : '; on failure it stays in Review.')
 })
 
 async function loadAutomation() {

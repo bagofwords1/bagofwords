@@ -58,9 +58,11 @@ class AgentAutomationPolicy(BaseModel):
     """
 
     # === The decision tree (the modal) ===
+    # ``auto_run_eval`` implies "auto-approve on pass": a suggestion is evaluated
+    # on the candidate build and promoted automatically when the evals pass
+    # (failures stay in Review, or kick the fix loop when ``auto_fix_on_failure``).
     auto_approve_suggestions: bool = False   # promote new suggestions without evals
-    auto_run_eval: bool = False              # run evals on the candidate build
-    auto_approve_on_success: bool = False    # promote automatically when evals pass
+    auto_run_eval: bool = False              # run evals; promote on pass
     auto_fix_on_failure: bool = False        # advanced: train -> re-eval on failure
 
     # Outcome when the train -> re-eval loop gives up.
@@ -95,9 +97,8 @@ class AgentAutomationPolicy(BaseModel):
         if name == "train_on_failure":
             return AUTONOMY_AUTO if self.auto_fix_on_failure else AUTONOMY_OFF
         if name == "approve_instructions":
-            # When evals run, promote on green only if the agent opted in;
-            # otherwise stop at a human-reviewable (passing) candidate.
-            return AUTONOMY_AUTO if self.auto_approve_on_success else AUTONOMY_SUGGEST
+            # Auto-run-eval implies auto-approve on a green run.
+            return AUTONOMY_AUTO if self.auto_run_eval else AUTONOMY_SUGGEST
         # auto_promote_evals and anything else: not part of the tree.
         return AUTONOMY_OFF
 
