@@ -8,13 +8,17 @@
     <!-- Mode dropdown -->
     <div>
       <label class="block text-sm font-medium text-gray-900 mb-1.5">When a new suggestion comes in…</label>
-      <select v-model="form.mode" :disabled="!canManage" @change="markDirty"
-        class="w-full h-9 px-2.5 text-sm bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400">
-        <option value="off">Wait for review</option>
-        <option value="auto_approve">Auto-approve (no evals)</option>
-        <option value="eval_review" :disabled="!hasEvals">Run evals, then I approve{{ hasEvals ? '' : ' — no evals yet' }}</option>
-        <option value="eval_auto" :disabled="!hasEvals">Run evals &amp; auto-approve{{ hasEvals ? '' : ' — no evals yet' }}</option>
-      </select>
+      <USelectMenu
+        v-model="form.mode"
+        :options="modeOptions"
+        value-attribute="value"
+        option-attribute="label"
+        :disabled="!canManage"
+        size="md"
+        class="w-full"
+        :ui="{ width: 'w-full' }"
+        @update:model-value="markDirty"
+      />
       <p v-if="!hasEvals" class="mt-1.5 text-[11px] text-gray-400">
         Add eval test cases for this agent to enable the “Run evals…” modes.
       </p>
@@ -79,6 +83,12 @@ const defaultForm = () => ({
 const form = ref<Record<string, any>>(defaultForm())
 const evalCaseCount = ref(0)
 const hasEvals = computed(() => evalCaseCount.value > 0)
+const modeOptions = computed(() => [
+  { value: 'off', label: 'Wait for review' },
+  { value: 'auto_approve', label: 'Auto-approve (no evals)' },
+  { value: 'eval_review', label: 'Run evals, then I approve' + (hasEvals.value ? '' : ' (no evals yet)'), disabled: !hasEvals.value },
+  { value: 'eval_auto', label: 'Run evals & auto-approve' + (hasEvals.value ? '' : ' (no evals yet)'), disabled: !hasEvals.value },
+])
 const dirty = ref(false)
 const savingSettings = ref(false)
 const savedOk = ref(false)

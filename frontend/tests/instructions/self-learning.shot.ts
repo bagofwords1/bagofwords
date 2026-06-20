@@ -32,8 +32,8 @@ test('Self Learning per-agent automation modal', async ({ page }) => {
   await expect(page.getByText('When a new suggestion comes in…')).toBeVisible({ timeout: 8000 });
   await page.screenshot({ path: 'screenshots/sl-2-modal-tree.png', fullPage: true });
 
-  // --- select "Run evals & auto-approve" to reveal Advanced ---
-  await page.locator('select').first().selectOption('eval_auto').catch(() => {});
+  // --- open the USelectMenu to show the styled options ---
+  await page.getByRole('button', { name: /Run evals|Wait for review|Auto-approve/ }).first().click().catch(() => {});
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'screenshots/sl-3-modal-advanced.png', fullPage: true });
 });
