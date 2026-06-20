@@ -4,16 +4,13 @@ test('can view queries page', async ({ page }) => {
   await page.goto('/queries');
   await page.waitForLoadState('networkidle');
 
-  // Verify page heading (longer timeout for CI)
+  // Page heading is always visible.
   await expect(page.getByRole('heading', { name: 'Queries', exact: true }))
     .toBeVisible({ timeout: 15000 });
 
-  // Verify filter tabs are present
-  await expect(page.getByRole('button', { name: 'Published' }))
-    .toBeVisible({ timeout: 10000 });
-
-  // Verify search input is present
-  await expect(page.getByPlaceholder('Search entities'))
+  // On a fresh org with no entities, /queries renders the full-page empty
+  // state (filter tabs / search input are intentionally hidden until there
+  // is data).
+  await expect(page.getByRole('heading', { name: 'No published entities' }))
     .toBeVisible({ timeout: 10000 });
 });
-

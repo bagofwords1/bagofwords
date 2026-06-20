@@ -1,8 +1,10 @@
 <template>
   <div class="py-6">
     <div class="max-w-3xl mx-auto px-4">
+      <h1 class="text-lg font-semibold text-gray-900 mb-5">{{ $t('queries.title') }}</h1>
+
       <!-- Full-page empty state (no published, no drafts, no search) -->
-      <div v-if="!loading && isPageEmpty" class="flex flex-col items-center justify-center text-center py-24 px-4">
+      <div v-if="!loading && isPageEmpty" class="flex flex-col items-center justify-center text-center py-20 px-4">
         <img src="/assets/empty-states/empty-leaves.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
         <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm">
           <Icon name="heroicons:cube" class="w-5 h-5 text-gray-400" />
@@ -13,8 +15,6 @@
 
       <template v-else>
       <div class="mb-5">
-        <h1 class="text-lg font-semibold text-gray-900">{{ $t('queries.title') }}</h1>
-
         <!-- Filter tabs -->
         <div class="mt-3 flex items-center gap-2 border-b border-gray-200">
           <button

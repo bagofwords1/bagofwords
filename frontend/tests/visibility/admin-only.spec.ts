@@ -84,9 +84,10 @@ test.describe('Admin-only page visibility', () => {
     await adminPage.goto('/evals');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Admin should see the evals page content
-    // Check for the "Total Test Cases" metric card (unique element)
-    await expect(adminPage.getByText('Total Test Cases', { exact: true })).toBeVisible({ timeout: 10000 });
+    // Admin should see the evals page content. On a fresh org with no
+    // test cases this is the full-page empty state.
+    await expect(adminPage.getByRole('heading', { name: 'No tests found' }))
+      .toBeVisible({ timeout: 10000 });
   });
 
   test('member cannot access evals page', async ({ memberPage }) => {
