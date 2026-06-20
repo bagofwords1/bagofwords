@@ -9,11 +9,13 @@ TRIGGER_MANUAL = "manual"               # a human kicked it from the UI
 TRIGGER_TABLE_CHANGE = "table_change"   # a table was activated / columns changed
 TRIGGER_INSTRUCTION_CHANGE = "instruction_change"  # the agent's own build changed
 TRIGGER_GLOBAL_CHANGE = "global_change"  # a global instruction build was promoted
+TRIGGER_SUGGESTION = "suggestion"        # a new suggestion build was created (Self Learning)
 TRIGGERS = {
     TRIGGER_MANUAL,
     TRIGGER_TABLE_CHANGE,
     TRIGGER_INSTRUCTION_CHANGE,
     TRIGGER_GLOBAL_CHANGE,
+    TRIGGER_SUGGESTION,
 }
 
 # Terminal / transient states of one loop.

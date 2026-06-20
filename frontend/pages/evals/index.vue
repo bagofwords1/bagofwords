@@ -225,10 +225,10 @@
                                             </span>
                                         </td>
                                         <td class="px-6 py-3">
-                                            <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600">
+                                            <button v-if="r.build_number" type="button" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline" :title="r.build_id ? 'View this build\'s changes and full content' : ''" :disabled="!r.build_id" @click="openBuildForRun(r)">
                                                 <Icon name="heroicons:cube" class="w-3 h-3" />
                                                 #{{ r.build_number }}
-                                            </span>
+                                            </button>
                                             <span v-else class="text-gray-400">—</span>
                                         </td>
                                         <td class="px-6 py-3">
@@ -280,6 +280,7 @@
             @suite-created="onManageSuiteCreated"
             @suite-deleted="onManageSuiteDeleted"
         />
+        <BuildExplorerModal v-model="showBuildModal" :build-id="buildModalId" />
     </div>
 </template>
 
@@ -329,7 +330,16 @@ const activeTab = ref<'tests' | 'runs'>('tests')
 // Components
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
 import ManageSuitesModal from '~/components/monitoring/ManageSuitesModal.vue'
+import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 const toast = useToast()
+// View the instruction build an eval ran against (whole-build diff + full content).
+const showBuildModal = ref(false)
+const buildModalId = ref<string | undefined>(undefined)
+function openBuildForRun(r: { build_id?: string }) {
+    if (!r.build_id) return
+    buildModalId.value = r.build_id
+    showBuildModal.value = true
+}
 const showManageSuites = ref(false)
 
 const derivedStatus = (s?: string | null) => {

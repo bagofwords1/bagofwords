@@ -867,11 +867,90 @@ async def reject_all_instruction_hunks(
 
 # ==================== Pending Builds (Tracked Changes) ====================
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from app.models.instruction_build import InstructionBuild
 from app.models.build_content import BuildContent
 from app.models.instruction_version import InstructionVersion
+
+
+@router.get("/instructions/{instruction_id}/resolved-evals")
+async def get_instruction_resolved_evals(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Evals that 'resolve' for an instruction — the active eval cases scoped to
+    the agent(s) this instruction is attached to. Used by the editor / suggestion
+    review to show, per pending build, what running an eval would actually
+    measure. A run is launched separately via POST /tests/runs with the chosen
+    build_id (the suggestion build) so it tests exactly that change.
+
+    Global instructions (no data sources) resolve to every agent's cases — we
+    return the aggregate count + agent count rather than inlining them all.
+    """
+    from app.models.eval import TestCase, TestSuite, TEST_CASE_STATUS_ACTIVE
+    from app.models.data_source import DataSource as _DS
+    from app.services.agent_reliability_service import AgentReliabilityService
+
+    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+
+    org_id = str(organization.id)
+    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    is_global = len(ds_ids) == 0
+    rel = AgentReliabilityService()
+
+    if is_global:
+        # Aggregate across the whole org — count only, don't inline.
+        agent_count = (await db.execute(
+            select(func.count()).select_from(_DS).where(
+                _DS.organization_id == org_id, _DS.deleted_at.is_(None)
+            )
+        )).scalar() or 0
+        case_rows = (await db.execute(
+            select(TestCase.id)
+            .join(TestSuite, TestSuite.id == TestCase.suite_id)
+            .where(
+                TestSuite.organization_id == org_id,
+                TestCase.status == TEST_CASE_STATUS_ACTIVE,
+                TestCase.deleted_at.is_(None),
+            )
+        )).all()
+        return {
+            "instruction_id": instruction_id,
+            "is_global": True,
+            "data_source_ids": [],
+            "agent_count": int(agent_count),
+            "case_count": len(case_rows),
+            "cases": [],  # not inlined for global — UI shows count + link
+        }
+
+    # Scoped: union of each attached agent's active cases.
+    case_ids: list[str] = []
+    seen: set = set()
+    for ds_id in ds_ids:
+        for cid in await rel.list_agent_eval_case_ids(db, org_id, ds_id):
+            if cid not in seen:
+                seen.add(cid); case_ids.append(cid)
+    cases = []
+    if case_ids:
+        rows = (await db.execute(
+            select(TestCase.id, TestCase.name).where(TestCase.id.in_(case_ids))
+        )).all()
+        cases = [{"id": str(i), "name": n} for i, n in rows]
+    return {
+        "instruction_id": instruction_id,
+        "is_global": False,
+        "data_source_ids": ds_ids,
+        "agent_count": len(ds_ids),
+        "case_count": len(cases),
+        "cases": cases,
+    }
 
 
 @router.get("/instructions/{instruction_id}/pending-builds")

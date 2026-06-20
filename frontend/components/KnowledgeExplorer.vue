@@ -530,6 +530,11 @@
                 <div class="prose-instruction">
                   <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
                 </div>
+                <!-- Evals resolved for this instruction's agent(s) — run them against
+                     the live agent. (Per-suggestion runs are pinned in the diff view.) -->
+                <div v-if="detail && !creating && !editing && canManageTests" class="mt-5">
+                  <ResolvedEvalStrip :instruction-id="detail.id" />
+                </div>
               </div>
             </div>
 
@@ -740,6 +745,7 @@ import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue
 import TraceModal from '~/components/console/TraceModal.vue'
 import ReviewFeed from '~/components/ReviewFeed.vue'
 import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
+import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'

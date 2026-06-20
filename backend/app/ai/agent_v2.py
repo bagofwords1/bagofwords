@@ -1202,6 +1202,21 @@ class AgentV2:
                         f"Knowledge harness submitted AI build {self.training_build_id} for approval "
                         f"with {len(drafts)} instructions ({step_count} steps)"
                     )
+                    # Self Learning: react to this brand-new suggestion build per
+                    # each affected agent's policy (auto-approve / auto-eval).
+                    # Fire-and-forget; never blocks the harness. This is the
+                    # knowledge-harness creation site — distinct from report
+                    # training-mode finalize, which is intentionally NOT hooked.
+                    try:
+                        from app.services.agent_reliability_service import AgentReliabilityService
+                        _sl_user_id = getattr(self.head_completion, "user_id", None) if self.head_completion else None
+                        AgentReliabilityService().schedule_for_suggestion(
+                            organization_id=str(self.organization.id),
+                            build_id=str(self.training_build_id),
+                            user_id=str(_sl_user_id) if _sl_user_id else None,
+                        )
+                    except Exception as sl_err:
+                        logger.warning(f"Self Learning schedule failed for build {self.training_build_id}: {sl_err}")
                 except Exception as submit_err:
                     logger.warning(f"Failed to submit AI build for approval: {submit_err}")
 

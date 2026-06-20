@@ -49,6 +49,7 @@ from app.models.agent_automation_run import (
     TRIGGER_TABLE_CHANGE,
     TRIGGER_INSTRUCTION_CHANGE,
     TRIGGER_GLOBAL_CHANGE,
+    TRIGGER_SUGGESTION,
 )
 from app.models.data_source import DataSource
 from app.models.eval import TestCase, TestResult, TEST_CASE_STATUS_ACTIVE
@@ -756,6 +757,200 @@ class AgentReliabilityService:
                         logger.exception("build_fanout: agent run failed ds=%s", ds.id)
         except Exception as e:  # pragma: no cover
             logger.exception("agent_reliability._run_build_fanout failed: %s", e)
+
+    # =====================================================================
+    # Self Learning: react to a brand-new suggestion build
+    # =====================================================================
+
+    def schedule_for_suggestion(self, *, organization_id: str, build_id: str, user_id: Optional[str] = None) -> None:
+        """Fire the Self-Learning decision tree for a freshly-created suggestion
+        build, in the background with its own session. Called from the two
+        suggestion-creation sites (knowledge harness + manual add); NOT from
+        report training-mode finalize."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self._run_suggestion(organization_id, build_id, user_id))
+
+    async def _run_suggestion(self, organization_id: str, build_id: str, user_id: Optional[str]) -> None:
+        from app.settings.database import create_async_session_factory
+        from app.models.organization import Organization
+        session_factory = create_async_session_factory()
+        try:
+            async with session_factory() as db:
+                org = await db.get(Organization, str(organization_id))
+                if org is None:
+                    return
+                user = await db.get(User, str(user_id)) if user_id else None
+                await self.run_for_suggestion(db, org, str(build_id), user=user)
+        except Exception as e:  # pragma: no cover
+            logger.exception("agent_reliability._run_suggestion failed: %s", e)
+
+    async def _resolve_suggestion_agents(self, db, organization_id: str, build_id: str) -> List[DataSource]:
+        """The agents (data sources) a suggestion build affects. Mirrors the
+        build-fanout scoping: an instruction with no DS association is global, so
+        a build containing any global instruction affects every agent."""
+        from app.models.build_content import BuildContent
+        from app.models.instruction import instruction_data_source_association
+
+        instr_ids = [r[0] for r in (await db.execute(
+            select(BuildContent.instruction_id).where(BuildContent.build_id == str(build_id))
+        )).all()]
+        if not instr_ids:
+            return []
+        scoped_ds = {r[0] for r in (await db.execute(
+            select(instruction_data_source_association.c.data_source_id).where(
+                instruction_data_source_association.c.instruction_id.in_(instr_ids)
+            )
+        )).all()}
+        has_global = len(scoped_ds) < len(instr_ids) or not scoped_ds
+        if has_global:
+            return list((await db.execute(
+                select(DataSource).where(
+                    DataSource.organization_id == str(organization_id),
+                    DataSource.deleted_at.is_(None),
+                )
+            )).scalars().all())
+        out: List[DataSource] = []
+        for ds_id in scoped_ds:
+            ds = await db.get(DataSource, str(ds_id))
+            if ds is not None and ds.deleted_at is None:
+                out.append(ds)
+        return out
+
+    async def run_for_suggestion(
+        self, db, organization, build_id: str, *, user: Optional[User] = None,
+    ) -> List[AgentAutomationRun]:
+        """Apply each affected agent's Self-Learning policy to a new suggestion
+        build. Returns the AgentAutomationRun rows recorded (one per agent that
+        had an opinion).
+
+        Decision (aggregated across affected agents, because promotion is
+        org-wide — a build either goes live or it doesn't):
+
+          * Any affected agent wants evals (``auto_run_eval``) -> evaluate the
+            suggestion build itself (pinned), then promote iff green AND every
+            eval-gating agent opted into ``auto_approve_on_success``; else leave
+            the (passing) candidate pending, or leave a failed one in Review.
+          * Else, if every enabled agent ``auto_approve_suggestions`` -> promote
+            immediately, no evals.
+          * Else -> leave it in the Review feed (no-op).
+
+        Failure never demotes the *live* agent (main is untouched by a failed
+        proposal) — we just record the failed run; the suggestion stays
+        reviewable.
+        """
+        from app.services.build_service import BuildService
+        bs = BuildService()
+        org_id = str(organization.id)
+
+        build = await bs.get_build(db, str(build_id))
+        if build is None or build.is_main or build.status not in ("draft", "pending_approval"):
+            return []
+
+        agents = await self._resolve_suggestion_agents(db, org_id, str(build_id))
+        if not agents:
+            return []
+
+        # Partition affected agents by their (mutually exclusive) tree choice.
+        eval_agents: List[tuple] = []     # (ds, policy)
+        approve_agents: List[tuple] = []  # (ds, policy)
+        for ds in agents:
+            policy = await self.resolve_policy(db, organization, ds)
+            if not policy.enabled:
+                continue
+            if policy.auto_run_eval:
+                eval_agents.append((ds, policy))
+            elif policy.auto_approve_suggestions:
+                approve_agents.append((ds, policy))
+
+        if not eval_agents and not approve_agents:
+            return []  # nobody opted in — leave it in Review
+
+        actor = await self._resolve_actor_user(db, org_id, user)
+        if actor is None:
+            return []
+
+        records: List[AgentAutomationRun] = []
+
+        # ---- Eval path takes precedence (stricter) ----------------------------
+        if eval_agents:
+            # Union of the eval-gating agents' active cases.
+            case_ids: List[str] = []
+            seen: Set[str] = set()
+            for ds, _pol in eval_agents:
+                for cid in await self.list_agent_eval_case_ids(db, org_id, str(ds.id)):
+                    if cid not in seen:
+                        seen.add(cid); case_ids.append(cid)
+
+            if not case_ids:
+                # Wanted to measure but nothing to measure — leave for a human.
+                for ds, _pol in eval_agents:
+                    records.append(await self._record(
+                        db, org_id, str(ds.id), TRIGGER_SUGGESTION, STATUS_NO_EVALS, user=user,
+                        detail={"reason": "auto_run_eval on but no active evals scoped to this agent",
+                                "build_id": str(build_id)},
+                    ))
+                return records
+
+            # Evaluate the SUGGESTION build itself (pinned snapshot).
+            result = await self._evaluate(
+                db, organization, actor, case_ids, build_id=str(build_id),
+                trigger=TRIGGER_SUGGESTION,
+            )
+            test_run_ids = result.get("run_ids") or ([result["run_id"]] if result.get("run_id") else [])
+            green = result["failed"] == 0 and result["errored"] == 0
+
+            if green:
+                promote = all(pol.auto_approve_on_success for _ds, pol in eval_agents)
+                if promote:
+                    try:
+                        if build.status == "draft":
+                            await bs.submit_build(db, str(build_id), user_id=str(actor.id))
+                        await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
+                        # Don't re-fan-out: we just measured this exact build.
+                        await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False)
+                        status, reason = STATUS_PASSED, "suggestion evals green; auto-promoted"
+                    except Exception as e:
+                        logger.exception("run_for_suggestion.promote_failed build=%s: %s", build_id, e)
+                        status, reason = STATUS_PASSED_PENDING, f"evals green but promote failed: {e}; left for review"
+                else:
+                    try:
+                        if build.status == "draft":
+                            await bs.submit_build(db, str(build_id), user_id=str(actor.id))
+                    except Exception:
+                        pass
+                    status, reason = STATUS_PASSED_PENDING, "suggestion evals green; awaiting human approval"
+            else:
+                # Failed proposal: main is untouched, so nothing to revert and
+                # the live agent is NOT demoted. Leave it in Review marked failed.
+                status, reason = STATUS_GAVE_UP, "suggestion evals failed; left in Review (main unchanged)"
+
+            for ds, _pol in eval_agents:
+                records.append(await self._record(
+                    db, org_id, str(ds.id), TRIGGER_SUGGESTION, status, user=user,
+                    detail={"reason": reason, "build_id": str(build_id),
+                            "eval": result["summary"], "test_run_ids": test_run_ids},
+                ))
+            return records
+
+        # ---- Auto-approve path (no evals) -------------------------------------
+        try:
+            if build.status == "draft":
+                await bs.submit_build(db, str(build_id), user_id=str(actor.id))
+            await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
+            await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False)
+            status, reason = STATUS_PASSED, "auto-approved without evals (Self Learning)"
+        except Exception as e:
+            logger.exception("run_for_suggestion.auto_promote_failed build=%s: %s", build_id, e)
+            status, reason = STATUS_PASSED_PENDING, f"auto-approve failed: {e}; left for review"
+        for ds, _pol in approve_agents:
+            records.append(await self._record(
+                db, org_id, str(ds.id), TRIGGER_SUGGESTION, status, user=user,
+                detail={"reason": reason, "build_id": str(build_id)},
+            ))
+        return records
 
     async def _run_scheduled(self, organization_id, data_source_id, trigger, changed_hint, user_id=None) -> None:
         from app.settings.database import create_async_session_factory

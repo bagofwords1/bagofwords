@@ -3164,6 +3164,22 @@ class InstructionService:
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"review: failed to emit suggestion for build {build.id}: {e}")
+
+            # Self Learning: a user manually proposing an instruction change is a
+            # suggestion-creation site — run each affected agent's policy. Scoped
+            # to source=='user' so AI/knowledge-harness builds (handled at the
+            # harness site) and report training-mode builds are NOT double- or
+            # wrongly-triggered here.
+            if getattr(build, "source", "user") == "user":
+                try:
+                    from app.services.agent_reliability_service import AgentReliabilityService
+                    AgentReliabilityService().schedule_for_suggestion(
+                        organization_id=str(build.organization_id),
+                        build_id=str(build.id),
+                        user_id=str(current_user.id) if current_user else None,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Self Learning schedule failed for build {build.id}: {e}")
             return True
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")

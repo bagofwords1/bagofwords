@@ -247,13 +247,17 @@ class RunEvalTool(Tool):
             timeout_s = min(total * _PER_CASE_TIMEOUT_S, _MAX_TIMEOUT_S)
 
             # --- Pin the candidate build so evals test the *staged* hunks ---
-            # In training / knowledge mode the agent accumulates new instruction
-            # versions into a draft build (``training_build_id``). Running evals
-            # without a build_id would silently fall back to the current MAIN
-            # build and never exercise the just-authored instructions. Pin the
-            # draft build when present so "does my change pass?" actually tests
-            # the change. Falls back to main (None) outside a build context.
-            candidate_build_id = runtime_ctx.get("training_build_id")
+            # Resolution order, most-specific first:
+            #   1. ``data.build_id`` — an explicit suggestion build chosen by the
+            #      caller. This is how "run eval on Change 1" targets exactly
+            #      that suggestion's snapshot (main + only its hunks), unaffected
+            #      by any sibling suggestion on the same instruction.
+            #   2. ``runtime_ctx['training_build_id']`` — the draft the agent is
+            #      accumulating in training / knowledge mode.
+            #   3. ``None`` — fall back to the current main build.
+            # Without (1)/(2) the run would silently measure MAIN and never
+            # exercise the just-authored instructions.
+            candidate_build_id = data.build_id or runtime_ctx.get("training_build_id")
 
             # --- Kick off the TestRun ---
             run, _results = await run_service.create_and_execute_background(
