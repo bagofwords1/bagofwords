@@ -276,9 +276,9 @@
               </div>
             </div>
             <template v-else-if="agentDetail?.primary_instruction">
-              <div class="flex items-center justify-between gap-2 mb-1.5">
-                <span class="text-sm font-medium text-gray-800">{{ agentDetail.primary_instruction.title || 'Primary instruction' }}</span>
-                <button v-if="agentCanUpdate" class="text-[11px] text-blue-600 hover:underline" @click="startEditPrimary">Edit</button>
+              <div v-if="agentCanUpdate" class="flex items-center justify-end gap-3 mb-1.5">
+                <PrimaryInstructionPicker :agent-id="agentView.agentId" :current-instruction-id="agentDetail.primary_instruction.id" label="Change" @select="onSelectExistingPrimary" />
+                <button class="text-[11px] text-blue-600 hover:underline" @click="startEditPrimary">Edit</button>
               </div>
               <InstructionText :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" :prose="true" :markdown="true" />
             </template>
@@ -292,6 +292,9 @@
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="startCreatePrimary"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />Add primary instruction</button>
                 <span class="text-xs text-gray-400">or</span>
                 <PrimaryInstructionPicker :agent-id="agentView.agentId" label="select existing" @select="onSelectExistingPrimary" />
+              </div>
+              <div v-if="agentCanStartTraining" class="mt-3">
+                <button class="text-xs text-sky-600 hover:underline inline-flex items-center gap-1" @click="startTrainingSessionForAgent(agentView.agentId)"><UIcon name="i-heroicons-academic-cap" class="w-3.5 h-3.5" />Start a training session</button>
               </div>
             </div>
 
@@ -567,6 +570,9 @@
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400" />All agents</span>
                     <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
+                  <!-- Primary: only when scoped to a single agent -->
+                  <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
+                  <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 text-amber-700 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />Primary</span>
                   <!-- References -->
                   <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 pl-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono" :class="metaEditable ? 'pr-1' : 'pr-2'">
                     <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400" />{{ r.display_text || r.object_id }}
@@ -753,9 +759,13 @@ import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
+import { useOrgSettings } from '~/composables/useOrgSettings'
 
 const h = useInstructionHelpers()
 const toast = useToast()
+// Training mode is gated by org setting + permission (mirrors the legacy agents page).
+const { isTrainingModeEnabled } = useOrgSettings()
+const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
 
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
@@ -832,6 +842,41 @@ const loadOpts = [{ value: 'always', label: 'Always' }, { value: 'intelligent', 
 const sourceOpts = [{ value: 'user', label: 'User' }, { value: 'ai', label: 'AI' }, { value: 'git', label: 'Git' }]
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
+
+// Primary instruction toggle — only meaningful when the instruction is scoped to
+// exactly one agent. `primary_for` (from the API) lists data sources whose
+// primary_instruction_id points at this instruction.
+const singleAgentId = computed(() => draft.data_source_ids.length === 1 ? draft.data_source_ids[0] : null)
+const primaryOpts = [{ value: 'primary', label: 'Primary' }, { value: 'standard', label: 'Not primary' }]
+const settingPrimary = ref(false)
+const primarySelectValue = computed<string>({
+  get: () => {
+    const aid = singleAgentId.value
+    if (!aid) return 'standard'
+    return ((detail.value as any)?.primary_for || []).some((d: any) => String(d.id) === String(aid)) ? 'primary' : 'standard'
+  },
+  set: (val) => { setPrimaryForSingleAgent(val === 'primary') },
+})
+const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
+  const aid = singleAgentId.value
+  const iid = detail.value?.id
+  if (!aid || !iid || settingPrimary.value) return
+  settingPrimary.value = true
+  try {
+    await useMyFetch(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: makePrimary ? iid : null } })
+    const d = detail.value as any
+    if (makePrimary) {
+      if (!(d.primary_for || []).some((x: any) => String(x.id) === String(aid))) {
+        d.primary_for = [...(d.primary_for || []), { id: aid, name: agents.value.find(a => a.id === aid)?.name || '' }]
+      }
+    } else {
+      d.primary_for = (d.primary_for || []).filter((x: any) => String(x.id) !== String(aid))
+    }
+    // Keep the agent panel in sync if it's open for this agent.
+    if (agentView.value?.agentId === aid) await refreshAgentDetail()
+    toast.add({ title: 'Saved', color: 'green' })
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { settingPrimary.value = false }
+}
 
 // right-pane panel for Tables/Tools/Evals/Settings
 const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings'; agentId: string }>(null)
@@ -925,6 +970,21 @@ const createReportForAgent = async (id: string) => {
     const rid = (data.value as any)?.id
     if (error.value || !rid) throw new Error('Failed to create report')
     navigateTo(`/reports/${rid}`)
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+}
+// Start a training session for an agent: a new report scoped to ONLY this
+// agent/data source, switched to training mode, with a pre-filled (non-submitting)
+// prompt — mirrors the legacy agents page.
+const startTrainingSessionForAgent = async (agentId: string) => {
+  if (!agentId) return
+  const prompt = 'I need to update the instruction for this agent with '
+  try {
+    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'Training session', data_sources: [agentId] } })
+    const rid = (data.value as any)?.id
+    if (error.value || !rid) throw new Error('Failed to create report')
+    const { error: modeErr } = await useMyFetch(`/reports/${rid}`, { method: 'PUT', body: { mode: 'training' } })
+    if (modeErr.value) throw new Error(String(modeErr.value))
+    await navigateTo({ path: `/reports/${rid}`, query: { prompt } })
   } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
 }
 // description inline edit

@@ -296,21 +296,31 @@ class DemoDataSourceService:
             
             created_count = 0
             for instruction_text in demo.instructions:
+                # Scope each demo instruction to THIS newly created data source.
+                # (Do NOT pass force_global — these must stay associated with the
+                # demo agent, not leak in as global/all-agent instructions.)
                 instruction_data = InstructionCreate(
                     text=instruction_text,
                     data_source_ids=[data_source.id],
                     category="general",
                 )
-                
-                await instruction_service.create_instruction(
+
+                created = await instruction_service.create_instruction(
                     db=db,
                     instruction_data=instruction_data,
                     current_user=current_user,
                     organization=organization,
-                    force_global=True,  # Make them global/approved so they're active immediately
                     build=demo_build,  # Use shared build
                     auto_finalize=False,  # Don't finalize yet
                 )
+
+                # Safety net: guarantee the association exists even if a future
+                # build/version flow change ever drops it.
+                try:
+                    if created is not None and not any(str(ds.id) == str(data_source.id) for ds in (created.data_sources or [])):
+                        await instruction_service._associate_data_sources(db, created, [data_source.id])
+                except Exception as assoc_error:
+                    logger.warning(f"Failed to ensure demo instruction association: {assoc_error}")
                 created_count += 1
             
             # === Finalize Build ===
