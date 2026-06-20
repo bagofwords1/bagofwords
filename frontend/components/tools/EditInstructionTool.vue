@@ -150,9 +150,9 @@
           </template>
         </div>
 
-        <!-- Resolved evals for this agent — run them against the draft build
-             this edit was staged into (training-mode self-check). -->
-        <div v-if="isSuccess && instructionId && buildId" class="mt-2 pt-2 border-t border-gray-100">
+        <!-- Resolved evals for this agent, pinned to the draft build this edit
+             was staged into (training-mode self-check). -->
+        <div v-if="isSuccess && instructionId && buildId" class="mt-1.5 px-1">
           <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" />
         </div>
 

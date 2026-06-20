@@ -133,12 +133,8 @@
                 {{ $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
               </span>
             </template>
-          </div>
-
-          <!-- Resolved evals for this agent — run them against the draft build
-               this instruction was staged into (training-mode self-check). -->
-          <div v-if="isSuccess && instructionId && buildId" class="mt-2 pt-2 border-t border-gray-200">
-            <ResolvedEvalStrip :instruction-id="instructionId" :build-id="buildId" />
+            <!-- Resolved evals for this agent, pinned to the draft build -->
+            <ResolvedEvalStrip v-if="buildId" :instruction-id="instructionId" :build-id="buildId" class="ms-auto" />
           </div>
 
           <!-- Error message -->
