@@ -552,14 +552,21 @@ class InstructionContextBuilder:
 
     @staticmethod
     def _skill_description(instruction: Instruction) -> Optional[str]:
-        """Derive a one-line description for the skills catalog."""
-        sd = instruction.structured_data
-        if isinstance(sd, dict) and sd.get("description"):
-            desc = str(sd["description"]).strip()
+        """Derive a one-line description for the skills catalog.
+
+        Precedence: explicit user-authored `description` → structured_data
+        description (git/dbt sources) → first non-empty line of the text.
+        """
+        if instruction.description and instruction.description.strip():
+            desc = instruction.description.strip()
         else:
-            # First non-empty line of the text, trimmed.
-            text = (instruction.text or "").strip()
-            desc = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+            sd = instruction.structured_data
+            if isinstance(sd, dict) and sd.get("description"):
+                desc = str(sd["description"]).strip()
+            else:
+                # First non-empty line of the text, trimmed.
+                text = (instruction.text or "").strip()
+                desc = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
         if not desc:
             return None
         return desc if len(desc) <= 160 else desc[:157] + "…"

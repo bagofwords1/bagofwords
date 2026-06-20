@@ -924,6 +924,7 @@ class InstructionService:
             instruction_id=instruction.id,
             text=target_version.text,
             title=target_version.title,
+            description=target_version.description,
             structured_data=target_version.structured_data,
             formatted_content=target_version.formatted_content,
             status=target_version.status or 'published',
@@ -1016,6 +1017,7 @@ class InstructionService:
                 instruction_id=instruction.id,
                 text=text,
                 title=title if title is not None else (meta_src.title if meta_src else getattr(instruction, 'title', None)),
+                description=(meta_src.description if meta_src else getattr(instruction, 'description', None)),
                 structured_data=(meta_src.structured_data if meta_src else None),
                 formatted_content=None,
                 status=(meta_src.status if meta_src else 'published') or 'published',
@@ -1222,6 +1224,7 @@ class InstructionService:
         new_version = await self.version_service.create_version_from_data(
             db, instruction_id=instruction.id, text=new_text,
             title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
+            description=(meta_src.description if meta_src else getattr(instruction, "description", None)),
             structured_data=(meta_src.structured_data if meta_src else None), formatted_content=None,
             status=(meta_src.status if meta_src else "published") or "published",
             load_mode=(meta_src.load_mode if meta_src else getattr(instruction, "load_mode", "always")) or "always",
@@ -1282,6 +1285,7 @@ class InstructionService:
         new_version = await self.version_service.create_version_from_data(
             db, instruction_id=instruction.id, text=new_text,
             title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
+            description=(meta_src.description if meta_src else getattr(instruction, "description", None)),
             structured_data=(meta_src.structured_data if meta_src else None), formatted_content=None,
             status=(meta_src.status if meta_src else "published") or "published",
             load_mode=(meta_src.load_mode if meta_src else getattr(instruction, "load_mode", "always")) or "always",
@@ -2182,7 +2186,7 @@ class InstructionService:
         """Handle owner editing their own private instruction"""
 
         # Owner can only edit text/title/category/toggles. Ignore any status changes silently.
-        allowed_fields = ['text', 'title', 'category', 'kind', 'is_seen', 'can_user_toggle']
+        allowed_fields = ['text', 'title', 'description', 'category', 'kind', 'is_seen', 'can_user_toggle']
         
         # Apply allowed changes only (ignore status/private/global fields if present)
         for field in allowed_fields:

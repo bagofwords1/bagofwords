@@ -89,6 +89,49 @@ def test_update_to_skill_forces_intelligent(create_user, login_user, whoami, tes
     assert upd.json()["load_mode"] == "intelligent", upd.json()
 
 
+def _version_count(test_client, token, org_id, instr_id):
+    resp = test_client.get(
+        f"/api/instructions/{instr_id}/versions", headers=_auth(token, org_id)
+    )
+    assert resp.status_code == 200, resp.json()
+    data = resp.json()
+    items = data["items"] if isinstance(data, dict) and "items" in data else data
+    return len(items)
+
+
+@pytest.mark.e2e
+def test_description_change_creates_new_version(create_user, login_user, whoami, test_client):
+    """description is a versioned field — editing it (alone) creates a new version
+    and updates the live row."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    created = test_client.post(
+        "/api/instructions",
+        json={
+            "text": "Stable body.", "title": "Skill", "kind": "skill",
+            "description": "first description", "status": "published",
+        },
+        headers=_auth(token, org_id),
+    ).json()
+    assert created["description"] == "first description"
+    before = _version_count(test_client, token, org_id, created["id"])
+
+    upd = test_client.put(
+        f"/api/instructions/{created['id']}",
+        json={"description": "second description"},
+        headers=_auth(token, org_id),
+    )
+    assert upd.status_code == 200, upd.json()
+    assert upd.json()["description"] == "second description"
+
+    after = _version_count(test_client, token, org_id, created["id"])
+    assert after == before + 1, f"expected a new version (before={before}, after={after})"
+
+    got = test_client.get(
+        f"/api/instructions/{created['id']}", headers=_auth(token, org_id)
+    ).json()
+    assert got["description"] == "second description"
+
+
 @pytest.mark.e2e
 def test_bulk_update_load_mode_skipped_for_skill(create_user, login_user, whoami, test_client):
     token, org_id = _new_admin(create_user, login_user, whoami)

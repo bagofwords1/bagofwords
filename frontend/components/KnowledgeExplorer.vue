@@ -525,8 +525,12 @@
             <!-- Scrollable content: title + body -->
             <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
               <div class="max-w-3xl">
-                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
-                <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
+                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-2" />
+                <h2 v-else class="text-lg font-semibold text-gray-900 mb-2">{{ displayTitle(detail) }}</h2>
+                <!-- Optional description (advertised for skills) -->
+                <input v-if="editing" v-model="draft.description" placeholder="Add a description (optional)" class="w-full text-sm text-gray-600 outline-none placeholder:text-gray-300 mb-4" />
+                <p v-else-if="detail?.description" class="text-sm text-gray-500 mb-4">{{ detail.description }}</p>
+                <div v-else class="mb-4"></div>
                 <div class="prose-instruction">
                   <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
                 </div>
@@ -784,8 +788,8 @@ const detail = ref<Instruction | null>(null)
 const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
-const draft = reactive<{ title: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
-  { title: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
+const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
+  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
 )
 const kindOpts = [{ value: 'instruction', label: 'Instruction' }, { value: 'skill', label: 'Skill' }]
 // Reference options come from the selected agents' tables (valid datasource_table ids).
@@ -1783,7 +1787,7 @@ const openInstruction = async (ins: Instruction) => {
   await loadPending(ins.id)
 }
 const syncDraft = (ins: Instruction) => {
-  draft.title = ins.title || ''; draft.text = ins.text || ''
+  draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
   draft.kind = (ins as any).kind || 'instruction'
   draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
   draft.category = ins.category || 'general'
@@ -1795,7 +1799,7 @@ const syncDraft = (ins: Instruction) => {
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
   closePreview(); closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
-  draft.title = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
+  draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -1806,7 +1810,7 @@ const cancelEdit = () => { if (creating.value) { creating.value = false; editing
 const save = async () => {
   saving.value = true
   try {
-    const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
     if (creating.value) {
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
@@ -1856,7 +1860,7 @@ const saveMeta = async () => {
   if (!detail.value || creating.value || editing.value) return
   savingMeta.value = true
   try {
-    const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
     const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')

@@ -80,7 +80,7 @@ class InstructionsSection(ContextSection):
             skill_parts: List[str] = [
                 "Skills available on demand. Each lists a short id, title and a one-line "
                 "description — the full instructions are NOT shown here. When a skill is "
-                "relevant to the user's request, call read_instruction with its short_id "
+                "relevant to the user's request, call read_skill with its short_id "
                 "to load the full text before acting on it."
             ]
             for sk in self.skills:

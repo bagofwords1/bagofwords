@@ -25,6 +25,7 @@ export interface Instruction {
   id: string
   text: string
   title?: string | null
+  description?: string | null
   thumbs_up?: number
   status: 'draft' | 'published' | 'archived'
   category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'

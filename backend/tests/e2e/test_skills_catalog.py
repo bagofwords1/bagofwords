@@ -69,6 +69,31 @@ async def test_skill_advertised_not_loaded(create_user, login_user, whoami, test
     assert skill["id"][:8] in rendered
     assert "Cohort analysis skill" in rendered
     # Only the one-line description is advertised — the full body is withheld
-    # (the agent must call read_instruction to get it).
+    # (the agent must call read_skill to get it).
     assert "One-line summary of the cohort skill." in rendered
     assert "LONGDETAILBODY" not in rendered
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_explicit_description_used_in_catalog(create_user, login_user, whoami, test_client):
+    """An explicit description overrides the first-line-of-text fallback."""
+    from app.dependencies import async_session_maker
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    _create(
+        test_client, token, org_id,
+        text="FIRSTLINEFALLBACK should not be advertised.\n\nbody...",
+        title="Skill with description",
+        description="A crisp human-written blurb.",
+        kind="skill",
+    )
+
+    async with async_session_maker() as db:
+        builder = InstructionContextBuilder(db, SimpleNamespace(id=org_id))
+        section = await builder.build(query=None)
+
+    rendered = section.render()
+    assert "A crisp human-written blurb." in rendered
+    assert "FIRSTLINEFALLBACK" not in rendered

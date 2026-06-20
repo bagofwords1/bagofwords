@@ -908,6 +908,7 @@ class BuildService:
                 BuildContent.instruction_version_id,
                 InstructionVersion.text,
                 InstructionVersion.title,
+                InstructionVersion.description,
                 InstructionVersion.load_mode,
                 InstructionVersion.category_ids,
                 InstructionVersion.status,
@@ -918,7 +919,7 @@ class BuildService:
             )
             .where(BuildContent.build_id == build_id)
         )
-        for instruction_id, version_id, v_text, v_title, v_load_mode, v_category_ids, v_status in rows.all():
+        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_category_ids, v_status in rows.all():
             category = None
             if v_category_ids:
                 category = v_category_ids[0] if isinstance(v_category_ids, list) else v_category_ids
@@ -927,6 +928,8 @@ class BuildService:
                 values["text"] = v_text
             if v_title is not None:
                 values["title"] = v_title
+            # description is nullable and clearable — always sync it to the version's value
+            values["description"] = v_description
             if v_load_mode is not None:
                 values["load_mode"] = v_load_mode
             if category is not None:

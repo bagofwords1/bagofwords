@@ -1,9 +1,9 @@
 """Live AI test (Anthropic Haiku): the chat agent discovers a skill from the
-<available_skills> catalog and pulls its full text via the read_instruction tool.
+<available_skills> catalog and pulls its full text via the read_skill tool.
 
 Run:
   ANTHROPIC_API_KEY_TEST=sk-ant-... \
-    pytest -s -m ai --db=sqlite tests/ai/test_read_instruction_live.py
+    pytest -s -m ai --db=sqlite tests/ai/test_read_skill_live.py
 
 Skips cleanly when ANTHROPIC_API_KEY_TEST is unset.
 """
@@ -31,7 +31,7 @@ def _all_tool_names(completions):
 
 
 @pytest.mark.ai
-def test_agent_reads_skill_via_read_instruction(
+def test_agent_reads_skill_via_read_skill(
     create_user, login_user, whoami, test_client,
     create_data_source, create_report, create_completion,
 ):
@@ -97,15 +97,15 @@ def test_agent_reads_skill_via_read_instruction(
         report_id=report["id"],
         prompt=(
             "There is a skill listed under available_skills about the active customer "
-            "definition. Use the read_instruction tool to read it, then tell me the secret "
+            "definition. Use the read_skill tool to read it, then tell me the secret "
             "verification code it contains. Do not query the database."
         ),
         user_token=token, org_id=org_id,
     )
 
     tool_names = _all_tool_names(completions)
-    assert "read_instruction" in tool_names, (
-        f"agent did not call read_instruction; tools used: {tool_names}"
+    assert "read_skill" in tool_names, (
+        f"agent did not call read_skill; tools used: {tool_names}"
     )
 
     # The agent should have surfaced the skill's content after reading it.
