@@ -692,6 +692,7 @@
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
+    <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="credsAgent" @saved="onCredsSaved" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
 
@@ -755,6 +756,7 @@ import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
+import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
@@ -1189,6 +1191,7 @@ const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showNewAgent = ref(false)
 const showAddMCP = ref(false)
+const showAddCustomAPI = ref(false)
 
 // ── Per-user OAuth / OBO sign-in (user_required agents) ──────────────────────
 // Replaces the old behaviour of popping the legacy /old_agents connection page.
@@ -1239,8 +1242,9 @@ const toolsRefreshKey = ref(0)
 // Null when creating a brand-new agent (header "New › Agent").
 const connTargetAgentId = ref<string | null>(null)
 const openAddMcp = (agentId: string) => { connTargetAgentId.value = agentId; showAddMCP.value = true }
-const openAddCustomApi = (agentId: string) => { connTargetAgentId.value = agentId; showAddConnection.value = true }
+const openAddCustomApi = (agentId: string) => { connTargetAgentId.value = agentId; showAddCustomAPI.value = true }
 const mcpExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'mcp'))
+const customApiExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'custom_api'))
 // New connection created: link it to the target agent (if any) and refresh its tools.
 const onConnCreated = async (conn?: any) => {
   const aid = connTargetAgentId.value
@@ -1248,7 +1252,7 @@ const onConnCreated = async (conn?: any) => {
     try { await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' }) } catch {}
     try { await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' }) } catch {}
   }
-  showAddMCP.value = false; showAddConnection.value = false
+  showAddMCP.value = false; showAddCustomAPI.value = false; showAddConnection.value = false
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid); if (agentView.value?.agentId === aid) await refreshAgentDetail() }
   await fetchAgents(); toolsRefreshKey.value++
   connTargetAgentId.value = null
