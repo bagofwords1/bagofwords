@@ -1829,6 +1829,7 @@
       "runSelected": "Run Selected",
       "addNew": "Add New Test",
       "empty": "No tests found",
+      "emptyDescription": "Add a test to evaluate how your agents respond to prompts and rules.",
       "deleteConfirm": "Delete this test case? This cannot be undone.",
       "colPrompt": "Prompt",
       "colRules": "Rules",

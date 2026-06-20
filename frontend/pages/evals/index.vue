@@ -133,7 +133,17 @@
                                         </td>
                                     </tr>
                                     <tr v-if="filteredTests.length === 0">
-                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.tests.empty') }}</td>
+                                        <td colspan="5" class="px-6 py-10">
+                                            <div class="flex flex-col items-center justify-center text-center">
+                                                <img src="/assets/empty-states/empty-meadow.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+                                                <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-beaker" class="w-5 h-5 text-gray-400" /></div>
+                                                <h3 class="mt-3 text-base font-medium text-gray-900">{{ $t('evals.tests.empty') }}</h3>
+                                                <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ $t('evals.tests.emptyDescription') }}</p>
+                                                <div class="mt-4 flex items-center gap-2">
+                                                    <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="addNewTest"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('evals.tests.addNew') }}</button>
+                                                </div>
+                                            </div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
