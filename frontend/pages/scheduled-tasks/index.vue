@@ -1,6 +1,24 @@
 <template>
   <div class="py-6">
     <div class="max-w-3xl mx-auto px-4">
+      <!-- Full-page empty state (no tasks, no active search) -->
+      <div v-if="!isLoading && tasks.length === 0 && !searchTerm" class="flex flex-col items-center justify-center text-center py-24 px-4">
+        <img src="/assets/empty-states/empty-waterfall.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+        <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm"><UIcon name="heroicons-clock" class="w-5 h-5 text-gray-400" /></div>
+        <h3 class="mt-3 text-base font-medium text-gray-900">{{ $t('scheduled.empty') }}</h3>
+        <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ $t('scheduled.emptyDescription') }}</p>
+        <button
+          @click="openNewTask"
+          :disabled="creatingTask"
+          class="mt-4 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+        >
+          <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
+          <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
+          {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
+        </button>
+      </div>
+
+      <template v-else>
       <div class="mb-5">
         <div class="flex items-center justify-between">
           <h1 class="text-lg font-semibold text-gray-900">
@@ -28,12 +46,9 @@
         <Spinner class="me-1" /> {{ $t('scheduled.loading') }}
       </div>
 
-      <!-- Empty -->
-      <div v-else-if="tasks.length === 0" class="flex flex-col items-center justify-center text-center py-10 px-4">
-        <img src="/assets/empty-states/empty-waterfall.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
-        <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm"><UIcon name="heroicons-clock" class="w-5 h-5 text-gray-400" /></div>
-        <h3 class="mt-3 text-base font-medium text-gray-900">{{ $t('scheduled.empty') }}</h3>
-        <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ $t('scheduled.emptyDescription') }}</p>
+      <!-- No matches for the current search (page chrome stays visible) -->
+      <div v-else-if="tasks.length === 0" class="py-12 text-center text-xs text-gray-500">
+        {{ $t('scheduled.empty') }}
       </div>
 
       <!-- Task cards -->
@@ -89,6 +104,7 @@
           <template v-else>{{ $t('scheduled.loadMore') }}</template>
         </button>
       </div>
+      </template>
     </div>
 
     <!-- Scheduled Prompt Modal -->
