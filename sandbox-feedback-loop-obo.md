@@ -322,14 +322,17 @@ backend log `/tmp/bow_backend.log`, frontend log `/tmp/bow_frontend.log`.
 - **F-7 (product, low):** `POST /api/connections` response omits
   `allowed_user_auth_modes` (returns `null`) even though it is persisted
   correctly (confirmed in DB and via `GET /api/connections`). Cosmetic API gap.
-- **F-8 (product, high for model mgmt):** `routes/llm.py` calls
+- **F-8 (product, LOW — dead endpoints, not user-facing):** `routes/llm.py` calls
   `llm_service.create_model` (:126), `update_model` (:138), `delete_model` (:149)
-  — none exist on `LLMService` (only `_create_models`/`_update_models`/
-  `toggle_model`/`set_default_model`). So **create/update/delete of a custom LLM
-  model all 500** (`AttributeError`). Presets, toggle, and set-default work via
-  other methods, so the app still runs once a model row exists (worked around
-  here by inserting the Claude Haiku model row directly). Fix: wire routes to the
-  existing private methods or add public wrappers.
+  — none exist on `LLMService` → those three `/api/llm/models` write endpoints 500
+  (`AttributeError`). **However the UI never calls them:** the frontend adds and
+  manages models through the provider endpoints (`POST`/`PUT /api/llm/providers`
+  with a `models` array → `create_provider` → `_create_models`, plus
+  `models/{id}/toggle` and `set_default`). So adding LLMs via `llm_service` works
+  fine; only the standalone model-write routes are dead. (In this sandbox the
+  Haiku model was inserted directly only because the raw API call omitted the
+  `models` array; the normal provider-create path would have created it.) Fix:
+  wire the three routes to the existing private methods or remove them.
 
 ### How to run the Entra UI test
 
