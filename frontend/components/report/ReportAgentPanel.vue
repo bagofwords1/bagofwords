@@ -9,7 +9,8 @@
         <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
           <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
         </button>
-        <DataSourceIcon :type="agents[0].type || agents[0].connections?.[0]?.type" class="h-5 flex-shrink-0" />
+        <Icon v-if="(agents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 flex-shrink-0" />
+        <DataSourceIcon v-else :type="agents[0].type || agents[0].connections?.[0]?.type" class="h-5 flex-shrink-0" />
         <span class="text-sm font-semibold text-gray-900 truncate">{{ agents[0].name }}</span>
       </div>
       <div v-else class="flex items-center gap-2">
@@ -21,7 +22,8 @@
           @click="dropdownOpen = !dropdownOpen"
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors bg-white/80"
         >
-          <DataSourceIcon v-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" class="h-5 flex-shrink-0" />
+          <Icon v-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 flex-shrink-0" />
+          <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" class="h-5 flex-shrink-0" />
           <span class="truncate flex-1 text-start font-medium text-gray-900">
             {{ selectedAgent?.name || $t('reportAgent.selectAgent') }}
           </span>
@@ -43,7 +45,8 @@
               class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
             >
-              <DataSourceIcon :type="agent.type || agent.connections?.[0]?.type" class="h-4 flex-shrink-0" />
+              <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <DataSourceIcon v-else :type="agent.type || agent.connections?.[0]?.type" class="h-4 flex-shrink-0" />
               <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             </button>
@@ -210,7 +213,7 @@
                 :instruction="selectedInstruction || undefined"
                 :default-status="canCreateInstructions ? 'published' : 'draft'"
                 :initial-version-number="initialVersionNumberForInstruction ?? undefined"
-                :agent-id="selectedAgentId || undefined"
+                :agent-id="isGlobalSelected ? undefined : (selectedAgentId || undefined)"
                 @instruction-saved="onInstructionSaved"
                 @cancel="closeInstructionForm"
               />
@@ -578,6 +581,12 @@ const openBuildExplorer = (bid: string) => {
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedAgentId = ref<string | null>(null)
+// Synthetic "Global" entry (instructions attached to no agent). Callers that
+// want it — e.g. the home Instructions modal — append { id: GLOBAL_AGENT_ID,
+// name: 'Global', isGlobal: true } to `agents`. The report never does, so its
+// behaviour is unchanged.
+const GLOBAL_AGENT_ID = '__global__'
+const isGlobalSelected = computed(() => selectedAgentId.value === GLOBAL_AGENT_ID)
 
 // Tab state
 const activeTab = ref<'overview' | 'instructions' | 'tables' | 'queries' | 'evals'>('overview')
@@ -653,6 +662,8 @@ async function saveStarters() {
 
 const canCreateInstructions = computed(() => {
   if (useCan('manage_instructions')) return true
+  // Global instructions: creation requires org-level manage_instructions.
+  if (isGlobalSelected.value) return false
   if (!selectedAgentId.value) return false
   return useCan('manage_instructions', { type: 'data_source', id: selectedAgentId.value })
 })
@@ -745,6 +756,7 @@ const evalsError = ref<string | null>(null)
 watch(() => props.agents, (agents) => {
   if (agents.length > 0 && !selectedAgentId.value) {
     selectedAgentId.value = agents[0].id
+    if (agents[0].id === GLOBAL_AGENT_ID) activeTab.value = 'instructions'
   }
 }, { immediate: true })
 
@@ -754,6 +766,10 @@ const selectedAgent = computed(() => {
 
 // Tab definitions with counts (tables count managed by TablesSelector internally)
 const tabs = computed(() => {
+  // The Global entry only carries instructions (no overview/tables/queries/evals).
+  if (isGlobalSelected.value) {
+    return [{ key: 'instructions' as const, label: t('reportAgent.tabInstructions'), count: instructions.value.length }]
+  }
   const out: Array<{ key: 'overview' | 'instructions' | 'tables' | 'queries' | 'evals'; label: string; count: number }> = [
     { key: 'overview', label: 'Overview', count: 0 },
     { key: 'instructions', label: t('reportAgent.tabInstructions'), count: instructions.value.length },
@@ -784,6 +800,8 @@ function getInstructionDsType(ds: any): string | undefined {
 function selectAgent(agentId: string) {
   selectedAgentId.value = agentId
   dropdownOpen.value = false
+  // Global has only the instructions tab; never leave activeTab on overview/etc.
+  if (agentId === GLOBAL_AGENT_ID) activeTab.value = 'instructions'
 }
 
 async function onInstructionSaved(savedInstruction?: any) {
@@ -841,6 +859,27 @@ onUnmounted(() => {
 
 // Fetch data for active tab when agent or tab changes
 async function fetchTabData(agentId: string, tab: string) {
+  // Global entry: only the instructions tab, listing instructions attached to no
+  // agent. No /data_sources/{id} fetch (there is no data source).
+  if (agentId === GLOBAL_AGENT_ID) {
+    if (tab === 'instructions' && !instructionsCache.value[agentId]) {
+      loading.value = true
+      instructionsError.value = null
+      try {
+        const { data, error } = await useMyFetch('/api/instructions', {
+          method: 'GET',
+          query: { include_own: true, include_drafts: true, limit: 200 }
+        })
+        if (error?.value) { instructionsError.value = t('reportAgent.loadFailInstructions'); return }
+        const payload: any = (data as any)?.value
+        const all = payload?.items || payload || []
+        instructionsCache.value[agentId] = all.filter((i: any) => !(i.data_sources?.length))
+      } catch { instructionsError.value = t('reportAgent.loadFailInstructions') }
+      finally { loading.value = false }
+    }
+    return
+  }
+
   // Tables tab is handled by TablesSelector component — no manual fetch needed
 
   if (tab === 'overview' && !agentDetailsCache.value[agentId]) {
