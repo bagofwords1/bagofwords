@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.416 (June 21, 2026)
+- **Security — resolved all High/Critical dependency vulnerabilities** flagged by Snyk in both the backend (uv) and frontend (yarn) dependency trees.
+  - Backend: `cryptography` 46.0.7 → 49.0.0 (out-of-bounds read) and `starlette` 0.50.0 → 1.3.1 (SSRF, resource exhaustion, unsafe reflection, request smuggling, incorrectly-resolved name). Resolving Starlette required matching bumps to `fastapi` (→ 0.138.0), `fastapi-mail` (→ 1.6.5), and `aiosmtplib` (→ 5.1.2), which previously capped it. Backend scan now reports **0 issues**.
+  - Frontend: `nuxt` → ^3.21.7 (open redirect), `vite` resolution corrected to `>=7.3.5 <8` (directory traversal — the prior resolution pinned the vulnerable 7.3.3), and a new `ws` resolution `>=8.21.0` (asymmetric resource consumption). Frontend now has **0 High/Critical** issues.
+- **Docs** — added `docs/snyk-dependency-scanning.md` (skill-format guide) covering how to scan the uv backend and yarn frontend with the Snyk CLI and apply fixes.
+
 ## Version 0.0.415 (June 20, 2026)
 - **Knowledge Explorer** — a new three-pane workspace (at `/instructions`) for browsing and managing everything an agent knows: global instructions, skills, per-agent resources, pending reviews, and each agent's tables and tools. Tree navigation with search and filtering (by status, load mode, source, category), inline editing of titles/descriptions/conversation starters, file upload and preview, and a version-history pane with diff view.
 - **Agent management** — a guided **New Agent wizard**, a dedicated **Agent Settings** panel, and per-agent **automation settings**, plus a clearer public/private agent distinction surfaced across the UI.
