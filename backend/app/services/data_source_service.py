@@ -1151,11 +1151,12 @@ class DataSourceService:
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
             # Publishing-lifecycle visibility:
-            #   disabled → never usable, hidden from everyone
+            #   disabled → off everywhere; only surfaced in the admin "show all"
+            #              view so managers can find and re-enable them
             #   draft    → only managers (governance / per-DS manage)
             #   published → everyone with access
             publish_status = getattr(d, "publish_status", "published") or "published"
-            if publish_status == "disabled":
+            if publish_status == "disabled" and not show_all_effective:
                 continue
             if publish_status == "draft" and not (is_gov or str(d.id) in manage_ids):
                 continue
