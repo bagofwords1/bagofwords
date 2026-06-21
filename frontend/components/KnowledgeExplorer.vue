@@ -93,7 +93,7 @@
           </div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : (agent.publish_status === 'disabled' ? 'Disabled' : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
@@ -1789,10 +1789,10 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, description: d.description, conversation_starters: d.conversation_starters || [], auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, publish_status: d.publish_status, description: d.description, conversation_starters: d.conversation_starters || [], auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) }
 }
-const agentStatusDot = (a: any) => a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300'
+const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
 // Group an agent's tools by their connection (MCP server / custom API), resolving
 // the connection name + type from the agent's connections for the tree headers.
 const toolGroups = (agentId: string) => {
