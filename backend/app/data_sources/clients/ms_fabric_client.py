@@ -1,5 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import logging
+import time
 import pandas as pd
 import struct
 from contextlib import contextmanager
@@ -9,6 +11,21 @@ from app.ai.prompt_formatters import TableFormatter
 
 import pyodbc
 from azure.identity import ClientSecretCredential
+
+logger = logging.getLogger(__name__)
+
+# Fabric Warehouse/Lakehouse SQL endpoints are serverless and can be slow to
+# respond on the first connection after the capacity has been idle (cold start),
+# routinely exceeding the ODBC driver's short default login timeout (~15s). Give
+# the login a generous window and retry a couple of times on transient
+# connection timeouts so a cold endpoint gets a chance to wake up.
+_LOGIN_TIMEOUT_SECONDS = 60
+_CONNECT_MAX_ATTEMPTS = 3
+_CONNECT_RETRY_BACKOFF_SECONDS = 3
+# ODBC SQLSTATEs that indicate a transient connection-level failure worth
+# retrying (HYT00 = login timeout expired, HYT01 = connection timeout,
+# 08001 = unable to establish connection, 08S01 = communication link failure).
+_TRANSIENT_SQLSTATES = {"HYT00", "HYT01", "08001", "08S01"}
 
 
 class MsFabricClient(DataSourceClient):
@@ -63,24 +80,62 @@ class MsFabricClient(DataSourceClient):
         token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
         return token_struct
 
+    def _open_connection(self) -> "pyodbc.Connection":
+        """Open a pyodbc connection to Fabric, retrying transient timeouts.
+
+        Fabric endpoints can cold-start, so a generous login timeout plus a
+        small retry loop avoids spurious ``HYT00 Login timeout expired`` errors
+        while the serverless endpoint wakes up.
+        """
+        # Build connection string for Fabric.
+        # Encrypt=yes / TrustServerCertificate=no are required for the Azure AD
+        # auth handshake; Connect Timeout and ConnectRetryCount give the login
+        # extra breathing room against a cold-starting endpoint.
+        conn_str = (
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+            f"SERVER={self.server_hostname};"
+            f"DATABASE={self.database};"
+            f"Encrypt=yes;"
+            f"TrustServerCertificate=no;"
+            f"Connect Timeout={_LOGIN_TIMEOUT_SECONDS};"
+            f"ConnectRetryCount=4;"
+        )
+
+        # Get token and pass via attrs_before
+        token_struct = self._get_token_struct()
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, _CONNECT_MAX_ATTEMPTS + 1):
+            try:
+                # SQL_COPT_SS_ACCESS_TOKEN = 1256
+                return pyodbc.connect(
+                    conn_str,
+                    attrs_before={1256: token_struct},
+                    timeout=_LOGIN_TIMEOUT_SECONDS,
+                )
+            except pyodbc.Error as e:
+                sqlstate = e.args[0] if e.args else None
+                last_error = e
+                if sqlstate in _TRANSIENT_SQLSTATES and attempt < _CONNECT_MAX_ATTEMPTS:
+                    logger.warning(
+                        "Fabric connect attempt %d/%d failed (%s); retrying in %ds",
+                        attempt,
+                        _CONNECT_MAX_ATTEMPTS,
+                        sqlstate,
+                        _CONNECT_RETRY_BACKOFF_SECONDS,
+                    )
+                    time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS)
+                    continue
+                raise
+        # Defensive: loop always returns or raises, but keep mypy/readers happy.
+        raise last_error  # type: ignore[misc]
+
     @contextmanager
     def connect(self) -> Generator:
         """Yield a connection to Microsoft Fabric SQL endpoint."""
         conn = None
         try:
-            # Build connection string for Fabric
-            conn_str = (
-                f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-                f"SERVER={self.server_hostname};"
-                f"DATABASE={self.database};"
-                f"Encrypt=yes;"
-                f"TrustServerCertificate=no;"
-            )
-
-            # Get token and pass via attrs_before
-            token_struct = self._get_token_struct()
-            # SQL_COPT_SS_ACCESS_TOKEN = 1256
-            conn = pyodbc.connect(conn_str, attrs_before={1256: token_struct})
+            conn = self._open_connection()
             yield conn
         except Exception as e:
             raise RuntimeError(f"Error connecting to Microsoft Fabric: {e}")
