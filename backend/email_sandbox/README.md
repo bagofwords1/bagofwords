@@ -54,7 +54,6 @@ new outbound assertions just parse `handler.messages[-1]`. Inbound scenarios use
 ## Full-stack validation (optional)
 
 To exercise the DB-backed manager/route layer too, install the full stack
-(`apt-get install -y libpq-dev && pip install --upgrade setuptools && pip
-install -r ../requirements_versioned.txt`) and add e2e tests under
+(`apt-get install -y libpq-dev && pip install uv && uv sync --frozen --extra dev`) and add e2e tests under
 `backend/tests/` following `tests/e2e/test_report_notifications.py`. Not
 required for the mechanics above, which this harness covers directly.
