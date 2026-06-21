@@ -920,6 +920,11 @@ const lastScrollTop = ref<number>(0)
 // Hysteresis thresholds
 const NEAR_BOTTOM_PX = 96
 const RETURN_TO_BOTTOM_PX = 12
+// Treat the view as "already at the bottom" within this gap. It must be larger
+// than the sub-pixel/scrollbar height jitter that fractional display scaling
+// (e.g. Windows at 125%) and classic scrollbars produce, so a 1–2px wobble in a
+// child's height can't make the auto-scroll re-pin and bounce the viewport.
+const AT_BOTTOM_EPS = 4
 // Debounced scroll scheduling during streaming
 const pendingScroll = ref<boolean>(false)
 let scrollRAF: number | null = null
@@ -1834,7 +1839,12 @@ function scrollToBottom() {
       const container = scrollContainer.value
       if (!container) return
       container.offsetHeight // force reflow
-      container.scrollTop = container.scrollHeight
+      const target = container.scrollHeight - container.clientHeight
+      // No-op when already at the bottom (within tolerance). This makes the
+      // auto-scroll idempotent: a tiny/oscillating height change (chart resize,
+      // scrollbar toggle, fractional-DPI rounding) no longer writes scrollTop,
+      // so it can't feed a resize→scroll→resize bounce loop.
+      if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
     }, 40)
   })
 }
@@ -1852,7 +1862,10 @@ function autoScrollIfNearBottom() {
   const threshold = NEAR_BOTTOM_PX
   const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
   if (suppressAutoScroll.value && isStreaming.value) return
-  if (distanceFromBottom <= threshold) {
+  // Only scroll when genuinely below the fold. When already effectively at the
+  // bottom (within AT_BOTTOM_EPS), re-pinning is what produces the jitter bounce
+  // on fractional-DPI / classic-scrollbar layouts, so skip it.
+  if (distanceFromBottom > AT_BOTTOM_EPS && distanceFromBottom <= threshold) {
     scrollToBottom()
   }
 }

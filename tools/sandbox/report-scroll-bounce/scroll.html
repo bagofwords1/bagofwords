@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><style>
+  *{margin:0;box-sizing:border-box;font:13px sans-serif}
+  #sc{height:300px;overflow-y:auto;border:1px solid #ccc}
+  .msg{padding:8px;border-bottom:1px solid #f0f0f0}
+  #chart{background:#eef}
+</style></head>
+<body>
+  <div id="sc"><div id="msgs"></div><div id="chart" style="height:120px">chart</div></div>
+  <script>
+    // Ported verbatim from pages/reports/[id]/index.vue.
+    // ?fixed=1 applies the amplifier fix (AT_BOTTOM_EPS tolerance); default = old code.
+    var NEAR_BOTTOM_PX = 96, AT_BOTTOM_EPS = 4;
+    var sc = document.getElementById('sc');
+    var FIXED = new URLSearchParams(location.search).get('fixed') === '1';
+
+    function scrollToBottom() {
+      var target = sc.scrollHeight - sc.clientHeight;
+      if (FIXED) {
+        if (target - sc.scrollTop > AT_BOTTOM_EPS) sc.scrollTop = target;  // idempotent within tolerance
+      } else {
+        sc.scrollTop = sc.scrollHeight;                                    // old: always slam to bottom
+      }
+    }
+    function autoScrollIfNearBottom() {
+      var distanceFromBottom = sc.scrollHeight - (sc.scrollTop + sc.clientHeight);
+      if (FIXED) {
+        if (distanceFromBottom > AT_BOTTOM_EPS && distanceFromBottom <= NEAR_BOTTOM_PX) scrollToBottom();
+      } else {
+        if (distanceFromBottom <= NEAR_BOTTOM_PX) scrollToBottom();
+      }
+    }
+
+    var m = document.getElementById('msgs');
+    for (var i=0;i<12;i++){var d=document.createElement('div');d.className='msg';d.textContent='message '+i;m.appendChild(d);}
+    scrollToBottom();
+
+    // Driver: child height jitters by a few px every frame (chart re-measure /
+    // scrollbar toggle / fractional-DPI rounding). BOTH modes run the same
+    // driver and call autoScrollIfNearBottom — only the fix's conditions differ.
+    var chart = document.getElementById('chart');
+    var JITTER = 4, base = 120, n = 0;
+    window.__scrollTops = [];
+    function frame() {
+      chart.style.height = (base + (n % 2 ? JITTER : 0)) + 'px';
+      autoScrollIfNearBottom();
+      window.__scrollTops.push(sc.scrollTop);
+      if (++n < 80) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
