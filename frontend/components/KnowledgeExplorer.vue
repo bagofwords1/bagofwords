@@ -167,11 +167,16 @@
           <UTooltip v-if="connections.length > 4" :text="`View all ${connections.length} connections`">
             <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
-          <UTooltip v-if="canCreateDataSource" text="New connection">
+          <UTooltip v-if="canCreateDataSource && connections.length" text="New connection">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
+          <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
+          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 text-[11px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700" @click="connTargetAgentId = null; showAddConnection = true">
+            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+            Add connection
+          </button>
           <button v-if="connections.length" type="button" class="ml-auto text-[11px] text-gray-400 hover:text-gray-700" @click="showConnectionsModal = true">View all</button>
         </div>
 
