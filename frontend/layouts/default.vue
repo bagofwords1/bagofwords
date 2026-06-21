@@ -349,17 +349,9 @@
   const { organization, setOrganization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
   const canModifySettings = computed(() => useCan('manage_settings'))
-  const showGlobalOnboardingBanner = computed(() => {
-    if (!canModifySettings.value) return false
-    const ob = onboarding.value as any
-
-    if (!ob) return false
-    //if (ob.dismissed) return false
-    const steps = ob.steps || {}
-    const llmDone = steps.llm_configured?.status === 'done'
-    const dataDone = steps.data_source_created?.status === 'done'
-    return !(llmDone && dataDone)
-  })
+  // Banner visibility is shared via useTopBanner so full-height views (Agents)
+  // can subtract the banner height from their own 100vh box.
+  const { showGlobalOnboardingBanner, showLicenseBanner, showTopBanner } = useTopBanner()
 
   const showGlobalOnboardingBannerText = computed(() => {
     const ob = onboarding.value as any
@@ -376,14 +368,6 @@
   // License expiry countdown banner. Shown to everyone (an expired license affects the
   // whole org), but only admins get the clickable link to the license settings page.
   const { isExpired: licenseExpired, isExpiringSoon, daysUntilExpiry } = useEnterprise()
-  const showLicenseBanner = computed<boolean>(() => {
-    // Never stack on top of the onboarding banner — they share the same fixed slot,
-    // and a brand-new org won't have a near-expiry enterprise license anyway.
-    if (showGlobalOnboardingBanner.value) return false
-    return licenseExpired.value || isExpiringSoon.value
-  })
-  // Either fixed top banner pushes the sidebar + content down by the same amount.
-  const showTopBanner = computed<boolean>(() => showGlobalOnboardingBanner.value || showLicenseBanner.value)
   const licenseBannerText = computed<string>(() => {
     if (licenseExpired.value) return t('settings.licensePage.banner.expired')
     return t('settings.licensePage.banner.expiring', { days: daysUntilExpiry.value ?? 0 })
