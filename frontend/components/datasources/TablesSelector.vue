@@ -462,7 +462,7 @@
     </div>
 
     <!-- Save button -->
-    <div v-if="showSave && canUpdate" class="mt-3 flex items-center justify-end">
+    <div v-if="showSave && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-end border-t border-gray-100 bg-white py-2">
       <button 
         @click="onSave" 
         :disabled="saving" 

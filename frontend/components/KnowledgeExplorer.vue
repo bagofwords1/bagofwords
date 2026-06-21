@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-screen text-sm">
+  <div class="flex flex-col text-sm" :style="{ height: showTopBanner ? `calc(100vh - ${bannerHeight})` : '100vh' }">
     <!-- Header -->
     <div class="flex items-center justify-between pl-3 pr-4 py-3 shrink-0">
       <div>
@@ -61,7 +61,7 @@
           </UPopover>
         </div>
 
-        <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
           <TreeGroup label="Global instructions" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
             <EmptyHint v-if="listFor('global').length === 0" text="No global rules." add @add="openCreate()" />
             <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
@@ -167,11 +167,16 @@
           <UTooltip v-if="connections.length > 4" :text="`View all ${connections.length} connections`">
             <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
-          <UTooltip v-if="canCreateDataSource" text="New connection">
+          <UTooltip v-if="canCreateDataSource && connections.length" text="New connection">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
+          <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
+          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 text-[11px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700" @click="connTargetAgentId = null; showAddConnection = true">
+            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+            Add connection
+          </button>
           <button v-if="connections.length" type="button" class="ml-auto text-[11px] text-gray-400 hover:text-gray-700" @click="showConnectionsModal = true">View all</button>
         </div>
 
@@ -919,7 +924,7 @@ const openPanel = (kind: 'tables' | 'tools' | 'evals' | 'settings', agentId: str
   panelView.value = { kind, agentId }
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
-const onAgentDeleted = async () => { closePanel(); await fetchAgents() }
+const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
 // Row-click on Tables/Tools opens the editable panel immediately (like clicking
 // an agent). Re-clicking the already-open row just collapses the tree node.
 const onPanelRowClick = (kind: 'tables' | 'tools', agentId: string) => {
@@ -1264,7 +1269,7 @@ const onConnCreated = async (conn?: any) => {
   }
   showAddMCP.value = false; showAddCustomAPI.value = false; showAddConnection.value = false
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid); if (agentView.value?.agentId === aid) await refreshAgentDetail() }
-  await fetchAgents(); toolsRefreshKey.value++
+  await Promise.all([fetchAgents(), fetchConnections()]); toolsRefreshKey.value++
   connTargetAgentId.value = null
 }
 // Connection deleted from the Tools panel: just refresh the agent's tools.
@@ -1272,7 +1277,7 @@ const onToolsConnectionChanged = async () => {
   showAddMCP.value = false
   const aid = panelView.value?.agentId
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid) }
-  await fetchAgents(); toolsRefreshKey.value++
+  await Promise.all([fetchAgents(), fetchConnections()]); toolsRefreshKey.value++
 }
 
 // "Manage connections" modal — opened from the agent overview and the Tables
@@ -1293,6 +1298,9 @@ const onConnModalChanged = async () => {
   tablesRefreshKey.value++
   if (agentView.value?.agentId === aid) await refreshAgentDetail()
 }
+// Top banner (license/onboarding) presence — so this full-height view subtracts
+// the banner height instead of overflowing 40px below the viewport.
+const { showTopBanner, bannerHeight } = useTopBanner()
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))
@@ -1313,7 +1321,7 @@ const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || us
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
-const onConnectionChanged = async () => { await fetchAgents() }
+const onConnectionChanged = async () => { await Promise.all([fetchAgents(), fetchConnections()]) }
 const loadPending = async (id: string) => {
   reviewEmpty.value = false
   // Authoritative: a "pending" instruction is one with live hunks in the
@@ -1726,8 +1734,20 @@ const labelOpts = computed(() => labels.value.map(l => ({ value: l.id, label: l.
 const activeFilterCount = computed(() => fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
 const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value = []; fCategory.value = [] }
 
-// connections (deduped from agents)
-const connections = computed(() => { const m = new Map<string, any>(); for (const a of agents.value) for (const c of (a.connections || [])) if (!m.has(c.id)) m.set(c.id, c); return Array.from(m.values()) })
+// Connections shown in the footer. Agent-attached connections carry richer
+// per-agent fields, but childless connections (created but not yet linked to any
+// agent/data source) only exist in the org-wide /connections list — fetch that
+// too so they're visible and can be managed instead of being orphaned.
+const orgConnections = ref<any[]>([])
+const fetchConnections = async () => {
+  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) }
+}
+const connections = computed(() => {
+  const m = new Map<string, any>()
+  for (const a of agents.value) for (const c of (a.connections || [])) if (!m.has(c.id)) m.set(c.id, c)
+  for (const c of orgConnections.value) if (!m.has(c.id)) m.set(c.id, c)
+  return Array.from(m.values())
+})
 
 // requires sign-in (ported from /agents/index.vue)
 const requiresUserAuth = (a: any) => (a.connections || []).some((c: any) => c.auth_policy === 'user_required')
@@ -2211,7 +2231,7 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   restoreFromRoute()
 })
 </script>
