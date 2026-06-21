@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><script src="./vue.global.js"></script></head>
+<body>
+  <div id="app"></div>
+  <script>
+    const { createApp, ref, computed, onMounted, onBeforeUnmount, h, defineComponent } = Vue;
+
+    // Mirrors EditInstructionTool: on mount it async-loads the previous version,
+    // then flips from the rendered doc (A) to the v1->v2 diff (B). Before the
+    // async load resolves, previousText is null => it shows A. A remount throws
+    // this away and shows A again until it re-resolves.
+    const ToolCard = defineComponent({
+      props: ['toolExecution'],
+      setup() {
+        const previousText = ref(null);            // null until fetchVersions resolves
+        let timer = null;
+        onMounted(() => { timer = setTimeout(() => { previousText.value = 'old text'; }, 25); });
+        onBeforeUnmount(() => clearTimeout(timer));
+        const view = computed(() => (previousText.value !== null ? 'DIFF(v1→v2)' : 'RENDERED(doc)'));
+        return () => h('div', { class: 'card', 'data-view': view.value }, view.value);
+      },
+    });
+
+    const App = defineComponent({
+      setup() {
+        // One streaming block. Its tool_execution.id churns like the poll/SSE race
+        // (temp-<ts> -> real-uuid -> rebuilt object ...), every 60ms.
+        const block = ref({ id: 'block-1', tool_execution: { id: 'temp-' + Date.now() } });
+        const useStableKey = new URLSearchParams(location.search).get('stable') === '1';
+        const keyFor = (b) => useStableKey ? b.id : (b.id + ':' + (b.tool_execution?.id || 'noid'));
+
+        let n = 0, churn = null;
+        onMounted(() => {
+          churn = setInterval(() => {
+            n++;
+            // emulate the id swapping between temp/real on each update tick
+            block.value = { id: 'block-1', tool_execution: { id: (n % 2 ? 'temp-' : 'uuid-') + Date.now() } };
+          }, 90);
+          setTimeout(() => clearInterval(churn), 1500);
+        });
+        onBeforeUnmount(() => clearInterval(churn));
+
+        return () => h('div', {}, [
+          h(ToolCard, { toolExecution: block.value.tool_execution, key: keyFor(block.value) }),
+        ]);
+      },
+    });
+
+    // Record every distinct view the card shows, so the test can count flips.
+    window.__views = [];
+    const app = createApp(App);
+    app.mount('#app');
+    const obs = new MutationObserver(() => {
+      const el = document.querySelector('.card'); if (!el) return;
+      const v = el.getAttribute('data-view');
+      if (window.__views[window.__views.length - 1] !== v) window.__views.push(v);
+    });
+    obs.observe(document.getElementById('app'), { childList: true, subtree: true, attributes: true });
+    // seed first value
+    setTimeout(() => { const el = document.querySelector('.card'); if (el) window.__views.push(el.getAttribute('data-view')); }, 10);
+  </script>
+</body>
+</html>
