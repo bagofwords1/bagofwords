@@ -43,7 +43,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 
 # Install deps
-pip install -r requirements_versioned.txt
+pip install uv && uv sync --frozen --extra dev
 
 # Required env vars (dev config references these)
 export BOW_DATABASE_URL="sqlite:///db/app.db"

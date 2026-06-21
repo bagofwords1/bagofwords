@@ -16,7 +16,7 @@ This multi-stage Dockerfile builds a full-stack application:
 - Base: Ubuntu 24.04
 - Installs Python 3, build tools, and unixODBC dev headers
 - Creates a Python virtual environment (`/opt/venv`)
-- Copies backend and installs `backend/requirements_versioned.txt`
+- Copies backend and installs dependencies via `uv sync --frozen --no-dev` into `/opt/venv`
 
 ### 2. Frontend Stage  
 - Base: Ubuntu 24.04
