@@ -85,6 +85,9 @@ from app.schemas.data_sources.configs import (
     # Oracle BI (OBIEE / OAS / OAC)
     OracleBIConfig,
     OracleBICredentials,
+    # Infor OLAP (Infor d/EPM OLAP — XMLA)
+    InforOlapConfig,
+    InforOlapCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -829,6 +832,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.oracle_bi_client.OracleBIClient",
+        requires_license="enterprise",
+    ),
+    "infor_olap": DataSourceRegistryEntry(
+        type="infor_olap",
+        title="Infor OLAP",
+        description="Query Infor d/EPM OLAP cubes via MDX over the XMLA Provider. Works with on-premise Infor OLAP / Infor BI (25.x).",
+        config_schema=InforOlapConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=InforOlapCredentials,
+                    scopes=["system", "user"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.infor_olap_client.InforOlapClient",
         requires_license="enterprise",
     ),
     "mcp": DataSourceRegistryEntry(
