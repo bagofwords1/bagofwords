@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  /* Minimal reproductions of the Tailwind utilities used in the real DOM.
+     Source of truth:
+       KnowledgeExplorer.vue:341  -> outer scroll  .flex-1.overflow-auto
+       KnowledgeExplorer.vue:344  -> padded wrap   .px-6.py-4
+       TablesSelector.vue:2        -> root          .w-full
+       TablesSelector.vue:259      -> list scroll   .overflow-y-auto (max-height)
+       TablesSelector.vue:465      -> save bar      (sticky bottom-0 ... when fixed) */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px sans-serif; }
+
+  /* The agent panel is a fixed-height flex column (header + scroll body). */
+  .panel { display: flex; flex-direction: column; height: 100vh; }
+  .panel-header { height: 44px; flex-shrink: 0; border-bottom: 1px solid #eee;
+                  display: flex; align-items: center; padding: 0 16px; }
+
+  .flex-1 { flex: 1 1 0%; min-height: 0; }
+  .overflow-auto { overflow: auto; }
+  .px-6 { padding-left: 24px; padding-right: 24px; }
+  .py-4 { padding-top: 16px; padding-bottom: 16px; }
+  .w-full { width: 100%; }
+
+  /* Chrome above the list, mirroring the real component (header, search,
+     stats/"matching" rows). This overhead is what pushes the save bar below
+     the fold once the list is capped — i.e. it is load-bearing for the repro. */
+  .hdr { margin-bottom: 8px; }
+  .hdr h1 { font-size: 18px; font-weight: 600; }
+  .hdr p { color: #6b7280; font-size: 13px; }
+  /* Reload / Connections row (KnowledgeExplorer reload-left slot + refresh btn). */
+  .reload { height: 40px; display: flex; align-items: center;
+            justify-content: space-between; }
+  .reload .btn { height: 28px; border: 1px solid #e5e7eb; border-radius: 6px;
+                 padding: 0 10px; display: inline-flex; align-items: center;
+                 color: #4b5563; }
+  .search { height: 36px; border: 1px solid #e5e7eb; border-radius: 8px;
+            margin: 8px 0; }
+  .stats { color: #6b7280; padding: 4px 0; }
+  /* Inner table list scroll — mirrors TablesSelector.vue:259 maxHeight. */
+  .list { overflow-y: auto; max-height: calc(100vh - 240px); margin-top: 8px; }
+  .row { border: 1px solid #f0f0f0; padding: 8px 10px; }
+  .pagination { margin-top: 12px; text-align: center; color: #6b7280; }
+
+  /* Save bar — TablesSelector.vue:465. The `sticky` part is the fix. */
+  .save-bar { margin-top: 12px; display: flex; justify-content: flex-end; }
+  .save-bar.sticky { position: sticky; bottom: 0; z-index: 10;
+                     border-top: 1px solid #f3f4f6; background: #fff;
+                     padding-top: 8px; padding-bottom: 8px; }
+  .save-btn { background: #3b82f6; color: #fff; font-weight: 500;
+              padding: 6px 12px; border-radius: 4px; border: 0; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="panel-header">Sales &nbsp;›&nbsp; Tables</div>
+    <div class="flex-1 overflow-auto" id="scroll">
+      <div class="px-6 py-4">
+        <div class="w-full">
+          <div class="hdr">
+            <h1>Select tables</h1>
+            <p>Choose 5-20 related tables. Start focused, you can always add more later.</p>
+          </div>
+          <div class="reload">
+            <span class="btn">Connections</span>
+            <span class="btn">Reload tables</span>
+          </div>
+          <div class="search"></div>
+          <div class="stats">2628 matching · Showing 1-20 &nbsp;|&nbsp; 0 / 2628 active</div>
+          <div class="list" id="list"></div>
+          <div class="pagination">Page 1 of 2</div>
+          <div class="save-bar" id="saveBar">
+            <button class="save-btn" id="saveBtn">Save &amp; Continue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Long table list so the panel overflows, exactly like 2628 tables.
+    var list = document.getElementById('list');
+    for (var i = 0; i < 60; i++) {
+      var d = document.createElement('div');
+      d.className = 'row';
+      d.textContent = 'dbo.MonthSales_' + i + '  (inactive)';
+      list.appendChild(d);
+    }
+    // ?sticky=1 applies the fix; default reproduces the reported bug.
+    if (new URLSearchParams(location.search).get('sticky') === '1') {
+      document.getElementById('saveBar').classList.add('sticky');
+    }
+  </script>
+</body>
+</html>
