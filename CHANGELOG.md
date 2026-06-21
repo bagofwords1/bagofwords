@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.417 (June 21, 2026)
+- **Fix — Microsoft Fabric "Login timeout expired" on cold-start endpoints** — Fabric Warehouse/Lakehouse SQL endpoints are serverless and can be slow to respond on the first connection after the capacity has been idle, routinely exceeding the ODBC driver's short default login timeout (~15s) and surfacing as `HYT00 … Login timeout expired (SQLDriverConnect)`. The Fabric client now sets a generous 60s login timeout (`Connect Timeout` + `pyodbc` `timeout`), adds driver-level `ConnectRetryCount`, and retries transient connection-timeout SQLSTATEs (`HYT00`/`HYT01`/`08001`/`08S01`) a few times with backoff so a cold endpoint gets a chance to wake up. This affects both service-principal and per-user (OBO/Entra) auth.
+
 ## Version 0.0.416 (June 21, 2026)
 - **Backend dependency management moved from pip to uv (#408)** — `requirements_versioned.txt` is replaced by a PEP 621 `pyproject.toml` + `uv.lock`, the Docker build and CI now use `uv sync --frozen`, and contributors install with `uv sync --extra dev` (see `DEV.md`). uv is from the same Astral toolchain as ruff and is significantly faster than pip/Poetry.
 - **Security — resolved all High/Critical dependency vulnerabilities** flagged by Snyk in both the backend (uv) and frontend (yarn) dependency trees.
