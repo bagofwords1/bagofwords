@@ -243,12 +243,22 @@ class ScheduledPromptService:
                 logger.error(f"Scheduled prompt {sp.id}: organization not found")
                 return
 
+            # Resolve the prompt spec — prefer the live catalog Prompt (admin
+            # edits propagate); fall back to the frozen snapshot for legacy tasks.
+            prompt_json, ds_ids = await self._resolve_prompt_spec(db, sp)
+
+            # run_mode: 'append' reuses the report; 'new_report' clones a fresh
+            # report each run (grouped under this task) for clean snapshots.
+            target_report = report
+            if getattr(sp, 'run_mode', 'append') == 'new_report':
+                target_report = await self._create_run_report(db, sp, user, organization, report, ds_ids)
+
             response = None
             try:
-                prompt_data = PromptSchema(**sp.prompt)
+                prompt_data = PromptSchema(**prompt_json)
                 response = await completion_service.create_completion(
                     db=db,
-                    report_id=report.id,
+                    report_id=target_report.id,
                     completion_data=CompletionCreate(prompt=prompt_data),
                     current_user=user,
                     organization=organization,
@@ -265,21 +275,75 @@ class ScheduledPromptService:
             # Build execution summary from response
             exec_summary = self._build_execution_summary(response)
 
+            # ── Channel delivery (Teams/Slack/AI mailbox/plain SMTP) ──
+            if getattr(sp, 'channel', None):
+                try:
+                    from app.services.channel_delivery_service import channel_delivery_service
+                    base_url = getattr(settings.bow_config, 'base_url', 'http://localhost:3000') if settings.bow_config else 'http://localhost:3000'
+                    report_url = f"{base_url}/reports/{target_report.id}"
+                    await channel_delivery_service.deliver(
+                        db, organization, user, sp.channel,
+                        title=target_report.title or "Your scheduled update",
+                        content=(exec_summary.get("last_content") or ""),
+                        report_url=report_url, report_id=target_report.id,
+                    )
+                except Exception as e:
+                    logger.error(f"Channel delivery failed for scheduled prompt {sp.id}: {e}")
+
             # Send notification
             if sp.notification_subscribers:
                 from app.dependencies import _locale_from_org
                 base_url = getattr(settings.bow_config, 'base_url', 'http://localhost:3000') if settings.bow_config else 'http://localhost:3000'
-                report_url = f"{base_url}/reports/{report.id}"
+                report_url = f"{base_url}/reports/{target_report.id}"
                 asyncio.create_task(
                     notification_service.send_scheduled_prompt_results(
-                        report_id=report.id,
-                        report_title=report.title or "Untitled Report",
+                        report_id=target_report.id,
+                        report_title=target_report.title or "Untitled Report",
                         subscribers=sp.notification_subscribers,
                         report_url=report_url,
                         exec_summary=exec_summary,
                         locale=_locale_from_org(organization),
                     )
                 )
+
+    async def _resolve_prompt_spec(self, db: AsyncSession, sp: ScheduledPrompt):
+        """Return (prompt_json, data_source_ids). Prefer the live catalog Prompt."""
+        if getattr(sp, 'prompt_id', None):
+            from app.models.prompt import Prompt
+            p = await db.get(Prompt, sp.prompt_id)
+            if p and p.deleted_at is None:
+                ds_ids = [str(ds.id) for ds in (p.data_sources or [])]
+                return {
+                    "content": p.text or "",
+                    "mode": p.mode or 'chat',
+                    "model_id": p.model_id,
+                    "mentions": p.mentions,
+                }, ds_ids
+        return sp.prompt, None
+
+    async def _create_run_report(self, db, sp, user, organization, anchor_report, ds_ids):
+        """Clone a fresh report for a `new_report` run, grouped under the task."""
+        from app.services.report_service import ReportService
+        from app.schemas.report_schema import ReportCreate
+        from app.models.report import Report
+        report_service = ReportService()
+        if ds_ids is None:
+            ds_ids = [str(ds.id) for ds in (anchor_report.data_sources or [])]
+        ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+        base_title = (anchor_report.title or 'Scheduled run').split(' — ')[0]
+        created = await report_service.create_report(
+            db,
+            ReportCreate(title=f"{base_title} — {ts}", data_sources=ds_ids),
+            current_user=user, organization=organization,
+        )
+        rep = await db.get(Report, created.id)
+        if rep is not None:
+            rep.source_scheduled_prompt_id = sp.id
+            if anchor_report.mode:
+                rep.mode = anchor_report.mode
+            await db.commit()
+            await db.refresh(rep)
+        return rep
 
     def _build_execution_summary(self, response) -> dict:
         """Extract execution stats from CompletionsV2Response."""
