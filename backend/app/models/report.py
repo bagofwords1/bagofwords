@@ -63,6 +63,13 @@ class Report(BaseSchema):
     queries = relationship("Query", back_populates="report", lazy="selectin")
     visualizations = relationship("Visualization", back_populates="report", lazy="selectin")
     artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
-    scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
+    scheduled_prompts = relationship(
+        "ScheduledPrompt",
+        back_populates="report",
+        lazy="selectin",
+        foreign_keys="ScheduledPrompt.report_id",
+    )
+    # Set on reports created by a `new_report` scheduled run, to group runs under their task.
+    source_scheduled_prompt_id = Column(String(36), ForeignKey('scheduled_prompts.id'), nullable=True, index=True)
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")
     stars = relationship("ReportStar", back_populates="report", lazy="selectin")

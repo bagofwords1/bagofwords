@@ -107,6 +107,12 @@ class DataSource(BaseSchema):
         # only loads if explicitly requested.
         lazy="select",
     )
+    prompts = relationship(
+        "Prompt",
+        secondary="prompt_data_source_association",
+        back_populates="data_sources",
+        lazy="select",
+    )
     tables = relationship(
         "DataSourceTable",
         back_populates="datasource",

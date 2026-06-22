@@ -86,6 +86,7 @@ RESOURCE_PERMISSIONS = {
         "manage_evals",
         "manage",
         "manage_members",
+        "assign_prompts",
     ],
 }
 
@@ -110,6 +111,7 @@ RESOURCE_SCOPED_GROUPS = {
             "manage_evals",
             "manage",
             "manage_members",
+            "assign_prompts",
         ],
     },
 }
