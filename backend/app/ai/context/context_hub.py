@@ -290,11 +290,20 @@ class ContextHub:
         """Initialize all context builders."""
         
         # Existing builders (enhanced)
+        # Resolve the current request mode (chat/deep/training) and delivery
+        # channel so per-instruction applicable_modes / applicable_channels
+        # scoping can be honored. A null external_platform is the in-app web
+        # chat, which we represent as the 'app' channel.
+        _mode = getattr(self.report, 'mode', None) if self.report else None
+        _external_platform = getattr(self.head_completion, 'external_platform', None) if self.head_completion else None
+        _channel = _external_platform or 'app'
         self.instruction_builder = InstructionContextBuilder(
             self.db,
             self.organization,
             organization_settings=self.organization_settings,
             data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
+            mode=_mode,
+            channel=_channel,
         )
         self.code_builder = CodeContextBuilder(self.db, self.organization)
         self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)

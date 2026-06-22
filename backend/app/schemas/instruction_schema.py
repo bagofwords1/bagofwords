@@ -80,7 +80,12 @@ class InstructionBase(BaseModel):
     
     # Loading behavior for AI context
     load_mode: str = "always"  # 'always' | 'intelligent' | 'disabled'
-    
+
+    # Scoping: which agent run-modes and delivery channels this instruction
+    # applies to. None or empty list => applies everywhere.
+    applicable_modes: Optional[List[str]] = None      # e.g. ['chat', 'deep', 'training']
+    applicable_channels: Optional[List[str]] = None   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
+
     # Display title (especially for git-sourced instructions)
     title: Optional[str] = None
 
@@ -114,6 +119,8 @@ class InstructionUpdate(BaseModel):
     load_mode: Optional[str] = None  # 'always' | 'intelligent' | 'disabled'
     title: Optional[str] = None
     description: Optional[str] = None
+    applicable_modes: Optional[List[str]] = None      # None = no change; [] = all modes
+    applicable_channels: Optional[List[str]] = None   # None = no change; [] = all channels
     source_sync_enabled: Optional[bool] = None  # Set to False to unlink from git
 
     # Build targeting - if set, update within this existing build instead of creating new one
@@ -220,6 +227,8 @@ class InstructionListSchema(BaseModel):
     load_mode: str = "always"
     title: Optional[str] = None
     description: Optional[str] = None
+    applicable_modes: Optional[List[str]] = None
+    applicable_channels: Optional[List[str]] = None
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
 

@@ -2519,6 +2519,8 @@ class InstructionService:
                     source_git_commit_sha=getattr(inst, "source_git_commit_sha", None),
                     source_sync_enabled=getattr(inst, "source_sync_enabled", True) if getattr(inst, "source_sync_enabled", None) is not None else True,
                     load_mode=getattr(inst, "load_mode", "always") or "always",
+                    applicable_modes=getattr(inst, "applicable_modes", None),
+                    applicable_channels=getattr(inst, "applicable_channels", None),
                     kind=getattr(inst, "kind", "instruction") or "instruction",
                     title=getattr(inst, "title", None),
                     structured_data=getattr(inst, "structured_data", None),

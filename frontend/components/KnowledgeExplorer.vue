@@ -578,6 +578,18 @@
                     <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-500 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />Smart</span>
                   </template>
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
+                  <!-- Modes (empty = all modes) -->
+                  <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple placeholder="All modes" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
+                  <template v-else>
+                    <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />All modes</span>
+                    <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />{{ modeLabel(m) }}</span>
+                  </template>
+                  <!-- Channels (empty = all channels) -->
+                  <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple placeholder="All channels" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
+                  <template v-else>
+                    <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />All channels</span>
+                    <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />{{ channelLabel(c) }}</span>
+                  </template>
                   <!-- Category -->
                   <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
@@ -832,10 +844,15 @@ const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
-const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
-  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
+const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[]; applicable_modes: string[]; applicable_channels: string[] }>(
+  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [], applicable_modes: [], applicable_channels: [] }
 )
 const kindOpts = [{ value: 'instruction', label: 'Instruction' }, { value: 'skill', label: 'Skill' }]
+// Mode/channel scoping options (empty selection = applies everywhere)
+const modeOpts = [{ value: 'chat', label: 'Chat' }, { value: 'deep', label: 'Deep analytics' }, { value: 'training', label: 'Training' }]
+const channelOpts = [{ value: 'app', label: 'Web app' }, { value: 'slack', label: 'Slack' }, { value: 'teams', label: 'Teams' }, { value: 'email', label: 'AI mailbox' }, { value: 'mcp', label: 'MCP' }]
+const modeLabel = (v: string) => modeOpts.find(o => o.value === v)?.label || v
+const channelLabel = (v: string) => channelOpts.find(o => o.value === v)?.label || v
 // Reference options come from the selected agents' tables (valid datasource_table ids).
 const refOptions = computed(() => {
   const opts: { value: string; label: string; type?: string }[] = []
@@ -1921,6 +1938,8 @@ const syncDraft = (ins: Instruction) => {
   draft.kind = (ins as any).kind || 'instruction'
   draft.load_mode = ins.load_mode || 'always'; draft.status = ins.status || 'published'
   draft.category = ins.category || 'general'
+  draft.applicable_modes = ((ins as any).applicable_modes) || []
+  draft.applicable_channels = ((ins as any).applicable_channels) || []
   draft.data_source_ids = (ins.data_sources || []).map(d => d.id)
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
   draft.references = (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null }))
@@ -1930,6 +1949,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
+  draft.applicable_modes = []; draft.applicable_channels = []
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -1957,7 +1977,7 @@ const deleteInstruction = async () => {
 const save = async () => {
   saving.value = true
   try {
-    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
     if (creating.value) {
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
@@ -2007,7 +2027,7 @@ const saveMeta = async () => {
   if (!detail.value || creating.value || editing.value) return
   savingMeta.value = true
   try {
-    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
     const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
     // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
