@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from app.settings.config import settings
-
 
 # bow_config defaults that should be treated as "no base_url set" so
 # request-derived fallback kicks in instead of returning the placeholder.
@@ -33,6 +31,7 @@ _DEFAULT_PLACEHOLDERS = (
 
 def derive_base_url(request: Request) -> str:
     """Return the externally-reachable base URL with no trailing slash."""
+    from app.settings.config import settings
     configured = (settings.bow_config.base_url or "").rstrip("/")
     if configured and configured not in _DEFAULT_PLACEHOLDERS:
         return configured
@@ -48,3 +47,34 @@ def derive_base_url(request: Request) -> str:
     scheme = request.url.scheme
     host = request.headers.get("host", request.url.netloc or "localhost")
     return f"{scheme}://{host}"
+
+
+def derive_request_base_url(request: Request) -> str:
+    """Derive base URL from the incoming request headers only, ignoring config.
+
+    Unlike derive_base_url, bow_config.base_url is NOT consulted. Use when the
+    URL must reflect the domain the user actually arrived from — e.g. OAuth
+    redirect_uri must match the initiating domain, not the configured default.
+
+    Uses X-Forwarded-Proto for scheme (set by Cloudflare Tunnel and most
+    reverse proxies) and the Host header for the hostname.
+    """
+    host = request.headers.get("host", request.url.netloc or "localhost")
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        proto = forwarded_proto.split(",", 1)[0].strip()
+        return f"{proto}://{host}"
+    return f"{request.url.scheme}://{host}"
+
+
+def derive_mcp_base_url(request: Request) -> str:
+    """Like derive_base_url but checks mcp_public_url first.
+
+    Use for OAuth/MCP well-known endpoints so a Cloudflare Tunnel (or any
+    reverse-proxy) public URL can be configured independently of base_url.
+    """
+    from app.settings.config import settings
+    configured = (settings.bow_config.mcp_public_url or "").rstrip("/")
+    if configured:
+        return configured
+    return derive_base_url(request)
