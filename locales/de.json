@@ -60,7 +60,8 @@
     "expandSidebar": "Seitenleiste erweitern",
     "collapseSidebar": "Seitenleiste einklappen",
     "version": "Version",
-    "loggedInAs": "Angemeldet als {name}"
+    "loggedInAs": "Angemeldet als {name}",
+    "prompts": "Prompts"
   },
   "auth": {
     "signIn": "Anmelden",

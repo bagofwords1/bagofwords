@@ -63,7 +63,8 @@
     "expandSidebar": "הרחבת סרגל הצד",
     "collapseSidebar": "כיווץ סרגל הצד",
     "version": "גרסה",
-    "loggedInAs": "מחובר/ת בתור {name}"
+    "loggedInAs": "מחובר/ת בתור {name}",
+    "prompts": "הנחיות"
   },
   "auth": {
     "signIn": "התחברות",

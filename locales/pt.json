@@ -60,7 +60,8 @@
     "expandSidebar": "Expandir barra lateral",
     "collapseSidebar": "Recolher barra lateral",
     "version": "Versão",
-    "loggedInAs": "Conectado como {name}"
+    "loggedInAs": "Conectado como {name}",
+    "prompts": "Prompts"
   },
   "auth": {
     "signIn": "Entrar",

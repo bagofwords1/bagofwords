@@ -60,7 +60,8 @@
     "expandSidebar": "توسيع الشريط الجانبي",
     "collapseSidebar": "طيّ الشريط الجانبي",
     "version": "الإصدار",
-    "loggedInAs": "تم تسجيل الدخول باسم {name}"
+    "loggedInAs": "تم تسجيل الدخول باسم {name}",
+    "prompts": "المطالبات"
   },
   "auth": {
     "signIn": "تسجيل الدخول",

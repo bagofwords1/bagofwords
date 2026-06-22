@@ -79,7 +79,8 @@
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
     "version": "Version",
-    "loggedInAs": "Logged in as {name}"
+    "loggedInAs": "Logged in as {name}",
+    "prompts": "Prompts"
   },
   "auth": {
     "signIn": "Login",

@@ -302,6 +302,7 @@
     { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
+    { href: '/prompts', icon: 'heroicons-sparkles', label: 'nav.prompts' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
     { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true, section: 'nav.manage' },

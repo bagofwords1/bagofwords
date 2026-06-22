@@ -60,7 +60,8 @@
     "expandSidebar": "Expandera sidopanel",
     "collapseSidebar": "Fäll ihop sidopanel",
     "version": "Version",
-    "loggedInAs": "Inloggad som {name}"
+    "loggedInAs": "Inloggad som {name}",
+    "prompts": "Prompts"
   },
   "auth": {
     "signIn": "Logga in",

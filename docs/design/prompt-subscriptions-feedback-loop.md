@@ -133,12 +133,37 @@ subscriber_count=1; cross-user private visibility blocked. `2 passed`.
 
 ---
 
-## Loop D — Live LLM run + delivery to mock Teams (real Anthropic key)  [planned]
+## Loop D — Live LLM run + delivery to mock Teams (real Anthropic key)  ✅
 
-With `ANTHROPIC_API_KEY` + an Anthropic LLM model configured for the org, run a
-real catalog prompt (`POST /api/prompts/{id}/run` or a triggered subscription)
-and confirm a real agent response is generated and delivered into the mock Teams
-outbox. Verifies the full path with a real model.
+Configures a real Anthropic model for the org, creates a catalog prompt,
+subscribes with `channel=teams`, and runs the real scheduled path. A genuine
+agent response is generated and delivered into the mock Teams outbox.
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db" BOW_CHANNELS_MOCK=1
+export BOW_CHANNELS_MOCK_FILE=/tmp/loop_d_outbox.json
+export ANTHROPIC_API_KEY=sk-ant-...                 # real key, env only
+export BOW_ANTHROPIC_MODEL=claude-haiku-4-5-20251001 # a model the account serves
+.venv/bin/python scripts/loop_d_live_anthropic.py
+```
+
+**Observed (PASS):**
+
+```
+[setup] org=... model=claude-haiku-4-5-20251001 subscription=... channel=teams
+[run] invoking scheduled_run_prompt (live LLM)...
+[result] teams deliveries: 1
+[verdict] PASS — live LLM response delivered to mock Teams
+mock Teams body: "*Sanity Check*\n\nHello! I am operational and ready to assist
+                  with your data analysis needs."
+```
+
+Notes:
+- The Anthropic key + network are confirmed working (a wrong model id returns a
+  404 `not_found_error`, not a 401). Use a model the account actually serves —
+  list them with `GET https://api.anthropic.com/v1/models`. For this account the
+  4.x family is available (e.g. `claude-haiku-4-5-20251001`).
 
 ---
 
@@ -159,5 +184,5 @@ my-subscriptions; captures screenshots at each step. Config:
 | B | 4-channel delivery (mock) | ✅ passing |
 | C | Scheduled run + run-mode + delivery | ✅ passing |
 | C2 | HTTP API | ✅ passing |
-| D | Live LLM run → mock Teams | ⏳ planned |
+| D | Live LLM run → mock Teams | ✅ passing (real Claude response delivered) |
 | E | Playwright UI + screenshots | ⏳ in progress |

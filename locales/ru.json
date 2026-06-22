@@ -60,7 +60,8 @@
     "expandSidebar": "Развернуть боковую панель",
     "collapseSidebar": "Свернуть боковую панель",
     "version": "Версия",
-    "loggedInAs": "Вошли как {name}"
+    "loggedInAs": "Вошли как {name}",
+    "prompts": "Промпты"
   },
   "auth": {
     "signIn": "Вход",
