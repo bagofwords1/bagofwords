@@ -587,3 +587,83 @@ def test_create_instruction_returns_503_when_finalize_fails(
     items = body["items"] if isinstance(body, dict) and "items" in body else body
     assert not any(i["text"] == "finalize-fails-503" for i in items), \
         "failed create must not leave a visible orphan instruction"
+
+
+@pytest.mark.e2e
+def test_instruction_applicable_modes_and_channels(
+    create_global_instruction,
+    get_instruction,
+    update_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Instructions can be scoped to specific run-modes and delivery channels.
+
+    Covers create round-trip, GET persistence, admin update, and that an edit
+    to these fields produces a new version (build-system integration)."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create with explicit modes/channels
+    instruction = create_global_instruction(
+        text="Scoped to chat + slack",
+        user_token=user_token,
+        org_id=org_id,
+        status="published",
+        applicable_modes=["chat", "deep"],
+        applicable_channels=["slack", "app"],
+    )
+    assert instruction["applicable_modes"] == ["chat", "deep"]
+    assert instruction["applicable_channels"] == ["slack", "app"]
+    v1 = instruction.get("current_version_id")
+    assert v1 is not None
+
+    # Persisted on GET
+    fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    assert fetched["applicable_modes"] == ["chat", "deep"]
+    assert fetched["applicable_channels"] == ["slack", "app"]
+
+    # Update (admin edit) narrows the scope and clears channels (empty = all)
+    updated = update_instruction(
+        instruction["id"],
+        applicable_modes=["training"],
+        applicable_channels=[],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert updated["applicable_modes"] == ["training"]
+    assert updated["applicable_channels"] == []
+
+    refetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    assert refetched["applicable_modes"] == ["training"]
+    assert refetched["applicable_channels"] == []
+    # Editing these versioned fields must produce a new version.
+    assert refetched.get("current_version_id") not in (None, v1), \
+        "changing applicable_modes/channels should create a new version"
+
+
+@pytest.mark.e2e
+def test_instruction_modes_channels_default_to_all(
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Omitting the fields leaves them null = applies to all modes/channels."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    instruction = create_global_instruction(
+        text="Applies everywhere",
+        user_token=user_token,
+        org_id=org_id,
+        status="published",
+    )
+    fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    # Null (or empty) means "applies everywhere"
+    assert not fetched.get("applicable_modes")
+    assert not fetched.get("applicable_channels")
