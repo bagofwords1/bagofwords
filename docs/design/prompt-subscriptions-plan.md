@@ -1,6 +1,28 @@
 # Org Prompt Catalog + Scheduled Prompt Subscriptions — Implementation Plan
 
-Status: **proposed / awaiting approval**. Branch: `claude/scheduled-prompt-subscriptions-6gwu3y`.
+Status: **IMPLEMENTED** (backend + frontend + live verification). Branch: `claude/scheduled-prompt-subscriptions-6gwu3y`.
+
+## Implementation status
+
+| Area | State |
+|---|---|
+| Data model (Prompt catalog/spec, M2M agents, ScheduledPrompt ext, Report.source_scheduled_prompt_id) + migration `promptsub01` | ✅ done |
+| Per-agent RBAC (`assign_prompts` resource permission) | ✅ done |
+| Catalog service: list/top, CRUD, run-now, subscribe, assign (user/group/org fan-out + access filtering) | ✅ done |
+| Catalog API routes `/api/prompts...` | ✅ done |
+| Channel delivery (Teams/Slack/AI mailbox/plain SMTP) + mock harness + plain-SMTP human body + continue link | ✅ done |
+| Run modes (append / new_report cloning) + live prompt-spec resolution wired into `scheduled_run_prompt` | ✅ done |
+| Conversation-starter absorption into catalog | ✅ done |
+| Frontend (catalog page, cards, subscribe/assign/edit modals, schedule picker, nav, i18n) | ✅ done |
+| Tests: 7 backend (catalog/RBAC, 4-channel delivery, scheduled-run run-modes, starters, HTTP API) | ✅ passing |
+| Loop D: live Anthropic run → mock Teams delivery (real Claude response) | ✅ passing |
+| Loop E: Playwright UI + screenshots | ⏳ in progress |
+
+See `docs/design/prompt-subscriptions-feedback-loop.md` for the runnable loops and observed PASS outputs.
+
+---
+
+### Original plan follows.
 
 ---
 
