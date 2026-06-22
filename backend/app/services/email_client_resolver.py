@@ -159,3 +159,20 @@ async def resolve_outbound(db, organization_id: str, purpose: str = "system") ->
         purpose, ai_config, ai_creds, org_smtp,
         global_present=settings.email_client is not None,
     )
+
+
+async def is_outbound_available(db, organization_id: str, purpose: str = "analyst") -> bool:
+    """Whether any outbound email transport resolves for ``organization_id``.
+
+    Mirrors :func:`resolve_outbound`'s precedence (AI mailbox → org SMTP →
+    global), so it returns True when the org configured SMTP via the UI even if
+    the global bow-config SMTP is empty. Used to gate tool *availability*
+    (e.g. the ``send_email`` tool) the same way sending is gated, instead of
+    keying only on the startup global ``settings.email_client``.
+    """
+    try:
+        resolved = await resolve_outbound(db, organization_id, purpose)
+    except Exception:
+        logger.warning("is_outbound_available: resolve failed", exc_info=True)
+        return False
+    return resolved.source != "none"

@@ -32,7 +32,6 @@ from app.ai.tools.schemas.events import (
     ToolErrorEvent,
 )
 from app.services.email_send_service import EmailSendService
-from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +76,13 @@ class SendEmailTool(Tool):
             max_retries=1,
             timeout_seconds=60,
             idempotent=False,
-            # Hidden from the catalog when SMTP isn't configured. Evaluated at
-            # registry startup, where settings.email_client is already resolved.
-            is_active=settings.email_client is not None,
+            # Always registered/executable; per-org availability is decided at
+            # catalog-build time by the agent (AgentV2._apply_email_availability_
+            # filter), which resolves AI mailbox / org SMTP / global for the
+            # current org. Keying is_active on the startup global
+            # settings.email_client would wrongly hide the tool for orgs that
+            # configured SMTP via the UI (org SMTP) rather than bow-config.
+            is_active=True,
             required_permissions=[],
             tags=["notification", "email", "action"],
             examples=[
