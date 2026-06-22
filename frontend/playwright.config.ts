@@ -66,6 +66,14 @@ export default defineConfig({
       dependencies: ['members'],
       fullyParallel: false,  // Run sequentially to avoid shared context issues
     },
+
+    // 5. Prompts - Prompt Catalog + Subscriptions smoke test. Self-authenticating
+    // (logs in within the spec), so it has no project dependency and works even
+    // when the storageState-producing setup is unavailable.
+    {
+      name: 'prompts',
+      testMatch: '**/prompts/**/*.spec.ts',
+    },
   ],
 
   use: {
