@@ -355,4 +355,53 @@ class PromptCatalogService:
         return sp
 
 
+    # ───────────────────────── conversation-starter absorption ─────────────────────────
+
+    async def materialize_starters_for_data_source(self, db: AsyncSession, data_source: DataSource) -> int:
+        """Create agent-scoped starter Prompts from a data source's
+        ``conversation_starters`` strings. Idempotent — skips ones already
+        materialized (same text on the same agent). Returns count created."""
+        starters = getattr(data_source, 'conversation_starters', None) or []
+        if not isinstance(starters, list) or not starters:
+            return 0
+        # existing starter texts already linked to this agent
+        existing_rows = await db.execute(
+            select(Prompt.text)
+            .join(Prompt.data_sources)
+            .filter(DataSource.id == data_source.id)
+            .filter(Prompt.is_starter == True)
+            .filter(Prompt.deleted_at == None)
+        )
+        existing = {t for (t,) in existing_rows.all()}
+        created = 0
+        for raw in starters:
+            text = (raw if isinstance(raw, str) else (raw.get('value') if isinstance(raw, dict) else None))
+            if not text or text in existing:
+                continue
+            p = Prompt(
+                title=(text[:60]), text=text, scope='agent', is_starter=True,
+                status='published', mode='chat',
+                organization_id=data_source.organization_id,
+                user_id=getattr(data_source, 'owner_user_id', None),
+            )
+            p.data_sources = [data_source]
+            db.add(p)
+            existing.add(text)
+            created += 1
+        if created:
+            await db.commit()
+        return created
+
+    async def backfill_all_starters(self, db: AsyncSession, organization_id: Optional[str] = None) -> int:
+        """One-off: materialize starters for every data source (optionally one org)."""
+        q = select(DataSource).filter(DataSource.deleted_at == None)
+        if organization_id:
+            q = q.filter(DataSource.organization_id == organization_id)
+        rows = await db.execute(q)
+        total = 0
+        for ds in rows.scalars().unique().all():
+            total += await self.materialize_starters_for_data_source(db, ds)
+        return total
+
+
 prompt_catalog_service = PromptCatalogService()
