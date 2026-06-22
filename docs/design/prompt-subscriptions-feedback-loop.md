@@ -167,12 +167,38 @@ Notes:
 
 ---
 
-## Loop E — Playwright UI walkthrough + screenshots  [in progress]
+## Loop E — Playwright UI walkthrough + screenshots  ✅
 
-Browser-drives the catalog: browse / top prompts, "try now", subscribe modal
-(schedule + channel + run-mode), admin assign modal (user/group/all), and
-my-subscriptions; captures screenshots at each step. Config:
-`frontend/playwright.config.ts`.
+Browser-drives the catalog and captures screenshots (in `docs/design/screenshots/`):
+`catalog.png`, `subscribe-modal.png`, `edit-modal.png`, `assign-modal.png`.
+
+```bash
+# backend (note the sandbox config — see auth note below)
+cd backend
+BOW_CONFIG_PATH=$PWD/../configs/bow-config.sandbox.yaml \
+  BOW_DATABASE_URL=sqlite:///db/app.db BOW_CHANNELS_MOCK=1 \
+  .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+# frontend
+cd frontend && npm install --legacy-peer-deps && npm run dev      # :3000
+npx playwright test --project=prompts
+```
+
+**Observed (PASS):** 3/3 — catalog header/tabs/sort/filters render; a prompt
+card with Try now / Subscribe / Assign / edit actions renders; the Subscribe
+modal opens showing the **four-channel select (Microsoft Teams, Slack, AI
+Mailbox, Email/SMTP)** and the Append / New-report run-mode toggle.
+
+> **Auth in this sandbox.** The "`/api/auth/register` 404" is not a bug — the
+> default `configs/bow-config.dev.yaml` runs `auth.mode: sso_only`, which does
+> not mount the register/JWT-login routers. Point the backend at
+> `configs/bow-config.sandbox.yaml` (`auth.mode: local_only`,
+> `allow_uninvited_signups: true`) via `BOW_CONFIG_PATH` to enable local signup
+> + login for browser-based testing. (Note `allow_multiple_organizations:false`
+> means auto-org only fires for the very first org; seed a membership + admin
+> role assignment to attach a user to an existing org.)
+>
+> Frontend `npm install` needs `--legacy-peer-deps` (a tiptap v1 peer-dep wants
+> vue 2).
 
 ---
 
@@ -185,4 +211,4 @@ my-subscriptions; captures screenshots at each step. Config:
 | C | Scheduled run + run-mode + delivery | ✅ passing |
 | C2 | HTTP API | ✅ passing |
 | D | Live LLM run → mock Teams | ✅ passing (real Claude response delivered) |
-| E | Playwright UI + screenshots | ⏳ in progress |
+| E | Playwright UI + screenshots | ✅ passing (3/3; catalog/subscribe/edit/assign captured) |

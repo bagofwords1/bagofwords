@@ -76,7 +76,7 @@ test.describe('Prompt Catalog', () => {
     await expect(page.getByText(/^Subscribe to/)).toBeVisible({ timeout: 8000 });
 
     // Schedule picker + cron preset buttons
-    await expect(page.getByText('Schedule')).toBeVisible();
+    await expect(page.getByText('Schedule', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Daily', exact: true })).toBeVisible();
 
     // Channel select with all four delivery channels
