@@ -1927,7 +1927,7 @@ const syncDraft = (ins: Instruction) => {
   draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
