@@ -1473,6 +1473,34 @@ class AgentV2:
                 if t.name not in denied_tools
             ]
 
+    async def _apply_email_availability_filter(self) -> None:
+        """Hide ``send_email`` from the planner catalog when no outbound email
+        transport resolves for this org.
+
+        The tool is registered as always-active (so it stays executable), but it
+        must only be advertised to the planner when email can actually be sent.
+        Availability mirrors the send path's resolver (AI mailbox → org SMTP →
+        global), so a tool configured via the UI (org SMTP) counts even when the
+        global bow-config SMTP is empty.
+        """
+        catalog = self.planner.tool_catalog or []
+        if not any(t.name == "send_email" for t in catalog):
+            return
+
+        available = False
+        if self.db and self.organization:
+            try:
+                from app.services.email_client_resolver import is_outbound_available
+                available = await is_outbound_available(
+                    self.db, str(self.organization.id), purpose="analyst"
+                )
+            except Exception:
+                logger.warning("[agent] email availability check failed", exc_info=True)
+                available = False
+
+        if not available:
+            self.planner.tool_catalog = [t for t in catalog if t.name != "send_email"]
+
     def _schedule_bg_write(self, label: str, coro):
         """Schedule a background DB write coroutine.
 
@@ -1940,6 +1968,7 @@ class AgentV2:
 
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
+            await self._apply_email_availability_filter()
             _mlog("loop_starting")
 
             for loop_index in range(step_limit):

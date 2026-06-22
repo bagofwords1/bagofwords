@@ -39,10 +39,21 @@ class SendEmailMCPTool(MCPTool):
         "pass the owning report_id."
     )
 
+    # Availability is decided per-org at request time (see is_available_for_org),
+    # not by the startup-global is_available, so orgs that configured SMTP via the
+    # UI (org SMTP) are covered even when the global bow-config SMTP is empty.
     @property
     def is_available(self) -> bool:
-        """Only expose the tool when an SMTP/email client is configured."""
-        return settings.email_client is not None
+        return True
+
+    async def is_available_for_org(self, db, organization) -> bool:
+        """Whether outbound email resolves for this org (AI mailbox / org SMTP /
+        global), mirroring the analyst send path."""
+        org_id = getattr(organization, "id", None)
+        if not db or not org_id:
+            return settings.email_client is not None
+        from app.services.email_client_resolver import is_outbound_available
+        return await is_outbound_available(db, str(org_id), purpose="analyst")
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -60,10 +71,10 @@ class SendEmailMCPTool(MCPTool):
         except Exception as e:
             return MCPSendEmailOutput(success=False, error=f"Invalid input: {e}").model_dump()
 
-        if not self.is_available:
+        if not await self.is_available_for_org(db, organization):
             return MCPSendEmailOutput(
                 success=False, subject=input_data.subject,
-                error="Email is not configured on this server.",
+                error="Email is not configured for this organization.",
             ).model_dump()
 
         # Recipient is always the authenticated user — never caller-controllable.

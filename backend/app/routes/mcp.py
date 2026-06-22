@@ -321,6 +321,13 @@ async def mcp_endpoint(
             if denied_perms:
                 tools = [t for t in tools if t.get("required_ds_permission") not in denied_perms]
 
+        # Hide send_email unless outbound email resolves for this org (AI mailbox
+        # / org SMTP / global). Availability is per-org, not a startup global.
+        if any(t["name"] == "send_email" for t in tools):
+            from app.services.email_client_resolver import is_outbound_available
+            if not await is_outbound_available(db, str(organization.id), purpose="analyst"):
+                tools = [t for t in tools if t["name"] != "send_email"]
+
         mcp_tools = []
         for tool in tools:
             entry: dict[str, Any] = {
