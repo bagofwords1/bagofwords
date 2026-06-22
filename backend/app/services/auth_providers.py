@@ -66,9 +66,10 @@ def _get_scopes(scopes: Optional[list]) -> list:
     return scopes or ["openid", "profile", "email"]
 
 
-def _get_redirect_uri(provider: str, redirect_path: Optional[str] = None) -> str:
+def _get_redirect_uri(provider: str, request: Request, redirect_path: Optional[str] = None) -> str:
+    from app.core.base_url import derive_request_base_url
     path = redirect_path or f"/api/auth/{provider}/callback"
-    return f"{settings.bow_config.base_url}{path}"
+    return f"{derive_request_base_url(request)}{path}"
 
 
 def _issue_state_cookie(provider: str, response: JSONResponse, state: str) -> None:
@@ -140,7 +141,7 @@ async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
 
         client = GoogleOAuth2(g.client_id, g.client_secret)
         state = uuid.uuid4().hex
-        redirect_uri = _get_redirect_uri(provider)
+        redirect_uri = _get_redirect_uri(provider, request)
         authorization_url = await client.get_authorization_url(
             redirect_uri=redirect_uri,
             state=state,
@@ -163,7 +164,7 @@ async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
 
     code_verifier, code_challenge = _generate_pkce_pair()
     state = uuid.uuid4().hex
-    redirect_uri = _get_redirect_uri(provider, getattr(cfg, "redirect_path", None))
+    redirect_uri = _get_redirect_uri(provider, request, getattr(cfg, "redirect_path", None))
 
     authorization_url = await client.get_authorization_url(
         redirect_uri=redirect_uri,
@@ -199,7 +200,7 @@ def _friendly_error_message(detail: Any) -> str:
 def _error_redirect(message: str) -> RedirectResponse:
     """Redirect back to the sign-in page with a visible error message."""
     msg = urllib.parse.quote(message)
-    return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
+    return RedirectResponse(f"/users/sign-in?error={msg}", status_code=303)
 
 
 async def handle_callback(provider: str, request: Request, code: Optional[str], state: Optional[str], user_manager) -> RedirectResponse:
@@ -233,7 +234,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         if not g or not g.enabled:
             raise HTTPException(status_code=404, detail="Google OAuth not enabled")
         client = GoogleOAuth2(g.client_id, g.client_secret)
-        redirect_uri = _get_redirect_uri(provider)
+        redirect_uri = _get_redirect_uri(provider, request)
         try:
             token = await client.get_access_token(code, redirect_uri)
         except httpx.HTTPStatusError as e:
@@ -286,7 +287,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
         strategy = get_jwt_strategy()
         jwt_token = await strategy.write_token(user)
-        return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+        return RedirectResponse(f"/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
 
     # OIDC providers
     cfg = _get_oidc_config(provider)
@@ -296,7 +297,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
     issuer = cfg.issuer.rstrip("/")
     openid_cfg_endpoint = issuer if "well-known" in issuer else f"{issuer}/.well-known/openid-configuration"
     client = OpenID(cfg.client_id, cfg.client_secret, openid_configuration_endpoint=openid_cfg_endpoint, name=provider)
-    redirect_uri = _get_redirect_uri(provider, getattr(cfg, "redirect_path", None))
+    redirect_uri = _get_redirect_uri(provider, request, getattr(cfg, "redirect_path", None))
 
     try:
         token_endpoint = (await _discover_endpoints(openid_cfg_endpoint))["token_endpoint"]
@@ -431,7 +432,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)
-    return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+    return RedirectResponse(f"/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
 
 
 async def _record_login(user) -> None:

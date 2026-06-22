@@ -36,8 +36,8 @@ MCP_PROTOCOL_VERSION = "2025-11-25"
 
 def _resource_metadata_url(request: Request) -> str:
     """Build the well-known URL for the WWW-Authenticate header."""
-    from app.core.base_url import derive_base_url
-    return f"{derive_base_url(request)}/.well-known/oauth-protected-resource"
+    from app.core.base_url import derive_mcp_base_url
+    return f"{derive_mcp_base_url(request)}/.well-known/oauth-protected-resource"
 
 
 async def mcp_auth(
