@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.420 (June 23, 2026)
+- **Fix — BigQuery queries failed with "Please install the 'db-dtypes' package"** — added the `db-dtypes` runtime dependency so BigQuery results convert to dataframes correctly.
+
 ## Version 0.0.419 (June 23, 2026)
 - **Instructions — scope by run-mode and delivery channel** — instructions can now be restricted to specific agent run-modes (Chat, Deep analytics, Training) and delivery channels (Web app, Slack, Teams, AI mailbox, MCP). The selectors live in a new collapsible **Advanced** section of the instruction editor (empty = applies everywhere). The scoping is honored at prompt-build time so an instruction only loads in the modes/channels it targets, and the fields are versioned (snapshotted into instruction versions and carried through build promotion/diffing).
 - **Fix — instruction "Pending review" status was inconsistent across views** — the same instruction could read **Active** in the agent instruction view but **Pending review** in the report agent panel. The list and single-instruction endpoints now derive the pending signal from the same authoritative per-hunk review rule as `/instructions/pending-changes`, so a leftover/already-applied (covered) build no longer over-reports as pending. The status dropdown in the report agent editor also stops showing a value ("Pending review") that wasn't one of its options.
