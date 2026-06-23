@@ -71,7 +71,12 @@ class Instruction(BaseSchema):
     
     # Loading behavior for AI context
     load_mode = Column(String(20), default='always')  # 'always' | 'intelligent' | 'disabled'
-    
+
+    # Scoping: which agent run-modes and delivery channels this instruction
+    # applies to. NULL or empty list => applies everywhere (all modes/channels).
+    applicable_modes = Column(JSON, nullable=True)      # e.g. ['chat', 'deep', 'training']
+    applicable_channels = Column(JSON, nullable=True)   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
+
     # Display title (especially for git-sourced instructions)
     title = Column(String(255), nullable=True)
 

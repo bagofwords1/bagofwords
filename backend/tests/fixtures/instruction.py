@@ -5,19 +5,23 @@ import os
 
 @pytest.fixture
 def create_instruction(test_client):
-    def _create_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None):
+    def _create_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None, applicable_modes=None, applicable_channels=None):
         if user_token is None:
             pytest.fail("User token is required for create_instruction")
         if org_id is None:
             pytest.fail("Organization ID is required for create_instruction")
-        
+
         payload = {
             "text": text,
             "status": status,
             "category": category,
             "data_source_ids": data_source_ids or []
         }
-        
+        if applicable_modes is not None:
+            payload["applicable_modes"] = applicable_modes
+        if applicable_channels is not None:
+            payload["applicable_channels"] = applicable_channels
+
         headers = {
             "Authorization": f"Bearer {user_token}",
             "X-Organization-Id": str(org_id)
@@ -35,12 +39,12 @@ def create_instruction(test_client):
 
 @pytest.fixture
 def create_global_instruction(test_client):
-    def _create_global_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None, label_ids=None):
+    def _create_global_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None, label_ids=None, applicable_modes=None, applicable_channels=None):
         if user_token is None:
             pytest.fail("User token is required for create_instruction")
         if org_id is None:
             pytest.fail("Organization ID is required for create_instruction")
-        
+
         payload = {
             "text": text,
             "status": status,
@@ -49,6 +53,10 @@ def create_global_instruction(test_client):
         }
         if label_ids is not None:
             payload["label_ids"] = label_ids
+        if applicable_modes is not None:
+            payload["applicable_modes"] = applicable_modes
+        if applicable_channels is not None:
+            payload["applicable_channels"] = applicable_channels
         
         headers = {
             "Authorization": f"Bearer {user_token}",
@@ -126,7 +134,7 @@ def get_instruction(test_client):
 
 @pytest.fixture
 def update_instruction(test_client):
-    def _update_instruction(instruction_id, text=None, status=None, category=None, data_source_ids=None, label_ids=None, load_mode=None, user_token=None, org_id=None):
+    def _update_instruction(instruction_id, text=None, status=None, category=None, data_source_ids=None, label_ids=None, load_mode=None, applicable_modes=None, applicable_channels=None, user_token=None, org_id=None):
         if user_token is None:
             pytest.fail("User token is required for update_instruction")
         if org_id is None:
@@ -145,6 +153,10 @@ def update_instruction(test_client):
             payload["label_ids"] = label_ids
         if load_mode is not None:
             payload["load_mode"] = load_mode
+        if applicable_modes is not None:
+            payload["applicable_modes"] = applicable_modes
+        if applicable_channels is not None:
+            payload["applicable_channels"] = applicable_channels
         
         headers = {
             "Authorization": f"Bearer {user_token}",

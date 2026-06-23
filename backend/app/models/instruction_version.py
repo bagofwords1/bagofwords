@@ -31,7 +31,12 @@ class InstructionVersion(BaseSchema):
     
     # Loading behavior for AI context
     load_mode = Column(String(20), default='always')  # 'always' | 'intelligent' | 'disabled'
-    
+
+    # Scoping snapshot: which agent run-modes and delivery channels this
+    # instruction applies to. NULL or empty list => applies everywhere.
+    applicable_modes = Column(JSON, nullable=True)      # e.g. ['chat', 'deep', 'training']
+    applicable_channels = Column(JSON, nullable=True)   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
+
     # === Relationships as JSON (denormalized for immutable snapshots) ===
     # Format: [{"object_type": "...", "object_id": "...", "column_name": "...", "display_text": "..."}]
     references_json = Column(JSON, nullable=True)

@@ -57,6 +57,10 @@ export interface Instruction {
   source_git_commit_sha?: string | null
   source_sync_enabled?: boolean
   load_mode?: 'always' | 'intelligent' | 'disabled'
+  // Scoping: which agent run-modes / delivery channels this instruction applies
+  // to. Null or empty array => applies everywhere.
+  applicable_modes?: string[] | null
+  applicable_channels?: string[] | null
   structured_data?: Record<string, any> | null
   formatted_content?: string | null
   references?: any[]

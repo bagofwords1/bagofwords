@@ -910,6 +910,8 @@ class BuildService:
                 InstructionVersion.title,
                 InstructionVersion.description,
                 InstructionVersion.load_mode,
+                InstructionVersion.applicable_modes,
+                InstructionVersion.applicable_channels,
                 InstructionVersion.category_ids,
                 InstructionVersion.status,
             )
@@ -919,7 +921,7 @@ class BuildService:
             )
             .where(BuildContent.build_id == build_id)
         )
-        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_category_ids, v_status in rows.all():
+        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_applicable_modes, v_applicable_channels, v_category_ids, v_status in rows.all():
             category = None
             if v_category_ids:
                 category = v_category_ids[0] if isinstance(v_category_ids, list) else v_category_ids
@@ -932,6 +934,9 @@ class BuildService:
             values["description"] = v_description
             if v_load_mode is not None:
                 values["load_mode"] = v_load_mode
+            # modes/channels are nullable and clearable — always sync to the version's value
+            values["applicable_modes"] = v_applicable_modes
+            values["applicable_channels"] = v_applicable_channels
             if category is not None:
                 values["category"] = category
             # Promotion respects the version's own status: AI tools that want
@@ -1272,6 +1277,10 @@ class BuildService:
                         changed_fields.append('status')
                     if version_a.load_mode != version_b.load_mode:
                         changed_fields.append('load_mode')
+                    if (version_a.applicable_modes or []) != (version_b.applicable_modes or []):
+                        changed_fields.append('applicable_modes')
+                    if (version_a.applicable_channels or []) != (version_b.applicable_channels or []):
+                        changed_fields.append('applicable_channels')
                     if version_a.category_ids != version_b.category_ids:
                         changed_fields.append('category')
                     

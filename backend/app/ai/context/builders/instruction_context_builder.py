@@ -53,12 +53,36 @@ class InstructionContextBuilder:
     # Default max instructions in context
     DEFAULT_MAX_INSTRUCTIONS = 50
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
         self.organization_settings = organization_settings
         self.data_source_ids = data_source_ids
+        # Current request mode ('chat' | 'deep' | 'training' | ...) and delivery
+        # channel ('app' | 'slack' | 'teams' | 'email' | 'mcp' | ...). Used to
+        # honor per-instruction applicable_modes / applicable_channels scoping.
+        # When either is None, that dimension is not filtered (include all).
+        self.mode = mode
+        self.channel = channel
+
+    def _passes_mode_channel(self, applicable_modes, applicable_channels) -> bool:
+        """Return True if an instruction with the given scoping applies to the
+        current request mode/channel.
+
+        An empty/None ``applicable_modes`` (or ``applicable_channels``) means the
+        instruction applies to every mode (or channel). When the builder has no
+        current mode/channel set, that dimension is not filtered.
+        """
+        if self.mode and applicable_modes:
+            modes = applicable_modes if isinstance(applicable_modes, list) else []
+            if modes and self.mode not in modes:
+                return False
+        if self.channel and applicable_channels:
+            channels = applicable_channels if isinstance(applicable_channels, list) else []
+            if channels and self.channel not in channels:
+                return False
+        return True
     
     def _get_max_instructions(self) -> int:
         """Get max instructions limit from org settings or default."""
@@ -169,6 +193,15 @@ class InstructionContextBuilder:
                 if not inst_ds_ids or inst_ds_ids.intersection(data_source_ids):
                     filtered.append(inst)
             instructions = filtered
+
+        # Filter by current request mode/channel scoping
+        instructions = [
+            inst for inst in instructions
+            if self._passes_mode_channel(
+                getattr(inst, "applicable_modes", None),
+                getattr(inst, "applicable_channels", None),
+            )
+        ]
 
         # Filter by per-user table accessibility (user_data_source_tables overlay)
         instructions = await self._filter_instructions_by_table_accessibility(instructions)
@@ -407,6 +440,15 @@ class InstructionContextBuilder:
                 inst for inst in all_instructions
                 if not inst.data_sources or {str(ds.id) for ds in inst.data_sources}.intersection(data_source_ids)
             ]
+
+        # Filter by current request mode/channel scoping
+        all_instructions = [
+            inst for inst in all_instructions
+            if self._passes_mode_channel(
+                getattr(inst, "applicable_modes", None),
+                getattr(inst, "applicable_channels", None),
+            )
+        ]
 
         # Filter by per-user table accessibility
         all_instructions = await self._filter_instructions_by_table_accessibility(all_instructions)
@@ -651,6 +693,14 @@ class InstructionContextBuilder:
             # Skills are advertised via the skills catalog (read on demand), not
             # force-loaded into context — skip them here.
             if getattr(instruction, "kind", "instruction") == "skill":
+                continue
+
+            # Skip instructions scoped to other modes/channels than this request.
+            # Build-based loading is version-driven, so read the version snapshot.
+            if not self._passes_mode_channel(
+                getattr(version, "applicable_modes", None),
+                getattr(version, "applicable_channels", None),
+            ):
                 continue
 
             # Filter by data sources: include global instructions (no data sources)
