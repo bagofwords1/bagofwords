@@ -683,7 +683,9 @@ class InstructionService:
         if not instruction:
             return None
 
-        return await self._instruction_to_schema_with_references(db, instruction)
+        return await self._instruction_to_schema_with_references(
+            db, instruction, organization=organization, current_user=current_user
+        )
 
     async def user_can_view_instruction(
         self,
@@ -1189,6 +1191,61 @@ class InstructionService:
                 "hunks": shown,
             })
         return {"main_version_id": main_vid, "main_text": main_text, "suggestions": suggestions}
+
+    async def get_pending_change_instruction_ids(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        *,
+        candidate_ids: Optional[List[str]] = None,
+    ) -> set:
+        """Authoritative set of instruction IDs that have at least one LIVE review
+        hunk (the per-hunk cherry-pick model).
+
+        This is the SINGLE source of truth for the "Pending review" signal, shared
+        by the ``/instructions/pending-changes`` endpoint, the instruction list
+        (``get_instructions``) and the single-instruction detail. Keeping every
+        surface on this one rule prevents the same instruction reading "Active"
+        in one view and "Pending review" in another (a leftover/covered build
+        whose version differs from main but whose change is already applied no
+        longer counts).
+
+        candidate_ids, when provided, restricts the (expensive) per-instruction
+        hunk computation to that subset — used by the list path which already
+        knows which rows are on screen.
+        """
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+
+        org_id = str(organization.id)
+        cand_stmt = (
+            select(BuildContent.instruction_id)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .where(and_(
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.is_main.is_(False),
+                InstructionBuild.deleted_at.is_(None),
+                InstructionBuild.status.in_(["draft", "pending_approval"]),
+                InstructionBuild.source.in_(["user", "ai", "git"]),
+            ))
+            .distinct()
+        )
+        if candidate_ids is not None:
+            if not candidate_ids:
+                return set()
+            cand_stmt = cand_stmt.where(BuildContent.instruction_id.in_([str(i) for i in candidate_ids]))
+
+        cand_rows = (await db.execute(cand_stmt)).all()
+        pending: set = set()
+        for (iid,) in cand_rows:
+            try:
+                r = await self.review_hunks(db, str(iid), organization=organization, current_user=current_user)
+                if r and r.get("suggestions"):
+                    pending.add(str(iid))
+            except Exception:
+                pass
+        return pending
 
     async def accept_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
                           against_main_version_id: Optional[str], organization: Organization, current_user: User):
@@ -2581,9 +2638,22 @@ class InstructionService:
                         continue  # inherited the main version — not a real pending change
                     if key not in latest_by_inst:  # rows are newest-first
                         latest_by_inst[key] = (str(b_id), b_status)
+                # Gate on the authoritative pending set (same rule as
+                # /instructions/pending-changes and the single-instruction
+                # detail). A build whose version differs from main but whose
+                # change is already applied/covered has no LIVE review hunk and
+                # must NOT read as "Pending review" here when it reads "Active"
+                # everywhere else.
+                if latest_by_inst and current_user is not None:
+                    pending_ids = await self.get_pending_change_instruction_ids(
+                        db, organization, current_user,
+                        candidate_ids=list(latest_by_inst.keys()),
+                    )
+                else:
+                    pending_ids = set()
                 for it in list_items:
                     hit = latest_by_inst.get(str(it.id))
-                    if hit:
+                    if hit and str(it.id) in pending_ids:
                         it.current_build_id, it.current_build_status = hit
             except Exception as e:
                 logger.warning(f"Failed to batch-resolve current builds for instruction list: {e}")
@@ -2974,10 +3044,36 @@ class InstructionService:
             parts.append(f"Data Source: {ds.name} - {description}".strip())
         return "\n".join(parts)
     
-    async def _instruction_to_schema_with_references(self, db: AsyncSession, instruction) -> InstructionSchema:
-        """Convert instruction to schema with populated references."""
+    async def _instruction_to_schema_with_references(
+        self,
+        db: AsyncSession,
+        instruction,
+        *,
+        organization: Optional[Organization] = None,
+        current_user: Optional[User] = None,
+    ) -> InstructionSchema:
+        """Convert instruction to schema with populated references.
+
+        When ``organization``/``current_user`` are provided, the "Pending review"
+        signal (``current_build_status``) is gated on the authoritative per-hunk
+        review check — the SAME rule used by the list and by
+        ``/instructions/pending-changes`` — so the detail never disagrees with
+        the list about whether an instruction is pending.
+        """
         # Convert to basic schema
         instruction_dict = InstructionSchema.from_orm(instruction).model_dump()
+
+        # Authoritative pending check (shared source of truth). None => caller
+        # didn't supply org/user, fall back to the heuristic below.
+        authoritative_pending = None
+        if organization is not None and current_user is not None:
+            try:
+                _r = await self.review_hunks(
+                    db, str(instruction.id), organization=organization, current_user=current_user
+                )
+                authoritative_pending = bool(_r and _r.get("suggestions"))
+            except Exception:
+                authoritative_pending = None
 
         # Look up the latest non-main build (draft / pending_approval) that
         # contains this instruction, so the UI can show an "unpublished build"
@@ -3049,6 +3145,11 @@ class InstructionService:
                 instruction_dict["current_build_id"] = str(bid)
                 instruction_dict["current_build_status"] = st
                 break
+            # The authoritative review check wins when available: a build with no
+            # LIVE hunk (already-applied / covered) must not read as pending.
+            if authoritative_pending is False:
+                instruction_dict["current_build_id"] = None
+                instruction_dict["current_build_status"] = None
         except Exception as e:
             logger.warning(f"Failed to resolve current build for instruction {instruction.id}: {e}")
 
