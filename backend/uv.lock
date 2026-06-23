@@ -385,6 +385,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "curl-cffi" },
     { name = "databricks-sql-connector" },
+    { name = "db-dtypes" },
     { name = "defusedxml" },
     { name = "duckdb" },
     { name = "email-validator" },
@@ -500,6 +501,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=49.0.0,<50" },
     { name = "curl-cffi", specifier = ">=0.15.0,<0.16" },
     { name = "databricks-sql-connector", specifier = ">=4.3.0,<4.4" },
+    { name = "db-dtypes", specifier = ">=1.4.0,<1.5" },
     { name = "defusedxml", specifier = ">=0.7.1,<0.8" },
     { name = "duckdb", specifier = ">=1.5.4,<1.6" },
     { name = "email-validator", specifier = ">=2.3.0,<2.4" },
@@ -1082,6 +1084,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/dd/e3/16d6f15f0456f6abd35406ddadd651b7579ed2f7c2ffda2722b263529427/databricks_sql_connector-4.3.0.tar.gz", hash = "sha256:047a56d31a61a04bd7eaa33a29e2c899b177f5b9089c127e9ae88c261e635cd1", size = 222828, upload-time = "2026-06-15T07:04:54.098Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d6/e5/4473f714f24d408a34c8a35f7b1e9b49d4e1c3fb2759166cee0ee23042c2/databricks_sql_connector-4.3.0-py3-none-any.whl", hash = "sha256:a48f33ab246e42950d12da0c12d7b82eae616f18e3103a4f5801ceeae8861f30", size = 251500, upload-time = "2026-06-15T07:04:52.628Z" },
+]
+
+[[package]]
+name = "db-dtypes"
+version = "1.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/75/7cbd2af9f3bed29c74df4c6512243b94e0dc17ca03bf82a33e45ee75501b/db_dtypes-1.4.4.tar.gz", hash = "sha256:26f53db5df1acd746b88c5647913a1b20f731c0af1b11abcb6bec5365f31098a", size = 34471, upload-time = "2025-11-11T17:21:59.221Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/46/398af286861992d98f5ca7e1b4662b5d6f1d29978ddc0849c52fb130e8e9/db_dtypes-1.4.4-py3-none-any.whl", hash = "sha256:32c13039982656a8598a0835f25f0e07e34c9a423e471ee60c2553240b7fcf1e", size = 18255, upload-time = "2025-11-11T17:21:57.93Z" },
 ]
 
 [[package]]

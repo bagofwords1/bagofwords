@@ -43,6 +43,7 @@ dependencies = [
     "snowflake-connector-python>=4.6.0,<4.7",
     "snowflake-sqlalchemy>=1.10.1,<1.11",
     "google-cloud-bigquery>=3.42.0,<3.43",
+    "db-dtypes>=1.4.0,<1.5",
     "boto3>=1.43.33,<1.44",
     "awswrangler>=3.16.1,<3.17",
     "azure-kusto-data>=4.6.3,<4.7",
