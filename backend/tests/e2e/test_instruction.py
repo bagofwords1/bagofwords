@@ -686,7 +686,8 @@ def test_pending_status_consistent_between_list_and_detail(
     the list and the single-instruction GET now derive the pending signal from
     the same authoritative per-hunk rule as /instructions/pending-changes.
     """
-    import os, sqlite3, uuid, datetime
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
 
     user = create_user()
     token = login_user(user["email"], user["password"])
@@ -699,39 +700,64 @@ def test_pending_status_consistent_between_list_and_detail(
     iid = instr["id"]
 
     # Inject a covered/no-op leftover pending build straight into the test DB.
-    url = os.environ["TEST_DATABASE_URL"]
-    path = url.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
-    conn = sqlite3.connect(path); conn.row_factory = sqlite3.Row
+    # TEST_DATABASE_URL is a sync URL for both backends (sqlite:/// or
+    # postgresql://), so use SQLAlchemy core with named params rather than the
+    # sqlite3 driver, which can't open a Postgres URL.
+    engine = create_engine(os.environ["TEST_DATABASE_URL"])
     try:
-        main = conn.execute(
-            """SELECT bc.build_id AS build_id, iv.text AS text
-                 FROM build_contents bc
-                 JOIN instruction_builds ib ON ib.id = bc.build_id
-                 JOIN instruction_versions iv ON iv.id = bc.instruction_version_id
-                WHERE bc.instruction_id = ? AND ib.is_main = 1 AND ib.deleted_at IS NULL""",
-            (iid,),
-        ).fetchone()
-        assert main is not None, "new instruction should be in the main build"
-        now = datetime.datetime.utcnow().isoformat()
-        vid, bid, bcid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
-        vnum = conn.execute("SELECT COALESCE(MAX(version_number),0)+1 FROM instruction_versions WHERE instruction_id=?", (iid,)).fetchone()[0]
-        bnum = conn.execute("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=?", (org_id,)).fetchone()[0]
-        # Same text as main => covered/no-op, but a distinct version id.
-        conn.execute(
-            "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
-            (vid, now, now, iid, vnum, main["text"], "published", "always", "h" + uuid.uuid4().hex[:12]),
-        )
-        conn.execute(
-            "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,base_build_id,title) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (bid, now, now, bnum, "pending_approval", "ai", 0, org_id, main["build_id"], "leftover covered build"),
-        )
-        conn.execute(
-            "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id) VALUES (?,?,?,?,?,?)",
-            (bcid, now, now, bid, iid, vid),
-        )
-        conn.commit()
+        with engine.begin() as conn:
+            main = conn.execute(
+                text(
+                    """SELECT bc.build_id AS build_id, iv.text AS text
+                         FROM build_contents bc
+                         JOIN instruction_builds ib ON ib.id = bc.build_id
+                         JOIN instruction_versions iv ON iv.id = bc.instruction_version_id
+                        WHERE bc.instruction_id = :iid AND ib.is_main = :true_val
+                          AND ib.deleted_at IS NULL"""
+                ),
+                {"iid": iid, "true_val": True},
+            ).mappings().fetchone()
+            assert main is not None, "new instruction should be in the main build"
+            now = datetime.datetime.utcnow().isoformat()
+            vid, bid, bcid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+            vnum = conn.execute(
+                text("SELECT COALESCE(MAX(version_number),0)+1 FROM instruction_versions WHERE instruction_id=:iid"),
+                {"iid": iid},
+            ).scalar()
+            bnum = conn.execute(
+                text("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=:org_id"),
+                {"org_id": org_id},
+            ).scalar()
+            # Same text as main => covered/no-op, but a distinct version id.
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash)"
+                    " VALUES (:id,:created_at,:updated_at,:iid,:vnum,:text,:status,:load_mode,:content_hash)"
+                ),
+                {"id": vid, "created_at": now, "updated_at": now, "iid": iid, "vnum": vnum,
+                 "text": main["text"], "status": "published", "load_mode": "always",
+                 "content_hash": "h" + uuid.uuid4().hex[:12]},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,base_build_id,title)"
+                    " VALUES (:id,:created_at,:updated_at,:bnum,:status,:source,:is_main,:org_id,:base_build_id,:title)"
+                ),
+                {"id": bid, "created_at": now, "updated_at": now, "bnum": bnum,
+                 "status": "pending_approval", "source": "ai", "is_main": False,
+                 "org_id": org_id, "base_build_id": main["build_id"],
+                 "title": "leftover covered build"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
+                    " VALUES (:id,:created_at,:updated_at,:build_id,:iid,:vid)"
+                ),
+                {"id": bcid, "created_at": now, "updated_at": now, "build_id": bid,
+                 "iid": iid, "vid": vid},
+            )
     finally:
-        conn.close()
+        engine.dispose()
 
     def effective(o):
         if o.get("current_build_id") and o.get("current_build_status") in ("draft", "pending_approval"):

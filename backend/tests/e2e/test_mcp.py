@@ -415,20 +415,27 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 11
 
-    tool_names = [t["name"] for t in tools]
-    assert "create_report" in tool_names
-    assert "get_context" in tool_names
-    assert "inspect_data" in tool_names
-    assert "create_data" in tool_names
-    assert "create_artifact" in tool_names
-    assert "list_instructions" in tool_names
-    assert "create_instruction" in tool_names
-    assert "delete_instruction" in tool_names
-    # App-only tools
-    assert "get_visualization" in tool_names
-    assert "get_artifact_data" in tool_names
+    # Assert the exact set of advertised tools rather than a brittle count, so
+    # adding/removing a tool surfaces here intentionally instead of via a magic
+    # number. Mirrors MCP_TOOLS in app/ai/tools/mcp/__init__.py.
+    tool_names = {t["name"] for t in tools}
+    expected = {
+        "create_report",
+        "get_context",
+        "inspect_data",
+        "create_data",
+        "create_artifact",
+        "edit_artifact",
+        "send_email",
+        "list_instructions",
+        "create_instruction",
+        "delete_instruction",
+        # App-only tools
+        "get_visualization",
+        "get_artifact_data",
+    }
+    assert tool_names == expected, f"unexpected MCP tools: {tool_names ^ expected}"
 
 
 # ============================================================================
