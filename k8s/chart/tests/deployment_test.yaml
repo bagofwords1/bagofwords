@@ -1,0 +1,51 @@
+suite: test deployment
+templates:
+  - deployment.yaml
+release:
+  name: test-release
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: renders with default values
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: test-release
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: test-release
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: "^bagofwords-"
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: bowapp
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].configMapRef.name
+          value: test-release
+
+  - it: renders cpu from values not hardcoded
+    set:
+      resources.requests.cpu: 500m
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 500m

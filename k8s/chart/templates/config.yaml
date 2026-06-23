@@ -1,8 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: bowapp
-  namespace: {{.Release.Namespace}}
+  name: {{ include "bowapp.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.labels" . | nindent 4 }}
 data:
   {{- if ne (default "password" .Values.database.auth.provider) "password" }}
   # Managed database with IAM auth — password is generated at runtime

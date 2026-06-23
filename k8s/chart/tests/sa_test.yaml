@@ -1,0 +1,35 @@
+suite: test serviceaccount
+templates:
+  - sa.yaml
+release:
+  name: test-release
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: renders with default values
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: bowapp
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: test-release
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: "^bagofwords-"
+      - notExists:
+          path: imagePullSecrets
+
+  - it: renders imagePullSecrets when set
+    set:
+      serviceAccount.imagePullSecret: my-registry-secret
+    asserts:
+      - equal:
+          path: imagePullSecrets[0].name
+          value: my-registry-secret

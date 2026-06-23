@@ -1,0 +1,34 @@
+suite: test configmap
+templates:
+  - config.yaml
+release:
+  name: test-release
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: renders with default values
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: test-release
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: test-release
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: "^bagofwords-"
+      - matchRegex:
+          path: data.BOW_DATABASE_URL
+          pattern: "^postgresql://test:test@test-release-postgresql:5432/testdb$"
+      - equal:
+          path: data.BOW_AUTH_MODE
+          value: hybrid
+      - equal:
+          path: data.BOW_TELEMETRY_ENABLED
+          value: "true"

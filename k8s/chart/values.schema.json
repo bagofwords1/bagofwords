@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tag": { "type": "string" },
+        "registry": { "type": "string" },
+        "repository": { "type": "string" }
+      }
+    },
+    "host": { "type": "string" },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Bitnami PostgreSQL subchart values — all keys permitted"
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": { "type": "string", "enum": ["password", "aws_iam"] },
+            "region": { "type": "string" },
+            "sslMode": { "type": "string" },
+            "sslRootCert": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "secretName": { "type": "string" },
+                "key": { "type": "string" }
+              }
+            }
+          }
+        },
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "username": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "secretName": { "type": "string" }
+          }
+        },
+        "annotations": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "imagePullSecret": { "type": "string" },
+        "annotations": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secretRef": { "type": "string" },
+        "googleOauthEnabled": { "type": "boolean" },
+        "googleClientId": { "type": "string" },
+        "googleClientSecret": { "type": "string" },
+        "encryptionKey": { "type": "string" },
+        "intercomEnabled": { "type": "boolean" },
+        "telemetryEnabled": { "type": "boolean" },
+        "baseUrl": { "type": "string" },
+        "authMode": { "type": "string", "enum": ["hybrid", "local_only", "sso_only"] },
+        "allowUninvitedSignups": { "type": "boolean" },
+        "allowMultipleOrganizations": { "type": "boolean" },
+        "verifyEmails": { "type": "boolean" },
+        "uvicornWorkers": { "type": ["string", "integer"] },
+        "otel": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "serviceName": { "type": "string" },
+            "tracesEndpoint": { "type": "string" },
+            "protocol": { "type": "string", "enum": ["grpc", "http/protobuf"] },
+            "headers": { "type": "string" }
+          }
+        },
+        "oidcProviders": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "ldap": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "url": { "type": "string" },
+            "bindDn": { "type": "string" },
+            "useSsl": { "type": "boolean" },
+            "startTls": { "type": "boolean" },
+            "baseDn": { "type": "string" },
+            "userSearchBase": { "type": "string" },
+            "userSearchFilter": { "type": "string" },
+            "userEmailAttribute": { "type": "string" },
+            "userNameAttribute": { "type": "string" },
+            "groupSearchBase": { "type": "string" },
+            "groupSearchFilter": { "type": "string" },
+            "groupNameAttribute": { "type": "string" },
+            "groupMemberAttribute": { "type": "string" },
+            "groupMemberFormat": { "type": "string" },
+            "syncIntervalMinutes": { "type": "integer", "minimum": 1 },
+            "autoProvisionUsers": { "type": "boolean" },
+            "connectionTimeout": { "type": "integer", "minimum": 1 },
+            "pageSize": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "licenseKey": { "type": "string" },
+        "smtp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "host": { "type": "string" },
+            "port": { "type": "integer" },
+            "username": { "type": "string" },
+            "password": { "type": "string" },
+            "from_name": { "type": "string" },
+            "from_email": { "type": "string" },
+            "use_tls": { "type": "boolean" },
+            "use_ssl": { "type": "boolean" },
+            "use_credentials": { "type": "boolean" },
+            "validate_certs": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "type": ["string", "number"] },
+            "memory": { "type": "string" }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "memory": { "type": "string" }
+          }
+        }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "strategy": { "type": "object", "additionalProperties": true },
+    "revisionHistoryLimit": { "type": "integer", "minimum": 0 },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "nodeSelector": { "type": "object", "additionalProperties": true },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object", "additionalProperties": true },
+    "topologySpreadConstraints": { "type": "array" },
+    "podAnnotations": { "type": "object", "additionalProperties": true },
+    "podSecurityContext": { "type": "object", "additionalProperties": true },
+    "containerSecurityContext": { "type": "object", "additionalProperties": true },
+    "lifecycle": { "type": "object", "additionalProperties": true },
+    "initContainers": { "type": "array" },
+    "extraContainers": { "type": "array" },
+    "extraEnv": { "type": "array" },
+    "extraEnvFrom": { "type": "array" },
+    "extraVolumes": { "type": "array" },
+    "extraVolumeMounts": { "type": "array" },
+    "startupProbe": { "type": "object", "additionalProperties": true },
+    "readinessProbe": { "type": "object", "additionalProperties": true },
+    "livenessProbe": { "type": "object", "additionalProperties": true },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "targetMemoryUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["string", "integer"] },
+        "maxUnavailable": { "type": ["string", "integer"] }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingress": { "type": "array" },
+        "egress": { "type": "array" }
+      }
+    }
+  }
+}

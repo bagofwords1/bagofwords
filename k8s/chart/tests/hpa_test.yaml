@@ -1,0 +1,43 @@
+suite: test horizontalpodautoscaler
+templates:
+  - hpa.yaml
+release:
+  name: test-release
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: is absent by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders when enabled
+    set:
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 2
+      autoscaling.maxReplicas: 10
+    asserts:
+      - isKind:
+          of: HorizontalPodAutoscaler
+      - equal:
+          path: metadata.name
+          value: test-release
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: test-release
+      - equal:
+          path: spec.minReplicas
+          value: 2
+      - equal:
+          path: spec.maxReplicas
+          value: 10
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: test-release
+      - equal:
+          path: spec.metrics[0].resource.name
+          value: cpu
