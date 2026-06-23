@@ -69,6 +69,8 @@ from app.schemas.data_sources.configs import (
     OneDriveCredentials,
     GoogleDriveConfig,
     GoogleDriveCredentials,
+    GmailConfig,
+    GmailCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -202,8 +204,32 @@ class DataSourceRegistryEntry(BaseModel):
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
+    # `connect_audience` is the surface/permission axis: WHO may connect this.
+    # Independent of `auth_policy` (where creds live). "admin-first" (who sets up
+    # the OAuth app) is NOT "admin-only" (who may connect): Gmail is admin-first
+    # AND user-self-serve; Snowflake/Fabric/QVD are admin-first AND admin-only.
+    #   admin → only in the admin data-source/Agents setup (never the user
+    #           Integrations catalog), regardless of whether it supports per-user
+    #           auth (Snowflake, Fabric, QVD, Postgres).
+    #   user  → user can self-serve connect from the Integrations catalog.
+    #   both  → appears in both surfaces.
+    # `None` ⇒ derived from `ui_form` (data_source → admin; integration/mcp/
+    # custom_api → user). Set explicitly only when form and audience disagree.
+    connect_audience: Optional[str] = None
+
     class Config:
         arbitrary_types_allowed = True
+
+    @property
+    def effective_connect_audience(self) -> str:
+        if self.connect_audience:
+            return self.connect_audience
+        return "admin" if self.ui_form == "data_source" else "user"
+
+    @property
+    def is_integration(self) -> bool:
+        """Eligible for the user-facing Integrations catalog (self-serve)."""
+        return self.effective_connect_audience in ("user", "both")
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -731,6 +757,36 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         requires_license="enterprise",
     ),
+    "gmail": DataSourceRegistryEntry(
+        type="gmail",
+        title="Gmail",
+        description="Draft, send, forward, and search emails, and manage labels.",
+        config_schema=GmailConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Google OAuth Client",
+                    schema=GmailCredentials,
+                    scopes=["system"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Google",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.gmail_client.GmailClient",
+        # Integration (tools, no schema catalog). Per-user OAuth: admin-first
+        # (Google app) then user-required (each user signs in). Self-serve.
+        is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="integration",
+        connect_audience="user",
+        requires_license="enterprise",
+    ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
         title="Microsoft Fabric",
@@ -979,6 +1035,8 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "data_shape": e.data_shape,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
+            "connect_audience": e.effective_connect_audience,
+            "is_integration": e.is_integration,
         }
         for e in REGISTRY.values()
         if (
@@ -986,6 +1044,31 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             and _entry_visible(e)
             and (e.is_connection or include_tool_providers)
         )
+    ]
+
+
+def list_integration_entries() -> list[dict]:
+    """Catalog for the user-facing Integrations page.
+
+    Only connectors whose surface/audience makes them self-serve
+    (`effective_connect_audience in {user, both}`) — i.e. Gmail / Drive / Jira /
+    Notion / MCP, never admin-only data sources (Snowflake / Fabric / QVD).
+    """
+    return [
+        {
+            "type": e.type,
+            "title": e.title,
+            "description": e.description,
+            "status": e.status,
+            "version": e.version,
+            "requires_license": e.requires_license,
+            "data_shape": e.data_shape,
+            "catalog_ownership": e.catalog_ownership,
+            "ui_form": e.ui_form,
+            "connect_audience": e.effective_connect_audience,
+        }
+        for e in REGISTRY.values()
+        if e.status == "active" and _entry_visible(e) and e.is_integration
     ]
 
 

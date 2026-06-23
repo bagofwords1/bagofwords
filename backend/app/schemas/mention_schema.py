@@ -102,6 +102,23 @@ class ConnectionToolMention(BaseModel):
 
 
 # ============================================
+# Integration Mention (per-provider, user-connected — `@Gmail`)
+# ============================================
+class IntegrationMention(BaseModel):
+    id: str  # Connection.id
+    type: Literal['integration'] = 'integration'
+    name: str
+    connection_id: str
+    connection_type: str  # gmail, jira, notion, mcp, ...
+    integration_title: Optional[str] = None
+    tool_count: int = 0
+    subtitle: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================
 # Response wrapper
 # ============================================
 class AvailableMentionsResponse(BaseModel):
@@ -110,6 +127,7 @@ class AvailableMentionsResponse(BaseModel):
     files: List[FileMention]
     entities: List[EntityMention]
     connection_tools: List[ConnectionToolMention] = []
+    integrations: List[IntegrationMention] = []
 
 
 # =====================================================
@@ -122,6 +140,8 @@ class MentionType(str, Enum):
     DATA_SOURCE = "DATA_SOURCE"
     TABLE = "TABLE"            # DataSourceTable
     ENTITY = "ENTITY"
+    CONNECTION = "CONNECTION"  # an Integration (Connection) the user mentioned;
+                              # expands to that connection's enabled tools at runtime
 
 
 class MentionBase(BaseModel):

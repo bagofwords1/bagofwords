@@ -82,6 +82,19 @@ class MentionService:
                     object_id=str(entity_mention.get("id"))
                 )
                 db_mentions.append(await self.create_mention(db, m, completion))
+
+            # INTEGRATIONS — a Connection the user mentioned (@Gmail, @Jira …).
+            # object_id is the connection id; at runtime it expands to that
+            # connection's enabled tools, resolved by the current user.
+            for integ_mention in groups.get("INTEGRATIONS", []):
+                m = MentionCreate(
+                    completion_id=completion.id,
+                    report_id=completion.report_id,
+                    type=MentionType.CONNECTION,
+                    mention_content=integ_mention.get("name") or integ_mention.get("connection_name") or "",
+                    object_id=str(integ_mention.get("id") or integ_mention.get("connection_id"))
+                )
+                db_mentions.append(await self.create_mention(db, m, completion))
         except Exception as e:
             raise e
 
@@ -106,7 +119,7 @@ class MentionService:
         categories: Optional[List[str]] = None
     ) -> Dict[str, List[Dict[str, Any]]]:
         result: Dict[str, List[Dict[str, Any]]] = {}
-        all_categories = ['data_sources', 'tables', 'files', 'entities', 'connection_tools']
+        all_categories = ['data_sources', 'tables', 'files', 'entities', 'connection_tools', 'integrations']
         requested_categories = set(categories or all_categories)
 
         if 'data_sources' in requested_categories:
@@ -142,7 +155,89 @@ class MentionService:
         else:
             result['connection_tools'] = []
 
+        if 'integrations' in requested_categories:
+            result['integrations'] = await self._get_user_integrations(
+                db, organization, current_user
+            )
+        else:
+            result['integrations'] = []
+
         return result
+
+    async def _get_user_integrations(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> List[Dict[str, Any]]:
+        """Integrations the CURRENT USER has connected — independent of agents.
+
+        This is the `@Gmail` path: a per-provider mention that expands to the
+        connection's enabled tools at runtime. Unlike `_get_connection_tools`
+        (agent-scoped, per individual tool), this is scoped to the user's own
+        `UserConnectionCredentials` and is connection-grained.
+
+        A connection qualifies when it is an integration-surface connector
+        (`ui_form ∈ {integration, mcp, custom_api}`) AND either the user holds
+        credentials for it (`user_required`) or it is `system_only` (shared
+        credential, usable by anyone in the org).
+        """
+        from app.models.connection import Connection
+        from app.models.connection_tool import ConnectionTool
+        from app.models.user_connection_credentials import UserConnectionCredentials
+        from app.schemas.data_source_registry import get_entry
+
+        try:
+            conn_rows = (await db.execute(
+                select(Connection).where(
+                    Connection.organization_id == str(organization.id),
+                    Connection.is_active == True,  # noqa: E712
+                )
+            )).scalars().all()
+
+            # Connections this user personally holds active credentials for.
+            cred_conn_ids = set((await db.execute(
+                select(UserConnectionCredentials.connection_id).where(
+                    UserConnectionCredentials.user_id == str(current_user.id),
+                    UserConnectionCredentials.is_active == True,  # noqa: E712
+                )
+            )).scalars().all())
+
+            items: List[Dict[str, Any]] = []
+            for conn in conn_rows:
+                try:
+                    entry = get_entry(conn.type)
+                except Exception:
+                    continue
+                if not entry.is_integration:
+                    continue
+                connected = (
+                    conn.auth_policy == "system_only"
+                    or str(conn.id) in cred_conn_ids
+                )
+                if not connected:
+                    continue
+                # Count enabled tools so the UI can show "@Gmail · 7 tools".
+                tool_count = (await db.execute(
+                    select(func.count()).select_from(ConnectionTool).where(
+                        ConnectionTool.connection_id == conn.id,
+                        ConnectionTool.is_enabled == True,  # noqa: E712
+                        ConnectionTool.deleted_at.is_(None),
+                    )
+                )).scalar() or 0
+                items.append({
+                    'id': str(conn.id),
+                    'type': 'integration',
+                    'name': conn.name,
+                    'connection_id': str(conn.id),
+                    'connection_type': conn.type,
+                    'integration_title': entry.title,
+                    'tool_count': int(tool_count),
+                    'subtitle': f"{tool_count} tools" if tool_count else entry.title,
+                })
+            return items
+        except Exception:
+            return []
 
     async def _get_data_sources(
         self,

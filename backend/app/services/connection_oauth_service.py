@@ -105,6 +105,30 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "microsoft",
         }
 
+    if conn_type == "gmail":
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Gmail. "
+                "Configure these in the connection credentials."
+            )
+        # Reuses the shared Google OAuth app; Gmail-specific scopes. (Phase 3
+        # will fold Gmail/Drive/Calendar onto one provider app with scope union.)
+        scopes = (
+            "openid email profile "
+            "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.send"
+        )
+        return {
+            "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": scopes,
+            "provider_name": "google",
+        }
+
     if conn_type == "google_drive":
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")

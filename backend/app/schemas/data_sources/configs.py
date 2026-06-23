@@ -939,6 +939,29 @@ class GoogleDriveConfig(BaseModel):
     pass
 
 
+# Gmail — integration (per-provider tools, per-user OAuth). Admin configures the
+# Google OAuth app once (admin-first); each user signs in (user-required).
+class GmailCredentials(BaseModel):
+    oauth_client_id: str = Field(
+        ...,
+        title="OAuth Client ID",
+        description="Google Cloud OAuth 2.0 Client ID (Web application type)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="OAuth Client Secret",
+        description="Google Cloud OAuth 2.0 Client Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class GmailConfig(BaseModel):
+    """Gmail needs no admin-side config — each user's OAuth token scopes access
+    to their own mailbox."""
+    pass
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""
