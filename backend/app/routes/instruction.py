@@ -316,33 +316,15 @@ async def get_pending_change_instruction_ids(
     """Instruction IDs that have at least one LIVE hunk in the per-hunk review
     (cherry-pick model). Authoritative: a suggestion build whose hunks are all
     accepted/rejected/already-applied no longer counts. Drives the per-row
-    pending dots so they match exactly what the review shows."""
-    from sqlalchemy import select as _select, and_ as _and
-    from app.models.instruction_build import InstructionBuild
-    from app.models.build_content import BuildContent
+    pending dots so they match exactly what the review shows.
 
-    org_id = str(organization.id)
-    # Candidate instructions: those present in any non-main draft/pending build.
-    cand_rows = (await db.execute(
-        _select(BuildContent.instruction_id)
-        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
-        .where(_and(
-            InstructionBuild.organization_id == org_id,
-            InstructionBuild.is_main.is_(False),
-            InstructionBuild.deleted_at.is_(None),
-            InstructionBuild.status.in_(["draft", "pending_approval"]),
-            InstructionBuild.source.in_(["user", "ai", "git"]),
-        )).distinct()
-    )).all()
-    changed_ids = []
-    for (iid,) in cand_rows:
-        try:
-            r = await instruction_service.review_hunks(db, str(iid), organization=organization, current_user=current_user)
-            if r and r.get("suggestions"):
-                changed_ids.append(str(iid))
-        except Exception:
-            pass
-    return {"instruction_ids": sorted(set(changed_ids))}
+    Delegates to the shared ``InstructionService.get_pending_change_instruction_ids``
+    so the list and the single-instruction detail derive "Pending review" from
+    this exact same rule."""
+    pending = await instruction_service.get_pending_change_instruction_ids(
+        db, organization=organization, current_user=current_user
+    )
+    return {"instruction_ids": sorted(pending)}
 
 
 async def _get_pending_change_instruction_ids_legacy(organization, db, current_user):
