@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.418 (June 23, 2026)
+- **Microsoft Analysis Services (SSAS) data source** — a new enterprise connector for SQL Server Analysis Services over XMLA, supporting both Multidimensional (MDX) and Tabular (DAX/MDX) models.
+
 ## Version 0.0.417 (June 21, 2026)
 - **Infor OLAP (Infor d/EPM) data source (#425)** — a new enterprise connector for the Infor d/EPM OLAP semantic layer (formerly Infor BI / MIS Alea OLAP), the supported path into on-premise **Infor OLAP 25.x** where native connections are gone and **XMLA is mandatory**. It speaks the standard **XMLA SOAP** contract over HTTP with Basic auth: schema discovery via `Discover` (catalogs, cubes, dimension hierarchies, and measures — each cube surfaced as a `Catalog/Cube` table whose columns carry their MDX `unique_name`), and query execution via `Execute` (Tabular) that runs **MDX** and flattens the rowset into a DataFrame (decoding XMLA `_xHHHH_` escapes). SOAP faults and inline XMLA errors surface as clear errors. Configurable endpoint URL, optional catalog scope, SSL verification, and timeout.
 - **Agents — connections footer fixes** — the bottom-left **Connections** footer is no longer pushed off-screen (requiring a scroll) when a top banner is shown: the Knowledge Explorer now sizes itself to the viewport minus the banner height. It also shows an explicit **"Add connection"** CTA in the empty state, and **childless connections** — created but not yet linked to any agent — now appear in the list instead of being hidden until an agent exists.
