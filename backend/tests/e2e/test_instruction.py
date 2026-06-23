@@ -703,7 +703,13 @@ def test_pending_status_consistent_between_list_and_detail(
     # TEST_DATABASE_URL is a sync URL for both backends (sqlite:/// or
     # postgresql://), so use SQLAlchemy core with named params rather than the
     # sqlite3 driver, which can't open a Postgres URL.
-    engine = create_engine(os.environ["TEST_DATABASE_URL"])
+    db_url = os.environ["TEST_DATABASE_URL"]
+    # On Postgres, pin client_encoding=utf8 so reading back non-ASCII text (the
+    # em-dash in the instruction below) doesn't trip psycopg2's default ascii
+    # codec on a SQL_ASCII server; the app's async engine already speaks utf8.
+    # (The kwarg is psycopg2-only, so don't pass it for the sqlite backend.)
+    engine_kwargs = {"client_encoding": "utf8"} if db_url.startswith("postgresql") else {}
+    engine = create_engine(db_url, **engine_kwargs)
     try:
         with engine.begin() as conn:
             main = conn.execute(
