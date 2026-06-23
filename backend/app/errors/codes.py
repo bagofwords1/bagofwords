@@ -54,3 +54,4 @@ class ErrorCode(str, Enum):
 
     # Data execution
     QUERY_TIMEOUT = "query.timeout"
+    QUERY_RESULT_TOO_LARGE = "query.result_too_large"

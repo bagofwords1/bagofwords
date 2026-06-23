@@ -93,6 +93,23 @@ class BigqueryClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise e
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream BigQuery results as Arrow batches to
+        Parquet, return a LazyFrame."""
+        from app.data_sources.clients.lazy_frame import consume_arrow_to_lazyframe
+
+        def batches():
+            with self.connect() as conn:
+                cap = self.maximum_bytes_billed
+                job_config = bigquery.QueryJobConfig(use_query_cache=bool(self.use_query_cache))
+                if isinstance(cap, int) and cap > 0:
+                    job_config.maximum_bytes_billed = int(cap)
+                query_job = conn.query(sql, job_config=job_config)
+                for batch in query_job.result().to_arrow_iterable():
+                    yield batch
+
+        return consume_arrow_to_lazyframe(batches())
+
     def get_tables(self) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails."""
         try:

@@ -484,6 +484,12 @@ class QVDClient(DataSourceClient):
             )
             raise
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): COPY results straight to Parquet via DuckDB
+        (zero Python materialization), return a LazyFrame over it."""
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
+        return lazy_query_via_duckdb(self.connect, sql)
+
     def get_tables(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """
         Schema lookup. Uses DuckDB DESCRIBE on the cached Parquet when available

@@ -156,6 +156,44 @@ class MongodbClient(DataSourceClient):
         
         return df
     
+    def execute_query_lazy(self, query: str):
+        """Out-of-core variant (v2): stream Mongo documents in cursor batches to
+        Parquet, return a LazyFrame. Nested fields are JSON-encoded so the columnar
+        write stays robust (differs from execute_query, which keeps dict/list cells)."""
+        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe, StreamConfig
+
+        cfg = StreamConfig()
+        query_dict = json.loads(query)
+        collection_name = query_dict.get("collection")
+        if not collection_name:
+            raise ValueError("Query must specify 'collection'")
+        max_time_ms = query_dict.get("maxTimeMS", 60000)
+
+        def docs():
+            with self.connect() as db:
+                collection = db[collection_name]
+                if "aggregate" in query_dict:
+                    cursor = collection.aggregate(query_dict["aggregate"], maxTimeMS=max_time_ms)
+                else:
+                    filter_query = query_dict.get("find", {})
+                    projection = query_dict.get("projection")
+                    limit = query_dict.get("limit", 100)
+                    sort = query_dict.get("sort")
+                    cursor = collection.find(filter_query, projection).max_time_ms(max_time_ms)
+                    if sort:
+                        cursor = cursor.sort(list(sort.items()))
+                    if limit:
+                        cursor = cursor.limit(limit)
+                cursor = cursor.batch_size(cfg.chunksize)
+                for doc in cursor:
+                    self._convert_bson_types(doc)
+                    yield {
+                        k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
+                        for k, v in doc.items()
+                    }
+
+        return consume_row_dicts_to_lazyframe(docs(), config=cfg)
+
     def _convert_bson_types(self, doc: dict) -> None:
         """Recursively convert BSON types to JSON-serializable types."""
         for key, value in list(doc.items()):

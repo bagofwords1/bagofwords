@@ -115,8 +115,8 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 5.00
     },
     {
-        "name": "Gemini 3 Pro Preview",
-        "model_id": "gemini-3-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "model_id": "gemini-3.1-pro-preview",
         "provider_type": "google",
         "is_preset": True,
         "is_enabled": True,

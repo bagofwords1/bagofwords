@@ -105,6 +105,12 @@ class DruidClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream Druid results via the DBAPI cursor,
+        return a LazyFrame."""
+        from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_cursor
+        return lazy_query_via_dbapi_cursor(self.connect, sql)
+
     def get_tables(self) -> List[Table]:
         """Discover datasources and their columns via INFORMATION_SCHEMA.
 

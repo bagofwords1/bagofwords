@@ -2,6 +2,7 @@ import { defineNuxtConfig } from "nuxt/config"
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
+  telemetry: false, // disable Nuxt's own usage telemetry (local/private use)
   ssr: false,
 
   modules: [
@@ -190,7 +191,7 @@ export default defineNuxtConfig({
       enableRefreshPeriodically: false
     },
     globalAppMiddleware: {
-      isEnabled: true
+      isEnabled: false
     },
     rewriteRedirects: true,
     fullPathRedirect: true

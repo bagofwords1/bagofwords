@@ -186,6 +186,9 @@ XlsxWriter==3.2.0
 zeep==4.3.1
 zstandard==0.23.0
 duckdb==1.4.2
+# Optional: enables Result Lake query subsumption (BOW_RESULT_CACHE_SUBSUMPTION).
+# Code degrades gracefully (subsumption disabled) if absent.
+sqlglot>=25.0.0,<31
 pyodbc==5.3.0
 posthog==6.7.11
 db-dtypes==1.2.0

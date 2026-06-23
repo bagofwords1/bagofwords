@@ -191,6 +191,38 @@ class AwsAthenaClient(DataSourceClient):
             logger.error("Error executing SQL query: %s", str(e), exc_info=True)
             raise Exception(f"Query execution failed: {str(e)}")
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream Athena results in chunks via AWS
+        Wrangler (chunksize), return a LazyFrame."""
+        from app.data_sources.clients.lazy_frame import consume_chunks_to_lazyframe, StreamConfig
+
+        cfg = StreamConfig()
+
+        def chunks():
+            params = {
+                'sql': sql,
+                'database': self.database,
+                'ctas_approach': False,
+                'workgroup': self.workgroup,
+                'data_source': self.data_source,
+                'chunksize': cfg.chunksize,
+            }
+            if self.s3_output_location:
+                params['s3_output'] = self.s3_output_location
+            if self.encryption_option:
+                params['encryption'] = self.encryption_option
+            if self.kms_key:
+                params['kms_key'] = self.kms_key
+            if self.result_reuse_enable:
+                params['cache_seconds'] = self.result_reuse_minutes * 60
+            if hasattr(self, 'session_manager'):
+                with self.session_manager as session:
+                    yield from wr.athena.read_sql_query(**params, boto3_session=session)
+            else:
+                yield from wr.athena.read_sql_query(**params, boto3_session=self.boto3_session)
+
+        return consume_chunks_to_lazyframe(chunks(), cfg)
+
     def test_connection(self) -> dict:
         """
         Test the connection to Athena by running both catalog and query operations.

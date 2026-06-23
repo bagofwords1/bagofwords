@@ -161,6 +161,7 @@ class Planner:
         }}"""
 
         parser = JSONParser()
+        nl = chr(10)  # newline without a backslash (py3.11 f-string compat)
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
 
@@ -187,9 +188,9 @@ class Planner:
         {f"Memories: {memories}" if memories else "No memories added"}
 
         - **Selected widget (if any)**:
-        {f"{widget.id}\\n{widget.title}" if widget else "No widget selected"}
+        {f"{widget.id}{nl}{widget.title}" if widget else "No widget selected"}
 
-        {f"Selected widget data model:\n {step.data_model}" if step else "\n"}
+        {f"Selected widget data model:{nl} {step.data_model}" if step else nl}
 
         {observation_context}
 

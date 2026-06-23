@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.code_execution.loadables import extract_loadable_refs
+from app.ai.code_execution.result_lake import get_result_lake
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 from app.errors.app_error import AppError
@@ -391,6 +392,24 @@ class QueryCapturingClientWrapper:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
+                cached = self._cache_get(query)
+                if cached is not None:
+                    _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                    rows = len(cached) if hasattr(cached, '__len__') else None
+                    result_bytes = estimate_result_size_bytes(cached)
+                    span.set_attribute("datasource.cache", "hit")
+                    if rows is not None:
+                        span.set_attribute("datasource.result_rows", rows)
+                    span.set_attribute("datasource.result_bytes", result_bytes)
+                    self._captured_timings.append({
+                        "index": idx,
+                        "query_ms": round(_q_ms, 1),
+                        "rows": rows,
+                        "result_bytes": result_bytes,
+                        "sql": query[:500] if isinstance(query, str) else None,
+                        "cache": "hit",
+                    })
+                    return cached
                 self._consume_query_quota(query)
                 result = self._call_with_timeout(query, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
@@ -400,12 +419,15 @@ class QueryCapturingClientWrapper:
                 if rows is not None:
                     span.set_attribute("datasource.result_rows", rows)
                 span.set_attribute("datasource.result_bytes", result_bytes)
+                span.set_attribute("datasource.cache", "miss")
+                self._cache_put(query, result, _q_ms)
                 self._captured_timings.append({
                     "index": idx,
                     "query_ms": round(_q_ms, 1),
                     "rows": rows,
                     "result_bytes": result_bytes,
                     "sql": query[:500] if isinstance(query, str) else None,
+                    "cache": "miss",
                 })
                 return result
             except QueryTimeoutError as e:
@@ -435,8 +457,94 @@ class QueryCapturingClientWrapper:
                 span.record_exception(e)
                 raise
 
-    def _call_with_timeout(self, query, args, kwargs):
-        """Run original.execute_query in a daemon thread; abandon it on timeout.
+    def execute_query_lazy(self, query: str, *args, **kwargs):
+        """Out-of-core counterpart to execute_query (returns a LazyFrame).
+
+        Routes through the SAME safety controls as execute_query — query capture,
+        per-query timeout, and usage quota — so the lazy path is not a bypass.
+        Result sizing uses the on-disk Parquet size and a lazy row count rather
+        than materializing the frame.
+        """
+        if isinstance(query, str):
+            self._captured_queries.append(query)
+        idx = len(self._captured_timings)
+        _q_start = _time.monotonic()
+        with _tracer.start_as_current_span("datasource.execute_query_lazy") as span:
+            span.set_attribute("datasource.type", type(self._original).__name__)
+            span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
+            span.set_attribute("datasource.lazy", True)
+            try:
+                cached = self._cache_get_lazy(query)
+                if cached is not None:
+                    _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                    result_bytes = cached.byte_size() if hasattr(cached, "byte_size") else 0
+                    span.set_attribute("datasource.cache", "hit")
+                    span.set_attribute("datasource.result_bytes", result_bytes)
+                    self._captured_timings.append({
+                        "index": idx,
+                        "query_ms": round(_q_ms, 1),
+                        "rows": None,
+                        "result_bytes": result_bytes,
+                        "sql": query[:500] if isinstance(query, str) else None,
+                        "cache": "hit",
+                        "lazy": True,
+                    })
+                    return cached
+                self._consume_query_quota(query)
+                result = self._call_with_timeout(query, args, kwargs, method_name="execute_query_lazy")
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                result_bytes = 0
+                rows = None
+                try:
+                    if hasattr(result, "byte_size"):
+                        result_bytes = int(result.byte_size())
+                except Exception:
+                    result_bytes = 0
+                self._consume_data_bytes_quota(query, result_bytes, rows)
+                span.set_attribute("datasource.result_bytes", result_bytes)
+                span.set_attribute("datasource.cache", "miss")
+                self._cache_put_lazy(query, result, _q_ms)
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": rows,
+                    "result_bytes": result_bytes,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "cache": "miss",
+                    "lazy": True,
+                })
+                return result
+            except QueryTimeoutError as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": None,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                    "error_type": "timeout",
+                    "timeout_seconds": self._query_timeout_seconds,
+                    "lazy": True,
+                })
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+            except Exception as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": None,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                    "lazy": True,
+                })
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+
+    def _call_with_timeout(self, query, args, kwargs, method_name: str = "execute_query"):
+        """Run original.<method_name> in a daemon thread; abandon it on timeout.
 
         Threading is intentional rather than asyncio.wait_for: we're already
         inside a sync code-exec worker (user code is run via exec()), so we
@@ -444,10 +552,11 @@ class QueryCapturingClientWrapper:
         long queries pile up, hence a fresh per-call daemon thread.
         """
         holder: Dict[str, Any] = {}
+        target_method = getattr(self._original, method_name)
 
         def runner():
             try:
-                holder["value"] = self._original.execute_query(query, *args, **kwargs)
+                holder["value"] = target_method(query, *args, **kwargs)
             except BaseException as exc:
                 holder["exc"] = exc
 
@@ -466,6 +575,72 @@ class QueryCapturingClientWrapper:
         if "exc" in holder:
             raise holder["exc"]
         return holder.get("value")
+
+    def _cache_scope(self) -> str:
+        """Cache namespace: keep results from different data sources/connections
+        from ever colliding, even if they share a generated SQL string."""
+        return ":".join(str(x) for x in (
+            getattr(self._original, "_bow_data_source_id", "") or "",
+            getattr(self._original, "_bow_connection_id", "") or "",
+            self._client_key or getattr(self._original, "_bow_client_key", "") or "",
+        ))
+
+    def _cache_get(self, query):
+        # Cache must never break query execution; any failure degrades to a miss.
+        try:
+            lake = get_result_lake()
+            scope = self._cache_scope()
+            source_class = type(self._original).__name__
+            hit = lake.get(scope, query, source_class=source_class)
+            if hit is not None:
+                return hit
+            # Fallback: serve a narrower query from a cached full table scan.
+            return lake.get_subsuming_df(scope, query, source_class)
+        except Exception:
+            return None
+
+    def _cache_put(self, query, result, cost_ms: float) -> None:
+        try:
+            get_result_lake().put(
+                self._cache_scope(), query, result, cost_ms,
+                source_class=type(self._original).__name__,
+            )
+        except Exception:
+            pass
+
+    def _cache_get_lazy(self, query):
+        """Cache hit for the lazy path: return a LazyFrame over a private copy of
+        the cached Parquet, or None. Shares the cache key with execute_query."""
+        try:
+            from app.ai.code_execution.result_lake import get_result_lake
+            from app.data_sources.clients.lazy_frame import LazyFrame, StreamConfig
+            lake = get_result_lake()
+            scope = self._cache_scope()
+            source_class = type(self._original).__name__
+            dest = StreamConfig().root
+            path = lake.get_owned_copy(scope, query, source_class, dest)
+            if path is None:
+                # Fallback: serve a narrower query from a cached full table scan.
+                path = lake.get_subsuming_path(scope, query, source_class, dest)
+            if path is None:
+                return None
+            return LazyFrame.from_parquet(path, owns_source=True)
+        except Exception:
+            return None
+
+    def _cache_put_lazy(self, query, result, cost_ms: float) -> None:
+        """Adopt the streamed Parquet backing `result` into the cache."""
+        try:
+            from app.ai.code_execution.result_lake import get_result_lake
+            src = getattr(result, "_source_path", None)
+            if src is None:
+                return
+            get_result_lake().register_path(
+                self._cache_scope(), query, src, cost_ms,
+                source_class=type(self._original).__name__,
+            )
+        except Exception:
+            pass
 
     def _consume_query_quota(self, query: str) -> None:
         context = self._usage_context
@@ -669,6 +844,19 @@ class StreamingCodeExecutor:
                                 generate_df, wrapped_clients, excel_files, http_client,
                                 load_step=load_step, load_entity=load_entity,
                             )
+                            # Safety net for the out-of-core path: if generated code
+                            # returns a LazyFrame instead of a DataFrame, materialize it
+                            # so the downstream DataFrame contract holds unchanged.
+                            if df is not None and not isinstance(df, pd.DataFrame) and hasattr(df, "to_df"):
+                                try:
+                                    materialized = df.to_df()
+                                finally:
+                                    if hasattr(df, "close"):
+                                        try:
+                                            df.close()
+                                        except Exception:
+                                            pass
+                                df = materialized
                         output_log = stdout_capture.getvalue()
                     lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
             finally:
