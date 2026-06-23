@@ -88,6 +88,9 @@ from app.schemas.data_sources.configs import (
     # Infor OLAP (Infor d/EPM OLAP — XMLA)
     InforOlapConfig,
     InforOlapCredentials,
+    # Microsoft Analysis Services (SSAS — XMLA)
+    AnalysisServicesConfig,
+    AnalysisServicesCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -850,6 +853,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.infor_olap_client.InforOlapClient",
+        requires_license="enterprise",
+    ),
+    "analysis_services": DataSourceRegistryEntry(
+        type="analysis_services",
+        title="Microsoft Analysis Services",
+        description="Query SSAS cubes and models via MDX or DAX over XMLA. Supports both Multidimensional (MDX) and Tabular (DAX/MDX) models.",
+        config_schema=AnalysisServicesConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=AnalysisServicesCredentials,
+                    scopes=["system", "user"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.analysis_services_client.AnalysisServicesClient",
         requires_license="enterprise",
     ),
     "mcp": DataSourceRegistryEntry(
