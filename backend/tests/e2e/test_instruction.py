@@ -587,3 +587,162 @@ def test_create_instruction_returns_503_when_finalize_fails(
     items = body["items"] if isinstance(body, dict) and "items" in body else body
     assert not any(i["text"] == "finalize-fails-503" for i in items), \
         "failed create must not leave a visible orphan instruction"
+
+
+@pytest.mark.e2e
+def test_instruction_applicable_modes_and_channels(
+    create_global_instruction,
+    get_instruction,
+    update_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Instructions can be scoped to specific run-modes and delivery channels.
+
+    Covers create round-trip, GET persistence, admin update, and that an edit
+    to these fields produces a new version (build-system integration)."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create with explicit modes/channels
+    instruction = create_global_instruction(
+        text="Scoped to chat + slack",
+        user_token=user_token,
+        org_id=org_id,
+        status="published",
+        applicable_modes=["chat", "deep"],
+        applicable_channels=["slack", "app"],
+    )
+    assert instruction["applicable_modes"] == ["chat", "deep"]
+    assert instruction["applicable_channels"] == ["slack", "app"]
+    v1 = instruction.get("current_version_id")
+    assert v1 is not None
+
+    # Persisted on GET
+    fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    assert fetched["applicable_modes"] == ["chat", "deep"]
+    assert fetched["applicable_channels"] == ["slack", "app"]
+
+    # Update (admin edit) narrows the scope and clears channels (empty = all)
+    updated = update_instruction(
+        instruction["id"],
+        applicable_modes=["training"],
+        applicable_channels=[],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert updated["applicable_modes"] == ["training"]
+    assert updated["applicable_channels"] == []
+
+    refetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    assert refetched["applicable_modes"] == ["training"]
+    assert refetched["applicable_channels"] == []
+    # Editing these versioned fields must produce a new version.
+    assert refetched.get("current_version_id") not in (None, v1), \
+        "changing applicable_modes/channels should create a new version"
+
+
+@pytest.mark.e2e
+def test_instruction_modes_channels_default_to_all(
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Omitting the fields leaves them null = applies to all modes/channels."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    instruction = create_global_instruction(
+        text="Applies everywhere",
+        user_token=user_token,
+        org_id=org_id,
+        status="published",
+    )
+    fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    # Null (or empty) means "applies everywhere"
+    assert not fetched.get("applicable_modes")
+    assert not fetched.get("applicable_channels")
+
+
+@pytest.mark.e2e
+def test_pending_status_consistent_between_list_and_detail(
+    create_global_instruction,
+    get_instruction,
+    get_instructions,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Regression: status must not disagree across views.
+
+    A leftover/covered pending build (its version differs from main but its
+    change is already applied — i.e. a no-op with no LIVE review hunk) must NOT
+    read as 'Pending review' in the list while the detail reads 'Active'. Both
+    the list and the single-instruction GET now derive the pending signal from
+    the same authoritative per-hunk rule as /instructions/pending-changes.
+    """
+    import os, sqlite3, uuid, datetime
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    instr = create_global_instruction(
+        text="Consistency check — alpha beta gamma",
+        user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+
+    # Inject a covered/no-op leftover pending build straight into the test DB.
+    url = os.environ["TEST_DATABASE_URL"]
+    path = url.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
+    conn = sqlite3.connect(path); conn.row_factory = sqlite3.Row
+    try:
+        main = conn.execute(
+            """SELECT bc.build_id AS build_id, iv.text AS text
+                 FROM build_contents bc
+                 JOIN instruction_builds ib ON ib.id = bc.build_id
+                 JOIN instruction_versions iv ON iv.id = bc.instruction_version_id
+                WHERE bc.instruction_id = ? AND ib.is_main = 1 AND ib.deleted_at IS NULL""",
+            (iid,),
+        ).fetchone()
+        assert main is not None, "new instruction should be in the main build"
+        now = datetime.datetime.utcnow().isoformat()
+        vid, bid, bcid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        vnum = conn.execute("SELECT COALESCE(MAX(version_number),0)+1 FROM instruction_versions WHERE instruction_id=?", (iid,)).fetchone()[0]
+        bnum = conn.execute("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=?", (org_id,)).fetchone()[0]
+        # Same text as main => covered/no-op, but a distinct version id.
+        conn.execute(
+            "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+            (vid, now, now, iid, vnum, main["text"], "published", "always", "h" + uuid.uuid4().hex[:12]),
+        )
+        conn.execute(
+            "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,base_build_id,title) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (bid, now, now, bnum, "pending_approval", "ai", 0, org_id, main["build_id"], "leftover covered build"),
+        )
+        conn.execute(
+            "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id) VALUES (?,?,?,?,?,?)",
+            (bcid, now, now, bid, iid, vid),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    def effective(o):
+        if o.get("current_build_id") and o.get("current_build_status") in ("draft", "pending_approval"):
+            return "pending_review"
+        return o["status"]
+
+    single = get_instruction(iid, user_token=token, org_id=org_id)
+    row = next(x for x in get_instructions(user_token=token, org_id=org_id) if x["id"] == iid)
+
+    # The covered build is a no-op vs main -> neither surface should flag pending,
+    # and they must agree with each other.
+    assert effective(single) == "published"
+    assert effective(row) == "published", "list must not show pending when detail shows Active"
+    assert effective(single) == effective(row)

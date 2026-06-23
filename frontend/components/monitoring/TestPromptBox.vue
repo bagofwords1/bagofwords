@@ -29,7 +29,7 @@
     <div class="mt-1 space-y-0.5">
       <!-- Data source selector -->
       <div class="flex items-center gap-2">
-        <div class="text-[11px] text-gray-500 flex-none w-28 whitespace-nowrap">Data sources</div>
+        <div class="text-[11px] text-gray-500 flex-none w-28 whitespace-nowrap">Agents</div>
         <div class="flex-1 min-w-[460px] flex items-center min-h-[32px]">
           <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
         </div>

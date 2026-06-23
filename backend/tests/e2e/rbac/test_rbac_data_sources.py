@@ -524,7 +524,7 @@ def test_publish_status_visibility_and_validation(
     assert ds_id in active_ids(manager["token"])
     assert ds_id not in active_ids(member["token"])
 
-    # disabled → nobody sees it in the selector, not even admin.
+    # disabled → hidden from the normal selector for everyone, even admin.
     assert (
         test_client.put(
             f"/api/data_sources/{ds_id}",
@@ -535,6 +535,19 @@ def test_publish_status_visibility_and_validation(
     assert ds_id not in active_ids(admin["token"])
     assert ds_id not in active_ids(manager["token"])
     assert ds_id not in active_ids(member["token"])
+
+    # ...but the admin "show all" view surfaces disabled agents so a manager
+    # can find and re-enable them. A plain member's show_all is still ignored.
+    def active_ids_show_all(token):
+        r = test_client.get(
+            "/api/data_sources/active?include_unconnected=true&show_all=true",
+            headers=_hdr(token, org_id),
+        )
+        assert r.status_code == 200, r.text
+        return {d["id"] for d in r.json()}
+
+    assert ds_id in active_ids_show_all(admin["token"])
+    assert ds_id not in active_ids_show_all(member["token"])
 
     # Invalid value is rejected by the schema validator.
     bad = test_client.put(

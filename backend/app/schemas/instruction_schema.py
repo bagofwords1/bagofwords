@@ -50,6 +50,7 @@ class InstructionBase(BaseModel):
     thumbs_up: int = 0
     status: str = "published"  # Content lifecycle: draft | published | archived
     category: str = "general"
+    kind: str = "instruction"  # 'instruction' (normal) | 'skill'
     
     # DEPRECATED: Dual-status lifecycle fields (approval workflow moved to builds)
     private_status: Optional[str] = None    # DEPRECATED - not used
@@ -79,10 +80,18 @@ class InstructionBase(BaseModel):
     
     # Loading behavior for AI context
     load_mode: str = "always"  # 'always' | 'intelligent' | 'disabled'
-    
+
+    # Scoping: which agent run-modes and delivery channels this instruction
+    # applies to. None or empty list => applies everywhere.
+    applicable_modes: Optional[List[str]] = None      # e.g. ['chat', 'deep', 'training']
+    applicable_channels: Optional[List[str]] = None   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
+
     # Display title (especially for git-sourced instructions)
     title: Optional[str] = None
-    
+
+    # Optional user-authored description (advertised for skills)
+    description: Optional[str] = None
+
     # Structured data (raw resource data) + formatted content (readable text)
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
@@ -96,6 +105,7 @@ class InstructionUpdate(BaseModel):
     text: Optional[str] = None
     status: Optional[str] = None
     category: Optional[str] = None
+    kind: Optional[str] = None  # 'instruction' | 'skill'
     private_status: Optional[str] = None
     global_status: Optional[str] = None
     is_seen: Optional[bool] = None
@@ -108,6 +118,9 @@ class InstructionUpdate(BaseModel):
     # Unified Instructions System fields
     load_mode: Optional[str] = None  # 'always' | 'intelligent' | 'disabled'
     title: Optional[str] = None
+    description: Optional[str] = None
+    applicable_modes: Optional[List[str]] = None      # None = no change; [] = all modes
+    applicable_channels: Optional[List[str]] = None   # None = no change; [] = all channels
     source_sync_enabled: Optional[bool] = None  # Set to False to unlink from git
 
     # Build targeting - if set, update within this existing build instead of creating new one
@@ -190,6 +203,7 @@ class InstructionListSchema(BaseModel):
     text: str
     status: str
     category: str
+    kind: str = "instruction"  # 'instruction' (normal) | 'skill'
     user_id: Optional[str] = None
     user: Optional[UserSchema] = None
     organization_id: str
@@ -212,11 +226,18 @@ class InstructionListSchema(BaseModel):
     source_sync_enabled: bool = True
     load_mode: str = "always"
     title: Optional[str] = None
+    description: Optional[str] = None
+    applicable_modes: Optional[List[str]] = None
+    applicable_channels: Optional[List[str]] = None
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
 
     # === Build System fields ===
     current_version_id: Optional[str] = None
+    # In-flight (non-main) build for this instruction, if any, so the list can
+    # derive a "Pending review" status the same way the detail view does.
+    current_build_id: Optional[str] = None
+    current_build_status: Optional[str] = None
 
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []

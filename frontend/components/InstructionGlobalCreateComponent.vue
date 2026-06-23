@@ -1,5 +1,8 @@
 <template>
-    <div class="flex flex-col h-full">
+    <!-- flex-1/min-h-0 make this fill (and shrink within) a flex-column host so the
+         inner overflow-y-auto columns scroll instead of overflowing the modal. In a
+         non-flex (block) host, flex-1 is inert and h-full keeps the prior behavior. -->
+    <div class="flex flex-col h-full flex-1 min-h-0">
         <!-- VIEW MODE: Read-only display for existing instructions -->
         <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
             <!-- Two-column body: content (left) + metadata sidebar (right) -->
@@ -482,7 +485,7 @@
                     >
                         <template #label>
                             <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
-                                {{ getCurrentStatusDisplayText() }}
+                                {{ getUnderlyingStatusLabel() }}
                             </span>
                         </template>
                         <template #option="{ option }">
@@ -1356,6 +1359,15 @@ const isPendingReview = computed(() => {
 // Display text for the currently-selected status badge.
 const getCurrentStatusDisplayText = () => {
     if (isPendingReview.value) return t('instructionGlobalCreate.status.pendingReview')
+    return getUnderlyingStatusLabel()
+}
+
+// The underlying, editable lifecycle label (Active / Inactive / Archived).
+// Used INSIDE the status <select> so its button never shows a value
+// ("Pending review") that isn't one of the selectable options — which made the
+// dropdown's checkmark (on Active) contradict the button. Pending state is
+// already surfaced via the tracked-changes review banner.
+const getUnderlyingStatusLabel = () => {
     const currentStatus = instructionForm.value.status
     const statusMap: Record<string, string> = {
         draft: t('instructionGlobalCreate.status.inactive'),

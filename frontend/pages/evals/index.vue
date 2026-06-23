@@ -2,6 +2,14 @@
     <div class="flex justify-center ps-2 md:ps-4 text-sm">
         <div class="w-full max-w-7xl px-4 ps-0 py-2">
             <div class="mt-6">
+                <!-- Full-page empty state (no tests, no runs yet) -->
+                <div v-if="isPageEmpty" class="flex flex-col items-center justify-center text-center py-24 px-4">
+                    <img src="/assets/empty-states/empty-meadow.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('evals.tests.empty') }}</h3>
+                    <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">{{ $t('evals.tests.emptyDescription') }}</p>
+                    <button class="mt-5 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="addNewTest"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('evals.tests.addNew') }}</button>
+                </div>
+                <template v-else>
                 <!-- Top metrics -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
@@ -133,7 +141,17 @@
                                         </td>
                                     </tr>
                                     <tr v-if="filteredTests.length === 0">
-                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.tests.empty') }}</td>
+                                        <td colspan="5" class="px-6 py-10">
+                                            <div class="flex flex-col items-center justify-center text-center">
+                                                <img src="/assets/empty-states/empty-meadow.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+                                                <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-beaker" class="w-5 h-5 text-gray-400" /></div>
+                                                <h3 class="mt-3 text-base font-medium text-gray-900">{{ $t('evals.tests.empty') }}</h3>
+                                                <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ $t('evals.tests.emptyDescription') }}</p>
+                                                <div class="mt-4 flex items-center gap-2">
+                                                    <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="addNewTest"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('evals.tests.addNew') }}</button>
+                                                </div>
+                                            </div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -218,12 +236,17 @@
                                             </NuxtLink>
                                         </td>
                                         <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
-                                        <td class="px-6 py-3 capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
                                         <td class="px-6 py-3">
-                                            <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600">
+                                            <span class="capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</span>
+                                            <span v-if="runOutcome(r.id)" class="ms-1.5 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium align-middle" :class="runOutcome(r.id).cls" :title="runOutcome(r.id).title">
+                                                {{ runOutcome(r.id).label }}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-3">
+                                            <button v-if="r.build_number" type="button" class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline" :title="r.build_id ? 'View this build\'s changes and full content' : ''" :disabled="!r.build_id" @click="openBuildForRun(r)">
                                                 <Icon name="heroicons:cube" class="w-3 h-3" />
                                                 #{{ r.build_number }}
-                                            </span>
+                                            </button>
                                             <span v-else class="text-gray-400">—</span>
                                         </td>
                                         <td class="px-6 py-3">
@@ -259,6 +282,7 @@
                         </div>
                     </div>
                 </div>
+                </template>
             </div>
         </div>
         <AddTestCaseModal
@@ -275,6 +299,7 @@
             @suite-created="onManageSuiteCreated"
             @suite-deleted="onManageSuiteDeleted"
         />
+        <BuildExplorerModal v-model="showBuildModal" :build-id="buildModalId" />
     </div>
 </template>
 
@@ -308,6 +333,7 @@ const pageSizeOptions = computed(() => [
 ])
 // Server-side filtering; no client text filter needed beyond displaying returned results
 const filteredTests = computed(() => tests.value)
+const isPageEmpty = computed(() => (metrics.value?.total_test_cases ?? 0) === 0 && (metrics.value?.total_test_runs ?? 0) === 0)
 const allVisibleSelected = computed(() => filteredTests.value.length > 0 && filteredTests.value.every(t => selectedIds.value.has(t.id)))
 const suitesOrdered = ref<TestSuiteItem[]>([])
 const suiteFilterOptions = computed(() => {
@@ -324,7 +350,16 @@ const activeTab = ref<'tests' | 'runs'>('tests')
 // Components
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
 import ManageSuitesModal from '~/components/monitoring/ManageSuitesModal.vue'
+import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 const toast = useToast()
+// View the instruction build an eval ran against (whole-build diff + full content).
+const showBuildModal = ref(false)
+const buildModalId = ref<string | undefined>(undefined)
+function openBuildForRun(r: { build_id?: string }) {
+    if (!r.build_id) return
+    buildModalId.value = r.build_id
+    showBuildModal.value = true
+}
 const showManageSuites = ref(false)
 
 const derivedStatus = (s?: string | null) => {
@@ -521,6 +556,46 @@ async function loadCases() {
     selectedIds.value = new Set()
 }
 
+// Automation runs (org-wide) → badge each eval run with the self-heal loop it
+// belonged to and how that loop ended. Mirrors AgentEvalsPanel's Runs tab.
+const automationRuns = ref<any[]>([])
+async function loadAutomationOutcomes() {
+    try {
+        const res = await useMyFetch<any[]>(`/api/automation/runs?limit=200`)
+        automationRuns.value = (res.data.value as any[]) || []
+    } catch { automationRuns.value = [] }
+}
+const runOutcomeMap = computed<Record<string, any>>(() => {
+    const m: Record<string, any> = {}
+    for (const ar of automationRuns.value) {
+        for (const tid of (ar.test_run_ids || [])) m[String(tid)] = ar
+    }
+    return m
+})
+function autoStatusLabel(s?: string) {
+    return ({
+        passed: 'Passed', passed_pending: 'Awaiting approval', gave_up: 'Gave up',
+        no_evals: 'No evals', skipped: 'Skipped', running: 'Running', error: 'Error',
+    } as Record<string, string>)[s || ''] || s || '—'
+}
+function autoStatusClass(s?: string) {
+    if (s === 'passed') return 'bg-green-100 text-green-800'
+    if (s === 'passed_pending') return 'bg-blue-100 text-blue-800'
+    if (s === 'gave_up' || s === 'error') return 'bg-red-100 text-red-800'
+    return 'bg-gray-100 text-gray-600'
+}
+function runOutcome(runId: string) {
+    const ar = runOutcomeMap.value[String(runId)]
+    if (!ar) return null
+    const action = ar.detail?.outcome_action
+    const extra = action === 'development' ? ' → Development' : action === 'training' ? ' → Training' : ''
+    return {
+        label: autoStatusLabel(ar.status) + extra,
+        cls: autoStatusClass(ar.status),
+        title: ar.detail?.reason || 'Automation run',
+    }
+}
+
 async function loadRuns() {
     try {
         const params = new URLSearchParams()
@@ -529,6 +604,7 @@ async function loadRuns() {
         params.set('limit', String(runsLimit.value))
         const res = await useMyFetch<RunItem[]>(`/api/tests/runs?${params.toString()}`)
         runs.value = (res.data.value as any[]) || []
+        loadAutomationOutcomes()
         // fetch results per run to compute summary
         const fetches = (runs.value || []).map(r => useMyFetch<any[]>(`/api/tests/runs/${r.id}/results`))
         const responses = await Promise.all(fetches)

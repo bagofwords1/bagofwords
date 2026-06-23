@@ -17,7 +17,10 @@
         </button>
       </div>
     </div>
-    <div v-else class="mb-2 flex items-center justify-end">
+    <div v-else class="mb-2 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-1.5">
+        <slot name="reload-left" />
+      </div>
       <button
         v-if="showRefresh"
         @click="onRefresh"
@@ -459,7 +462,7 @@
     </div>
 
     <!-- Save button -->
-    <div v-if="showSave && canUpdate" class="mt-3 flex items-center justify-end">
+    <div v-if="showSave && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-end border-t border-gray-100 bg-white py-2">
       <button 
         @click="onSave" 
         :disabled="saving" 

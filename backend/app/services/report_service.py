@@ -33,6 +33,7 @@ from app.ee.audit.service import audit_service
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
+from app.models.scheduled_prompt import ScheduledPrompt
 from app.core.otel import get_tracer
 
 logger = getLogger(__name__)
@@ -677,6 +678,34 @@ class ReportService:
         logger.info(f"Completed scheduled report run for report_id: {report_id}")
         return report
 
+    async def _delete_scheduled_prompts_for_reports(self, db: AsyncSession, report_ids: list[str]) -> None:
+        """Soft-delete any active scheduled prompts attached to the given reports and
+        remove their APScheduler jobs. Used when reports are archived so that nested
+        scheduled tasks no longer fire."""
+        if not report_ids:
+            return
+
+        result = await db.execute(
+            select(ScheduledPrompt)
+            .filter(ScheduledPrompt.report_id.in_(report_ids))
+            .filter(ScheduledPrompt.deleted_at == None)
+        )
+        scheduled_prompts = result.scalars().all()
+        if not scheduled_prompts:
+            return
+
+        now = datetime.utcnow()
+        for sp in scheduled_prompts:
+            sp.deleted_at = now
+            try:
+                scheduler.remove_job(job_id=f"scheduled_prompt_{sp.id}")
+            except JobLookupError:
+                pass
+            except Exception:
+                logger.warning(f"Failed to remove scheduler job for scheduled prompt {sp.id}", exc_info=True)
+
+        logger.info(f"Deleted {len(scheduled_prompts)} scheduled prompt(s) for archived report(s): {report_ids}")
+
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -684,6 +713,7 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Report not found")
 
         report.status = 'archived'
+        await self._delete_scheduled_prompts_for_reports(db, [str(report.id)])
         await db.commit()
         await db.refresh(report)
 
@@ -1346,6 +1376,7 @@ class ReportService:
             count += 1
 
         if count:
+            await self._delete_scheduled_prompts_for_reports(db, archived_ids)
             await db.commit()
 
             # Audit log
@@ -1425,6 +1456,7 @@ class ReportService:
         user could pin a private source they have no access to and query it.
         """
         from sqlalchemy import delete
+        from app.models.data_source_file_association import data_source_file_association
 
         # Delete existing associations directly via SQL to avoid ORM state tracking issues
         await db.execute(
@@ -1436,6 +1468,28 @@ class ReportService:
         # Expire and refresh the relationship so ORM sees it as empty (avoids MissingGreenlet on lazy load)
         db.expire(report, ["data_sources"])
         await db.refresh(report, ["data_sources"])
+
+        # Remove files that were snapshotted onto the report from data sources
+        # that are no longer attached. We only drop a file when it (a) belongs to
+        # some data source (so user-uploaded files, which belong to none, are
+        # spared), (b) does not belong to any data source that remains attached,
+        # and (c) was snapshotted, not produced/mentioned during a chat
+        # (completion_id IS NULL). This mirrors the add-only snapshot below.
+        remaining_ds_files = (
+            select(data_source_file_association.c.file_id)
+            .where(data_source_file_association.c.data_source_id.in_(data_source_ids))
+        )
+        files_owned_by_any_ds = select(data_source_file_association.c.file_id)
+        await db.execute(
+            delete(report_file_association).where(
+                report_file_association.c.report_id == report.id,
+                report_file_association.c.completion_id.is_(None),
+                report_file_association.c.file_id.in_(files_owned_by_any_ds),
+                report_file_association.c.file_id.notin_(remaining_ds_files),
+            )
+        )
+        # Expire so the ORM re-reads report.files before the snapshot add below.
+        db.expire(report, ["files"])
 
         if data_source_ids:
             # Load all requested data sources (scoped to the org when known)

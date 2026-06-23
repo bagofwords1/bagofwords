@@ -19,18 +19,18 @@ test.describe('Shared page visibility (both admin and member)', () => {
   });
 
   test('admin can access instructions page', async ({ adminPage }) => {
-    await adminPage.goto('/instructions');
+    await adminPage.goto('/agents');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.getByRole('heading', { name: 'Instructions', exact: true }))
+    await expect(adminPage.getByRole('heading', { name: 'Agents', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 
   test('member can access instructions page', async ({ memberPage }) => {
-    await memberPage.goto('/instructions');
+    await memberPage.goto('/agents');
     await memberPage.waitForLoadState('domcontentloaded');
 
-    await expect(memberPage.getByRole('heading', { name: 'Instructions', exact: true }))
+    await expect(memberPage.getByRole('heading', { name: 'Agents', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 
@@ -38,7 +38,8 @@ test.describe('Shared page visibility (both admin and member)', () => {
     await adminPage.goto('/queries');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.getByRole('heading', { name: 'Queries', exact: true }))
+    // On a fresh org the page renders the empty state (no <h1>Queries</h1>).
+    await expect(adminPage.getByRole('heading', { name: 'Nothing published yet' }))
       .toBeVisible({ timeout: 10000 });
   });
 
@@ -46,7 +47,7 @@ test.describe('Shared page visibility (both admin and member)', () => {
     await memberPage.goto('/queries');
     await memberPage.waitForLoadState('domcontentloaded');
 
-    await expect(memberPage.getByRole('heading', { name: 'Queries', exact: true }))
+    await expect(memberPage.getByRole('heading', { name: 'Nothing published yet' }))
       .toBeVisible({ timeout: 10000 });
   });
 });

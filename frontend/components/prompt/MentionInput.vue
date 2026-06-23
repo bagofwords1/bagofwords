@@ -3,7 +3,7 @@
     <div
       ref="inputRef"
       contenteditable="true"
-      dir="auto"
+      :dir="inputDir"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
@@ -258,6 +258,16 @@ const allCategories = ref<MentionCategory[]>([])
 const isLoadingMentions = ref(false)
 const orgPermsState = usePermissions()
 const resourcePermsState = useResourcePermissions()
+
+// While the field is empty, `dir="auto"` has no strong character to scan and
+// falls back to LTR — which left-aligns an RTL placeholder (e.g. Hebrew). Fall
+// back to the UI locale direction when empty; once the user types, switch to
+// `auto` so the direction follows the typed text.
+const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+const inputDir = computed(() => {
+  if (textContent.value.trim().length > 0) return 'auto'
+  return RTL_LOCALES.has(String(i18nLocale.value)) ? 'rtl' : 'ltr'
+})
 
 const lineHeightPx = computed(() => props.compact ? 18 : 24)
 const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)

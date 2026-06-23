@@ -84,6 +84,125 @@ class McpClient(ToolProviderClient):
             self._acall_tool(tool_name, arguments)
         )
 
+    # ------------------------------------------------------------------
+    # Resources
+    #
+    # MCP servers can expose *resources* (data the server reads on demand)
+    # alongside tools. The protocol surfaces three calls: resources/list,
+    # resources/templates/list, and resources/read. The agent bridges these via
+    # the list_mcp_resources / read_mcp_resource tools — the LLM has no native
+    # notion of resources, so we hand it list + read so it can pull resource
+    # context just-in-time.
+    # ------------------------------------------------------------------
+
+    # Cap pagination so a misbehaving server can't make us walk forever.
+    _MAX_RESOURCES = 500
+
+    async def alist_resources(self) -> List[Dict[str, Any]]:
+        """List concrete resources exposed by the MCP server.
+
+        Returns a list of {uri, name, description, mime_type}. Follows
+        nextCursor pagination up to a safety cap.
+        """
+        try:
+            resources: List[Dict[str, Any]] = []
+            async with self._connect() as session:
+                cursor = None
+                while True:
+                    result = await session.list_resources(cursor=cursor)
+                    for r in (result.resources or []):
+                        resources.append({
+                            "uri": str(getattr(r, "uri", "")),
+                            "name": getattr(r, "name", None),
+                            "description": getattr(r, "description", None),
+                            "mime_type": getattr(r, "mimeType", None),
+                        })
+                        if len(resources) >= self._MAX_RESOURCES:
+                            return resources
+                    cursor = getattr(result, "nextCursor", None)
+                    if not cursor:
+                        break
+            return resources
+        except BaseException as e:
+            raise RuntimeError(self._unwrap_exception(e)) from None
+
+    async def alist_resource_templates(self) -> List[Dict[str, Any]]:
+        """List parameterized URI templates exposed by the MCP server.
+
+        Returns a list of {uri_template, name, description, mime_type,
+        is_template}. Templates are optional; servers that don't implement
+        resources/templates/list raise, which the caller treats as "none".
+        """
+        try:
+            templates: List[Dict[str, Any]] = []
+            async with self._connect() as session:
+                cursor = None
+                while True:
+                    result = await session.list_resource_templates(cursor=cursor)
+                    for t in (result.resourceTemplates or []):
+                        templates.append({
+                            "uri_template": getattr(t, "uriTemplate", None),
+                            "name": getattr(t, "name", None),
+                            "description": getattr(t, "description", None),
+                            "mime_type": getattr(t, "mimeType", None),
+                            "is_template": True,
+                        })
+                        if len(templates) >= self._MAX_RESOURCES:
+                            return templates
+                    cursor = getattr(result, "nextCursor", None)
+                    if not cursor:
+                        break
+            return templates
+        except BaseException as e:
+            raise RuntimeError(self._unwrap_exception(e)) from None
+
+    async def aread_resource(self, uri: str) -> Dict[str, Any]:
+        """Read a resource by URI.
+
+        Returns {success, contents, error} where contents is a list of blocks:
+        text blocks {type: "text", text, mime_type, uri} and binary blocks
+        {type: "binary", byte_size, mime_type, uri}. A failure here is usually a
+        bad/unknown URI, so it's reported as success=False rather than raised —
+        mirroring acall_tool's contract.
+        """
+        from pydantic import AnyUrl
+
+        try:
+            async with self._connect() as session:
+                result = await session.read_resource(AnyUrl(uri))
+                contents: List[Dict[str, Any]] = []
+                for c in (getattr(result, "contents", None) or []):
+                    mime_type = getattr(c, "mimeType", None)
+                    c_uri = str(getattr(c, "uri", uri))
+                    # The wire format distinguishes blob from text by the
+                    # presence of the blob field, not by text being empty.
+                    blob = getattr(c, "blob", None)
+                    if blob is not None:
+                        # blob is base64; report decoded size, not encoded length.
+                        import base64
+                        try:
+                            byte_size = len(base64.b64decode(blob, validate=False))
+                        except Exception:
+                            byte_size = len(blob)
+                        contents.append({
+                            "type": "binary",
+                            "byte_size": byte_size,
+                            "mime_type": mime_type or "application/octet-stream",
+                            "uri": c_uri,
+                        })
+                    else:
+                        contents.append({
+                            "type": "text",
+                            "text": getattr(c, "text", "") or "",
+                            "mime_type": mime_type,
+                            "uri": c_uri,
+                        })
+                return {"success": True, "contents": contents, "error": None}
+        except BaseException as e:
+            msg = self._unwrap_exception(e)
+            logger.error(f"MCP read_resource failed: {uri}: {msg}")
+            return {"success": False, "contents": [], "error": msg}
+
     async def _acall_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Async implementation of call_tool using the MCP SDK."""
         from mcp import ClientSession

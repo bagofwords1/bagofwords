@@ -1,8 +1,47 @@
 # Release Notes
 
+## Version 0.0.419 (June 23, 2026)
+- **Instructions — scope by run-mode and delivery channel** — instructions can now be restricted to specific agent run-modes (Chat, Deep analytics, Training) and delivery channels (Web app, Slack, Teams, AI mailbox, MCP). The selectors live in a new collapsible **Advanced** section of the instruction editor (empty = applies everywhere). The scoping is honored at prompt-build time so an instruction only loads in the modes/channels it targets, and the fields are versioned (snapshotted into instruction versions and carried through build promotion/diffing).
+- **Fix — instruction "Pending review" status was inconsistent across views** — the same instruction could read **Active** in the agent instruction view but **Pending review** in the report agent panel. The list and single-instruction endpoints now derive the pending signal from the same authoritative per-hunk review rule as `/instructions/pending-changes`, so a leftover/already-applied (covered) build no longer over-reports as pending. The status dropdown in the report agent editor also stops showing a value ("Pending review") that wasn't one of its options.
+- **Fix — "+" to add an instruction was hidden behind the Review panel** — clicking the **+** on Instructions while the Review feed was open now closes Review and opens the new-instruction editor instead of doing nothing.
+
+## Version 0.0.418 (June 23, 2026)
+- **Microsoft Analysis Services (SSAS) data source** — a new enterprise connector for SQL Server Analysis Services over XMLA, supporting both Multidimensional (MDX) and Tabular (DAX/MDX) models.
+
+## Version 0.0.417 (June 21, 2026)
+- **Infor OLAP (Infor d/EPM) data source (#425)** — a new enterprise connector for the Infor d/EPM OLAP semantic layer (formerly Infor BI / MIS Alea OLAP), the supported path into on-premise **Infor OLAP 25.x** where native connections are gone and **XMLA is mandatory**. It speaks the standard **XMLA SOAP** contract over HTTP with Basic auth: schema discovery via `Discover` (catalogs, cubes, dimension hierarchies, and measures — each cube surfaced as a `Catalog/Cube` table whose columns carry their MDX `unique_name`), and query execution via `Execute` (Tabular) that runs **MDX** and flattens the rowset into a DataFrame (decoding XMLA `_xHHHH_` escapes). SOAP faults and inline XMLA errors surface as clear errors. Configurable endpoint URL, optional catalog scope, SSL verification, and timeout.
+- **Agents — connections footer fixes** — the bottom-left **Connections** footer is no longer pushed off-screen (requiring a scroll) when a top banner is shown: the Knowledge Explorer now sizes itself to the viewport minus the banner height. It also shows an explicit **"Add connection"** CTA in the empty state, and **childless connections** — created but not yet linked to any agent — now appear in the list instead of being hidden until an agent exists.
+- **Fix — Tables selector "Save" button hidden until scroll** — the Save bar in the tables selector is now pinned (sticky) to the bottom of its scroll container, so it stays visible without scrolling to the end of long table lists (agent Tables panel, schema wizard, onboarding, etc.).
+- **Fix — report tool card flicker** — the `edit_instruction` tool card no longer rapidly flickers between its rendered document and its `v1 → v2` version-diff view during/after an edit stream. The card is keyed on the stable block id so streaming/poll updates no longer remount it.
+- **Fix — Microsoft Fabric "Login timeout expired" on cold-start endpoints** — Fabric Warehouse/Lakehouse SQL endpoints are serverless and can be slow to respond on the first connection after the capacity has been idle, routinely exceeding the ODBC driver's short default login timeout (~15s) and surfacing as `HYT00 … Login timeout expired (SQLDriverConnect)`. The Fabric client now sets a generous 60s login timeout (`Connect Timeout` + `pyodbc` `timeout`), adds driver-level `ConnectRetryCount`, and retries transient connection-timeout SQLSTATEs (`HYT00`/`HYT01`/`08001`/`08S01`) a few times with backoff so a cold endpoint gets a chance to wake up. This affects both service-principal and per-user (OBO/Entra) auth.
+
+## Version 0.0.416 (June 21, 2026)
+- **Backend dependency management moved from pip to uv (#408)** — `requirements_versioned.txt` is replaced by a PEP 621 `pyproject.toml` + `uv.lock`, the Docker build and CI now use `uv sync --frozen`, and contributors install with `uv sync --extra dev` (see `DEV.md`). uv is from the same Astral toolchain as ruff and is significantly faster than pip/Poetry.
+- **Security — resolved all High/Critical dependency vulnerabilities** flagged by Snyk in both the backend (uv) and frontend (yarn) dependency trees.
+  - Backend: `cryptography` 46.0.7 → 49.0.0 (out-of-bounds read) and `starlette` 0.50.0 → 1.3.1 (SSRF, resource exhaustion, unsafe reflection, request smuggling, incorrectly-resolved name). Resolving Starlette required matching bumps to `fastapi` (→ 0.138.0), `fastapi-mail` (→ 1.6.5), and `aiosmtplib` (→ 5.1.2), which previously capped it. Backend scan now reports **0 issues**.
+  - Frontend: `nuxt` → ^3.21.7 (open redirect), `vite` resolution corrected to `>=7.3.5 <8` (directory traversal — the prior resolution pinned the vulnerable 7.3.3), and a new `ws` resolution `>=8.21.0` (asymmetric resource consumption). Frontend now has **0 High/Critical** issues.
+- **Docs** — added `docs/snyk-dependency-scanning.md` (skill-format guide) covering how to scan the uv backend and yarn frontend with the Snyk CLI and apply fixes.
+
+## Version 0.0.415 (June 20, 2026)
+- **Knowledge Explorer** — a new three-pane workspace (at `/instructions`) for browsing and managing everything an agent knows: global instructions, skills, per-agent resources, pending reviews, and each agent's tables and tools. Tree navigation with search and filtering (by status, load mode, source, category), inline editing of titles/descriptions/conversation starters, file upload and preview, and a version-history pane with diff view.
+- **Agent management** — a guided **New Agent wizard**, a dedicated **Agent Settings** panel, and per-agent **automation settings**, plus a clearer public/private agent distinction surfaced across the UI.
+- **Continual & self-learning** — agents can automatically run evals and a retrain/reliability loop (e.g. on instruction or table changes), surfaced in a new **Agent Evals** panel, so higher-autonomy agents keep improving on their own.
+- **Skills with smart loading** — instructions can now be authored as **skills** that load on demand: the prompt carries a lightweight skills catalog and the agent reads a skill's full body only when it needs it (`read_skill`), keeping context lean.
+- **Suggestions & review workflow** — a **pending-review feed** with **per-hunk tracked changes** (accept or reject individual edits), diff visualization, and an approval flow for instruction suggestions.
+- **Better instruction management** — instruction **descriptions**, table-scoped instructions with name-based datasource fallback, and improved reference resolution (connection-table IDs, bare and schema-prefixed table names).
+
+## Version 0.0.414 (June 18, 2026)
+- **Fix — long instructions hid the Edit button in the instruction modal** — in the global create/edit instruction modal, a long instruction body made the content area un-scrollable and pushed the action footer (Edit in view mode; Update/Cancel in edit mode) off the bottom of the modal, so the instruction couldn't be edited. The modal now keeps a properly bounded flex layout so the content scrolls internally and the footer stays visible.
+
+## Version 0.0.413 (June 18, 2026)
+- feat(mcp): let the agent read MCP server resources (list_mcp_resources + read_mcp_resource)
+- fix: prevent 'Cannot use import statement outside a module' in artifact iframe 
+
 ## Version 0.0.412 (June 16, 2026)
 - **Apache Druid data source** — connect to Apache Druid and query it as a new data source.
 - **Trino data source** — connect to the Trino distributed SQL engine and query it as a new data source.
+- Agents page redesign - easier navigation around instructions, tools, tables, tc
+- **Continual Learning** - trigger evals -> retrain loop on table change or instruction change for high autonomy
 
 ## Version 0.0.411 (June 15, 2026)
 - **⌘K command palette** — a global **⌘K / Ctrl+K** palette for quick navigation and creation, opened from anywhere in the app. One input searches across **recent reports**, **agents**, and **instructions** (server-side search for reports/instructions, client-side filtering for agents; recents shown by default), with pinned, query-echoing create actions: `New report "…"` (creates and navigates) and a permission-aware `New instruction "…"` / `Suggest instruction "…"` that opens the instruction modal pre-filled with the typed text. No-match queries still surface the create actions.

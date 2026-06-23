@@ -7,8 +7,10 @@ import { test as base, expect } from '@playwright/test';
  */
 export const test = base.extend({
   page: async ({ page }, use) => {
-    // Navigate to home to check if onboarding redirect is active
-    await page.goto('/');
+    // Navigate to home to check if onboarding redirect is active. Use
+    // waitUntil:'commit' — the browser 'load' event is unreliable on a busy CI
+    // dev server and makes this shared fixture eat the whole test timeout.
+    await page.goto('/', { waitUntil: 'commit' });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(3000);
 

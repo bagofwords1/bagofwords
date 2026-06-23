@@ -16,7 +16,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_data_source_overlay import UserDataSourceTable
 
-from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem
+from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem, SkillCatalogItem
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,36 @@ class InstructionContextBuilder:
     # Default max instructions in context
     DEFAULT_MAX_INSTRUCTIONS = 50
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
         self.organization_settings = organization_settings
         self.data_source_ids = data_source_ids
+        # Current request mode ('chat' | 'deep' | 'training' | ...) and delivery
+        # channel ('app' | 'slack' | 'teams' | 'email' | 'mcp' | ...). Used to
+        # honor per-instruction applicable_modes / applicable_channels scoping.
+        # When either is None, that dimension is not filtered (include all).
+        self.mode = mode
+        self.channel = channel
+
+    def _passes_mode_channel(self, applicable_modes, applicable_channels) -> bool:
+        """Return True if an instruction with the given scoping applies to the
+        current request mode/channel.
+
+        An empty/None ``applicable_modes`` (or ``applicable_channels``) means the
+        instruction applies to every mode (or channel). When the builder has no
+        current mode/channel set, that dimension is not filtered.
+        """
+        if self.mode and applicable_modes:
+            modes = applicable_modes if isinstance(applicable_modes, list) else []
+            if modes and self.mode not in modes:
+                return False
+        if self.channel and applicable_channels:
+            channels = applicable_channels if isinstance(applicable_channels, list) else []
+            if channels and self.channel not in channels:
+                return False
+        return True
     
     def _get_max_instructions(self) -> int:
         """Get max instructions limit from org settings or default."""
@@ -169,6 +193,15 @@ class InstructionContextBuilder:
                 if not inst_ds_ids or inst_ds_ids.intersection(data_source_ids):
                     filtered.append(inst)
             instructions = filtered
+
+        # Filter by current request mode/channel scoping
+        instructions = [
+            inst for inst in instructions
+            if self._passes_mode_channel(
+                getattr(inst, "applicable_modes", None),
+                getattr(inst, "applicable_channels", None),
+            )
+        ]
 
         # Filter by per-user table accessibility (user_data_source_tables overlay)
         instructions = await self._filter_instructions_by_table_accessibility(instructions)
@@ -386,6 +419,8 @@ class InstructionContextBuilder:
                     Instruction.organization_id == self.organization.id,
                     Instruction.deleted_at.is_(None),
                     Instruction.load_mode == "intelligent",
+                    # Skills are advertised via the catalog, never auto-loaded.
+                    Instruction.kind != "skill",
                 )
             )
         )
@@ -405,6 +440,15 @@ class InstructionContextBuilder:
                 inst for inst in all_instructions
                 if not inst.data_sources or {str(ds.id) for ds in inst.data_sources}.intersection(data_source_ids)
             ]
+
+        # Filter by current request mode/channel scoping
+        all_instructions = [
+            inst for inst in all_instructions
+            if self._passes_mode_channel(
+                getattr(inst, "applicable_modes", None),
+                getattr(inst, "applicable_channels", None),
+            )
+        ]
 
         # Filter by per-user table accessibility
         all_instructions = await self._filter_instructions_by_table_accessibility(all_instructions)
@@ -479,17 +523,96 @@ class InstructionContextBuilder:
 
         if build_items is not None:
             # Build-based loading - return items with version tracking
-            return InstructionsSection(items=build_items)
+            section = InstructionsSection(items=build_items)
+        else:
+            # Fallback to legacy behavior (direct instruction query)
+            section = await self._build_legacy(
+                query=query,
+                data_source_ids=effective_ds_ids,
+                category=category,
+                categories=categories,
+                max_instructions=max_instructions,
+            )
 
-        # Fallback to legacy behavior (direct instruction query)
-        return await self._build_legacy(
-            query=query,
-            data_source_ids=effective_ds_ids,
-            category=category,
-            categories=categories,
-            max_instructions=max_instructions,
-        )
+        # Advertise skills (kind='skill') as a compact catalog rather than
+        # force-loading their full text. The agent pulls them on demand via
+        # the read_instruction tool.
+        section.skills = await self._build_skills_catalog(data_source_ids=effective_ds_ids)
+        return section
     
+    async def _build_skills_catalog(
+        self,
+        *,
+        data_source_ids: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[SkillCatalogItem]:
+        """Build the advertised catalog of skills (kind='skill').
+
+        Returns published skills in scope (global + matching data sources), with a
+        short id, title and one-line description — NOT their full text. The agent
+        reads full text on demand via the read_instruction tool. Per-user table
+        accessibility is applied so out-of-scope skills aren't advertised.
+        """
+        stmt = (
+            select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources).options(lazyload("*")),
+            )
+            .where(
+                and_(
+                    Instruction.status == "published",
+                    Instruction.organization_id == self.organization.id,
+                    Instruction.deleted_at.is_(None),
+                    Instruction.kind == "skill",
+                )
+            )
+        )
+        result = await self.db.execute(stmt)
+        skills = result.scalars().all()
+
+        # Scope by data sources (global skills — no data sources — always included).
+        effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
+        if effective_ds_ids is not None:
+            skills = [
+                s for s in skills
+                if not s.data_sources or {str(ds.id) for ds in s.data_sources}.intersection(effective_ds_ids)
+            ]
+
+        # Apply per-user table accessibility (same rule as loaded instructions).
+        skills = await self._filter_instructions_by_table_accessibility(skills)
+
+        items: List[SkillCatalogItem] = []
+        for s in skills[:limit]:
+            sid = str(s.id)
+            items.append(SkillCatalogItem(
+                id=sid,
+                short_id=sid[:8],
+                title=s.title or (s.text[:60] if s.text else sid[:8]),
+                description=self._skill_description(s),
+            ))
+        return items
+
+    @staticmethod
+    def _skill_description(instruction: Instruction) -> Optional[str]:
+        """Derive a one-line description for the skills catalog.
+
+        Precedence: explicit user-authored `description` → structured_data
+        description (git/dbt sources) → first non-empty line of the text.
+        """
+        if instruction.description and instruction.description.strip():
+            desc = instruction.description.strip()
+        else:
+            sd = instruction.structured_data
+            if isinstance(sd, dict) and sd.get("description"):
+                desc = str(sd["description"]).strip()
+            else:
+                # First non-empty line of the text, trimmed.
+                text = (instruction.text or "").strip()
+                desc = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+        if not desc:
+            return None
+        return desc if len(desc) <= 160 else desc[:157] + "…"
+
     async def _load_from_build(
         self,
         build_id: Optional[str] = None,
@@ -566,6 +689,18 @@ class InstructionContextBuilder:
             if instruction.status != "published":
                 continue
             if version.load_mode == "disabled":
+                continue
+            # Skills are advertised via the skills catalog (read on demand), not
+            # force-loaded into context — skip them here.
+            if getattr(instruction, "kind", "instruction") == "skill":
+                continue
+
+            # Skip instructions scoped to other modes/channels than this request.
+            # Build-based loading is version-driven, so read the version snapshot.
+            if not self._passes_mode_channel(
+                getattr(version, "applicable_modes", None),
+                getattr(version, "applicable_channels", None),
+            ):
                 continue
 
             # Filter by data sources: include global instructions (no data sources)

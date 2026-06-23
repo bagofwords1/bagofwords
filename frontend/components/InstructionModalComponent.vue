@@ -21,8 +21,10 @@
                         </button>
                     </div>
 
-                    <!-- Body -->
-                    <div class="flex-1 min-h-0">
+                    <!-- Body: flex column so the child (global/private) fills the clamped
+                         modal height and its inner columns scroll, instead of the content
+                         overflowing and pushing the action footer off-screen. -->
+                    <div class="flex-1 min-h-0 flex flex-col">
                         <!-- GLOBAL: component owns its columns; analysis renders in the middle slot -->
                         <InstructionGlobalCreateComponent
                             v-if="selectedInstructionType === 'global'"
@@ -62,7 +64,7 @@
                         <!-- PRIVATE: single-column form with analysis panel on the right -->
                         <div
                             v-else
-                            class="h-full grid transition-all duration-300 ease-out"
+                            class="h-full flex-1 min-h-0 grid transition-all duration-300 ease-out"
                             :style="{
                                 gridTemplateColumns: isAnalyzing ? 'minmax(0, 1.75fr) minmax(0, 1fr)' : '1fr 0px'
                             }"

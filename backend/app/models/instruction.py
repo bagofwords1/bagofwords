@@ -26,6 +26,9 @@ class Instruction(BaseSchema):
     
     # Categorization
     category = Column(String(50), nullable=False, default="general")
+
+    # Instruction kind: 'instruction' (normal) | 'skill'
+    kind = Column(String(50), nullable=False, server_default="instruction", default="instruction")
     
     # User who created the instruction (always the original creator)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
@@ -68,10 +71,19 @@ class Instruction(BaseSchema):
     
     # Loading behavior for AI context
     load_mode = Column(String(20), default='always')  # 'always' | 'intelligent' | 'disabled'
-    
+
+    # Scoping: which agent run-modes and delivery channels this instruction
+    # applies to. NULL or empty list => applies everywhere (all modes/channels).
+    applicable_modes = Column(JSON, nullable=True)      # e.g. ['chat', 'deep', 'training']
+    applicable_channels = Column(JSON, nullable=True)   # e.g. ['app', 'slack', 'teams', 'email', 'mcp']
+
     # Display title (especially for git-sourced instructions)
     title = Column(String(255), nullable=True)
-    
+
+    # Optional user-authored description / blurb. For skills this is advertised
+    # in the <available_skills> catalog instead of a text snippet.
+    description = Column(Text, nullable=True)
+
     # Structured data (raw resource data) + formatted content (readable text)
     structured_data = Column(JSON, nullable=True)
     formatted_content = Column(Text, nullable=True)

@@ -40,8 +40,8 @@ well_known_router = APIRouter(tags=["oauth-metadata"])
 
 def _base_url(request: Request) -> str:
     """Derive the public base URL from config, X-Forwarded-* headers, or request."""
-    from app.core.base_url import derive_base_url
-    return derive_base_url(request)
+    from app.core.base_url import derive_mcp_base_url
+    return derive_mcp_base_url(request)
 
 
 @well_known_router.get("/.well-known/oauth-protected-resource")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime, Index
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime, Index, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -35,6 +35,11 @@ class InstructionBuild(BaseSchema):
     
     # Base build this was forked from (for auto-merge on deploy)
     base_build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)
+
+    # Per-hunk review state (immutable cherry-pick model): list of
+    # {instruction_id, key} for hunks the reviewer rejected on THIS suggestion
+    # build. Accepts are not stored — they advance main and drop out of the diff.
+    rejected_hunks = Column(JSON, nullable=True)
     
     # Trigger links - one populated based on source
     metadata_indexing_job_id = Column(String(36), ForeignKey('metadata_indexing_jobs.id', ondelete='SET NULL'), nullable=True)

@@ -4,7 +4,13 @@ Covers the requirements: backward orgs (no DB SMTP) fall back to global; orgs
 that set DB SMTP use it even when the global bow-config SMTP is empty; analyst
 mail always uses the AI mailbox.
 """
-from app.services.email_client_resolver import choose_outbound
+import pytest
+
+from app.services.email_client_resolver import (
+    ResolvedOutbound,
+    choose_outbound,
+    is_outbound_available,
+)
 
 
 AI_CONFIG = {"from_address": "analyst@acme.com", "from_name": "Acme Analyst", "smtp_host": "smtp.acme.com"}
@@ -71,3 +77,32 @@ def test_nothing_configured_is_none():
     r = choose_outbound("system", None, None, None, global_present=False)
     assert r.source == "none"
     assert not r.uses_smtp_config
+
+
+# ---- availability gate (used to show/hide the send_email tool) ----
+
+@pytest.mark.parametrize("source,expected", [
+    ("ai_mailbox", True),
+    ("org_smtp", True),   # org configured SMTP via UI, global env empty -> available
+    ("global", True),
+    ("none", False),      # nothing resolves -> tool hidden
+])
+async def test_is_outbound_available(monkeypatch, source, expected):
+    import app.services.email_client_resolver as r
+
+    async def fake_resolve(db, org_id, purpose="system"):
+        assert purpose == "analyst"
+        return ResolvedOutbound(source=source)
+
+    monkeypatch.setattr(r, "resolve_outbound", fake_resolve)
+    assert await is_outbound_available(object(), "org-1", purpose="analyst") is expected
+
+
+async def test_is_outbound_available_swallows_errors(monkeypatch):
+    import app.services.email_client_resolver as r
+
+    async def boom(db, org_id, purpose="system"):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(r, "resolve_outbound", boom)
+    assert await is_outbound_available(object(), "org-1") is False

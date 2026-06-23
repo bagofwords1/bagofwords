@@ -9,18 +9,18 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
 
     - name: Install dependencies
       working-directory: ./backend
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements_versioned.txt
+        pip install uv
+        uv sync --frozen --extra dev
 
     - name: Restore integrations credentials
       run: |
@@ -34,25 +34,25 @@ jobs:
         TESTING: "true"
         ENVIRONMENT: "production"
       run: |
-        pytest -v tests/integrations/ds_clients.py --disable-warnings
+        uv run pytest -v tests/integrations/ds_clients.py --disable-warnings
 
   llms:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
 
     - name: Install dependencies
       working-directory: ./backend
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements_versioned.txt
+        pip install uv
+        uv sync --frozen --extra dev
 
     - name: Restore integrations credentials
       run: |
@@ -66,4 +66,4 @@ jobs:
         TESTING: "true"
         ENVIRONMENT: "production"
       run: |
-        pytest -v tests/integrations/llm_clients.py --disable-warnings
+        uv run pytest -v tests/integrations/llm_clients.py --disable-warnings

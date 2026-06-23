@@ -56,14 +56,36 @@ DEFAULT_MOCK_TOOLS = [
 ]
 
 
+# Default resources for the mock server (mirrors a Pulse-like server).
+DEFAULT_MOCK_RESOURCES = [
+    {"uri": "mock://overview", "name": "overview", "description": "Product overview doc.", "mime_type": "text/markdown"},
+    {"uri": "mock://rules", "name": "rules", "description": "Business rules to read first.", "mime_type": "text/markdown"},
+]
+
+DEFAULT_MOCK_RESOURCE_TEMPLATES = [
+    {"uri_template": "mock://tables/{name}", "name": "table_schema", "description": "Schema for one table.", "mime_type": "text/markdown", "is_template": True},
+]
+
+# Resource bodies keyed by URI, returned by aread_resource.
+DEFAULT_MOCK_RESOURCE_BODIES = {
+    "mock://overview": "# Overview\nMock product overview.",
+    "mock://rules": "# Rules\n1. Always dedupe.\n2. Disclose assumptions.",
+}
+
+
 class MockToolProviderClient(ToolProviderClient):
     """
     In-process mock that replaces the real MCP/API client for testing.
     No network calls, no subprocess — pure Python.
     """
 
-    def __init__(self, tools: List[Dict[str, Any]] = None, **kwargs):
+    def __init__(self, tools: List[Dict[str, Any]] = None,
+                 resources: List[Dict[str, Any]] = None,
+                 resource_templates: List[Dict[str, Any]] = None,
+                 **kwargs):
         self._tools = tools or DEFAULT_MOCK_TOOLS
+        self._resources = resources if resources is not None else DEFAULT_MOCK_RESOURCES
+        self._resource_templates = resource_templates if resource_templates is not None else DEFAULT_MOCK_RESOURCE_TEMPLATES
         self._call_log: List[Dict[str, Any]] = []
 
     def list_tools(self) -> List[Dict[str, Any]]:
@@ -121,6 +143,25 @@ class MockToolProviderClient(ToolProviderClient):
         return {
             "success": True,
             "message": f"Mock MCP server connected. {len(self._tools)} tool(s) available.",
+        }
+
+    # --- Resources (MCP-only capability) ---
+
+    async def alist_resources(self) -> List[Dict[str, Any]]:
+        return list(self._resources)
+
+    async def alist_resource_templates(self) -> List[Dict[str, Any]]:
+        return list(self._resource_templates)
+
+    async def aread_resource(self, uri: str) -> Dict[str, Any]:
+        self._call_log.append({"read_resource": uri})
+        body = DEFAULT_MOCK_RESOURCE_BODIES.get(uri)
+        if body is None:
+            return {"success": False, "contents": [], "error": "Resource not found"}
+        return {
+            "success": True,
+            "contents": [{"type": "text", "text": body, "mime_type": "text/markdown", "uri": uri}],
+            "error": None,
         }
 
     def set_tools(self, tools: List[Dict[str, Any]]):

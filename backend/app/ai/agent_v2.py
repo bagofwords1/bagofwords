@@ -668,10 +668,11 @@ class AgentV2:
                     # sync quota check through run_blocking() would contend for the
                     # context's asyncio.Lock across event loops. See note above.
                 )
-                instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+                instructions_score, context_score, ic_reasoning = await judge.score_instructions_and_context_from_planner_input(planner_input)
             else:
                 instructions_score = 3
                 context_score = 3
+                ic_reasoning = ""
         except Exception as e:
             logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
             return
@@ -679,7 +680,7 @@ class AgentV2:
         await self._persist_completion_score_with_retry(
             label="early scoring",
             persist=lambda session, completion: self.project_manager.update_completion_scores(
-                session, completion, instructions_score, context_score
+                session, completion, instructions_score, context_score, reasoning=ic_reasoning
             ),
         )
 
@@ -696,9 +697,10 @@ class AgentV2:
                     # No usage_context: see note above (cross-loop _cache_lock).
                 )
                 original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
-                response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+                response_score, response_reasoning = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
             else:
                 response_score = 3
+                response_reasoning = ""
         except Exception as e:
             logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
             return
@@ -706,7 +708,7 @@ class AgentV2:
         await self._persist_completion_score_with_retry(
             label="late scoring",
             persist=lambda session, completion: self.project_manager.update_completion_response_score(
-                session, completion, response_score
+                session, completion, response_score, reasoning=response_reasoning
             ),
         )
 
@@ -1200,6 +1202,21 @@ class AgentV2:
                         f"Knowledge harness submitted AI build {self.training_build_id} for approval "
                         f"with {len(drafts)} instructions ({step_count} steps)"
                     )
+                    # Self Learning: react to this brand-new suggestion build per
+                    # each affected agent's policy (auto-approve / auto-eval).
+                    # Fire-and-forget; never blocks the harness. This is the
+                    # knowledge-harness creation site — distinct from report
+                    # training-mode finalize, which is intentionally NOT hooked.
+                    try:
+                        from app.services.agent_reliability_service import AgentReliabilityService
+                        _sl_user_id = getattr(self.head_completion, "user_id", None) if self.head_completion else None
+                        AgentReliabilityService().schedule_for_suggestion(
+                            organization_id=str(self.organization.id),
+                            build_id=str(self.training_build_id),
+                            user_id=str(_sl_user_id) if _sl_user_id else None,
+                        )
+                    except Exception as sl_err:
+                        logger.warning(f"Self Learning schedule failed for build {self.training_build_id}: {sl_err}")
                 except Exception as submit_err:
                     logger.warning(f"Failed to submit AI build for approval: {submit_err}")
 
@@ -1455,6 +1472,34 @@ class AgentV2:
                 t for t in self.planner.tool_catalog
                 if t.name not in denied_tools
             ]
+
+    async def _apply_email_availability_filter(self) -> None:
+        """Hide ``send_email`` from the planner catalog when no outbound email
+        transport resolves for this org.
+
+        The tool is registered as always-active (so it stays executable), but it
+        must only be advertised to the planner when email can actually be sent.
+        Availability mirrors the send path's resolver (AI mailbox → org SMTP →
+        global), so a tool configured via the UI (org SMTP) counts even when the
+        global bow-config SMTP is empty.
+        """
+        catalog = self.planner.tool_catalog or []
+        if not any(t.name == "send_email" for t in catalog):
+            return
+
+        available = False
+        if self.db and self.organization:
+            try:
+                from app.services.email_client_resolver import is_outbound_available
+                available = await is_outbound_available(
+                    self.db, str(self.organization.id), purpose="analyst"
+                )
+            except Exception:
+                logger.warning("[agent] email availability check failed", exc_info=True)
+                available = False
+
+        if not available:
+            self.planner.tool_catalog = [t for t in catalog if t.name != "send_email"]
 
     def _schedule_bg_write(self, label: str, coro):
         """Schedule a background DB write coroutine.
@@ -1923,6 +1968,7 @@ class AgentV2:
 
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
+            await self._apply_email_availability_filter()
             _mlog("loop_starting")
 
             for loop_index in range(step_limit):

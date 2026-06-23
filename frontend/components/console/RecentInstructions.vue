@@ -2,7 +2,7 @@
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div class="p-6 border-b border-gray-50">
             <h3 class="text-lg font-semibold text-gray-900">Recent Instructions</h3>
-            <p class="text-sm text-gray-500 mt-1">Latest instruction updates - for more go to <nuxt-link to="/instructions" class="text-blue-600 hover:text-blue-800">instructions</nuxt-link> page</p>
+            <p class="text-sm text-gray-500 mt-1">Latest instruction updates - for more go to <nuxt-link to="/agents" class="text-blue-600 hover:text-blue-800">instructions</nuxt-link> page</p>
         </div>
         <div class="p-0">
             <div v-if="isLoading" class="flex items-center justify-center h-40">
@@ -199,7 +199,7 @@ const fetchRecentInstructions = async () => {
 
 const openInstruction = (instruction: Instruction) => {
     // Navigate to instructions page or open edit modal
-    navigateTo('/instructions')
+    navigateTo("/agents")
 }
 
 const getCategoryIcon = (category: string) => {

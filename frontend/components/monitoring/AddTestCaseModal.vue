@@ -328,7 +328,7 @@ import CreateSuiteModal from '~/components/monitoring/CreateSuiteModal.vue'
 // Use agent selector for initial data source selection
 const { selectedAgentObjects } = useAgent()
 
-const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string }>()
+const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'created', payload: any): void
@@ -535,9 +535,12 @@ onMounted(async () => {
   await loadBuilds()
   await loadCatalog()
   await loadJudgeModels()
-  // Prepopulate when editing
+  // Prepopulate when editing; otherwise seed create defaults (agent + Judge rule)
+  // here — the open watch doesn't fire when the modal mounts already-open (v-if).
   if (isEditing.value && props.caseId) {
     await loadCaseForEdit(props.caseId)
+  } else {
+    resetFormForCreate()
   }
 })
 
@@ -649,21 +652,21 @@ function makeFieldRuleFor(cat: CategoryDescriptor, field: FieldDescriptor): Fiel
 }
 
 const addCategory = async () => {
-  let firstCat = categories.value[0]
-  if (!firstCat) {
-    await loadCatalog()
-    firstCat = categories.value[0]
-  }
-  if (!firstCat) return
-  const firstField = firstCat.fields[0]
+  if (!categories.value.length) await loadCatalog()
+  // Judge is the default expectation for a new rule.
+  const cat = categories.value.find(c => c.id === 'judge') || categories.value[0]
+  if (!cat) return
+  const firstField = cat.fields[0]
   if (!firstField) return
-  const fieldRule = makeFieldRuleFor(firstCat, firstField)
-  categoryRules.value.push({
-    key: `${firstCat.id}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
-    categoryId: firstCat.id,
-    categoryKind: firstCat.kind,
+  const fieldRule = makeFieldRuleFor(cat, firstField)
+  const entry: CategoryRuleUI = {
+    key: `${cat.id}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
+    categoryId: cat.id,
+    categoryKind: cat.kind,
     fieldRules: [fieldRule],
-  })
+  }
+  categoryRules.value.push(entry)
+  if (cat.id === 'judge') ensureDefaultJudgeModel(entry)
 }
 
 const addField = (cat: CategoryRuleUI) => {
@@ -816,17 +819,24 @@ const close = () => emit('update:modelValue', false)
 
 function resetFormForCreate() {
   promptText.value = ''
-  // Initialize data sources from agent selector (useAgent)
-  // If specific agents are selected, use those; otherwise use all agents
+  // Default the "Agents" selection. An explicit in-context agent (modal opened
+  // from an agent's panel) wins; otherwise fall back to the globally-selected
+  // agents; otherwise leave empty (= Auto / all agents).
   const agentSelection = selectedAgentObjects.value || []
-  testSelectedDataSources.value = agentSelection.map((a: any) => ({ id: a.id, name: a.name, type: a.type }))
+  if (props.agentId) {
+    const match = agentSelection.find((a: any) => a.id === props.agentId)
+    testSelectedDataSources.value = [match ? { id: match.id, name: match.name, type: match.type } : { id: props.agentId }]
+  } else {
+    testSelectedDataSources.value = agentSelection.map((a: any) => ({ id: a.id, name: a.name, type: a.type }))
+  }
   testSelectedModelId.value = ''
   testUploadedFiles.value = []
   testMentions.value = []
   selectedSuiteIdLocal.value = props.suiteId || ''
-  // Reset rules to empty for new case
+  // New cases default the expectation to a Judge rule (not create_data).
   categoryRules.value = []
   otherRules.value = []
+  void addCategory()
 }
 
 const save = async () => {

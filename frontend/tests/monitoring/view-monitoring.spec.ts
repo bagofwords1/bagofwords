@@ -1,8 +1,9 @@
 import { test, expect } from '../fixtures/feature-test';
 
 test('can view monitoring page', async ({ page }) => {
-  await page.goto('/monitoring');
-  await page.waitForLoadState('networkidle');
+  // 'load'/'networkidle' are unreliable on CI for this data-heavy page; commit
+  // the navigation and wait on concrete content instead.
+  await page.goto('/monitoring', { waitUntil: 'commit' });
 
   // Verify page heading (longer timeout for CI)
   await expect(page.getByRole('heading', { name: 'Monitoring', exact: true }))

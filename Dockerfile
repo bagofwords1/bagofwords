@@ -6,7 +6,6 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
       python3 \
-      python3-pip \
       python3-venv \
       python3-dev \
       build-essential \
@@ -18,17 +17,23 @@ RUN apt-get update && \
 # Set the working directory in the container for the backend
 WORKDIR /app/backend
 
-# Copy the backend directory contents into the container at /app/backend
-COPY ./backend /app/backend
-RUN rm -f /app/backend/db/app.db
+# Copy only the dependency manifests first so the uv sync layer is cached
+# independently of application source changes.
+COPY ./backend/pyproject.toml ./backend/uv.lock ./
 
 # Create and use a virtual environment for dependencies
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install any needed packages specified in backend/requirements_versioned.txt
-RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    python3 -m pip install --no-cache-dir --prefer-binary -r requirements_versioned.txt
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+
+# Install locked main deps into the venv; dev group excluded from image
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project
+
+# Copy the full backend source after deps are installed
+COPY ./backend /app/backend
+RUN rm -f /app/backend/db/app.db
 
 # Pre-cache tiktoken encodings for airgapped environments
 RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
@@ -159,9 +164,6 @@ COPY --from=frontend-builder --chown=app:app /app/frontend/.output/public /app/f
 # rendering code that reads files from disk (not over HTTP).
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/artifact-sandbox.html /app/frontend/public/artifact-sandbox.html
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/libs /app/frontend/public/libs
-
-# Copy runtime configs and scripts
-COPY --chown=app:app ./backend/requirements_versioned.txt /app/backend/
 
 # Download RDS/Aurora CA certificate bundle for IAM auth SSL verification
 RUN mkdir -p /app/certs && \
