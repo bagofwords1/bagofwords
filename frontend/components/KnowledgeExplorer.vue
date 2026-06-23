@@ -578,18 +578,6 @@
                     <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-500 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />Smart</span>
                   </template>
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
-                  <!-- Modes (empty = all modes) -->
-                  <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple placeholder="All modes" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
-                  <template v-else>
-                    <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />All modes</span>
-                    <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />{{ modeLabel(m) }}</span>
-                  </template>
-                  <!-- Channels (empty = all channels) -->
-                  <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple placeholder="All channels" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
-                  <template v-else>
-                    <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />All channels</span>
-                    <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />{{ channelLabel(c) }}</span>
-                  </template>
                   <!-- Category -->
                   <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
@@ -614,6 +602,35 @@
                   <!-- Kind (last) -->
                   <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
+                </div>
+
+                <!-- Advanced: run-mode + channel scoping (collapsed by default) -->
+                <div class="mt-2 border-t border-gray-100/70 pt-2">
+                  <button type="button" class="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-700" @click="showAdvanced = !showAdvanced">
+                    <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
+                    Advanced
+                    <span v-if="advancedHasValues && !showAdvanced" class="ml-1 w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                  </button>
+                  <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2">
+                    <!-- Modes (empty = all modes) -->
+                    <div class="flex items-center gap-2">
+                      <span class="text-[11px] text-gray-400 w-20 shrink-0">Modes</span>
+                      <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple placeholder="All modes" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
+                      <template v-else>
+                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />All modes</span>
+                        <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />{{ modeLabel(m) }}</span>
+                      </template>
+                    </div>
+                    <!-- Channels (empty = all channels) -->
+                    <div class="flex items-center gap-2">
+                      <span class="text-[11px] text-gray-400 w-20 shrink-0">Channels</span>
+                      <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple placeholder="All channels" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
+                      <template v-else>
+                        <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />All channels</span>
+                        <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />{{ channelLabel(c) }}</span>
+                      </template>
+                    </div>
+                  </div>
                 </div>
                 <!-- Source + author/timestamps -->
                 <div v-if="detail" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
@@ -1940,6 +1957,8 @@ const syncDraft = (ins: Instruction) => {
   draft.category = ins.category || 'general'
   draft.applicable_modes = ((ins as any).applicable_modes) || []
   draft.applicable_channels = ((ins as any).applicable_channels) || []
+  // Surface the Advanced section when this instruction is already scoped.
+  showAdvanced.value = draft.applicable_modes.length > 0 || draft.applicable_channels.length > 0
   draft.data_source_ids = (ins.data_sources || []).map(d => d.id)
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
   draft.references = (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null }))
@@ -1950,6 +1969,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
+  showAdvanced.value = false
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -2017,6 +2037,11 @@ const save = async () => {
 
 // ── Detail tabs (Instruction / Analyze) ─────────────────
 const bottomTab = ref<'details' | 'analyze'>('details')
+// Advanced (scoping) subsection in the Details panel — holds the run-mode and
+// channel restrictions. Collapsed by default; auto-opens when the instruction
+// already carries scoping so it's discoverable.
+const showAdvanced = ref(false)
+const advancedHasValues = computed(() => (draft.applicable_modes?.length || 0) > 0 || (draft.applicable_channels?.length || 0) > 0)
 // Admins edit the bottom metadata inline (autosave); others see read-only chips.
 const canEditInstr = computed(() => useCan('manage_instructions'))
 // Editable controls also show while creating (the new instruction is authored here).
