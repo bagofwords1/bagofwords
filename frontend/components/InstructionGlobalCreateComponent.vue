@@ -485,7 +485,7 @@
                     >
                         <template #label>
                             <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
-                                {{ getUnderlyingStatusLabel() }}
+                                {{ getCurrentStatusDisplayText() }}
                             </span>
                         </template>
                         <template #option="{ option }">
@@ -1359,15 +1359,6 @@ const isPendingReview = computed(() => {
 // Display text for the currently-selected status badge.
 const getCurrentStatusDisplayText = () => {
     if (isPendingReview.value) return t('instructionGlobalCreate.status.pendingReview')
-    return getUnderlyingStatusLabel()
-}
-
-// The underlying, editable lifecycle label (Active / Inactive / Archived).
-// Used INSIDE the status <select> so its button never shows a value
-// ("Pending review") that isn't one of the selectable options — which made the
-// dropdown's checkmark (on Active) contradict the button. Pending state is
-// already surfaced via the tracked-changes review banner.
-const getUnderlyingStatusLabel = () => {
     const currentStatus = instructionForm.value.status
     const statusMap: Record<string, string> = {
         draft: t('instructionGlobalCreate.status.inactive'),
