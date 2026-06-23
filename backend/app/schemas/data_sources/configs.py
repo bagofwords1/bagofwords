@@ -1184,6 +1184,54 @@ class InforOlapConfig(BaseModel):
     )
 
 
+# Microsoft Analysis Services (SSAS — Multidimensional & Tabular, via XMLA)
+class AnalysisServicesCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="SSAS user for the XMLA endpoint (Basic auth).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for the SSAS user.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class AnalysisServicesConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="XMLA Endpoint URL",
+        description=(
+            "Full URL of the SSAS XMLA endpoint, typically the IIS msmdpump "
+            "pump (e.g., https://server/olap/msmdpump.dll)."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    catalog: str = Field(
+        "",
+        title="Catalog",
+        description="Optional database/catalog to scope discovery to. Leave blank to list all accessible catalogs.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate when calling the XMLA endpoint.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    timeout_sec: int = Field(
+        60,
+        ge=1,
+        le=600,
+        title="Timeout (sec)",
+        description="HTTP timeout for XMLA calls.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Sisense
 class SisenseCredentials(BaseModel):
     username: str = Field(
