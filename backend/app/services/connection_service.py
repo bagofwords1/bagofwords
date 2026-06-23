@@ -282,19 +282,39 @@ class ConnectionService:
         # customize the cadence / toggle so community installs can't configure a
         # job the sweeper will never run for them (the sweeper itself also checks
         # the license — this just rejects the write with a clear 402).
-        if ("auto_reindex_enabled" in updates) or ("reindex_interval_hours" in updates):
+        _REINDEX_FIELDS = (
+            "auto_reindex_enabled",
+            "reindex_interval_hours",
+            "reindex_schedule_mode",
+            "reindex_interval_minutes",
+            "reindex_at_time",
+        )
+        if any(f in updates for f in _REINDEX_FIELDS):
             from app.ee.license import has_feature
             if not has_feature("scheduled_reindex"):
                 raise HTTPException(
                     status_code=402,
                     detail="Scheduled schema reindexing requires an enterprise license.",
                 )
-            # Sanity-bound the interval (1 hour .. 7 days).
+            # Sanity-bound the legacy hours interval (1 hour .. 7 days).
             ivl = updates.get("reindex_interval_hours")
             if ivl is not None and (ivl < 1 or ivl > 24 * 7):
                 raise HTTPException(
                     status_code=400,
                     detail="reindex_interval_hours must be between 1 and 168.",
+                )
+            # Interval minutes: 10 minute floor .. 7 days.
+            mins = updates.get("reindex_interval_minutes")
+            if mins is not None and (mins < 10 or mins > 24 * 7 * 60):
+                raise HTTPException(
+                    status_code=400,
+                    detail="reindex_interval_minutes must be between 10 and 10080.",
+                )
+            mode = updates.get("reindex_schedule_mode")
+            if mode is not None and mode not in ("interval", "time"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="reindex_schedule_mode must be 'interval' or 'time'.",
                 )
 
         # Default allowed_user_auth_modes when switching to user_required (see create_connection)

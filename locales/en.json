@@ -1138,6 +1138,12 @@
       "saved": "Language updated",
       "saveError": "Could not update language"
     },
+    "timezone": {
+      "label": "Organization timezone",
+      "description": "Used to interpret scheduled jobs (e.g. reindex times) and to display timestamps. Data is always stored in UTC.",
+      "systemDefault": "Use system default (UTC)",
+      "saveError": "Could not update timezone"
+    },
     "workspacePlaceholder": "Workspace name",
     "changeIcon": "Change Icon",
     "uploadIconButton": "Upload Icon",
@@ -1381,6 +1387,14 @@
     "autoReindexEnterprise": "Scheduled reindexing is an enterprise feature.",
     "autoReindexEvery": "Reindex every",
     "everyNHours": "Every {n} hours",
+    "autoReindexSchedule": "Schedule",
+    "autoReindexModeInterval": "Interval",
+    "autoReindexModeTime": "At time",
+    "autoReindexAt": "Reindex daily at",
+    "autoReindexTimeHint": "Daily, in the organization timezone.",
+    "autoReindexMinInterval": "Minimum interval is {n} minutes.",
+    "unitMinutes": "minutes",
+    "unitHours": "hours",
     "autoReindexLastError": "Last error",
     "autoReindexSaveFailed": "Failed to save auto-reindex settings"
   },

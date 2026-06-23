@@ -4,7 +4,7 @@ Connection schemas for database connection management.
 from datetime import datetime
 from typing import Any, Dict, Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 from app.schemas.base import UTCDatetime
 
@@ -29,7 +29,35 @@ class ConnectionUpdate(BaseModel):
     allowed_user_auth_modes: Optional[list] = None
     # Scheduled auto-reindex (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: Optional[bool] = None
-    reindex_interval_hours: Optional[int] = None
+    reindex_interval_hours: Optional[int] = None  # legacy; superseded by minutes
+    # Either an interval (minutes) OR a fixed daily time ("HH:MM").
+    reindex_schedule_mode: Optional[str] = None  # "interval" | "time"
+    reindex_interval_minutes: Optional[int] = None
+    reindex_at_time: Optional[str] = None
+
+    @validator("reindex_schedule_mode")
+    def _validate_mode(cls, v):
+        if v is not None and v not in ("interval", "time"):
+            raise ValueError("reindex_schedule_mode must be 'interval' or 'time'")
+        return v
+
+    @validator("reindex_interval_minutes")
+    def _validate_minutes(cls, v):
+        if v is not None and v < 10:
+            raise ValueError("reindex_interval_minutes must be at least 10")
+        return v
+
+    @validator("reindex_at_time")
+    def _validate_time(cls, v):
+        if v in (None, ""):
+            return v
+        try:
+            hh, mm = v.strip().split(":")
+            if 0 <= int(hh) <= 23 and 0 <= int(mm) <= 59:
+                return f"{int(hh):02d}:{int(mm):02d}"
+        except (ValueError, AttributeError):
+            pass
+        raise ValueError("reindex_at_time must be 'HH:MM' (24h)")
 
 
 class ConnectionSchema(BaseModel):
@@ -77,6 +105,9 @@ class ConnectionDetailSchema(BaseModel):
     # Scheduled auto-reindex config (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: bool = True
     reindex_interval_hours: Optional[int] = None  # NULL -> default cadence
+    reindex_schedule_mode: str = "interval"  # "interval" | "time"
+    reindex_interval_minutes: Optional[int] = None  # NULL -> default cadence
+    reindex_at_time: Optional[str] = None  # "HH:MM" when mode == "time"
     next_retry_at: Optional[str] = None
     last_reindex_error: Optional[str] = None
 

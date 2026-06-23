@@ -324,6 +324,9 @@ async def get_connection(
         has_credentials=has_credentials,
         auto_reindex_enabled=bool(connection.auto_reindex_enabled),
         reindex_interval_hours=connection.reindex_interval_hours,
+        reindex_schedule_mode=connection.reindex_schedule_mode or "interval",
+        reindex_interval_minutes=connection.reindex_interval_minutes,
+        reindex_at_time=connection.reindex_at_time,
         next_retry_at=connection.next_retry_at.isoformat() if connection.next_retry_at else None,
         last_reindex_error=connection.last_reindex_error,
     )
