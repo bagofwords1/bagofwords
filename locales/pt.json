@@ -2097,5 +2097,59 @@
     "genericTitle": "Algo deu errado",
     "unknownError": "Erro desconhecido",
     "goHome": "Ir para o início"
+  },
+  "profile": {
+    "menuItem": "Perfil",
+    "nav": {
+      "general": "Geral",
+      "instructions": "Instruções personalizadas",
+      "usage": "Uso",
+      "appearance": "Aparência"
+    },
+    "general": {
+      "title": "Geral",
+      "subtitle": "Seus dados pessoais e plataformas conectadas.",
+      "fullName": "Nome completo",
+      "fullNamePlaceholder": "Seu nome",
+      "email": "E-mail",
+      "saved": "Perfil atualizado",
+      "saveFailed": "Falha ao atualizar o perfil",
+      "removePhoto": "Remover foto",
+      "avatarUpdated": "Foto atualizada",
+      "avatarFailed": "Falha ao atualizar a foto",
+      "avatarTooLarge": "A imagem é muito grande (máx. 5 MB)",
+      "platforms": "Plataformas externas",
+      "platformsSubtitle": "Contas vinculadas ao seu perfil nas integrações.",
+      "connected": "Conectado",
+      "pending": "Pendente",
+      "noPlatforms": "Nenhuma plataforma externa conectada ainda."
+    },
+    "instructions": {
+      "title": "Instruções personalizadas",
+      "subtitle": "Conte à IA sobre você: sua função e o que é importante para você. Isso é compartilhado com a IA quando ela trabalha em seu nome nesta organização.",
+      "placeholder": "ex.: Sou o CEO. Foco em receita e crescimento — respostas concisas e de alto nível, e mostre os valores em USD.",
+      "saved": "Instruções salvas",
+      "saveFailed": "Falha ao salvar as instruções"
+    },
+    "usage": {
+      "title": "Uso",
+      "subtitle": "Sua atividade no período de cobrança atual.",
+      "tokens": "Tokens",
+      "queries": "Consultas",
+      "data": "Dados analisados",
+      "windowNote": "O uso é reiniciado no início de cada mês.",
+      "disabledTitle": "O monitoramento de uso não está ativado",
+      "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano."
+    },
+    "appearance": {
+      "title": "Aparência",
+      "subtitle": "Personalize a aparência do app para você.",
+      "theme": "Tema",
+      "light": "Claro",
+      "dark": "Escuro",
+      "system": "Sistema",
+      "language": "Idioma",
+      "languageDescription": "Substitui o idioma padrão da organização apenas para sua conta."
+    }
   }
 }

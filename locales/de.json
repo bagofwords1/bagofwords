@@ -2097,5 +2097,59 @@
     "genericTitle": "Etwas ist schiefgelaufen",
     "unknownError": "Unbekannter Fehler",
     "goHome": "Zur Startseite"
+  },
+  "profile": {
+    "menuItem": "Profil",
+    "nav": {
+      "general": "Allgemein",
+      "instructions": "Benutzerdefinierte Anweisungen",
+      "usage": "Nutzung",
+      "appearance": "Darstellung"
+    },
+    "general": {
+      "title": "Allgemein",
+      "subtitle": "Ihre persönlichen Daten und verbundenen Plattformen.",
+      "fullName": "Vollständiger Name",
+      "fullNamePlaceholder": "Ihr Name",
+      "email": "E-Mail",
+      "saved": "Profil aktualisiert",
+      "saveFailed": "Profil konnte nicht aktualisiert werden",
+      "removePhoto": "Foto entfernen",
+      "avatarUpdated": "Foto aktualisiert",
+      "avatarFailed": "Foto konnte nicht aktualisiert werden",
+      "avatarTooLarge": "Bild ist zu groß (max. 5 MB)",
+      "platforms": "Externe Plattformen",
+      "platformsSubtitle": "Mit Ihrem Profil verknüpfte Konten über Integrationen.",
+      "connected": "Verbunden",
+      "pending": "Ausstehend",
+      "noPlatforms": "Noch keine externen Plattformen verbunden."
+    },
+    "instructions": {
+      "title": "Benutzerdefinierte Anweisungen",
+      "subtitle": "Erzählen Sie der KI von sich – Ihre Rolle und was Ihnen wichtig ist. Diese Angaben werden mit der KI geteilt, wenn sie in dieser Organisation in Ihrem Auftrag arbeitet.",
+      "placeholder": "z. B. Ich bin der CEO. Ich konzentriere mich auf Umsatz und Wachstum – halten Sie Antworten knapp und auf hohem Niveau und zeigen Sie Beträge in USD an.",
+      "saved": "Anweisungen gespeichert",
+      "saveFailed": "Anweisungen konnten nicht gespeichert werden"
+    },
+    "usage": {
+      "title": "Nutzung",
+      "subtitle": "Ihre Aktivität im aktuellen Abrechnungszeitraum.",
+      "tokens": "Tokens",
+      "queries": "Abfragen",
+      "data": "Gescannte Daten",
+      "windowNote": "Die Nutzung wird zu Beginn jedes Monats zurückgesetzt.",
+      "disabledTitle": "Nutzungserfassung ist nicht aktiviert",
+      "disabledNote": "Die Nutzung pro Benutzer (Tokens, Abfragen und gescannte Daten) wird erfasst, wenn die Funktion „Nutzungslimits“ in Ihrem Tarif aktiviert ist."
+    },
+    "appearance": {
+      "title": "Darstellung",
+      "subtitle": "Passen Sie an, wie die App für Sie aussieht.",
+      "theme": "Design",
+      "light": "Hell",
+      "dark": "Dunkel",
+      "system": "System",
+      "language": "Sprache",
+      "languageDescription": "Überschreibt die Standardsprache der Organisation nur für Ihr Konto."
+    }
   }
 }
