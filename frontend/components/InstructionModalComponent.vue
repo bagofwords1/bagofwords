@@ -5,8 +5,8 @@
             <div class="absolute inset-0 bg-black/50" @click="closeModal"></div>
             <!-- Modal container -->
             <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
-                <div 
-                    class="relative bg-white rounded-xl shadow-2xl w-[94vw] overflow-hidden z-10 overscroll-contain flex flex-col"
+                <div
+                    class="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-[94vw] overflow-hidden z-10 overscroll-contain flex flex-col"
                     :style="{
                         maxWidth: isAnalyzing ? '1400px' : '960px',
                         maxHeight: 'min(85vh, 800px)',
@@ -15,8 +15,8 @@
                 >
                     <!-- Header -->
                     <div class="flex items-center justify-between px-5 py-2.5 border-b shrink-0">
-                        <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">{{ modalTitle }}</span>
-                        <button @click="closeModal" class="text-gray-300 hover:text-gray-500 transition-colors">
+                        <span class="text-xs font-medium text-gray-400 dark:text-gray-600 uppercase tracking-wide">{{ modalTitle }}</span>
+                        <button @click="closeModal" class="text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors">
                             <Icon name="heroicons:x-mark" class="w-4 h-4" />
                         </button>
                     </div>

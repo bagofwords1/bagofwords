@@ -1,69 +1,69 @@
 <template>
   <div class="mb-2">
-    <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
+    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
       <!-- Status icon -->
       <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-      
+
       <!-- Tool title with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer">{{ toolTitle }}
       </span>
-      <span v-else class="text-gray-700">{{ toolTitle }}</span>
-      
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ toolTitle }}</span>
+
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
     </div>
-    
+
     <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-2 ms-4 space-y-3">
         <!-- Input arguments - Full Display -->
         <div v-if="hasInput">
-          <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">{{ $t('tools.common.input') }}</div>
+          <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('tools.common.input') }}</div>
           <div class="border rounded-md overflow-hidden">
             <!-- Structured Input Fields -->
-            <div class="divide-y divide-gray-100">
+            <div class="divide-y divide-gray-100 dark:divide-gray-800">
               <div v-for="(value, key) in inputArgs" :key="key" class="px-3 py-2">
                 <div class="flex items-start gap-2">
-                  <span class="text-[11px] font-medium text-gray-500 min-w-[80px] pt-0.5">{{ key }}</span>
+                  <span class="text-[11px] font-medium text-gray-500 dark:text-gray-400 min-w-[80px] pt-0.5">{{ key }}</span>
                   <div class="flex-1 min-w-0">
                     <!-- String values -->
                     <template v-if="typeof value === 'string'">
                       <div v-if="value.length > 150" class="space-y-1">
-                        <div class="text-xs text-gray-800 whitespace-pre-wrap break-words">
+                        <div class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
                           {{ showFullInput[key] ? value : value.slice(0, 150) + '...' }}
                         </div>
-                        <button 
+                        <button
                           class="text-[10px] text-blue-600 hover:text-blue-800"
                           @click.stop="toggleFullInput(key)"
                         >
                           {{ showFullInput[key] ? $t('tools.common.showLess') : $t('tools.common.showAll', { count: value.length }) }}
                         </button>
                       </div>
-                      <div v-else class="text-xs text-gray-800 whitespace-pre-wrap break-words">{{ value }}</div>
+                      <div v-else class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">{{ value }}</div>
                     </template>
                     <!-- Number/Boolean values -->
                     <template v-else-if="typeof value === 'number' || typeof value === 'boolean'">
-                      <span class="text-xs text-gray-800 font-mono">{{ value }}</span>
+                      <span class="text-xs text-gray-800 dark:text-gray-200 font-mono">{{ value }}</span>
                     </template>
                     <!-- Array values -->
                     <template v-else-if="Array.isArray(value)">
                       <div class="space-y-1">
                         <div class="flex flex-wrap gap-1">
-                          <span 
-                            v-for="(item, idx) in (showFullInput[key] ? value : value.slice(0, 5))" 
+                          <span
+                            v-for="(item, idx) in (showFullInput[key] ? value : value.slice(0, 5))"
                             :key="idx"
-                            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-700"
+                            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                           >
                             {{ typeof item === 'object' ? JSON.stringify(item) : item }}
                           </span>
-                          <span v-if="!showFullInput[key] && value.length > 5" class="text-[10px] text-gray-400">
+                          <span v-if="!showFullInput[key] && value.length > 5" class="text-[10px] text-gray-400 dark:text-gray-500">
                             +{{ value.length - 5 }} more
                           </span>
                         </div>
-                        <button 
+                        <button
                           v-if="value.length > 5"
                           class="text-[10px] text-blue-600 hover:text-blue-800"
                           @click.stop="toggleFullInput(key)"
@@ -75,8 +75,8 @@
                     <!-- Object values -->
                     <template v-else-if="typeof value === 'object' && value !== null">
                       <div class="space-y-1">
-                        <pre class="text-[11px] text-gray-800 whitespace-pre-wrap break-words bg-gray-50 rounded px-2 py-1 overflow-x-auto max-h-32" :class="{ 'max-h-none': showFullInput[key] }">{{ formatObject(value, showFullInput[key]) }}</pre>
-                        <button 
+                        <pre class="text-[11px] text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 overflow-x-auto max-h-32" :class="{ 'max-h-none': showFullInput[key] }">{{ formatObject(value, showFullInput[key]) }}</pre>
+                        <button
                           v-if="JSON.stringify(value).length > 200"
                           class="text-[10px] text-blue-600 hover:text-blue-800"
                           @click.stop="toggleFullInput(key)"
@@ -87,7 +87,7 @@
                     </template>
                     <!-- Null/undefined -->
                     <template v-else>
-                      <span class="text-xs text-gray-400 italic">null</span>
+                      <span class="text-xs text-gray-400 dark:text-gray-500 italic">null</span>
                     </template>
                   </div>
                 </div>
@@ -106,27 +106,27 @@
 
         <!-- Error message fallback (when result_json is empty but error_message exists) -->
         <div v-if="status === 'error' && toolExecution.error_message && !hasOutput"
-             class="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+             class="text-xs text-red-700 bg-red-50 dark:bg-red-950 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
           {{ toolExecution.error_message }}
         </div>
 
         <!-- Output - Full Display -->
         <div v-if="hasOutput">
-          <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">{{ $t('tools.common.output') }}</div>
+          <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('tools.common.output') }}</div>
           <div class="border rounded-md overflow-hidden">
             <!-- Result Summary (if available) -->
-            <div v-if="toolExecution.result_summary" class="px-3 py-2 bg-green-50 border-b border-green-100">
+            <div v-if="toolExecution.result_summary" class="px-3 py-2 bg-green-50 dark:bg-green-950 border-b border-green-100">
               <div class="text-xs text-green-800">{{ toolExecution.result_summary }}</div>
             </div>
-            
+
             <!-- Full Result Data -->
             <div v-if="outputData" class="px-3 py-2">
               <!-- String output -->
               <template v-if="typeof outputData === 'string'">
-                <div class="text-xs text-gray-800 whitespace-pre-wrap break-words">
+                <div class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
                   {{ showFullOutput ? outputData : truncateString(outputData, 300) }}
                 </div>
-                <button 
+                <button
                   v-if="outputData.length > 300"
                   class="text-[10px] text-blue-600 hover:text-blue-800 mt-1"
                   @click.stop="showFullOutput = !showFullOutput"
@@ -138,17 +138,17 @@
               <template v-else-if="typeof outputData === 'object'">
                 <div class="space-y-2">
                   <!-- Show key fields prominently -->
-                  <div v-if="outputData.summary" class="text-xs text-gray-800">
-                    <span class="text-gray-500">{{ $t('tools.common.summary') }}</span> {{ outputData.summary }}
+                  <div v-if="outputData.summary" class="text-xs text-gray-800 dark:text-gray-200">
+                    <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.common.summary') }}</span> {{ outputData.summary }}
                   </div>
-                  <div v-if="outputData.error" class="text-xs text-red-700 bg-red-50 rounded px-2 py-1">
+                  <div v-if="outputData.error" class="text-xs text-red-700 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
                     <span class="font-medium">{{ $t('tools.common.errorLabel') }}</span>
                     {{ typeof outputData.error === 'string' ? outputData.error : outputData.error.message || JSON.stringify(outputData.error) }}
                   </div>
-                  
+
                   <!-- Full JSON (collapsible) -->
                   <div>
-                    <button 
+                    <button
                       class="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
                       @click.stop="showFullOutput = !showFullOutput"
                     >
@@ -156,14 +156,14 @@
                       {{ showFullOutput ? $t('tools.common.hideFullOutput') : $t('tools.common.showFullOutput') }}
                     </button>
                     <Transition name="fade">
-                      <pre v-if="showFullOutput" class="mt-1 text-[11px] text-gray-800 whitespace-pre-wrap break-words bg-gray-50 rounded px-2 py-1.5 overflow-x-auto max-h-64 overflow-y-auto">{{ JSON.stringify(outputData, null, 2) }}</pre>
+                      <pre v-if="showFullOutput" class="mt-1 text-[11px] text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-900 rounded px-2 py-1.5 overflow-x-auto max-h-64 overflow-y-auto">{{ JSON.stringify(outputData, null, 2) }}</pre>
                     </Transition>
                   </div>
                 </div>
               </template>
               <!-- Other types -->
               <template v-else>
-                <div class="text-xs text-gray-800">{{ outputData }}</div>
+                <div class="text-xs text-gray-800 dark:text-gray-200">{{ outputData }}</div>
               </template>
             </div>
           </div>

@@ -2,21 +2,21 @@
   <div class="w-full">
     <div v-if="showHeader" class="mb-2">
       <h1 class="text-lg font-semibold">{{ headerTitle }}</h1>
-      <p class="text-gray-500 text-sm">{{ headerSubtitle }}</p>
+      <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
 
     <div v-if="!loading && totalResources > 0" class="space-y-2">
       <!-- Row 1: Search + Filter/Sort -->
       <div class="relative flex items-center gap-2">
         <div class="relative flex-1">
-          <UIcon name="heroicons:magnifying-glass" class="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input v-model="resourceSearch" type="text" :placeholder="viewMode === 'files' ? 'Search files...' : 'Search resources...'" class="border border-gray-300 rounded-lg ps-9 pe-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+          <UIcon name="heroicons:magnifying-glass" class="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-600" />
+          <input v-model="resourceSearch" type="text" :placeholder="viewMode === 'files' ? 'Search files...' : 'Search resources...'" class="border border-gray-300 dark:border-gray-600 rounded-lg ps-9 pe-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
         </div>
         <button
           ref="filterButtonRef"
           type="button"
           @click="toggleFilterMenu"
-          class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+          class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           aria-label="Filter resources"
         >
           <UIcon name="heroicons-funnel" class="w-5 h-5" />
@@ -25,7 +25,7 @@
           ref="sortButtonRef"
           type="button"
           @click="toggleSortMenu"
-          class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+          class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           aria-label="Sort resources"
         >
           <UIcon name="heroicons-arrows-up-down" class="w-5 h-5" />
@@ -34,12 +34,12 @@
         <div
           v-if="filterMenuOpen"
           ref="filterMenuRef"
-          class="absolute end-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-lg shadow-md w-40"
+          class="absolute end-0 top-full mt-1 z-10 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md w-40"
         >
           <div class="py-1">
             <button
               type="button"
-              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSelectedFilter('selected')"
             >
               <span>Selected</span>
@@ -47,7 +47,7 @@
             </button>
             <button
               type="button"
-              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSelectedFilter('unselected')"
             >
               <span>Unselected</span>
@@ -59,12 +59,12 @@
         <div
           v-if="sortMenuOpen"
           ref="sortMenuRef"
-          class="absolute end-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-lg shadow-md w-40"
+          class="absolute end-0 top-full mt-1 z-10 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md w-40"
         >
           <div class="py-1">
             <button
               type="button"
-              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSort('name')"
             >
               <span>Name</span>
@@ -72,7 +72,7 @@
             </button>
             <button
               type="button"
-              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center justify-between"
               @click="setSort('type')"
             >
               <span>Type</span>
@@ -86,34 +86,34 @@
       <div class="flex items-center justify-between mb-4 mt-4">
         <!-- View mode toggle -->
         <UTooltip text="Toggle between individual chunks and grouped files">
-          <div class="flex items-center gap-1.5 h-8 px-2 border border-gray-200 rounded-lg bg-gray-50">
-            <span :class="['text-xs font-medium', viewMode === 'chunks' ? 'text-gray-700' : 'text-gray-400']">Chunks</span>
+          <div class="flex items-center gap-1.5 h-8 px-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900">
+            <span :class="['text-xs font-medium', viewMode === 'chunks' ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-600']">Chunks</span>
             <UToggle
               :model-value="viewMode === 'files'"
               @update:model-value="viewMode = $event ? 'files' : 'chunks'"
               color="blue"
               size="xs"
             />
-            <span :class="['text-xs font-medium', viewMode === 'files' ? 'text-gray-700' : 'text-gray-400']">Files</span>
+            <span :class="['text-xs font-medium', viewMode === 'files' ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-600']">Files</span>
           </div>
         </UTooltip>
         <!-- Selection count + Bulk actions -->
         <div class="flex items-center gap-3">
-          <span class="text-xs text-gray-500">
-            <span class="font-medium text-gray-700">{{ selectedCount }}</span> of {{ totalResources }} selected
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            <span class="font-medium text-gray-700 dark:text-gray-300">{{ selectedCount }}</span> of {{ totalResources }} selected
           </span>
           <div v-if="canUpdate" class="flex items-center gap-1.5">
             <button
               @click="selectAll"
               :disabled="loading || saving"
-              class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             >
               Select all
             </button>
             <button
               @click="deselectAll"
               :disabled="loading || saving"
-              class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             >
               Deselect all
             </button>
@@ -122,7 +122,7 @@
       </div>
     </div>
 
-    <div v-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
+    <div v-if="loading" class="text-sm text-gray-500 dark:text-gray-400 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 me-2" />
       Loading resources...
     </div>
@@ -130,10 +130,10 @@
     <div v-else class="flex-1 flex flex-col h-full mt-4">
       <!-- Files view -->
       <template v-if="viewMode === 'files'">
-        <div v-if="filteredFiles.length === 0" class="text-sm text-gray-500">No files found.</div>
+        <div v-if="filteredFiles.length === 0" class="text-sm text-gray-500 dark:text-gray-400">No files found.</div>
         <div v-else class="flex-1 flex flex-col min-h-full">
-          <div class="flex-1 overflow-y-auto min-h-0 border border-gray-100 rounded" :style="{ maxHeight }">
-            <ul class="divide-y divide-gray-100">
+          <div class="flex-1 overflow-y-auto min-h-0 border border-gray-100 dark:border-gray-800 rounded" :style="{ maxHeight }">
+            <ul class="divide-y divide-gray-100 dark:divide-gray-800">
               <li v-for="file in filteredFiles" :key="file.path" class="py-2 px-3">
                 <div class="flex items-center">
                   <UCheckbox
@@ -145,20 +145,20 @@
                     class="me-2"
                   />
                   <div class="flex-1 cursor-pointer flex items-center" @click="toggleFileExpanded(file)">
-                    <UIcon :name="expandedFiles[file.path] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-400 rtl-flip" />
-                    <UIcon name="heroicons:document-text" class="w-4 h-4 text-gray-500 me-2" />
-                    <span class="text-sm font-medium text-gray-700">{{ file.displayName }}</span>
-                    <span class="ms-2 text-xs text-gray-400">({{ file.resources.length }} {{ file.resources.length === 1 ? 'chunk' : 'chunks' }})</span>
+                    <UIcon :name="expandedFiles[file.path] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-400 dark:text-gray-600 rtl-flip" />
+                    <UIcon name="heroicons:document-text" class="w-4 h-4 text-gray-500 dark:text-gray-400 me-2" />
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ file.displayName }}</span>
+                    <span class="ms-2 text-xs text-gray-400 dark:text-gray-600">({{ file.resources.length }} {{ file.resources.length === 1 ? 'chunk' : 'chunks' }})</span>
                   </div>
                 </div>
                 <!-- Expanded file shows its chunks -->
                 <div v-if="expandedFiles[file.path]" class="ms-6 mt-2 space-y-1">
-                  <div v-for="res in file.resources" :key="res.id" class="flex items-center py-1 px-2 rounded hover:bg-gray-50">
+                  <div v-for="res in file.resources" :key="res.id" class="flex items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
                     <UCheckbox v-if="canUpdate" v-model="res.is_active" color="blue" class="me-2" />
-                    <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-3 h-3 text-gray-400 me-1" />
-                    <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-3 h-3 text-gray-400 me-1" />
-                    <UIcon v-else name="heroicons:puzzle-piece" class="w-3 h-3 text-gray-400 me-1" />
-                    <span class="text-xs text-gray-600">{{ res.name }}</span>
+                    <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-3 h-3 text-gray-400 dark:text-gray-600 me-1" />
+                    <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-3 h-3 text-gray-400 dark:text-gray-600 me-1" />
+                    <UIcon v-else name="heroicons:puzzle-piece" class="w-3 h-3 text-gray-400 dark:text-gray-600 me-1" />
+                    <span class="text-xs text-gray-600 dark:text-gray-400">{{ res.name }}</span>
                   </div>
                 </div>
               </li>
@@ -169,17 +169,17 @@
 
       <!-- Chunks view (original) -->
       <template v-else>
-        <div v-if="filteredResources.length === 0" class="text-sm text-gray-500">No resources found.</div>
+        <div v-if="filteredResources.length === 0" class="text-sm text-gray-500 dark:text-gray-400">No resources found.</div>
         <div v-else class="flex-1 flex flex-col min-h-full">
-          <div class="flex-1 overflow-y-auto min-h-0 border border-gray-100 rounded" :style="{ maxHeight }">
-            <ul class="divide-y divide-gray-100">
+          <div class="flex-1 overflow-y-auto min-h-0 border border-gray-100 dark:border-gray-800 rounded" :style="{ maxHeight }">
+            <ul class="divide-y divide-gray-100 dark:divide-gray-800">
               <li v-for="res in filteredResources" :key="res.id" class="py-2 px-3">
                 <div class="flex items-center">
                   <UCheckbox v-if="canUpdate" v-model="res.is_active" color="blue" class="me-2" />
-                  <div class="font-semibold text-gray-600 cursor-pointer flex items-center" @click="toggleResource(res)">
+                  <div class="font-semibold text-gray-600 dark:text-gray-400 cursor-pointer flex items-center" @click="toggleResource(res)">
                     <UIcon :name="expandedResources[res.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 rtl-flip" />
-                    <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-4 h-4 text-gray-500 me-1" />
-                    <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-4 h-4 text-gray-500 me-1" />
+                    <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-4 h-4 text-gray-500 dark:text-gray-400 me-1" />
+                    <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-4 h-4 text-gray-500 dark:text-gray-400 me-1" />
                     <span class="text-sm">{{ res.name }}</span>
                   </div>
                 </div>
@@ -221,7 +221,7 @@ type FileGroup = {
   isActive: boolean | null // true = all active, false = all inactive, null = mixed
 }
 
-const props = withDefaults(defineProps<{ 
+const props = withDefaults(defineProps<{
   dsId: string
   canUpdate?: boolean
   showRefresh?: boolean
@@ -297,7 +297,7 @@ const filteredResources = computed(() => {
 // Group resources by file path
 const fileGroupedResources = computed((): FileGroup[] => {
   const byPath = new Map<string, MetadataResource[]>()
-  
+
   for (const res of visibleResources.value) {
     const path = res.path || '(no path)'
     if (!byPath.has(path)) {
@@ -305,15 +305,15 @@ const fileGroupedResources = computed((): FileGroup[] => {
     }
     byPath.get(path)!.push(res)
   }
-  
+
   const groups: FileGroup[] = []
   for (const [path, pathResources] of byPath.entries()) {
     const activeCount = pathResources.filter(r => !!r.is_active).length
     const isActive = activeCount === 0 ? false : activeCount === pathResources.length ? true : null
-    
+
     // Extract display name from path (last part)
     const displayName = path.split('/').pop() || path
-    
+
     groups.push({
       path,
       displayName,
@@ -321,7 +321,7 @@ const fileGroupedResources = computed((): FileGroup[] => {
       isActive,
     })
   }
-  
+
   return groups
 })
 
@@ -330,22 +330,22 @@ const totalFiles = computed(() => fileGroupedResources.value.length)
 const filteredFiles = computed((): FileGroup[] => {
   const q = resourceSearch.value.trim().toLowerCase()
   let list = fileGroupedResources.value
-  
+
   // Selection filter
   if (filters.value.selectedState === 'selected') {
     list = list.filter(f => f.isActive === true)
   } else if (filters.value.selectedState === 'unselected') {
     list = list.filter(f => f.isActive === false)
   }
-  
+
   // Search by path or display name
   if (q) {
-    list = list.filter(f => 
-      f.path.toLowerCase().includes(q) || 
+    list = list.filter(f =>
+      f.path.toLowerCase().includes(q) ||
       f.displayName.toLowerCase().includes(q)
     )
   }
-  
+
   // Sorting
   if (sort.key) {
     const dir = sort.direction === 'asc' ? 1 : -1
@@ -359,7 +359,7 @@ const filteredFiles = computed((): FileGroup[] => {
       return aType.localeCompare(bType) * dir
     })
   }
-  
+
   return list
 })
 
@@ -538,5 +538,4 @@ onBeforeUnmount(() => {
 
 <style scoped>
 </style>
-
 

@@ -8,13 +8,13 @@
           <Icon name="heroicons-arrow-left" class="w-4 h-4" />
           {{ $t('evals.run.back') }}
         </NuxtLink>
-        <div class="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 mb-6">
           <div class="flex flex-wrap items-start gap-3">
             <div class="min-w-0 flex-1">
-              <div class="text-lg font-semibold text-gray-900 truncate">
+              <div class="text-lg font-semibold text-gray-900 dark:text-white truncate">
                 {{ run?.title || $t('evals.runs.fallbackTitle') }}
               </div>
-              <div class="mt-1 text-xs text-gray-500 truncate">
+              <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
                 <span>{{ $t('evals.run.suite', { name: suiteName || '—' }) }}</span>
                 <span class="mx-1">|</span>
                 <span>{{ $t('evals.run.triggered', { when: timeAgo(run?.started_at), adverb: prettyTriggerAdverb(run?.trigger_reason) }) }}</span>
@@ -37,23 +37,23 @@
               <UButton v-if="run?.status === 'in_progress'" color="red" size="xs" variant="soft" icon="i-heroicons-stop" @click="stopRun">{{ $t('evals.run.stop') }}</UButton>
             </div>
           </div>
-          <div class="mt-3 text-xs text-gray-600 flex flex-wrap items-center gap-2">
+          <div class="mt-3 text-xs text-gray-600 dark:text-gray-400 flex flex-wrap items-center gap-2">
             <span class="inline-flex items-center px-2 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-200">{{ $t('evals.run.cases', { n: results.length }) }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 text-green-700 border-green-200">{{ $t('evals.run.pass', { n: passCount }) }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200">{{ $t('evals.run.fail', { n: failCount }) }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 text-gray-700 border-gray-200">{{ $t('evals.run.error', { n: errorCount }) }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 dark:bg-green-950 text-green-700 border-green-200">{{ $t('evals.run.pass', { n: passCount }) }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 border-red-200">{{ $t('evals.run.fail', { n: failCount }) }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700">{{ $t('evals.run.error', { n: errorCount }) }}</span>
           </div>
         </div>
 
         <!-- Each result (case) - collapsed list with expandable single-container split -->
         <div class="space-y-4">
-          <div v-for="row in caseRows" :key="row.result.id" class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+          <div v-for="row in caseRows" :key="row.result.id" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
             <!-- Collapsed header -->
-            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-start hover:bg-gray-50" @click="toggleRow(row.result.id)">
+            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-start hover:bg-gray-50 dark:hover:bg-gray-800" @click="toggleRow(row.result.id)">
               <div class="flex items-center gap-1 min-w-0">
                 <!-- Pass/Fail icon -->
                 <template v-if="row.result.status === 'in_progress'">
-                  <Spinner class="w-4 h-4 text-gray-500" />
+                  <Spinner class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 </template>
                 <template v-else-if="row.result.status === 'pass'">
                   <Icon name="heroicons-check" class="w-4 h-4 text-green-600" />
@@ -62,34 +62,34 @@
                   <Icon name="heroicons-x-mark" class="w-4 h-4 text-red-600" />
                 </template>
                 <!-- X 4/6 Title -->
-                <span class="text-xs font-regular text-gray-500 truncate">
+                <span class="text-xs font-regular text-gray-500 dark:text-gray-400 truncate">
                   {{ passedAssertions(row) }}/{{ assertionCount(row) }}
                 </span>
-                <span class="text-sm font-medium text-gray-900 truncate">
+                <span class="text-sm font-medium text-gray-900 dark:text-white truncate">
                   {{ row.case.name }}
                 </span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-500">{{ caseDuration(row) }}</span>
-                <svg :class="['w-4 h-4 text-gray-500 transition-transform', isRowExpanded(row.result.id) ? 'rotate-180' : '']" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ caseDuration(row) }}</span>
+                <svg :class="['w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform', isRowExpanded(row.result.id) ? 'rotate-180' : '']" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd" />
                 </svg>
               </div>
             </button>
             <!-- Expanded content -->
-            <div v-if="isRowExpanded(row.result.id)" class="border-t border-gray-200">
-              <div class="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-gray-200">
+            <div v-if="isRowExpanded(row.result.id)" class="border-t border-gray-200 dark:border-gray-700">
+              <div class="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-gray-200 dark:md:divide-gray-700">
                 <!-- Left: Prompt and metadata -->
-                <div class="p-4 space-y-3 text-xs text-gray-800">
+                <div class="p-4 space-y-3 text-xs text-gray-800 dark:text-gray-200">
                   <div class="flex items-center justify-between">
-                    <div class="text-[11px] text-gray-500">{{ $t('evals.run.prompt') }}</div>
+                    <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.prompt') }}</div>
                   </div>
-                  <pre class="whitespace-pre-wrap break-words bg-gray-50 rounded p-3 text-xs">{{ row.case.prompt_json?.content || '—' }}</pre>
+                  <pre class="whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs">{{ row.case.prompt_json?.content || '—' }}</pre>
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <!-- Logs (now below Prompt) -->
                     <div class="sm:col-span-2">
                       <div class="flex items-center justify-between">
-                        <div class="text-[11px] text-gray-500">
+                        <div class="text-[11px] text-gray-500 dark:text-gray-400">
                           {{ $t('evals.run.logs') }}
                           <NuxtLink
                             v-if="row.result.report_id"
@@ -106,30 +106,30 @@
                         </span>
                       </div>
                       <div
-                        class="bg-gray-50 rounded p-3 text-xs max-h-80 overflow-y-auto"
+                        class="bg-gray-50 dark:bg-gray-900 rounded p-3 text-xs max-h-80 overflow-y-auto"
                         :ref="(el) => setLogContainerRef(row.result.id, el)"
                         :id="`logs-${row.result.id}`"
                       >
                         <div class="space-y-1">
-                          <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500">—</div>
-                          <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{{ e.text }}</div>
+                          <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500 dark:text-gray-400">—</div>
+                          <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words leading-relaxed">{{ e.text }}</div>
                         </div>
                       </div>
                     </div>
                     <!-- Model -->
                     <div class="min-w-0">
-                      <div class="text-[11px] text-gray-500 mb-1">{{ $t('evals.run.model') }}</div>
+                      <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('evals.run.model') }}</div>
                       <div class="flex items-center gap-2">
                         <LLMProviderIcon :provider="modelProviderType(row.case.prompt_json?.model_id, row.case)" :icon="true" class="w-4 h-4" />
                         <div class="min-w-0">
-                          <div class="text-xs text-gray-900 truncate">{{ modelDisplayName(row.case.prompt_json?.model_id, row.case) }}</div>
-                          <div class="text-[10px] text-gray-500 truncate" v-if="modelProviderName(row.case.prompt_json?.model_id, row.case)">{{ modelProviderName(row.case.prompt_json?.model_id, row.case) }}</div>
+                          <div class="text-xs text-gray-900 dark:text-white truncate">{{ modelDisplayName(row.case.prompt_json?.model_id, row.case) }}</div>
+                          <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate" v-if="modelProviderName(row.case.prompt_json?.model_id, row.case)">{{ modelProviderName(row.case.prompt_json?.model_id, row.case) }}</div>
                         </div>
                       </div>
                     </div>
                     <!-- Data sources -->
                     <div class="min-w-0">
-                      <div class="text-[11px] text-gray-500 mb-1">{{ $t('evals.run.dataSources') }}</div>
+                      <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('evals.run.dataSources') }}</div>
                       <div class="flex flex-wrap gap-2">
                         <template v-for="dsId in (row.case.data_source_ids_json || [])" :key="dsId">
                           <div class="inline-flex items-center px-2 py-1 rounded border text-[11px]" v-if="dataSourceById[dsId]" :title="dataSourceById[dsId].name">
@@ -137,15 +137,15 @@
                             <span class="ms-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
                           </div>
                         </template>
-                        <span v-if="!(row.case.data_source_ids_json || []).length" class="text-xs text-gray-500">—</span>
+                        <span v-if="!(row.case.data_source_ids_json || []).length" class="text-xs text-gray-500 dark:text-gray-400">—</span>
                       </div>
                     </div>
                     <!-- Files -->
                     <div class="sm:col-span-2 min-w-0" v-if="(row.case.prompt_json?.files || []).length">
-                      <div class="text-[11px] text-gray-500 mb-1">{{ $t('evals.run.files') }}</div>
+                      <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('evals.run.files') }}</div>
                       <div class="flex flex-wrap gap-2">
                         <div v-for="fid in (row.case.prompt_json?.files || [])" :key="fid" class="inline-flex items-center px-2 py-1 rounded border text-[11px]">
-                          <Icon name="heroicons-document" class="w-3.5 h-3.5 text-gray-500" />
+                          <Icon name="heroicons-document" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                           <span class="ms-1 truncate max-w-[200px]">{{ fileNameById[fid] || fid }}</span>
                         </div>
                       </div>
@@ -154,35 +154,35 @@
                 </div>
                 <!-- Right: Assertions -->
                 <div class="p-4">
-                  <div class="text-xs text-gray-700 mb-2">{{ $t('evals.run.expectations') }}</div>
+                  <div class="text-xs text-gray-700 dark:text-gray-300 mb-2">{{ $t('evals.run.expectations') }}</div>
                   <div class="space-y-2">
-                    <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 rounded-md p-3">
+                    <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 dark:border-gray-700 rounded-md p-3">
                       <!-- Type -->
                       <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(it.rule?.target?.category || '')">
                         {{ categoryName(it.rule?.target?.category || '') }}
                       </div>
                       <!-- Assertion / Actual / Reasoning -->
-                      <div class="text-xs text-gray-900">
-                        <span class="text-[11px] text-gray-500">{{ $t('evals.run.assertion') }}</span>
+                      <div class="text-xs text-gray-900 dark:text-white">
+                        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.assertion') }}</span>
                         {{ ruleSummaryText(it.rule) }}
                       </div>
-                      <div class="text-xs text-gray-900 mt-0.5">
-                        <span class="text-[11px] text-gray-500">{{ $t('evals.run.actual') }}</span>
+                      <div class="text-xs text-gray-900 dark:text-white mt-0.5">
+                        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.actual') }}</span>
                         {{ ruleActualText(row, it.originalIdx) || '—' }}
                       </div>
-                      <div v-if="isJudgeRule(it.rule) && ruleReasoningText(row, it.originalIdx)" class="text-xs text-gray-900 mt-0.5">
-                        <span class="text-[11px] text-gray-500">{{ $t('evals.run.reasoning') }}</span>
+                      <div v-if="isJudgeRule(it.rule) && ruleReasoningText(row, it.originalIdx)" class="text-xs text-gray-900 dark:text-white mt-0.5">
+                        <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('evals.run.reasoning') }}</span>
                         {{ ruleReasoningText(row, it.originalIdx) }}
                       </div>
                       <!-- Status line -->
                       <div class="flex items-center gap-2 mt-1">
                         <template v-if="ruleStatus(row, it.originalIdx) === 'pending'">
-                          <Spinner class="w-3 h-3 text-gray-600" />
-                          <span class="text-[11px] text-gray-600">{{ $t('evals.run.rulePending') }}</span>
+                          <Spinner class="w-3 h-3 text-gray-600 dark:text-gray-400" />
+                          <span class="text-[11px] text-gray-600 dark:text-gray-400">{{ $t('evals.run.rulePending') }}</span>
                         </template>
                         <template v-else-if="ruleStatus(row, it.originalIdx) === 'skipped'">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-gray-500" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a7 7 0 100 14 7 7 0 000-14zM8 9h4v2H8V9z"/></svg>
-                          <span class="text-[11px] text-gray-600">{{ $t('evals.run.ruleSkipped') }}</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-gray-500 dark:text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a7 7 0 100 14 7 7 0 000-14zM8 9h4v2H8V9z"/></svg>
+                          <span class="text-[11px] text-gray-600 dark:text-gray-400">{{ $t('evals.run.ruleSkipped') }}</span>
                         </template>
                         <template v-else-if="ruleStatus(row, it.originalIdx) === 'pass'">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L7 12.172 4.707 9.879a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l8-8z" clip-rule="evenodd"/></svg>
@@ -195,7 +195,7 @@
                         </template>
                       </div>
                     </div>
-                    <div v-if="assertionCount(row) === 0" class="text-xs text-gray-500">{{ $t('evals.run.noRules') }}</div>
+                    <div v-if="assertionCount(row) === 0" class="text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.run.noRules') }}</div>
                   </div>
                 </div>
               </div>

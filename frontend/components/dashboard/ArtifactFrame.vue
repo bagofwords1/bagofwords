@@ -1,11 +1,11 @@
 <template>
-  <div class="h-full w-full flex flex-col bg-white">
+  <div class="h-full w-full flex flex-col bg-white dark:bg-gray-900">
     <!-- Header / Toolbar -->
-    <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 to-white border-b">
+    <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
       <div class="flex items-center gap-3">
         <UTooltip text="Back to chat">
-          <button @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
-            <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+          <button @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
+            <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </button>
         </UTooltip>
 
@@ -28,7 +28,7 @@
             <template #option="{ option }">
               <div class="flex flex-col gap-0.5 w-full">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-medium text-gray-900 truncate">{{ option.artifact.title || 'Untitled' }}</span>
+                  <span class="text-xs font-medium text-gray-900 dark:text-white truncate">{{ option.artifact.title || 'Untitled' }}</span>
                   <span class="text-[10px] text-gray-400 ms-2">v{{ option.artifact.version }}</span>
                 </div>
                 <div class="flex items-center justify-between text-[10px] text-gray-400">
@@ -52,7 +52,7 @@
             v-if="!isLatestSelected && artifactsList.length > 1"
             @click="useThisVersion"
             :disabled="isDuplicating"
-            class="text-xs px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded border border-blue-200 transition-colors disabled:opacity-50 flex items-center gap-1"
+            class="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-950 text-blue-600 hover:bg-blue-100 rounded border border-blue-200 transition-colors disabled:opacity-50 flex items-center gap-1"
           >
             <Spinner v-if="isDuplicating" class="w-3 h-3" />
             <Icon v-else name="heroicons:arrow-uturn-up" class="w-3 h-3" />
@@ -69,10 +69,10 @@
           <button
             @click="refreshDashboard"
             :disabled="isRefreshing"
-            class="p-1.5 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
           >
-            <Spinner v-if="isRefreshing" class="w-3.5 h-3.5 text-gray-500" />
-            <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500" />
+            <Spinner v-if="isRefreshing" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+            <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           </button>
         </UTooltip>
 
@@ -84,9 +84,9 @@
           <button
             @click="exportPptx"
             :disabled="isExporting"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded disabled:opacity-50"
+            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded disabled:opacity-50"
           >
-            <Icon v-if="isExporting" name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" />
+            <Icon v-if="isExporting" name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" />
             <Icon v-else name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-purple-600" />
             <span class="text-xs text-purple-600 font-medium">PPTX</span>
           </button>
@@ -94,15 +94,15 @@
 
         <!-- Fullscreen -->
         <UTooltip text="Full screen">
-          <button @click="openFullscreen" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-            <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5 text-gray-500" />
+          <button @click="openFullscreen" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
+            <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           </button>
         </UTooltip>
 
         <!-- Open in new tab (if published) -->
         <UTooltip text="Open in new tab" v-if="report?.status === 'published'">
-          <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-            <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-500" />
+          <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
+            <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           </a>
         </UTooltip>
 
@@ -112,9 +112,9 @@
     </div>
 
     <!-- Iframe Container -->
-    <div class="flex-1 min-h-0 relative bg-white">
+    <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
       <!-- Loading State -->
-      <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white">
+      <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
           <Spinner class="w-6 h-6 text-gray-400" />
           <span class="text-sm text-gray-400">{{ t('artifactFrame.loading') }}</span>
@@ -122,9 +122,9 @@
       </div>
 
       <!-- Empty State: Has visualizations but no artifact - show Generate Dashboard button -->
-      <div v-else-if="!hasArtifact && hasSuccessfulVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+      <div v-else-if="!hasArtifact && hasSuccessfulVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:sparkles" class="w-8 h-8 text-gray-400 mb-3" />
-        <h3 class="text-sm font-medium text-gray-700 mb-1">Ready to create a dashboard</h3>
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ready to create a dashboard</h3>
         <p class="text-xs text-gray-400 mb-4 max-w-xs text-center">
           You have {{ visualizationsData.length }} visualization{{ visualizationsData.length !== 1 ? 's' : '' }} ready
         </p>
@@ -139,13 +139,13 @@
       </div>
 
       <!-- Empty State: No visualizations and no artifact -->
-      <div v-else-if="!hasArtifact && !hasVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+      <div v-else-if="!hasArtifact && !hasVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:chart-bar" class="w-6 h-6 text-gray-400 mb-2" />
         <span class="text-sm text-gray-400">No dashboard items yet</span>
       </div>
 
       <!-- Pending Artifact State (generating) -->
-      <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-white">
+      <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
           <Spinner class="w-6 h-6 text-gray-400" />
           <span class="text-sm text-gray-400">
@@ -162,10 +162,10 @@
       />
 
       <!-- Iframe Render Error State -->
-      <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+      <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
-        <h3 class="text-sm font-medium text-gray-700 mb-1">Dashboard failed to render</h3>
-        <p class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 rounded p-2 border">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dashboard failed to render</h3>
+        <p class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
           {{ iframeError.length > 200 ? iframeError.slice(0, 200) + '...' : iframeError }}
         </p>
         <UButton
@@ -211,17 +211,17 @@
       <!-- Polish Prompt Box -->
       <div
         v-if="polishPromptVisible"
-        class="absolute z-30 w-80 bg-white rounded-lg shadow-xl border border-gray-200 p-3"
+        class="absolute z-30 w-80 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
         :style="polishPromptPosition"
       >
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
-          <span class="text-xs font-medium text-gray-700">Polish this element</span>
+          <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
           <button @click="cancelPolishPrompt" class="ms-auto text-gray-400 hover:text-gray-600">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>
-        <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 rounded px-2 py-1 truncate">
+        <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 truncate">
           &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
         </div>
         <form @submit.prevent="submitPolishPrompt" class="flex gap-2">
@@ -230,7 +230,7 @@
             v-model="polishInstruction"
             type="text"
             placeholder="e.g. make this bigger, change colors..."
-            class="flex-1 text-sm border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
             @keydown.escape="cancelPolishPrompt"
           />
           <button
@@ -249,16 +249,16 @@
       <UModal v-model="isFullscreenOpen" :ui="{ width: 'sm:max-w-[98vw]', height: 'h-[98vh]' }">
         <div class="h-full flex flex-col">
           <!-- Modal Header -->
-          <div class="p-3 flex justify-between items-center border-b bg-white">
+          <div class="p-3 flex justify-between items-center border-b bg-white dark:bg-gray-900">
             <div class="flex items-center gap-3">
-              <span class="text-sm font-medium text-gray-700">{{ selectedArtifact?.title || reportData?.title || 'Artifact' }}</span>
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ selectedArtifact?.title || reportData?.title || 'Artifact' }}</span>
               <span v-if="selectedArtifact" class="text-xs text-gray-400">v{{ selectedArtifact.version }}</span>
             </div>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="closeFullscreen" />
           </div>
 
           <!-- Modal Content - Full artifact iframe or SlideViewer -->
-          <div class="flex-1 min-h-0 relative bg-white">
+          <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
             <!-- Slides with previews use SlideViewer -->
             <SlideViewer
               v-if="isFullscreenOpen && hasSlidesWithPreviews && selectedArtifact"

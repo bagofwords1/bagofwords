@@ -3,7 +3,7 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div
-        class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+        class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleDetails"
       >
         <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
@@ -11,7 +11,7 @@
           <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-gray-400" />
           Writing CSV…
         </span>
-        <span v-else class="flex items-center" :class="hasError ? 'text-red-600' : 'text-gray-700'">
+        <span v-else class="flex items-center" :class="hasError ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'">
           <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
           <Icon v-else name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
           <span class="align-middle">{{ statusLabel }}</span>
@@ -22,14 +22,14 @@
 
     <!-- Collapsible details -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed" class="ms-4 text-xs text-gray-600 space-y-2">
+      <div v-if="!detailsCollapsed" class="ms-4 text-xs text-gray-600 dark:text-gray-400 space-y-2">
         <!-- Error -->
         <div v-if="errorMessage" class="text-red-500">{{ errorMessage }}</div>
 
         <!-- Code section -->
         <div v-if="generatedCode">
           <div
-            class="flex items-center text-gray-500 cursor-pointer hover:text-gray-700"
+            class="flex items-center text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
             @click.stop="codeCollapsed = !codeCollapsed"
           >
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
@@ -38,7 +38,7 @@
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
-              <pre class="bg-gray-50 rounded px-3 py-2 text-[11px] text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
+              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-[11px] text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
             </div>
           </Transition>
         </div>

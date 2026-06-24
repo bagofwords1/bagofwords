@@ -1,11 +1,11 @@
 <template>
 
-    <header class="sticky top-0 bg-white z-10 flex flex-col border-gray-200">
+    <header class="sticky top-0 bg-white dark:bg-gray-900 z-10 flex flex-col border-gray-200 dark:border-gray-700">
         <!-- Top row: back, title, share, dashboard toggle -->
         <div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
             <GoBackChevron />
             <UTooltip v-if="report" :text="report.is_starred ? t('reports.tooltips.unstar') : t('reports.tooltips.star')">
-                <button @click="toggleStar" class="p-1.5 rounded hover:bg-gray-100 focus:outline-none">
+                <button @click="toggleStar" class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none">
                     <UIcon
                         :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
                         class="w-5 h-5 transition-colors"
@@ -17,7 +17,7 @@
                 <span class="font-semibold text-sm">
                     <input
                         type="text"
-                        class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-start w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]"
+                        class="inline bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 focus:bg-gray-100 dark:focus:bg-gray-800 p-1 pt-1 rounded outline-none active:bg-gray-100 dark:active:bg-gray-800 hover:cursor-pointer text-start w-full text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-colors duration-150"
                         v-if="report"
                         v-model="localTitle"
                         :disabled="isSaving"
@@ -31,22 +31,22 @@
             <div class="ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
                 <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
-                    <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center gap-1.5">
-                        <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500" />
-                        <span v-if="!isSplitScreen" class="text-xs text-gray-500">{{ t('reportView.sidebar') }}</span>
+                    <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 items-center gap-1.5">
+                        <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                        <span v-if="!isSplitScreen" class="text-xs text-gray-500 dark:text-gray-400">{{ t('reportView.sidebar') }}</span>
                     </button>
                 </UTooltip>
             </div>
         </div>
         <!-- Mobile tabs -->
-        <div v-if="isMobile" class="flex items-center gap-1 px-2 pb-1.5 border-b border-gray-100">
+        <div v-if="isMobile" class="flex items-center gap-1 px-2 pb-1.5 border-b border-gray-100 dark:border-gray-800">
             <button
                 v-for="tab in mobileTabs"
                 :key="tab.value"
                 @click="$emit('update:mobileView', tab.value)"
                 class="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
                 :class="mobileView === tab.value
-                    ? 'text-gray-900 bg-gray-100'
+                    ? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
                     : 'text-gray-400 hover:text-gray-600'"
             >
                 <Icon :name="tab.icon" class="w-3 h-3" />
@@ -55,7 +55,7 @@
             <button
                 v-if="mobileView !== 'chat'"
                 @click="$emit('update:mobileView', 'chat')"
-                class="ms-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                class="ms-auto p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>

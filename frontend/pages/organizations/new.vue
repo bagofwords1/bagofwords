@@ -4,9 +4,9 @@
             <h1 class="font-bold text-lg">Create Organization</h1>
             <form @submit.prevent="createOrg()">
                 <div class="mb-4 mt-8">
-                    <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
+                    <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
                     <input v-model="name" type="text" id="name" name="name"
-                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                         required>
                 </div>
                 <div class="mt-3">
@@ -54,7 +54,7 @@ async function createOrg() {
     };
 
     try {
-        const response = await useMyFetch('/organizations', { 
+        const response = await useMyFetch('/organizations', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -65,10 +65,10 @@ async function createOrg() {
         if (response.error.value) {
             throw new Error(`Could not create organization: ${response.error.value}`);
         }
-        
+
         // Refresh the session to get the new organization
         await getSession({ force: true })
-        
+
         navigateTo('/onboarding')
     } catch (error) {
         console.error('Error during org creation:', error);

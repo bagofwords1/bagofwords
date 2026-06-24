@@ -2,7 +2,7 @@
     <UTooltip :text="buttonLabel">
         <button @click="openModal"
             :class="[
-                'items-center flex gap-1 hover:bg-gray-100 rounded border border-gray-200 bg-gray-50 text-gray-600',
+                'items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400',
                 compact ? 'p-1.5' : 'px-2 py-1 text-xs'
             ]">
             <div class="relative">
@@ -17,16 +17,16 @@
         <div class="p-6">
             <!-- Header -->
             <div class="flex items-center justify-between mb-1">
-                <h2 class="text-base font-semibold text-gray-900">{{ title }}</h2>
+                <h2 class="text-base font-semibold text-gray-900 dark:text-white">{{ title }}</h2>
                 <button @click="modalOpen = false"
-                    class="text-gray-400 hover:text-gray-600 outline-none">
+                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
             </div>
             <p class="text-sm text-gray-400 mb-6">{{ shareDescription }}</p>
 
             <!-- Visibility dropdown -->
-            <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">{{ $t('share.access') }}</label>
+            <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ $t('share.access') }}</label>
             <USelectMenu
                 v-model="currentVisibility"
                 :options="visibilityOptions"
@@ -39,7 +39,7 @@
             >
                 <template #label>
                     <div class="flex items-center gap-2 text-xs">
-                        <Icon :name="selectedOption.icon" class="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                        <Icon :name="selectedOption.icon" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                         <span>{{ selectedOption.label }}</span>
                     </div>
                 </template>
@@ -57,21 +57,21 @@
             <!-- Share link -->
             <div v-if="isShared && shareUrl" class="flex items-center gap-2 mb-6">
                 <input :value="shareUrl" type="text"
-                    class="flex-1 h-[32px] px-2.5 border border-gray-200 rounded-lg text-xs text-gray-500 bg-gray-50 min-w-0"
+                    class="flex-1 h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 min-w-0"
                     readonly />
                 <button @click="copyLink"
-                    class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
+                    class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
                     <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
                 </button>
             </div>
 
             <!-- Share with people (only when 'shared' selected) -->
             <div v-if="currentVisibility === 'shared'">
-                <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">{{ $t('share.shareWith') }}</label>
+                <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ $t('share.shareWith') }}</label>
                 <div class="flex items-start gap-2 mb-4">
-                    <div class="flex-1 flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5 min-h-[32px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
+                    <div class="flex-1 flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 min-h-[32px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
                         <span v-for="(user, idx) in pendingUsers" :key="user.id || user.email"
-                            class="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full whitespace-nowrap">
+                            class="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950 text-blue-700 text-xs px-2 py-0.5 rounded-full whitespace-nowrap">
                             {{ user.name || user.email }}
                             <button @click="removePendingUser(idx)" class="hover:text-red-500 outline-none">
                                 <Icon name="heroicons:x-mark" class="w-3 h-3" />
@@ -88,15 +88,15 @@
                                 @focus="showDropdown = true"
                                 @blur="onBlur" />
                             <div v-if="showDropdown && filteredMembers.length > 0"
-                                class="absolute start-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                class="absolute start-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
                                 <button v-for="member in filteredMembers" :key="member.id"
-                                    class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2.5"
+                                    class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-2.5"
                                     @mousedown.prevent="addMember(member)">
-                                    <div class="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 flex-shrink-0">
+                                    <div class="w-6 h-6 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400 flex-shrink-0">
                                         {{ (member.name || member.email).charAt(0).toUpperCase() }}
                                     </div>
                                     <div class="flex flex-col min-w-0">
-                                        <span class="text-gray-900 truncate">{{ member.name || member.email }}</span>
+                                        <span class="text-gray-900 dark:text-white truncate">{{ member.name || member.email }}</span>
                                         <span v-if="member.name" class="text-xs text-gray-400 truncate">{{ member.email }}</span>
                                     </div>
                                 </button>
@@ -112,13 +112,13 @@
                 <!-- People with access -->
                 <div v-if="sharedUsers.length > 0" class="space-y-0.5">
                     <div v-for="user in sharedUsers" :key="user.user_id"
-                        class="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-gray-50 group">
+                        class="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 group">
                         <div class="flex items-center gap-2.5">
-                            <div class="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center text-xs font-medium text-gray-600">
+                            <div class="w-7 h-7 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400">
                                 {{ (user.user_name || user.user_email || '?').charAt(0).toUpperCase() }}
                             </div>
                             <div class="flex flex-col">
-                                <span class="text-sm text-gray-700">{{ user.user_name || user.user_email }}</span>
+                                <span class="text-sm text-gray-700 dark:text-gray-300">{{ user.user_name || user.user_email }}</span>
                                 <span v-if="user.user_name && user.user_email" class="text-xs text-gray-400">{{ user.user_email }}</span>
                             </div>
                         </div>

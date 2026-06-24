@@ -3,7 +3,7 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900">Connections</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Connections</h3>
                     <div class="flex items-center gap-2">
                         <UButton
                             v-if="canManageConnections"
@@ -23,8 +23,8 @@
             <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">Loading…</div>
 
             <div v-else-if="connections.length === 0" class="py-8 text-center">
-                <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                <p class="text-sm text-gray-500">No connections linked to this agent.</p>
+                <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                <p class="text-sm text-gray-500 dark:text-gray-400">No connections linked to this agent.</p>
                 <UButton v-if="canManageConnections" color="blue" variant="soft" size="sm" class="mt-3" @click="openLinkModal">
                     Link a connection
                 </UButton>
@@ -34,13 +34,13 @@
                 <div
                     v-for="conn in connections"
                     :key="conn.id"
-                    class="border border-gray-200 rounded-lg p-3"
+                    class="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
                 >
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-3 min-w-0">
                             <DataSourceIcon :type="conn.type" class="h-7 flex-shrink-0" />
                             <div class="min-w-0">
-                                <div class="text-sm font-medium text-gray-900 truncate">{{ conn.name }}</div>
+                                <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
                                 <div class="text-xs text-gray-400">{{ conn.type }}</div>
                             </div>
                         </div>
@@ -52,7 +52,7 @@
                                 v-if="canManageConnections"
                                 @click="testConnection(conn.id)"
                                 :disabled="testingConnectionId === conn.id"
-                                class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-50"
+                                class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                                 title="Test connection"
                             >
                                 <Spinner v-if="testingConnectionId === conn.id" class="w-4 h-4" />
@@ -110,20 +110,20 @@
             <div v-if="loadingOrgConnections" class="flex items-center justify-center py-6">
                 <Spinner class="w-5 h-5" />
             </div>
-            <div v-else-if="availableConnections.length === 0" class="py-6 text-center text-sm text-gray-500">
+            <div v-else-if="availableConnections.length === 0" class="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                 All connections are already linked to this agent.
             </div>
             <div v-else class="space-y-2 max-h-64 overflow-y-auto">
                 <label
                     v-for="conn in availableConnections"
                     :key="conn.id"
-                    class="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50"
-                    :class="{ 'border-blue-400 bg-blue-50': selectedConnectionId === conn.id }"
+                    class="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                    :class="{ 'border-blue-400 bg-blue-50 dark:bg-blue-950': selectedConnectionId === conn.id }"
                 >
                     <input type="radio" name="link-conn" :value="conn.id" v-model="selectedConnectionId" class="sr-only" />
                     <DataSourceIcon :type="conn.type" class="h-5 flex-shrink-0" />
                     <div class="min-w-0 flex-1">
-                        <div class="text-sm font-medium text-gray-900 truncate">{{ conn.name }}</div>
+                        <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
                         <div class="text-xs text-gray-400">{{ conn.type }}</div>
                     </div>
                     <UIcon v-if="selectedConnectionId === conn.id" name="heroicons-check-circle-solid" class="w-4 h-4 text-blue-500" />

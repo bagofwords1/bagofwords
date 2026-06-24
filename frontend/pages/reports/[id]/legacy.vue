@@ -1,7 +1,7 @@
 <template>
 
     
-    <div class="flex flex-row h-screen overflow-y-hidden bg-white">
+    <div class="flex flex-row h-screen overflow-y-hidden bg-white dark:bg-gray-900">
         <!-- Left side (Chat) -->
 
 
@@ -16,13 +16,13 @@
         <GoBackChevron />
         <h1 class="text-sm md:text-start text-center mt-1 w-[500px]">
             <span class="font-semibold text-sm">
-                <input type="text" class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-start w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]" v-if="report"
+                <input type="text" class="inline hover:bg-gray-100 dark:hover:bg-gray-700 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-start w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]" v-if="report"
                     :class="{ 'animate-fade-in': shouldAnimateTitle }"
                     v-model="report.title" @keyup.enter="saveReportTitle" ref="reportTitleInput" />
             </span>
         </h1>
         <div class="gap-1 hidden md:flex justify-end flex-1">
-            <button @click="toggleSplitScreen" class="p-1.5 rounded text-xl hover:bg-gray-100 flex items-center">
+            <button @click="toggleSplitScreen" class="p-1.5 rounded text-xl hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center">
                 <span class="inline-flex items-center">
                     <Icon name="heroicons:chart-pie" class="inline-block me-2" /> 
                 </span>
@@ -30,11 +30,11 @@
                 :class="isSplitScreen ? 'hidden' : 'inline'"
                 >Dashboard</span>
             </button>
-            <button class="p-1.5 rounded text-lg hover:bg-gray-100">
+            <button class="p-1.5 rounded text-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                 <Icon name="heroicons:ellipsis-horizontal" />
             </button>
             <UTooltip text="Rerun">
-                <button @click="rerunReport" class="hidden px-3 py-1 rounded bg-gray-50 border border-gray-200 text-xs hover:bg-gray-100 me-4">
+                <button @click="rerunReport" class="hidden px-3 py-1 rounded bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 me-4">
                     <Icon name="heroicons:arrow-path-rounded-square" class="me-2" />
                 </button>
             </UTooltip>
@@ -47,11 +47,11 @@
                         <div v-if="!isPageLoading && completions.length == 0" class="mx-auto w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
                             <h1 class="text-4xl mb-4">🪴</h1>
                             <h1 class="text-lg font-semibold">Ask a question to get started.</h1>
-                            <p class="text-gray-500 text-sm mt-3">Examples:</p>
+                            <p class="text-gray-500 dark:text-gray-400 text-sm mt-3">Examples:</p>
                             <ul class="list-none list-inside">
-                                <li class="text-gray-500 text-sm mt-3" v-for="data_source in report.data_sources.filter(ds => ds.conversation_starters?.length > 0 && ds.active) ">
+                                <li class="text-gray-500 dark:text-gray-400 text-sm mt-3" v-for="data_source in report.data_sources.filter(ds => ds.conversation_starters?.length > 0 && ds.active) ">
                                     <button
-                                    class="text-gray-500 hover:bg-gray-50 border border-gray-200 text-xs rounded-md p-1.5"
+                                    class="text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-md p-1.5"
                                     @click="handleExampleClick(data_source.conversation_starters?.[0])">  
                                         <DataSourceIcon :type="data_source.type" class="h-3 inline me-2" />
                                         {{ data_source.conversation_starters?.[0].split('\n')[0]  }}
@@ -59,14 +59,14 @@
                                 </li>
                             </ul>
                             <hr class="my-4">
-                            <p class="text-gray-500 text-sm"><span class="font-semibold">Tip:</span> <br />
+                            <p class="text-gray-500 dark:text-gray-400 text-sm"><span class="font-semibold">Tip:</span> <br />
                                 Use @ to explore data sources and memories<br /> and to mention them in your question.</p>
 
 
                         </div>
                         <div class="relative mx-auto" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
                         <ul v-if="completions.length > 0" class="mx-auto w-full">
-                            <li v-for="completion in completions" :key="completion.id" class="text-gray-700 mb-2 text-sm">
+                            <li v-for="completion in completions" :key="completion.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
 
                                 <CompletionMessageComponent
                                     :key="`${completion.id}-${completion._updateKey || 0}`"
@@ -88,7 +88,7 @@
                 <div ref="scrollAnchor"></div>
                 <div class="absolute bottom-28 font-bold text-center start-0 end-0" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 mx-auto'">
                     We've upgraded our AI agent!<br />
-                    <span class=" text-md font-normal text-gray-500">This report is in read-only mode.</span><br />
+                    <span class=" text-md font-normal text-gray-500 dark:text-gray-400">This report is in read-only mode.</span><br />
                     <span class="font-normal text-blue-500">Please <button class="text-blue-500" @click="createNewReport">start a new report</button></span>
                 </div>
             </div>
@@ -110,7 +110,7 @@
                  transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }"
              :class="[
-                'bg-white border-gray-200 bg-dots',
+                'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 bg-dots',
                 'overflow-y-scroll'
              ]">
             <div>
@@ -124,7 +124,7 @@
                     :textWidgetsIds="textWidgetsIds"
                     @toggleSplitScreen="toggleSplitScreen"
                 />
-                <div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
+                <div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500 dark:text-gray-400">
                     No dashboard items yet.
                 </div>
             </div>

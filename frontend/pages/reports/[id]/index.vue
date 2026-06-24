@@ -20,7 +20,7 @@
 		@startResize="startResize"
 	>
 		<template #left>
-	<div class="flex flex-col h-screen overflow-y-hidden bg-white relative">
+	<div class="flex flex-col h-screen overflow-y-hidden bg-white dark:bg-gray-900 relative">
 		<ReportHeader
 			v-if="report"
 			:report="report"
@@ -107,7 +107,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 mb-2 text-sm">
+					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
 						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
@@ -121,7 +121,7 @@
 						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
 							<button
 								@click="toggleScheduledExpand(m.id)"
-								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors mb-2"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
 								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
@@ -134,7 +134,7 @@
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
@@ -160,9 +160,9 @@
 
 						<!-- Inbound webhook event entry (compact) -->
 						<div v-else-if="m.role === 'external'" class="my-2">
-							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 bg-gray-50/50">
+							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
 								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-								<span class="text-xs text-gray-600 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
+								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
 									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
 								</span>
@@ -187,7 +187,7 @@
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto">
+											<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
@@ -309,10 +309,10 @@
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
 													<div class="text-xs text-gray-500 mb-1">
-														<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
+														<span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
 															{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 														</span>
-														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
 															<div v-if="block.tool_execution.duration_ms">{{ $t('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
 															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">{{ $t('reportView.widgetRef', { id: block.tool_execution.created_widget_id }) }}</div>
@@ -369,7 +369,7 @@
 															<div
 																v-for="ins in visibleInstructions(m)"
 																:key="ins.id"
-																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs text-gray-700"
+																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300"
 																@click="close(); openInstructionById(ins.id)"
 															>
 																<DataSourceIcon v-if="ins.data_source_type" :type="ins.data_source_type" class="h-3.5 w-3.5 flex-shrink-0" />
@@ -390,7 +390,7 @@
 											<button
 												v-if="canViewConsole"
 												@click="openTraceModal(m.system_completion_id || m.id)"
-												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 rounded-md transition-colors group"
+												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors group"
 												:title="$t('reportView.viewAgentTrace')"
 											>
 												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
@@ -430,7 +430,7 @@
 					<h1 class="text-4xl mb-4">🎓</h1>
 					<h1 class="text-lg font-semibold">{{ $t('reports.trainingEmptyTitle') }}</h1>
 					<hr class="my-4">
-					<p class="text-gray-500 text-sm"><span class="font-semibold">{{ $t('reports.trainingEmptyTipLabel') }}</span> <br />
+					<p class="text-gray-500 dark:text-gray-400 text-sm"><span class="font-semibold">{{ $t('reports.trainingEmptyTipLabel') }}</span> <br />
 						{{ $t('reports.trainingEmptyBody') }}
 					</p>
 					<div class="mt-4 flex flex-wrap gap-2">
@@ -450,14 +450,17 @@
 						<img
 							src="/assets/empty-states/empty-integrations.png"
 							alt=""
-							class="w-64 max-w-full mb-6 select-none pointer-events-none"
+							class="w-56 max-w-full mb-2 select-none pointer-events-none dark:hidden"
 						/>
+						<div class="hidden dark:flex items-center justify-center w-24 h-24 rounded-2xl bg-gray-800 mb-2">
+							<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-gray-500" />
+						</div>
 						<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
 						<div v-if="agentConversationStarters.length > 0" class="mt-5 flex flex-wrap justify-center gap-2">
 							<button
 								v-for="s in agentConversationStarters"
 								:key="s.title"
-								class="px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors"
+								class="px-3 py-1.5 text-xs rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
 								@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
 							>
 								{{ s.title }}
@@ -518,7 +521,7 @@
 			</div>
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
-		<div class="shrink-0 bg-white">
+		<div class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
 				<PromptBoxV2
 					ref="promptBoxRef"
@@ -579,7 +582,7 @@
 					@click="rightPanelView = 'summary'"
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'summary'
-						? 'text-gray-900 bg-gray-100'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
 						: 'text-gray-400 hover:text-gray-600'"
 				>
 					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
@@ -589,7 +592,7 @@
 					@click="rightPanelView = 'artifact'"
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'artifact' || rightPanelView === 'grid'
-						? 'text-gray-900 bg-gray-100'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
 						: 'text-gray-400 hover:text-gray-600'"
 				>
 					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
@@ -599,7 +602,7 @@
 					@click="rightPanelView = 'agent'"
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'agent'
-						? 'text-gray-900 bg-gray-100'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
 						: 'text-gray-400 hover:text-gray-600'"
 				>
 					<DataSourceIcon
@@ -613,7 +616,7 @@
 			</div>
 			<button
 				@click="toggleSplitScreen"
-				class="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
 			>
 				<Icon name="heroicons:x-mark" class="w-4 h-4" />
 			</button>
@@ -692,7 +695,7 @@
 			/>
 
 			<!-- Empty state for grid view -->
-			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 h-full">
+			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 dark:text-gray-400 h-full">
 				No dashboard items yet.
 			</div>
 		</template>

@@ -1,14 +1,14 @@
 <template>
     <div class="mt-4 max-w-2xl">
         <div>
-            <h3 class="text-base font-medium text-gray-900">{{ $t('signupPolicy.title') }}</h3>
-            <p class="text-sm text-gray-500 mt-1">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white">{{ $t('signupPolicy.title') }}</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {{ $t('signupPolicy.description') }}
             </p>
 
             <div
                 v-if="globalUninvitedDisabled && form.enabled"
-                class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                class="mt-4 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 px-3 py-2 text-xs text-amber-800"
             >
                 <b>{{ $t('signupPolicy.headsUpPrefix') }}</b> {{ $t('signupPolicy.headsUpMiddle') }}
                 <code class="font-mono">allow_uninvited_signups</code> {{ $t('signupPolicy.headsUpFlagOff') }} <b>{{ $t('signupPolicy.headsUpOff') }}</b>{{ $t('signupPolicy.headsUpSuffix') }}
@@ -17,21 +17,21 @@
             <!-- Enabled toggle -->
             <div class="mt-5 flex items-center justify-between">
                 <div>
-                    <div class="text-sm font-medium text-gray-900">{{ $t('signupPolicy.enable') }}</div>
-                    <div class="text-xs text-gray-500">{{ $t('signupPolicy.enableHint') }}</div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('signupPolicy.enable') }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('signupPolicy.enableHint') }}</div>
                 </div>
                 <UToggle v-model="form.enabled" />
             </div>
 
             <!-- Domains -->
             <div class="mt-5">
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">{{ $t('signupPolicy.allowedDomains') }}</label>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ $t('signupPolicy.allowedDomains') }}</label>
                 <div class="flex items-center gap-2">
                     <input
                         v-model="domainInput"
                         type="text"
                         :placeholder="$t('signupPolicy.domainPlaceholder')"
-                        class="flex-1 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         @keydown.enter.prevent="addDomain"
                         @keydown.,.prevent="addDomain"
                     />
@@ -41,11 +41,11 @@
                     <span
                         v-for="d in form.allowed_domains"
                         :key="d"
-                        class="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-800 rounded-full px-2.5 py-1"
+                        class="inline-flex items-center gap-1.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-full px-2.5 py-1"
                     >
                         {{ d }}
                         <button
-                            class="text-gray-500 hover:text-gray-700"
+                            class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                             @click="removeDomain(d)"
                             :aria-label="$t('signupPolicy.removeDomainAria')"
                         >
@@ -53,14 +53,14 @@
                         </button>
                     </span>
                 </div>
-                <p class="mt-2 text-xs text-gray-500">
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {{ $t('signupPolicy.domainsHint') }}
                 </p>
             </div>
 
             <!-- Role -->
             <div class="mt-5">
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">{{ $t('signupPolicy.autoInviteRole') }}</label>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ $t('signupPolicy.autoInviteRole') }}</label>
                 <USelectMenu
                     v-if="roles.length"
                     v-model="form.auto_invite_role"
@@ -72,16 +72,16 @@
                     v-else
                     v-model="form.auto_invite_role"
                     type="text"
-                    class="w-60 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    class="w-60 text-sm border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p class="mt-2 text-xs text-gray-500">
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {{ $t('signupPolicy.roleHint') }}
                 </p>
             </div>
 
             <!-- Footer -->
-            <div class="mt-6 flex items-center justify-between pt-4 border-t border-gray-100">
-                <p class="text-xs text-gray-500">
+            <div class="mt-6 flex items-center justify-between pt-4 border-t border-gray-100 dark:border-gray-800">
+                <p class="text-xs text-gray-500 dark:text-gray-400">
                     {{ $t('signupPolicy.removeHint') }}
                 </p>
                 <UButton

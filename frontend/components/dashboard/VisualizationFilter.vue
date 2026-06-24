@@ -5,7 +5,7 @@
       <UChip v-if="activeFilterCount > 0" :text="activeFilterCount" size="2xl" color="blue">
         <button
           type="button"
-          class="relative p-1 hover:bg-gray-100 rounded transition-colors text-blue-500"
+          class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-blue-500"
         >
           <Icon name="heroicons:funnel" class="w-3.5 h-3.5" />
         </button>
@@ -13,7 +13,7 @@
       <button
         v-else
         type="button"
-        class="relative p-1 hover:bg-gray-100 rounded transition-colors text-gray-400 hover:text-gray-600"
+        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-gray-400 hover:text-gray-600"
       >
         <Icon name="heroicons:funnel" class="w-3.5 h-3.5" />
       </button>
@@ -23,8 +23,8 @@
     <template #panel>
       <div class="w-[380px] max-w-[95vw]">
         <!-- Header -->
-        <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-          <span class="font-medium text-sm text-gray-700">Filters</span>
+        <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+          <span class="font-medium text-sm text-gray-700 dark:text-gray-300">Filters</span>
           <UButton
             v-if="hasActiveFilters"
             color="gray"
@@ -40,12 +40,12 @@
         <div class="p-3 max-h-[320px] overflow-y-auto">
           <!-- No columns available -->
           <div v-if="discoveredColumns.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500">No data available to filter</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">No data available to filter</p>
           </div>
 
           <!-- Empty State - has columns but no filters -->
           <div v-else-if="filterGroups.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 mb-3">No filters applied</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">No filters applied</p>
             <UButton size="xs" color="blue" @click="addGroup">
               Add filter
             </UButton>
@@ -59,13 +59,13 @@
             >
               <!-- OR Divider -->
               <div v-if="groupIndex > 0" class="flex items-center gap-2 py-1">
-                <div class="flex-1 h-px bg-gray-300"></div>
+                <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
                 <span class="text-[10px] font-semibold text-orange-500">OR</span>
-                <div class="flex-1 h-px bg-gray-300"></div>
+                <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
               </div>
 
               <!-- Group Card -->
-              <div class="bg-gray-50 rounded p-2">
+              <div class="bg-gray-50 dark:bg-gray-900 rounded p-2">
                 <!-- Conditions -->
                 <div
                   v-for="(condition, condIndex) in group.conditions"
@@ -177,7 +177,7 @@
                 </div>
 
                 <!-- Actions Row -->
-                <div class="flex items-center gap-2 pt-2 mt-2 border-t border-gray-200">
+                <div class="flex items-center gap-2 pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
                   <UButton
                     color="gray"
                     variant="ghost"
@@ -211,8 +211,8 @@
         </div>
 
         <!-- Footer with row count and apply -->
-        <div v-if="filterGroups.length > 0" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
-          <span class="text-xs text-gray-500">
+        <div v-if="filterGroups.length > 0" class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">
             {{ filteredRowCount }} of {{ totalRowCount }} rows
           </span>
           <UButton size="xs" color="blue" @click="applyFilters">
@@ -396,7 +396,7 @@ function getOperatorsForColumn(columnKey: string) {
 function getValueOptions(columnKey: string) {
   const col = getColumn(columnKey)
   if (!col) return []
-  
+
   return col.uniqueValues.map(v => ({
     label: String(v),
     value: v
@@ -408,15 +408,15 @@ function shouldShowSelect(condition: FilterCondition): boolean {
   if (!['equals', 'not_equals'].includes(condition.operator)) {
     return false
   }
-  
+
   const col = getColumn(condition.column)
   if (!col) return false
-  
+
   // Never show dropdown for number or date columns
   if (col.type === 'number' || col.type === 'date') {
     return false
   }
-  
+
   // Show select for low-cardinality string/boolean columns (≤50 unique values)
   return col.uniqueValues.length > 0 && col.uniqueValues.length <= 50
 }
@@ -435,7 +435,7 @@ const totalRowCount = computed(() => props.rows?.length || 0)
 
 const filteredRowCount = computed(() => {
   if (!filterGroups.value.length) return totalRowCount.value
-  
+
   // Create temporary filter groups with proper column format for evaluation
   const evalGroups: FilterGroup[] = filterGroups.value.map(group => ({
     id: group.id,
@@ -444,9 +444,9 @@ const filteredRowCount = computed(() => {
       column: `${props.visualizationId}:${c.column}`
     }))
   }))
-  
+
   const rows = props.rows || []
-  return rows.filter((row: any) => 
+  return rows.filter((row: any) =>
     sharedEvaluateFilters(row, evalGroups, props.visualizationId)
   ).length
 })
@@ -506,14 +506,14 @@ function applyFilters() {
       })
     }))
     .filter(g => g.conditions.length > 0)
-  
+
   // Then add the new conditions with proper column format (vizId:columnName)
   for (const group of filterGroups.value) {
     const newConditions = group.conditions.map(c => ({
       ...c,
       column: `${props.visualizationId}:${c.column}`
     }))
-    
+
     // Find existing group to merge into, or create new
     const existingGroup = newFilters.find(g => g.id === group.id)
     if (existingGroup) {
@@ -525,7 +525,7 @@ function applyFilters() {
       })
     }
   }
-  
+
   setFilters(newFilters)
   isOpen.value = false
 }
@@ -533,7 +533,7 @@ function applyFilters() {
 // Clear all filters for this visualization
 function clearFilters() {
   filterGroups.value = []
-  
+
   // Also clear from shared state
   const newFilters = filters.value
     .map(group => ({

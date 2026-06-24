@@ -1,9 +1,9 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center py-12 px-4">
     <div class="w-full max-w-6xl relative">
       <Transition name="fade" mode="out-in">
         <div v-if="loading" key="loading" class="flex items-center justify-center h-40">
-          <div class="flex items-center text-gray-500 text-sm">
+          <div class="flex items-center text-gray-500 dark:text-gray-400 text-sm">
             <Spinner class="w-4 h-4 me-2" />
             {{ $t('onboarding.loading') }}
           </div>
@@ -13,10 +13,10 @@
             <template #onboarding>
               <div>
                 <div class="mb-5">
-                    <p class="text-sm text-gray-600 mb-5">
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-5">
                       {{ $t('onboarding.intro1') }}
                     </p>
-                  <p class="text-sm text-gray-600">
+                  <p class="text-sm text-gray-600 dark:text-gray-400">
                     {{ $t('onboarding.intro2') }}
                   </p>
                 </div>
@@ -26,7 +26,7 @@
 
           </OnboardingView>
           <div class="text-center">
-            <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm inline text-sm mt-4 rounded-md px-3 py-1.5">{{ $t('onboarding.skip') }}</button>
+            <button @click="skipForNow" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 text-sm inline text-sm mt-4 rounded-md px-3 py-1.5">{{ $t('onboarding.skip') }}</button>
           </div>
         </div>
       </Transition>

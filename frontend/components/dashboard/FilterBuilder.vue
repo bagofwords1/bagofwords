@@ -6,7 +6,7 @@
     <UChip v-if="activeFilterCount > 0" :text="activeFilterCount" size="2xl" color="blue">
       <button
         type="button"
-        class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded"
+        class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
       >
         <Icon name="heroicons:funnel" class="w-4 h-4" />
       </button>
@@ -14,7 +14,7 @@
     <button
       v-else
       type="button"
-      class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded"
+      class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
     >
       <Icon name="heroicons:funnel" class="w-4 h-4" />
     </button>
@@ -24,8 +24,8 @@
     <template #panel>
       <div class="w-[460px] max-w-[95vw]">
         <!-- Header -->
-        <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-          <span class="font-medium text-sm text-gray-700">{{ $t('filter.title') }}</span>
+        <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+          <span class="font-medium text-sm text-gray-700 dark:text-gray-300">{{ $t('filter.title') }}</span>
           <UButton
             v-if="hasActiveFilters"
             color="gray"
@@ -42,12 +42,12 @@
           <!-- Loading state -->
           <div v-if="props.isLoading" class="text-center py-6">
             <Icon name="heroicons:arrow-path" class="w-5 h-5 text-gray-300 mx-auto mb-2 animate-spin" />
-            <p class="text-xs text-gray-500">{{ $t('filter.loading') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('filter.loading') }}</p>
           </div>
 
           <!-- No columns available -->
           <div v-else-if="discoveredColumns.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 mb-2">{{ $t('filter.noData') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('filter.noData') }}</p>
             <UButton size="xs" color="gray" variant="ghost" @click="refreshColumns">
               {{ $t('filter.refresh') }}
             </UButton>
@@ -55,7 +55,7 @@
 
           <!-- Empty State - has columns but no filters -->
           <div v-else-if="filterGroups.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 mb-3">{{ $t('filter.noFilters') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ $t('filter.noFilters') }}</p>
             <UButton size="xs" color="blue" @click="addGroup">
               {{ $t('filter.addFilter') }}
             </UButton>
@@ -69,13 +69,13 @@
             >
               <!-- OR Divider -->
               <div v-if="groupIndex > 0" class="flex items-center gap-2 py-1">
-                <div class="flex-1 h-px bg-gray-300"></div>
+                <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
                 <span class="text-[10px] font-semibold text-orange-500">{{ $t('filter.orDivider') }}</span>
-                <div class="flex-1 h-px bg-gray-300"></div>
+                <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
               </div>
 
               <!-- Group Card -->
-              <div class="bg-gray-50 rounded p-2">
+              <div class="bg-gray-50 dark:bg-gray-900 rounded p-2">
                 <!-- Conditions -->
                 <div
                   v-for="(condition, condIndex) in group.conditions"
@@ -101,9 +101,9 @@
                       @update:model-value="onColumnChange(condition)"
                     >
                       <template #option="{ option }">
-                        <div 
-                          v-if="option.header" 
-                          class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider py-0.5 bg-gray-50 -mx-2 px-2 cursor-default"
+                        <div
+                          v-if="option.header"
+                          class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider py-0.5 bg-gray-50 dark:bg-gray-900 -mx-2 px-2 cursor-default"
                         >
                           {{ option.label }}
                         </div>
@@ -178,7 +178,7 @@
                 </div>
 
                 <!-- Actions Row -->
-                <div class="flex items-center gap-2 pt-2 mt-2 border-t border-gray-200">
+                <div class="flex items-center gap-2 pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
                   <UButton
                     color="gray"
                     variant="ghost"
@@ -212,8 +212,8 @@
         </div>
 
         <!-- Footer -->
-        <div v-if="filterGroups.length > 0" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
-          <span class="text-xs text-gray-500">
+        <div v-if="filterGroups.length > 0" class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">
             {{ $t('filter.rowsCount', { shown: filteredRowCount, total: totalRowCount }) }}
           </span>
           <UButton size="xs" color="blue" @click="applyFilters">
@@ -288,7 +288,7 @@ function handleSharedFilterUpdate(ev: Event) {
   const detail = (ev as CustomEvent).detail
   if (!detail || detail.source === filterInstanceId) return
   if (props.reportId && detail.reportId !== props.reportId) return
-  
+
   // Update local state to match shared state
   const newFilters = JSON.parse(JSON.stringify(detail.filters || []))
   appliedFilters.value = newFilters
@@ -333,23 +333,23 @@ const discoveredColumns = computed<DiscoveredColumn[]>(() => {
   // Use columnsVersion to force reactivity on deep changes
   const _version = columnsVersion.value
   const columns: DiscoveredColumn[] = []
-  
+
   for (const viz of props.visualizations || []) {
     const rows = viz.rows || []
     if (!rows.length) continue
-    
+
     const vizId = viz.id
     const vizTitle = viz.title || `Visualization ${vizId.slice(0, 6)}`
     const sampleRow = rows[0]
     const keys = Object.keys(sampleRow || {})
-    
+
     for (const key of keys) {
       const columnKey = `${vizId}:${key}`
-      
+
       // Sample values for type inference and options
       const values = rows.slice(0, 100).map(r => r[key]).filter(v => v != null)
       const uniqueVals = [...new Set(values)]
-      
+
       columns.push({
         key: columnKey,
         name: key,
@@ -362,7 +362,7 @@ const discoveredColumns = computed<DiscoveredColumn[]>(() => {
       })
     }
   }
-  
+
   // Sort by visualization title, then by column label
   return columns.sort((a, b) => {
     const vizCompare = a.widgetTitle.localeCompare(b.widgetTitle)
@@ -375,7 +375,7 @@ const discoveredColumns = computed<DiscoveredColumn[]>(() => {
 const visualizationOptions = computed(() => {
   const vizs = props.visualizations || []
   if (vizs.length === 0) return []
-  
+
   // If only one visualization, return just that one
   if (vizs.length === 1) {
     return [{
@@ -383,7 +383,7 @@ const visualizationOptions = computed(() => {
       value: vizs[0].id
     }]
   }
-  
+
   return vizs.map(viz => ({
     label: viz.title || `Visualization ${viz.id.slice(0, 6)}`,
     value: viz.id
@@ -407,7 +407,7 @@ function getColumnOptionsForVisualization(vizId: string) {
 // Column options for select dropdown - grouped by visualization
 const columnOptions = computed(() => {
   const vizs = props.visualizations || []
-  
+
   // If only one visualization, just show column names (no grouping needed)
   if (vizs.length <= 1) {
     return discoveredColumns.value.map(col => ({
@@ -415,10 +415,10 @@ const columnOptions = computed(() => {
       value: col.key
     }))
   }
-  
+
   // Multiple visualizations - group columns under visualization headers
   const options: Array<{ label: string; value: string; disabled?: boolean; header?: boolean }> = []
-  
+
   // Group columns by visualization
   const grouped = new Map<string, typeof discoveredColumns.value>()
   for (const col of discoveredColumns.value) {
@@ -427,11 +427,11 @@ const columnOptions = computed(() => {
     }
     grouped.get(col.widgetId)!.push(col)
   }
-  
+
   // Build options with headers
   for (const [vizId, cols] of grouped) {
     const vizTitle = cols[0]?.widgetTitle || `Visualization ${vizId.slice(0, 6)}`
-    
+
     // Add visualization header (unselectable)
     options.push({
       label: vizTitle,
@@ -439,7 +439,7 @@ const columnOptions = computed(() => {
       disabled: true,
       header: true
     })
-    
+
     // Add columns under this visualization
     for (const col of cols) {
       options.push({
@@ -448,7 +448,7 @@ const columnOptions = computed(() => {
       })
     }
   }
-  
+
   return options
 })
 
@@ -471,20 +471,20 @@ function formatColumnLabel(name: string): string {
 // Infer column type from sample values
 function inferColumnType(values: any[]): 'string' | 'number' | 'date' | 'boolean' {
   if (!values.length) return 'string'
-  
+
   const sample = values.filter(v => v != null).slice(0, 20)
   if (!sample.length) return 'string'
-  
+
   // Check for boolean
   if (sample.every(v => typeof v === 'boolean' || v === 'true' || v === 'false')) {
     return 'boolean'
   }
-  
+
   // Check for number
   if (sample.every(v => typeof v === 'number' || (!isNaN(parseFloat(v)) && isFinite(v)))) {
     return 'number'
   }
-  
+
   // Check for date
   const datePatterns = [
     /^\d{4}-\d{2}-\d{2}/, // YYYY-MM-DD
@@ -500,7 +500,7 @@ function inferColumnType(values: any[]): 'string' | 'number' | 'date' | 'boolean
   })) {
     return 'date'
   }
-  
+
   return 'string'
 }
 
@@ -595,7 +595,7 @@ function getOperatorsForColumn(columnName: string) {
 function getValueOptions(columnKey: string) {
   const col = getColumn(columnKey)
   if (!col) return []
-  
+
   return col.uniqueValues.map(v => ({
     label: String(v),
     value: v
@@ -608,15 +608,15 @@ function shouldShowSelect(condition: FilterCondition): boolean {
   if (!['equals', 'not_equals'].includes(condition.operator)) {
     return false
   }
-  
+
   const col = getColumn(condition.column)
   if (!col) return false
-  
+
   // Never show dropdown for number or date columns - use input instead
   if (col.type === 'number' || col.type === 'date') {
     return false
   }
-  
+
   // Show select for low-cardinality string/boolean columns (≤50 unique values)
   return col.uniqueValues.length > 0 && col.uniqueValues.length <= 50
 }
@@ -678,12 +678,12 @@ function clearAllFilters() {
 // Computed stats - based on APPLIED filters (not pending)
 const hasActiveFilters = computed(() => appliedFilters.value.length > 0)
 
-const activeFilterCount = computed(() => 
+const activeFilterCount = computed(() =>
   appliedFilters.value.reduce((sum, g) => sum + g.conditions.length, 0)
 )
 
 // Check if there are pending (unapplied) changes
-const hasPendingChanges = computed(() => 
+const hasPendingChanges = computed(() =>
   JSON.stringify(filterGroups.value) !== JSON.stringify(appliedFilters.value)
 )
 
@@ -697,7 +697,7 @@ const totalRowCount = computed(() => {
 
 const filteredRowCount = computed(() => {
   if (!hasActiveFilters.value) return totalRowCount.value
-  
+
   let count = 0
   for (const viz of props.visualizations || []) {
     const vizId = viz.id
@@ -710,20 +710,20 @@ const filteredRowCount = computed(() => {
 // Filter evaluation
 function evaluateFilters(row: any, groups: FilterGroup[], widgetId?: string): boolean {
   if (!groups.length) return true
-  
+
   // Check if any condition in any group applies to this widget
-  const hasRelevantConditions = groups.some(group => 
+  const hasRelevantConditions = groups.some(group =>
     group.conditions.some(cond => {
       const { widgetId: condWidgetId } = parseColumnKey(cond.column)
       return condWidgetId === widgetId
     })
   )
-  
+
   // If no conditions apply to this widget, don't filter it
   if (widgetId && !hasRelevantConditions) {
     return true
   }
-  
+
   // OR across groups
   return groups.some(group => {
     // AND within group (only conditions for this widget)
@@ -734,19 +734,19 @@ function evaluateFilters(row: any, groups: FilterGroup[], widgetId?: string): bo
 function evaluateCondition(row: any, condition: FilterCondition, widgetId?: string): boolean {
   // Parse the column key to get widget and column name
   const { widgetId: conditionWidgetId, columnName } = parseColumnKey(condition.column)
-  
+
   // If filtering a specific widget, skip conditions for other widgets
   if (widgetId && conditionWidgetId !== widgetId) {
     return true // Don't filter out rows for non-matching widget conditions
   }
-  
+
   // Case-insensitive column lookup
   const columnKey = Object.keys(row).find(
     k => k.toLowerCase() === columnName.toLowerCase()
   )
   const value = columnKey ? row[columnKey] : undefined
   const target = condition.value
-  
+
   switch (condition.operator) {
     case 'equals':
       return String(value).toLowerCase() === String(target).toLowerCase()
@@ -775,11 +775,11 @@ function evaluateCondition(row: any, condition: FilterCondition, widgetId?: stri
     case 'after':
       return new Date(value) > new Date(target)
     case 'in':
-      return Array.isArray(target) && target.some(t => 
+      return Array.isArray(target) && target.some(t =>
         String(value).toLowerCase() === String(t).toLowerCase()
       )
     case 'not_in':
-      return !Array.isArray(target) || !target.some(t => 
+      return !Array.isArray(target) || !target.some(t =>
         String(value).toLowerCase() === String(t).toLowerCase()
       )
     case 'is_empty':
@@ -806,4 +806,3 @@ defineExpose({
 /* No custom styles needed - using Nuxt UI defaults */
 </style>
 
- 

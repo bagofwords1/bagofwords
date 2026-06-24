@@ -1,28 +1,28 @@
 <template>
     <!-- Add tabs -->
-    <div class="flex border-b border-gray-200 mb-2">
+    <div class="flex border-b border-gray-200 dark:border-gray-700 mb-2">
         <!-- Simplified v-if for Visual tab button -->
         <button
             v-if="isVisualType(props.step?.data_model?.type)"
             @click="activeTab = 'visual'" class="px-4 py-1 text-xs"
-            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'visual', 'text-gray-500': activeTab !== 'visual' }">
+            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'visual', 'text-gray-500 dark:text-gray-400': activeTab !== 'visual' }">
             Visual
         </button>
         <button @click="activeTab = 'model'" class="px-4 py-1 text-xs"
-            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'model', 'text-gray-500': activeTab !== 'model' }">
+            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'model', 'text-gray-500 dark:text-gray-400': activeTab !== 'model' }">
             Data Model
         </button>
         <button @click="activeTab = 'data'" class="px-4 py-1 text-xs"
-            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'data', 'text-gray-500': activeTab !== 'data' }">
+            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'data', 'text-gray-500 dark:text-gray-400': activeTab !== 'data' }">
             Data
-            <span v-if="!props.step?.data?.rows" class="text-xs text-gray-400">
+            <span v-if="!props.step?.data?.rows" class="text-xs text-gray-400 dark:text-gray-600">
                 <span class="inline-block animate-pulse">•</span>
                 <span class="inline-block animate-pulse delay-100">•</span>
                 <span class="inline-block animate-pulse delay-200">•</span>
             </span>
         </button>
         <button @click="activeTab = 'code'" class="px-4 py-1 text-xs"
-            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'code', 'text-gray-500': activeTab !== 'code' }">
+            :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'code', 'text-gray-500 dark:text-gray-400': activeTab !== 'code' }">
             Code
         </button>
 
@@ -31,7 +31,7 @@
     <!-- Visual -->
     <Transition name="fade" mode="out-in">
         <!-- Simplified Visual tab content -->
-        <div v-if="activeTab === 'visual'" class="bg-gray-50 rounded p-4 text-xs">
+        <div v-if="activeTab === 'visual'" class="bg-gray-50 dark:bg-gray-900 rounded p-4 text-xs">
              <!-- Check if it's a chart type handled by RenderVisual -->
              <div v-if="chartVisualTypes.has(props.step?.data_model?.type)" class="h-[400px]">
                   <RenderVisual :widget="props.widget" :data="props.step?.data" :data_model="props.step?.data_model" />
@@ -53,13 +53,13 @@
             <!-- Keep existing data model table -->
             <transition-group tag="table" name="fade" class="border-collapse w-full">
                 <tr v-for="column in props.step?.data_model?.columns" :key="column.generated_column_name">
-                    <th class="border-t border-b border-e border-gray-200 px-2 py-1">
+                    <th class="border-t border-b border-e border-gray-200 dark:border-gray-700 px-2 py-1">
                         {{ column.generated_column_name }}
                     </th>
-                    <td class="border-t border-b border-s border-gray-200 px-2 py-1">
+                    <td class="border-t border-b border-s border-gray-200 dark:border-gray-700 px-2 py-1">
                         {{ column.description }}
                         <UTooltip :text="column.source">
-                            <Icon name="heroicons:information-circle" class="text-gray-500" />
+                            <Icon name="heroicons:information-circle" class="text-gray-500 dark:text-gray-400" />
                         </UTooltip>
                     </td>
                 </tr>
@@ -76,7 +76,7 @@
 
     <!-- Code View -->
     <Transition name="fade" mode="out-in">
-        <div v-if="activeTab === 'code'" class="bg-gray-50 rounded p-4 text-xs">
+        <div v-if="activeTab === 'code'" class="bg-gray-50 dark:bg-gray-900 rounded p-4 text-xs">
             <pre><code class="hljs" v-html="highlightedCode"></code></pre>
         </div>
     </Transition>

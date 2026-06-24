@@ -1,5 +1,5 @@
 <template>
-  <div 
+  <div
     class="card-block h-full w-full flex flex-col overflow-hidden relative"
     :class="[borderClass, backgroundClass]"
     :style="cardStyle"
@@ -18,16 +18,16 @@
     </div>
 
     <!-- Card Header -->
-    <div 
-      v-if="showHeader" 
+    <div
+      v-if="showHeader"
       class="card-header flex-shrink-0 px-6 pt-5 pb-1"
     >
       <div class="flex items-center justify-between">
         <div class="flex-1 min-w-0 pe-8">
-          <h3 v-if="chrome?.title" class="text-base font-semibold text-gray-900 truncate">
+          <h3 v-if="chrome?.title" class="text-base font-semibold text-gray-900 dark:text-white truncate">
             {{ chrome.title }}
           </h3>
-          <p v-if="chrome?.subtitle" class="text-sm text-gray-500 mt-1">
+          <p v-if="chrome?.subtitle" class="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {{ chrome.subtitle }}
           </p>
         </div>
@@ -91,9 +91,9 @@ const borderClass = computed(() => {
   const border = chrome.value.border || 'none'
   switch (border) {
     case 'strong':
-      return 'rounded-xl border-2 border-gray-300 shadow-md'
+      return 'rounded-xl border-2 border-gray-300 dark:border-gray-600 shadow-md'
     case 'soft':
-      return 'rounded-xl border border-gray-200/60 shadow-sm'
+      return 'rounded-xl border border-gray-200/60 dark:border-gray-700 shadow-sm'
     case 'none':
     default:
       return 'rounded-xl'
@@ -102,7 +102,7 @@ const borderClass = computed(() => {
 
 const backgroundClass = computed(() => {
   if (chrome.value.background) return ''
-  return 'bg-white'
+  return 'bg-white dark:bg-gray-900'
 })
 
 const contentPaddingClass = computed(() => {
@@ -136,4 +136,3 @@ const cardStyle = computed(() => {
   flex-direction: column;
 }
 </style>
-

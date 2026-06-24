@@ -3,7 +3,7 @@
         <UPopover :popper="{ strategy: 'absolute', placement: 'bottom-start', offset: [0,8] }">
             <UTooltip :text="isCompactFinal ? dataTooltip : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                 <button
-                    class="inline-flex items-center text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-2 text-xs"
+                    class="inline-flex items-center text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md p-2 text-xs"
                     :disabled="isLoading"
                 >
                     <span v-if="isLoading" class="flex items-center">
@@ -40,31 +40,31 @@
             </UTooltip>
             <template #panel>
                 <div class="p-2 text-xs max-h-64 overflow-y-auto w-max min-w-[260px] max-w-[420px] rounded-xl">
-                    <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 space-x-2">
+                    <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
                         <span>Loading data sources…</span>
                     </div>
                     <template v-else>
-                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 py-4">
+                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
                             No data sources found
                         </div>
                         <template v-else>
                             <template v-if="visibleDataSources.length > 0">
                                 <div
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                                     @click="toggleAutoMode"
                                 >
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 me-2" />
+                                        <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
                                         <span class="text-[13px]">Auto</span>
                                     </div>
                                     <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <div class="my-1 border-t border-gray-100" />
+                                <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <div
                                     v-for="ds in visibleDataSources"
                                     :key="ds.id"
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                                     @click="() => { toggleDataSource(ds); }"
                                     @mouseenter="onDataSourceHover(ds.id, $event)"
                                     @mouseleave="onDataSourceHoverLeave()"
@@ -81,7 +81,7 @@
                                         <!-- Running via the connection's system (service principal) creds -->
                                         <span
                                             v-if="isServiceAccount(ds)"
-                                            class="ms-2 flex-shrink-0 text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5"
+                                            class="ms-2 flex-shrink-0 text-[10px] text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
                                         >Service account</span>
                                     </div>
                                     <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -92,11 +92,11 @@
                                  with a Connect action. These are NOT selectable and are
                                  never persisted to the report until connected. -->
                             <template v-if="connectableDataSources.length > 0">
-                                <div v-if="visibleDataSources.length > 0" class="my-1 border-t border-gray-100" />
+                                <div v-if="visibleDataSources.length > 0" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <div
                                     v-for="ds in connectableDataSources"
                                     :key="ds.id"
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between gap-2"
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between gap-2"
                                     @click="openCredentialsModal(ds)"
                                 >
                                     <div class="flex items-center min-w-0 opacity-50">
@@ -106,7 +106,7 @@
                                     <button
                                         type="button"
                                         :disabled="connectingId === ds.id"
-                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         @click.stop="openCredentialsModal(ds)"
                                     >
                                         <Spinner v-if="connectingId === ds.id" class="w-3 h-3" />
@@ -421,11 +421,11 @@ function toggleDataSource(ds: DataSource) {
 onMounted(() => {
     nextTick(async () => {
         const { organization, ensureOrganization } = useOrganization()
-        
+
         try {
             // Wait for organization to be available before making API calls
             await ensureOrganization()
-            
+
             if (organization.value?.id) {
                 getDataSources()
             } else {
@@ -443,14 +443,14 @@ onMounted(() => {
             }
             return parent || containerRef.value
         }
-        
+
         const ro = new ResizeObserver(() => {
             const targetEl = findPromptContainer()
             const w = targetEl?.clientWidth || 0
             // Use a more reasonable threshold - compact if container is less than 420px
             isCompact.value = w > 0 && w < 420
         })
-        
+
         // Observe the container initially, then try to find a better parent
         if (containerRef.value) {
             ro.observe(containerRef.value)

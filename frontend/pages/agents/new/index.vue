@@ -3,7 +3,7 @@
     <div class="w-full px-4 ps-0 py-4">
       <div>
         <h1 class="text-lg font-semibold text-center">Create Data Agent</h1>
-        <p class="mt-2 text-gray-500 text-center">Set data source, select tables, and define additional context</p>
+        <p class="mt-2 text-gray-500 dark:text-gray-400 text-center">Set data source, select tables, and define additional context</p>
       </div>
 
       <WizardSteps class="mt-7" current="connect" />
@@ -11,13 +11,13 @@
       <!-- Loading connections -->
       <div v-if="loadingConnections" class="flex flex-col items-center justify-center py-16">
         <Spinner class="h-4 w-4 text-gray-400" />
-        <p class="text-sm text-gray-500 mt-2">Loading connections...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading connections...</p>
       </div>
 
-      <div v-else class="mt-6 bg-white rounded-lg border border-gray-200 p-4">
+      <div v-else class="mt-6 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <!-- Agent name -->
         <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Name <span class="text-red-500">*</span>
           </label>
           <UInput
@@ -30,7 +30,7 @@
 
         <!-- Connection selector (multi-select for existing connections) -->
         <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Connections <span class="text-red-500">*</span>
           </label>
           <USelectMenu
@@ -49,7 +49,7 @@
             <template #label>
               <div v-if="selectedConnections.length > 0" class="flex items-center gap-1.5 flex-wrap">
                 <template v-for="conn in selectedConnections" :key="conn.id">
-                  <div class="flex items-center gap-1 bg-gray-100 rounded px-1.5 py-0.5">
+                  <div class="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5">
                     <DataSourceIcon :type="conn.type" class="h-3.5 flex-shrink-0" />
                     <span class="text-xs truncate max-w-[100px]">{{ conn.name }}</span>
                   </div>
@@ -84,15 +84,15 @@
         <div v-if="selectedConnections.length > 0">
           <div class="flex items-center gap-2 mb-4">
             <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
-            <span class="text-xs text-gray-700">Use LLM to learn agent</span>
+            <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn agent</span>
           </div>
 
-          <div v-if="errorMessage" class="p-3 bg-red-50 text-red-700 rounded-lg text-sm mb-4">
+          <div v-if="errorMessage" class="p-3 bg-red-50 dark:bg-red-950 text-red-700 rounded-lg text-sm mb-4">
             {{ errorMessage }}
           </div>
 
-          <div class="flex justify-between items-center pt-4 border-t border-gray-100">
-            <NuxtLink to="/agents" class="text-sm text-gray-500 hover:text-gray-700">
+          <div class="flex justify-between items-center pt-4 border-t border-gray-100 dark:border-gray-800">
+            <NuxtLink to="/agents" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
               ← Cancel
             </NuxtLink>
             <UButton
@@ -108,8 +108,8 @@
         </div>
 
         <!-- No selection yet (just show cancel) -->
-        <div v-else class="flex justify-start pt-4 border-t border-gray-100">
-          <NuxtLink to="/agents" class="text-sm text-gray-500 hover:text-gray-700">
+        <div v-else class="flex justify-start pt-4 border-t border-gray-100 dark:border-gray-800">
+          <NuxtLink to="/agents" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
             ← Cancel
           </NuxtLink>
         </div>

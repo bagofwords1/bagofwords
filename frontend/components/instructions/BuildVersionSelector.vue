@@ -2,13 +2,13 @@
     <UTooltip :text="tooltip" :popper="{ placement: 'top' }">
         <button
             @click="openExplorer"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300"
         >
-            <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-500" />
-            <span class="text-gray-700">{{ selectedLabel }}</span>
+            <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <span class="text-gray-700 dark:text-gray-300">{{ selectedLabel }}</span>
         </button>
     </UTooltip>
-    
+
     <!-- Build Explorer Modal -->
     <BuildExplorerModal
         v-model="isExplorerOpen"

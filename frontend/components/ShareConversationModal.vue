@@ -1,6 +1,6 @@
 <template>
     <UTooltip text="Share Conversation">
-        <button @click="openModal" class="p-1.5 rounded text-xl hover:bg-gray-100 flex items-center">
+        <button @click="openModal" class="p-1.5 rounded text-xl hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center">
             <Icon name="heroicons:arrow-up-tray" class="inline-block me-2" />
             <span class="text-sm">Share</span>
         </button>
@@ -9,11 +9,11 @@
     <UModal v-model="modalOpen">
         <div class="p-4 relative">
             <button @click="modalOpen = false"
-                class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
+                class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Share Conversation</h1>
-            <p class="text-sm text-gray-500">Share this conversation with others</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Share this conversation with others</p>
             <hr class="my-4" />
             <div class="flex flex-row items-center text-sm">
                 Enable conversation sharing
@@ -22,10 +22,10 @@
             <div class="flex flex-col mt-4 text-sm" v-if="isShared && shareToken">
                 <div class="my-2 font-semibold">Share URL</div>
                 <div class="flex">
-                    <input :value="shareUrl" type="text" class="py-2 px-2 border border-gray-200 rounded-md w-[95%]"
+                    <input :value="shareUrl" type="text" class="py-2 px-2 border border-gray-200 dark:border-gray-700 rounded-md w-[95%]"
                         disabled />
                     <button @click="copyShareUrl"
-                        class="ms-2 bg-gray-50 border border-gray-200 rounded-md px-3 text-xs hover:bg-gray-100 relative">
+                        class="ms-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 relative">
                         Copy
                         <span v-if="showTooltip"
                             class="absolute top-full start-1/2 transform -translate-x-1/2 mt-1 bg-black text-white text-xs rounded py-1 px-2">
@@ -42,9 +42,9 @@
             <NotifyRecipientPicker v-if="smtpEnabled && isShared && shareToken" :report-id="props.report.id"
                 notification-type="share_conversation" :share-url="shareUrl" />
 
-            <div class="border-t border-gray-200 pt-4 mt-8">
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-8">
                 <button @click="modalOpen = false"
-                    class="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs hover:bg-gray-100">Close</button>
+                    class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700">Close</button>
             </div>
         </div>
     </UModal>
@@ -131,21 +131,21 @@ const toggleShare = async (newValue: boolean) => {
         if (newValue === isShared.value) return;
 
         const response = await useMyFetch(`/reports/${props.report.id}/conversation-share`, { method: 'POST' });
-        
+
         if (response.error.value) {
             throw new Error('Failed to toggle sharing');
         }
-        
+
         const data = response.data.value as { enabled: boolean; token: string | null };
         isShared.value = data.enabled;
         shareToken.value = data.token;
-        
+
         // Update the parent report object
         if (props.report) {
             props.report.conversation_share_enabled = data.enabled;
             props.report.conversation_share_token = data.token;
         }
-        
+
         toast.add({
             title: data.enabled ? 'Conversation sharing enabled' : 'Conversation sharing disabled',
             description: data.enabled ? 'Anyone with the link can view this conversation' : 'The share link is now inactive',
@@ -196,4 +196,3 @@ const copyShareUrl = async () => {
     }
 };
 </script>
-

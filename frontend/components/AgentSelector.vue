@@ -5,13 +5,13 @@
       v-if="loading || (!loading && agents.length === 0)"
       :class="[
         'flex items-center w-full rounded-lg',
-        'bg-white border border-gray-200 shadow-sm',
+        'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm',
         collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
       ]"
     >
       <UTooltip v-if="collapsed" :text="loading ? $t('common.loading') : $t('nav.noAgents')" :popper="{ placement: 'right' }">
         <Spinner v-if="loading" class="w-4 h-4 text-gray-300 animate-spin" />
-        <AgentIcon class="w-4 h-4 text-gray-300" />
+        <AgentIcon class="w-4 h-4 text-gray-300 dark:text-gray-600" />
       </UTooltip>
       <template v-else>
         <span v-if="showText" class="flex-1 text-start min-w-0">
@@ -47,8 +47,8 @@
           collapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2'
         ] : [
           'flex items-center w-full rounded-lg transition-all duration-200',
-          'bg-white hover:bg-gray-50',
-          'border border-gray-200 shadow-sm hover:shadow hover:border-gray-300',
+          'bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800',
+          'border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow hover:border-gray-300 dark:hover:border-gray-600',
           collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
         ]"
       >
@@ -77,7 +77,7 @@
         <UTooltip v-if="collapsed" :text="currentAgentName" :popper="{ placement: 'right' }">
           <span class="flex items-center justify-center w-5 h-5">
             <Spinner v-if="loading" class="w-4 h-4 text-gray-400 animate-spin" />
-            <UIcon v-else name="heroicons-chevron-down" class="w-4 h-4 text-gray-500" />
+            <UIcon v-else name="heroicons-chevron-down" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </span>
         </UTooltip>
         <template v-else>
@@ -89,7 +89,7 @@
             <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">{{ $t('nav.context') }}</span>
             <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
               <Spinner v-if="loading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
-              <span class="text-xs font-medium text-gray-700 truncate">{{ currentAgentName }}</span>
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ currentAgentName }}</span>
             </span>
           </span>
           <UIcon v-if="showText" name="heroicons-chevron-up-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
@@ -100,7 +100,7 @@
       <template #panel>
         <div class="overflow-visible">
           <!-- Agent list -->
-          <div class="w-max min-w-[14rem] max-w-[24rem] bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
+          <div class="w-max min-w-[14rem] max-w-[24rem] bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div class="p-1.5">
               <div v-if="loading" class="flex items-center justify-center py-6">
                 <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
@@ -112,15 +112,15 @@
                   @click="toggleAgent(null)"
                   :class="[
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
-                    isAllAgents ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                    isAllAgents ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                   ]"
                 >
                   <AgentIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <span :class="['text-xs font-medium flex-1', isAllAgents ? 'text-indigo-700' : 'text-gray-700']">{{ $t('nav.allAgents') }}</span>
+                  <span :class="['text-xs font-medium flex-1', isAllAgents ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ $t('nav.allAgents') }}</span>
                   <UIcon v-if="isAllAgents" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                 </button>
 
-                <div class="my-1 border-t border-gray-100" />
+                <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
 
                 <!-- Agent list -->
                 <div class="max-h-52 overflow-y-auto">
@@ -130,7 +130,7 @@
                     @click="toggleAgent(a.id)"
                     :class="[
                       'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
-                      isAgentSelected(a.id) ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                      isAgentSelected(a.id) ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                     ]"
                   >
                     <DataSourceIcon
@@ -139,7 +139,7 @@
                       class="h-4 w-4 flex-shrink-0"
                     />
                     <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                    <span :class="['text-xs font-medium truncate flex-1', isAgentSelected(a.id) ? 'text-indigo-700' : 'text-gray-700']">{{ a.name }}</span>
+                    <span :class="['text-xs font-medium truncate flex-1', isAgentSelected(a.id) ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ a.name }}</span>
                     <!-- Connect chip for user_required agents not yet authenticated.
                          Nested as a span (the row is a <button>) to keep markup valid. -->
                     <span
@@ -151,8 +151,8 @@
                       :class="[
                         'flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border transition-colors',
                         connectingId === a.id
-                          ? 'text-blue-400 bg-blue-50 border-blue-100 cursor-default'
-                          : 'text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100'
+                          ? 'text-blue-400 bg-blue-50 dark:bg-blue-950 border-blue-100 cursor-default'
+                          : 'text-blue-600 bg-blue-50 dark:bg-blue-950 border-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/50'
                       ]"
                     >
                       <Spinner v-if="connectingId === a.id" class="w-3 h-3" />
@@ -163,12 +163,12 @@
                   </button>
                 </div>
 
-                <div class="my-1 border-t border-gray-100" />
+                <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
 
                 <!-- View all -->
                 <NuxtLink
                   to="/agents"
-                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
                 >
                   <AgentIcon class="w-3.5 h-3.5 flex-shrink-0" />
                   <span class="text-xs">{{ $t('nav.viewAllAgents') }}</span>

@@ -20,46 +20,46 @@
         <!-- Summary Cards (matching MetricsCards.vue style) -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <!-- Failed Queries -->
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">
+            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900 dark:text-white">
                     {{ dashboardMetrics?.failed_queries || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.diagnosis.cardFailedQueries') }}</div>
+                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.diagnosis.cardFailedQueries') }}</div>
             </div>
 
             <!-- Negative Feedback -->
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">
+            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900 dark:text-white">
                     {{ dashboardMetrics?.negative_feedback || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.diagnosis.cardNegativeFeedback') }}</div>
+                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.diagnosis.cardNegativeFeedback') }}</div>
             </div>
 
             <!-- Instruction Coverage -->
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">
+            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900 dark:text-white">
                     {{ isJudgeEnabled ? (getInstructionsEffectiveness() + '%') : $t('monitoring.diagnosis.naAbbr') }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1 flex items-center">
                     {{ $t('monitoring.diagnosis.cardInstructionCoverage') }}
                     <UTooltip :text="isJudgeEnabled ? $t('monitoring.diagnosis.judgeEnabledTooltip') : $t('monitoring.diagnosis.judgeDisabledTooltip')">
-                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
+                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 dark:text-gray-600 cursor-help" />
                     </UTooltip>
                 </div>
             </div>
 
             <!-- Total Items -->
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">
+            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900 dark:text-white">
                     {{ dashboardMetrics?.total_items || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.diagnosis.cardTotalAgentRuns') }}</div>
+                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.diagnosis.cardTotalAgentRuns') }}</div>
             </div>
         </div>
 
         <!-- Filter Tabs -->
         <div class="mb-6">
-            <div class="border-b border-gray-200">
+            <div class="border-b border-gray-200 dark:border-gray-700">
                 <nav class="-mb-px flex space-x-8">
                     <button
                         v-for="filter in filterOptions"
@@ -68,7 +68,7 @@
                         :class="[
                             selectedFilter.value === filter.value
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:border-gray-300',
                             'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm'
                         ]"
                     >
@@ -77,8 +77,8 @@
                             v-if="filter.count !== undefined && filter.count >= 0"
                             :class="[
                                 selectedFilter.value === filter.value
-                                    ? 'bg-blue-100 text-blue-600'
-                                    : 'bg-gray-100 text-gray-600',
+                                    ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
                                 'ms-2 py-0.5 px-2 rounded-full text-xs font-medium'
                             ]"
                         >
@@ -93,7 +93,7 @@
         <div v-if="selectedDay" class="mb-4 -mt-2">
             <button
                 @click="clearDayFilter"
-                class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-medium hover:bg-blue-100"
+                class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950 text-blue-700 border border-blue-200 rounded-full text-xs font-medium hover:bg-blue-100"
             >
                 {{ $t('monitoring.diagnosis.dayFilterLabel', { date: formatDate(selectedDay) }) }}
                 <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
@@ -104,33 +104,33 @@
         <div v-if="isLoading" class="flex items-center justify-center py-12">
             <div class="flex items-center space-x-2">
                 <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                <span class="text-gray-600">{{ $t('monitoring.diagnosis.loading') }}</span>
+                <span class="text-gray-600 dark:text-gray-400">{{ $t('monitoring.diagnosis.loading') }}</span>
             </div>
         </div>
 
         <!-- Agent Executions Table -->
-        <div v-else class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+        <div v-else class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
+                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead class="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[320px] w-[320px]">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[320px] w-[320px]">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                        <tr v-for="item in executionItems" :key="item.agent_execution_id" class="hover:bg-gray-50 cursor-pointer" @click="openTraceFromAE(item)">
+                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
+                        <tr v-for="item in executionItems" :key="item.agent_execution_id" class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" @click="openTraceFromAE(item)">
                             <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900">
+                                <div class="text-xs text-gray-900 dark:text-white">
                                     <div class="relative group max-w-[320px] w-[320px]">
                                         <p class="truncate">{{ truncate(item.prompt || '', 40) }}</p>
-                                        <div class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                        <div class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                             {{ item.prompt || '—' }}
                                         </div>
                                     </div>
@@ -139,25 +139,25 @@
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="relative inline-block group">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                          :class="item.agent_execution_status === 'error' ? 'bg-red-100 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'">
+                                          :class="item.agent_execution_status === 'error' ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800'">
                                         {{ item.agent_execution_status === 'error' ? $t('monitoring.diagnosis.statusError') : $t('monitoring.diagnosis.statusSuccess') }}
                                     </span>
-                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                         {{ item.error_json.message }}
                                     </div>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex flex-wrap gap-1 max-w-md">
-                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px]"
+                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]"
                                           @click.stop="openTraceFromAE(item)">
                                         {{ title }}
                                     </span>
-                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400">{{ $t('monitoring.diagnosis.none') }}</span>
+                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400 dark:text-gray-600">{{ $t('monitoring.diagnosis.none') }}</span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900">{{ $t('monitoring.diagnosis.totalPrefix', { n: item.total_tools }) }}</div>
+                                <div class="text-xs text-gray-900 dark:text-white">{{ $t('monitoring.diagnosis.totalPrefix', { n: item.total_tools }) }}</div>
                                 <div class="flex items-center space-x-4 mt-1">
                                     <div class="flex items-center space-x-1 text-green-600">
                                         <UIcon name="i-heroicons-check-circle" class="w-4 h-4" />
@@ -172,10 +172,10 @@
                             <td class="px-6 py-4">
                                 <div class="flex flex-col">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
-                                          :class="item.feedback_direction > 0 ? 'bg-green-100 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
+                                          :class="item.feedback_direction > 0 ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800'">
                                         {{ item.feedback_direction > 0 ? $t('monitoring.diagnosis.feedbackPositive') : (item.feedback_direction < 0 ? $t('monitoring.diagnosis.feedbackNegative') : $t('monitoring.diagnosis.feedbackNone')) }}
                                     </span>
-                                    <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 max-w-sm">
+                                    <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-sm">
                                         <UTooltip :text="item.feedback_message">
                                             <span class="truncate cursor-help">{{ truncate(item.feedback_message, 120) }}</span>
                                         </UTooltip>
@@ -189,10 +189,10 @@
                                 <span v-else>{{ item.report_name || item.report_id }}</span>
                             </td>
                             <td class="px-2 py-1">
-                                <div class="text-xs text-gray-900">{{ item.user_name || '—' }}</div>
+                                <div class="text-xs text-gray-900 dark:text-white">{{ item.user_name || '—' }}</div>
                             </td>
                             <td class="px-3 py-1">
-                                <span class="text-xs text-gray-500">{{ formatDate(item.created_at as any) }}</span>
+                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(item.created_at as any) }}</span>
                             </td>
                         </tr>
                     </tbody>
@@ -201,12 +201,12 @@
 
             <!-- Empty state -->
             <div v-if="executionItems.length === 0 && !isLoading" class="text-center py-12">
-                <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400" />
-                <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('monitoring.diagnosis.emptyTitle') }}</h3>
-                <p class="mt-1 text-sm text-gray-500">
+                <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" />
+                <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('monitoring.diagnosis.emptyTitle') }}</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     {{ $t('monitoring.diagnosis.emptySubtitle') }}
                 </p>
-                <div class="mt-2 text-xs text-gray-400">
+                <div class="mt-2 text-xs text-gray-400 dark:text-gray-600">
                     {{ $t('monitoring.diagnosis.debugPrefix', { info: debugInfo }) }}
                 </div>
             </div>
@@ -214,7 +214,7 @@
 
         <!-- Pagination -->
         <div v-if="executionItems.length > 0" class="mt-6 flex items-center justify-between">
-            <div class="text-sm text-gray-700">
+            <div class="text-sm text-gray-700 dark:text-gray-300">
                 {{ $t('monitoring.diagnosis.paginationRange', { start: (currentPage - 1) * pageSize + 1, end: Math.min(currentPage * pageSize, totalItems), total: totalItems }) }}
             </div>
 
@@ -487,15 +487,15 @@ const getIssueTypeClass = (issueType: string) => {
     switch (issueType) {
         case 'failed_step':
         case 'failed_query':
-            return 'bg-red-100 text-red-800'
+            return 'bg-red-100 dark:bg-red-900/50 text-red-800'
         case 'validation_error':
             return 'bg-yellow-100 text-yellow-800'
         case 'negative_feedback':
-            return 'bg-orange-100 text-orange-800'
+            return 'bg-orange-100 dark:bg-orange-950 text-orange-800'
         case 'no_issue':
-            return 'bg-green-100 text-green-800'
+            return 'bg-green-100 dark:bg-green-900/50 text-green-800'
         default:
-            return 'bg-gray-100 text-gray-800'
+            return 'bg-gray-100 dark:bg-gray-800 text-gray-800'
     }
 }
 

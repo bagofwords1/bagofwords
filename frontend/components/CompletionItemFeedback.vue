@@ -10,7 +10,7 @@
         :loading="isLoading"
       />
     </div>
-    
+
     <div class="flex items-center gap-1">
       <UButton
         :icon="userFeedback?.direction === -1 ? 'i-heroicons-hand-thumb-down-solid' : 'i-heroicons-hand-thumb-down'"
@@ -27,18 +27,18 @@
   <UModal v-model="showNegativeFeedbackModal" :ui="{ width: 'max-w-md' }">
     <div class="p-6">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-bold text-gray-900">
+        <h2 class="text-lg font-bold text-gray-900 dark:text-white">
           What went wrong?
         </h2>
-        <button @click="showNegativeFeedbackModal = false" class="text-gray-500 hover:text-gray-700">
+        <button @click="showNegativeFeedbackModal = false" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">
           <Icon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
-      
-      <p class="text-sm text-gray-600 mb-4">
+
+      <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
         Help us improve by letting us know what went wrong with this response.
       </p>
-      
+
       <UTextarea
         v-model="feedbackMessage"
         placeholder="Type more details here..."
@@ -46,7 +46,7 @@
         class="mb-4"
         :maxlength="500"
       />
-      
+
       <div class="flex justify-end gap-2">
         <UButton
           color="gray"
@@ -137,9 +137,9 @@ const fetchFeedbackSummary = async () => {
 
 const sendFeedback = async (vote: number) => {
   if (isLoading.value) return;
-  
+
   isLoading.value = true;
-  
+
   try {
     const response = await useMyFetch(`/api/completions/${props.completion.id}/feedback`, {
       method: 'POST',
@@ -188,9 +188,9 @@ const handleNegativeFeedback = () => {
 
 const submitNegativeFeedback = async () => {
   if (isSubmittingNegativeFeedback.value) return;
-  
+
   isSubmittingNegativeFeedback.value = true;
-  
+
   try {
     const response = await useMyFetch(`/api/completions/${props.completion.id}/feedback`, {
       method: 'POST',
@@ -238,12 +238,12 @@ const triggerSuggestionGeneration = async () => {
   try {
     // Emit loading state to parent
     emit('suggestionsLoading');
-    
+
     // Call the suggest-instructions endpoint
     const response = await useMyFetch(`/api/completions/${props.completion.id}/feedback/suggest-instructions`, {
       method: 'POST'
     });
-    
+
     if (response.status.value === 'success' && response.data.value) {
       const suggestions = response.data.value as any[];
       emit('suggestionsReceived', suggestions);
@@ -257,4 +257,4 @@ const triggerSuggestionGeneration = async () => {
     emit('suggestionsReceived', []);
   }
 };
-</script> 
+</script>

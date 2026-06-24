@@ -1,22 +1,22 @@
 <template>
   <div class="mt-1">
     <!-- Header line -->
-    <div class="mb-2 flex items-center text-xs text-gray-500">
+    <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
       <span v-if="status === 'running' || isInProgress" class="tool-shimmer flex items-center">
         <Icon name="heroicons-play" class="w-3 h-3 me-1 text-gray-400" />
         {{ t('tools.runEval.running') }}{{ totalLabel }}
       </span>
-      <span v-else-if="status === 'stopped' || progress.status === 'stopped'" class="text-gray-700 flex items-center">
+      <span v-else-if="status === 'stopped' || progress.status === 'stopped'" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-gray-400" />
         <span class="align-middle">{{ t('tools.runEval.stopped') }}</span>
       </span>
-      <span v-else class="text-gray-700 flex items-center">
+      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-check-circle" class="w-3 h-3 me-1 text-gray-400" />
         <span class="align-middle">{{ t('tools.runEval.finished') }}</span>
       </span>
 
       <!-- Live counters -->
-      <span v-if="progress.total > 0" class="ms-2 text-[10px] text-gray-500">
+      <span v-if="progress.total > 0" class="ms-2 text-[10px] text-gray-500 dark:text-gray-400">
         {{ progress.finished }} / {{ progress.total }}
         <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
           v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span>
@@ -37,7 +37,7 @@
 
     <!-- Progress bar -->
     <div v-if="progress.total > 0" class="mb-2">
-      <div class="h-1 bg-gray-100 rounded overflow-hidden">
+      <div class="h-1 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
         <div
           class="h-full transition-all duration-300"
           :class="failedAny ? 'bg-amber-400' : 'bg-green-400'"
@@ -47,7 +47,7 @@
     </div>
 
     <!-- Per-case rows -->
-    <ul v-if="progress.cases.length" class="text-xs text-gray-600 ms-1 space-y-1 leading-snug">
+    <ul v-if="progress.cases.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in progress.cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
         <Icon
           :name="caseIcon(c.status)"
@@ -178,8 +178,8 @@ function caseIconColor(s: string): string {
 function caseStatusColor(s: string): string {
   if (s === 'pass') return 'text-green-700'
   if (s === 'fail' || s === 'error') return 'text-red-700'
-  if (s === 'stopped') return 'text-gray-600'
-  return 'text-gray-500'
+  if (s === 'stopped') return 'text-gray-600 dark:text-gray-400'
+  return 'text-gray-500 dark:text-gray-400'
 }
 
 async function stopRun() {

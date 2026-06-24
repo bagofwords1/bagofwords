@@ -36,7 +36,7 @@
         :reportOverrides="reportOverrides"
       />
     </div>
-    <div v-else-if="widget?.last_step?.type == 'init'" class="flex-1 flex items-center justify-center text-gray-500">
+    <div v-else-if="widget?.last_step?.type == 'init'" class="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
       <SpinnerComponent />
       <span class="ms-2 text-sm">Loading...</span>
     </div>

@@ -1,9 +1,9 @@
 <template>
   <div class="h-full w-full flex flex-col" :style="wrapperStyle">
     <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && (data?.rows?.length || 0) > 0" class="flex-1 min-h-0">
-      <VChart :key="chartKey" class="chart" :option="chartOptions" autoresize :loading="isLoading" />
+      <VChart :key="chartKey" class="chart" :option="chartOptions" autoresize :loading="isLoading" :theme="colorMode.value === 'dark' ? 'dark' : undefined" />
     </div>
-    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500">Loading Chart...</div>
+    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">Loading Chart...</div>
     <div v-else-if="!(data?.rows?.length > 0)" class="flex-1 flex items-center justify-center text-gray-400">No data to display.</div>
     <div v-else class="flex-1 flex items-center justify-center text-gray-400">Chart configuration error or unsupported type.</div>
   </div>
@@ -11,6 +11,7 @@
 
 <script setup lang="ts">
 import { toRefs, ref, watch, computed } from 'vue'
+const colorMode = useColorMode()
 import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 import { use } from 'echarts/core'
 import { graphic as EGraphic } from 'echarts'

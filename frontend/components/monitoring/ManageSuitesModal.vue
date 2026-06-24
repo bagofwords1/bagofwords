@@ -4,7 +4,7 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">Manage Test Suites</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Manage Test Suites</h3>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
                 </div>
             </template>
@@ -12,20 +12,20 @@
             <div class="space-y-4">
                 <!-- Header with create button -->
                 <div class="flex items-center justify-between">
-                    <div class="text-sm text-gray-600">{{ suites.length }} suite{{ suites.length !== 1 ? 's' : '' }}</div>
+                    <div class="text-sm text-gray-600 dark:text-gray-400">{{ suites.length }} suite{{ suites.length !== 1 ? 's' : '' }}</div>
                     <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="showCreateModal = true">
                         Create New Suite
                     </UButton>
                 </div>
 
                 <!-- Loading state -->
-                <div v-if="isLoading" class="py-8 text-center text-gray-500 text-sm">
+                <div v-if="isLoading" class="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
                     Loading suites...
                 </div>
 
                 <!-- Empty state -->
                 <div v-else-if="suites.length === 0" class="py-8 text-center">
-                    <div class="text-gray-500 text-sm mb-2">No test suites yet</div>
+                    <div class="text-gray-500 dark:text-gray-400 text-sm mb-2">No test suites yet</div>
                     <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="showCreateModal = true">
                         Create your first suite
                     </UButton>
@@ -33,26 +33,26 @@
 
                 <!-- Suites list -->
                 <div v-else class="max-h-[400px] overflow-y-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50 sticky top-0">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
                             <tr>
-                                <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Tests</th>
-                                <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Suite ID</th>
-                                <th class="px-4 py-2 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                                <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tests</th>
+                                <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Suite ID</th>
+                                <th class="px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <tr v-for="suite in suites" :key="suite.id" class="hover:bg-gray-50">
-                                <td class="px-4 py-3 text-sm text-gray-900">{{ suite.name }}</td>
-                                <td class="px-4 py-3 text-sm text-gray-600">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                            <tr v-for="suite in suites" :key="suite.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">{{ suite.name }}</td>
+                                <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-800">
                                         {{ suite.tests_count }} test{{ suite.tests_count !== 1 ? 's' : '' }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-1">
-                                        <code class="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-mono truncate max-w-[140px]" :title="suite.id">
+                                        <code class="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded font-mono truncate max-w-[140px]" :title="suite.id">
                                             {{ suite.id }}
                                         </code>
                                         <UButton
@@ -156,9 +156,9 @@ const confirmDelete = async (suite: SuiteSummary) => {
     const msg = suite.tests_count > 0
         ? `Delete suite "${suite.name}" and its ${suite.tests_count} test case${suite.tests_count !== 1 ? 's' : ''}? This cannot be undone.`
         : `Delete suite "${suite.name}"? This cannot be undone.`
-    
+
     if (!window.confirm(msg)) return
-    
+
     deletingId.value = suite.id
     try {
         const res: any = await useMyFetch(`/api/tests/suites/${suite.id}`, { method: 'DELETE' })

@@ -8,70 +8,70 @@
         <!-- Empty state -->
         <div v-else-if="instructions.length === 0" class="flex items-center justify-center py-12 flex-1">
             <div class="flex flex-col items-center justify-center gap-2 text-center">
-                <Icon name="heroicons:document-text" class="mx-auto h-10 w-10 text-gray-300" />
-                <h3 class="mt-2 text-sm font-medium text-gray-900">{{ emptyTitle }}</h3>
-                <p class="mt-1 text-xs text-gray-500">{{ emptyMessage }}</p>
+                <Icon name="heroicons:document-text" class="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" />
+                <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ emptyTitle }}</h3>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ emptyMessage }}</p>
             </div>
         </div>
 
         <!-- Table -->
         <div v-else class="flex-1 flex flex-col min-h-0">
-            <div class="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
                 <div class="overflow-x-auto overflow-y-auto flex-1">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50 sticky top-0 z-10">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0 z-10">
                             <tr>
                                 <!-- Checkbox header -->
                                 <th v-if="selectable" :class="compact ? 'px-2 py-1.5 w-8' : 'px-3 py-2 w-10'">
-                                    <input 
+                                    <input
                                         type="checkbox"
                                         :checked="isAllPageSelected"
                                         :indeterminate="isSomeSelected && !isAllPageSelected"
                                         @change="$emit('toggle-page')"
                                         :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'"
-                                        class="rounded border-gray-300 text-gray-800 focus:ring-gray-500"
+                                        class="rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
                                     />
                                 </th>
-                                <th :class="[compact ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-xs', 'text-start font-medium text-gray-500 uppercase tracking-wider']">
+                                <th :class="[compact ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-xs', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Instruction
                                 </th>
-                                <th v-if="showSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-10' : 'px-3 py-2 text-xs w-12', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-10' : 'px-3 py-2 text-xs w-12', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Source
                                 </th>
-                                <th v-if="showCategory" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showCategory" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Category
                                 </th>
-                                <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-24' : 'px-3 py-2 text-xs w-28', 'text-start font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-24' : 'px-3 py-2 text-xs w-28', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Agents
                                 </th>
-                                <th v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Load
                                 </th>
-                                <th v-if="showLabels" :class="[compact ? 'px-2 py-1.5 text-[10px] w-28' : 'px-3 py-2 text-xs w-32', 'text-start font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showLabels" :class="[compact ? 'px-2 py-1.5 text-[10px] w-28' : 'px-3 py-2 text-xs w-32', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Labels
                                 </th>
-                                <th v-if="showStatus" :class="[compact ? 'px-2 py-1.5 text-[10px] w-16' : 'px-3 py-2 text-xs w-20', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showStatus" :class="[compact ? 'px-2 py-1.5 text-[10px] w-16' : 'px-3 py-2 text-xs w-20', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Status
                                 </th>
                             </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <tr 
-                                v-for="instruction in instructions" 
+                        <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                            <tr
+                                v-for="instruction in instructions"
                                 :key="instruction.id"
-                                class="hover:bg-gray-50 transition-colors cursor-pointer"
-                                :class="{ 'bg-blue-50': selectable && selectedIds?.has(instruction.id) }"
+                                class="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                                :class="{ 'bg-blue-50 dark:bg-blue-950': selectable && selectedIds?.has(instruction.id) }"
                                 @click="handleRowClick(instruction, $event)"
                             >
                                 <!-- Checkbox -->
                                 <td v-if="selectable" :class="compact ? 'px-2 py-1.5 w-8' : 'px-3 py-2.5 w-10'">
-                                    <input 
+                                    <input
                                         type="checkbox"
                                         :checked="selectedIds?.has(instruction.id)"
                                         @change.stop="$emit('toggle-select', instruction.id)"
                                         @click.stop
                                         :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'"
-                                        class="rounded border-gray-300 text-gray-800 focus:ring-gray-500"
+                                        class="rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
                                     />
                                 </td>
 
@@ -79,23 +79,23 @@
                                 <td :class="compact ? 'px-2 py-1.5' : 'px-3 py-2.5'">
                                     <div :class="compact ? 'max-w-md' : 'max-w-lg'">
                                         <!-- Git source path (small) -->
-                                        <p 
-                                            v-if="instruction.source_type === 'git' && instruction.title" 
+                                        <p
+                                            v-if="instruction.source_type === 'git' && instruction.title"
                                             :class="compact ? 'text-[9px]' : 'text-[10px]'"
-                                            class="text-gray-400 font-mono truncate mb-0.5"
+                                            class="text-gray-400 dark:text-gray-600 font-mono truncate mb-0.5"
                                             :title="instruction.title"
                                         >
                                             {{ instruction.title }}
                                         </p>
                                         <!-- Instruction text -->
-                                        <p 
+                                        <p
                                             :class="[compact ? 'text-[11px]' : 'text-xs', { 'line-clamp-2': !expandedRows.has(instruction.id) }]"
-                                            class="text-gray-900 leading-snug"
+                                            class="text-gray-900 dark:text-white leading-snug"
                                             :title="instruction.text"
                                         >
                                             {{ instruction.text }}
                                         </p>
-                                        <button 
+                                        <button
                                             v-if="instruction.text && instruction.text.length > 150"
                                             @click.stop="toggleExpand(instruction.id)"
                                             :class="compact ? 'text-[9px]' : 'text-[10px]'"
@@ -120,7 +120,7 @@
                                                 <UIcon
                                                     v-else
                                                     :name="helpers.getResourceTypeFallbackIcon(instruction)"
-                                                    class="w-5 h-5 text-gray-500"
+                                                    class="w-5 h-5 text-gray-500 dark:text-gray-400"
                                                 />
                                             </template>
                                             <template v-else>
@@ -139,7 +139,7 @@
 
                                 <!-- Category -->
                                 <td v-if="showCategory" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2.5', 'text-center']">
-                                    <span 
+                                    <span
                                         :class="[compact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', 'rounded font-medium', helpers.getCategoryClass(instruction.category)]"
                                     >
                                         {{ helpers.formatCategory(instruction.category) }}
@@ -151,26 +151,26 @@
                                     <div v-if="instruction.data_sources?.length" class="flex items-center gap-1.5">
                                         <UTooltip :text="instruction.data_sources.map((ds: any) => ds.name).join(', ')">
                                             <div class="flex items-center gap-1">
-                                                <DataSourceIcon 
+                                                <DataSourceIcon
                                                     :type="getDataSourceType(instruction) as any"
                                                     :class="compact ? 'h-3 w-3' : 'h-3.5 w-3.5'"
                                                     class="flex-shrink-0"
                                                 />
-                                                <span :class="[compact ? 'text-[9px] max-w-[60px]' : 'text-[10px] max-w-[70px]', 'text-gray-600 truncate']">
+                                                <span :class="[compact ? 'text-[9px] max-w-[60px]' : 'text-[10px] max-w-[70px]', 'text-gray-600 dark:text-gray-400 truncate']">
                                                     {{ instruction.data_sources[0]?.name || '—' }}
                                                 </span>
                                             </div>
                                         </UTooltip>
-                                        <span v-if="instruction.data_sources.length > 1" :class="compact ? 'text-[8px]' : 'text-[9px]'" class="text-gray-400">
+                                        <span v-if="instruction.data_sources.length > 1" :class="compact ? 'text-[8px]' : 'text-[9px]'" class="text-gray-400 dark:text-gray-600">
                                             +{{ instruction.data_sources.length - 1 }}
                                         </span>
                                     </div>
-                                    <span v-else :class="compact ? 'text-[9px]' : 'text-[10px]'" class="text-gray-300">—</span>
+                                    <span v-else :class="compact ? 'text-[9px]' : 'text-[10px]'" class="text-gray-300 dark:text-gray-600">—</span>
                                 </td>
 
                                 <!-- Load mode -->
                                 <td v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2.5', 'text-center']">
-                                    <span 
+                                    <span
                                         :class="[compact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', 'rounded font-medium', helpers.getLoadModeClass(instruction.load_mode)]"
                                     >
                                         {{ helpers.getLoadModeLabel(instruction.load_mode) }}
@@ -199,11 +199,11 @@
                                                     {{ label.name }}
                                                 </span>
                                             </UTooltip>
-                                            <span v-if="instruction.labels.length > 2" :class="compact ? 'text-[8px]' : 'text-[9px]'" class="text-gray-400">
+                                            <span v-if="instruction.labels.length > 2" :class="compact ? 'text-[8px]' : 'text-[9px]'" class="text-gray-400 dark:text-gray-600">
                                                 +{{ instruction.labels.length - 2 }}
                                             </span>
                                         </template>
-                                        <span v-else :class="compact ? 'text-[9px]' : 'text-[10px]'" class="text-gray-300">—</span>
+                                        <span v-else :class="compact ? 'text-[9px]' : 'text-[10px]'" class="text-gray-300 dark:text-gray-600">—</span>
                                     </div>
                                 </td>
 
@@ -223,8 +223,8 @@
                 </div>
 
                 <!-- Pagination -->
-                <div v-if="showPagination" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2', 'border-t border-gray-200 flex items-center justify-between flex-shrink-0 bg-gray-50']">
-                    <div :class="compact ? 'text-[10px]' : 'text-xs'" class="text-gray-500">
+                <div v-if="showPagination" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2', 'border-t border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0 bg-gray-50 dark:bg-gray-900']">
+                    <div :class="compact ? 'text-[10px]' : 'text-xs'" class="text-gray-500 dark:text-gray-400">
                         {{ (currentPage - 1) * pageSize + 1 }}–{{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }}
                     </div>
                     <div class="flex items-center gap-1">
@@ -274,13 +274,13 @@ const props = withDefaults(defineProps<{
     compact?: boolean
     // Optional: provide full data sources list so we can resolve missing ds.type from list endpoints
     dataSources?: Array<{ id: string; type?: string | null }>
-    
+
     // Selection
     selectable?: boolean
     selectedIds?: Set<string>
     isAllPageSelected?: boolean
     isSomeSelected?: boolean
-    
+
     // Column visibility
     showSource?: boolean
     showCategory?: boolean
@@ -288,7 +288,7 @@ const props = withDefaults(defineProps<{
     showLoadMode?: boolean
     showLabels?: boolean
     showStatus?: boolean
-    
+
     // Pagination
     showPagination?: boolean
     currentPage?: number
@@ -296,7 +296,7 @@ const props = withDefaults(defineProps<{
     totalItems?: number
     totalPages?: number
     visiblePages?: number[]
-    
+
     // Empty state
     emptyTitle?: string
     emptyMessage?: string

@@ -2,38 +2,38 @@
   <div class="space-y-2">
     <!-- Header with type and name -->
     <div class="flex items-center space-x-2">
-      <UIcon name="heroicons:document" class="w-4 h-4 text-gray-600" />
-      <span class="font-medium text-gray-900">{{ resource.name }}</span>
-      <span class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">{{ resource.resource_type }}</span>
+      <UIcon name="heroicons:document" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
+      <span class="font-medium text-gray-900 dark:text-white">{{ resource.name }}</span>
+      <span class="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">{{ resource.resource_type }}</span>
     </div>
 
     <!-- Description -->
-    <div v-if="resource.description" class="text-gray-600 text-sm">
+    <div v-if="resource.description" class="text-gray-600 dark:text-gray-400 text-sm">
       {{ resource.description }}
     </div>
 
     <!-- Basic Information -->
     <div class="grid grid-cols-1 gap-2 text-xs">
       <!-- SQL Content if available -->
-      <div v-if="resource.sql_content" class="bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto">
-        <div class="text-gray-500 mb-1">Content:</div>
+      <div v-if="resource.sql_content" class="bg-gray-100 dark:bg-gray-800 p-2 rounded font-mono text-xs overflow-x-auto">
+        <div class="text-gray-500 dark:text-gray-400 mb-1">Content:</div>
         <pre class="whitespace-pre-wrap">{{ truncateText(resource.sql_content, 200) }}</pre>
       </div>
 
       <!-- Columns if available -->
-      <div v-if="columnCount > 0" class="text-gray-500">
+      <div v-if="columnCount > 0" class="text-gray-500 dark:text-gray-400">
         {{ columnCount }} columns/fields
       </div>
 
       <!-- Dependencies -->
-      <div v-if="resource.depends_on && resource.depends_on.length > 0" class="text-gray-500">
+      <div v-if="resource.depends_on && resource.depends_on.length > 0" class="text-gray-500 dark:text-gray-400">
         <span class="font-medium">Depends on:</span>
         <span class="ms-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
         <span v-if="resource.depends_on.length > 3" class="ms-1">+{{ resource.depends_on.length - 3 }} more</span>
       </div>
 
       <!-- Key raw data fields -->
-      <div v-if="keyRawDataFields.length > 0" class="text-gray-500">
+      <div v-if="keyRawDataFields.length > 0" class="text-gray-500 dark:text-gray-400">
         <div v-for="field in keyRawDataFields" :key="field.key" class="mb-1">
           <span class="font-medium">{{ field.key }}:</span>
           <span class="ms-1">{{ field.value }}</span>

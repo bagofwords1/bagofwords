@@ -1,8 +1,8 @@
 <template>
     <div class="py-6">
-        <div class="bg-white border border-gray-200 rounded-lg p-6">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
             <!-- Loading state -->
-            <div v-if="!integration" class="text-sm text-gray-500">Loading...</div>
+            <div v-if="!integration" class="text-sm text-gray-500 dark:text-gray-400">Loading...</div>
 
             <!-- Main content - View Mode -->
             <div v-else>
@@ -10,8 +10,8 @@
                     <div class="flex items-center gap-3">
                         <DataSourceIcon :type="connectionType" class="h-8" />
                         <div>
-                            <div class="font-semibold text-gray-900">{{ connectionName }}</div>
-                            <div class="text-xs text-gray-500">{{ connectionType }}</div>
+                            <div class="font-semibold text-gray-900 dark:text-white">{{ connectionName }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ connectionType }}</div>
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -20,18 +20,18 @@
                             {{ connectionStatusLabel }}
                         </span>
                         <!-- Last checked time -->
-                        <span v-if="lastCheckedDisplay" class="text-[10px] text-gray-400">
+                        <span v-if="lastCheckedDisplay" class="text-[10px] text-gray-400 dark:text-gray-600">
                             {{ lastCheckedDisplay }}
                         </span>
                         <!-- Test/Refresh button -->
                         <button 
                             @click="testConnection" 
                             :disabled="isTesting"
-                            class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-50"
+                            class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                             title="Test connection"
                         >
                             <Spinner v-if="isTesting" class="w-4 h-4" />
-                            <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-500" />
+                            <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                         </button>
                         <!-- Edit button - only for users with manage_connections permission -->
                         <UButton 
@@ -55,7 +55,7 @@
 
                 <!-- User Connection (only for user_required auth, non-admin) -->
                 <div class="mt-4 ms-11" v-if="connectionAuthPolicy === 'user_required' && !isAdmin">
-                    <div class="text-sm text-gray-800 flex items-center space-x-3">
+                    <div class="text-sm text-gray-800 dark:text-gray-200 flex items-center space-x-3">
                         <template v-if="connectionUserStatus?.has_user_credentials">
                             <span class="inline-flex items-center text-green-700 text-xs">
                                 <UIcon name="heroicons-check-circle" class="w-3 h-3 me-1" />
@@ -67,7 +67,7 @@
                             <UButton size="xs" color="red" variant="ghost" @click="disconnectUserCredentials">Disconnect</UButton>
                         </template>
                         <template v-else>
-                            <span class="inline-flex items-center text-gray-500 text-xs">
+                            <span class="inline-flex items-center text-gray-500 dark:text-gray-400 text-xs">
                                 <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
                                 User credentials required
                             </span>
@@ -174,9 +174,9 @@ const connectionStatusLabel = computed(() => {
 })
 const connectionStatusClass = computed(() => {
     const c = connectionStatus.value
-    if (c === 'success') return 'bg-green-50 text-green-700 border-green-200'
-    if (c === 'not_connected' || c === 'offline') return 'bg-red-50 text-red-700 border-red-200'
-    return 'bg-gray-50 text-gray-700 border-gray-200'
+    if (c === 'success') return 'bg-green-50 dark:bg-green-950 text-green-700 border-green-200'
+    if (c === 'not_connected' || c === 'offline') return 'bg-red-50 dark:bg-red-950 text-red-700 border-red-200'
+    return 'bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700'
 })
 
 // Last checked display

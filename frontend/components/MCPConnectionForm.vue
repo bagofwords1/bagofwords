@@ -2,7 +2,7 @@
   <div>
     <!-- Use existing connection (create mode only) -->
     <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
-      <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.useExistingLabel') }}</label>
+      <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.useExistingLabel') }}</label>
       <USelectMenu
         v-model="selectedExisting"
         :options="existingConnectionOptions"
@@ -12,34 +12,34 @@
         class="w-full"
       />
       <div v-if="!selectedExistingId" class="relative my-4">
-        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200" /></div>
-        <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-gray-400">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200 dark:border-gray-700" /></div>
+        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-gray-400">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
       </div>
     </div>
 
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <template v-if="!selectedExistingId">
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
-          <input v-model="form.name" type="text" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
+          <input v-model="form.name" type="text" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
-          <input v-model="form.server_url" type="text" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
+          <input v-model="form.server_url" type="text" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
-          <select v-model="form.transport" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
+          <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
             <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
           </select>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.authLabel') }}</label>
-          <select v-model="form.auth_type" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.authLabel') }}</label>
+          <select v-model="form.auth_type" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="none">{{ $t('settings.mcpModal.authNone') }}</option>
             <option value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
             <option value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
@@ -48,53 +48,53 @@
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.bearerLabel') }}</label>
-          <input v-model="form.token" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.bearerPlaceholder')" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.bearerLabel') }}</label>
+          <input v-model="form.token" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.bearerPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div v-if="form.auth_type === 'api_key'" class="space-y-3">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.apiKeyLabel') }}</label>
-            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.apiKeyPlaceholder')" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.apiKeyLabel') }}</label>
+            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.apiKeyPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.headerNameLabel') }}</label>
-            <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.headerNameLabel') }}</label>
+            <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
 
-        <div v-if="form.auth_type === 'oauth_app'" class="space-y-3 border border-gray-200 rounded-md p-3 bg-gray-50">
-          <div class="text-xs text-gray-600">
+        <div v-if="form.auth_type === 'oauth_app'" class="space-y-3 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
+          <div class="text-xs text-gray-600 dark:text-gray-400">
             Register an OAuth client at the identity provider that fronts this MCP server. Users will sign in
             individually; their tokens are stored encrypted and sent on every tool call.
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Authorize URL</label>
-            <input v-model="form.authorize_url" type="text" placeholder="https://idp.example.com/oauth/authorize" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authorize URL</label>
+            <input v-model="form.authorize_url" type="text" placeholder="https://idp.example.com/oauth/authorize" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Token URL</label>
-            <input v-model="form.token_url" type="text" placeholder="https://idp.example.com/oauth/token" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Token URL</label>
+            <input v-model="form.token_url" type="text" placeholder="https://idp.example.com/oauth/token" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Client ID</label>
-            <input v-model="form.client_id" type="text" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID</label>
+            <input v-model="form.client_id" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Client Secret</label>
-            <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client Secret</label>
+            <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Scopes</label>
-            <input v-model="form.scopes" type="text" placeholder="openid profile offline_access" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
+            <input v-model="form.scopes" type="text" placeholder="openid profile offline_access" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Resource (audience, optional)</label>
-            <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
+            <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
 
-        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
           {{ testResult.message }}
         </div>
       </template>

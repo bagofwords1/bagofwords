@@ -1,24 +1,24 @@
 <template>
   <UModal v-model="localOpen" :ui="{ width: 'sm:max-w-6xl', height: 'sm:h-[90vh]' }">
     <div class="h-full flex flex-col">
-      <div class="px-4 py-3 bg-white border-b flex items-center justify-between flex-shrink-0">
-        <div class="text-sm font-medium text-gray-800">{{ detail?.title || detail?.slug }}</div>
-        <button class="text-xs text-gray-500 hover:text-gray-700" @click="close">Close</button>
+      <div class="px-4 py-3 bg-white dark:bg-gray-900 border-b flex items-center justify-between flex-shrink-0">
+        <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ detail?.title || detail?.slug }}</div>
+        <button class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700" @click="close">Close</button>
       </div>
       <div class="flex-1 flex overflow-hidden min-h-0">
-        <aside class="w-32 bg-white border-e">
+        <aside class="w-32 bg-white dark:bg-gray-900 border-e">
           <nav class="p-2">
-            <button class="w-full text-start px-2 py-1.5 text-xs rounded mb-1 transition-colors" :class="editTab==='details' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'" @click="editTab='details'">Details</button>
-            <button class="w-full text-start px-2 py-1.5 text-xs rounded transition-colors" :class="editTab==='code' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'" @click="editTab='code'">Code</button>
+            <button class="w-full text-start px-2 py-1.5 text-xs rounded mb-1 transition-colors" :class="editTab==='details' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'" @click="editTab='details'">Details</button>
+            <button class="w-full text-start px-2 py-1.5 text-xs rounded transition-colors" :class="editTab==='code' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'" @click="editTab='code'">Code</button>
           </nav>
         </aside>
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
           <div v-if="editTab==='details'" class="flex-1 p-4 overflow-auto">
-            <div class="bg-white rounded-lg p-4">
+            <div class="bg-white dark:bg-gray-900 rounded-lg p-4">
               <EntityForm v-model="form" />
             </div>
             <div class="mt-3 flex items-center justify-end gap-2">
-              <button class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" @click="close">Cancel</button>
+              <button class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="close">Cancel</button>
               <button class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded-lg disabled:opacity-50" :disabled="saving" @click="saveEdit">
                 <span v-if="saving">Saving...</span>
                 <span v-else>Save</span>
@@ -26,9 +26,9 @@
             </div>
           </div>
           <div v-else class="h-full flex flex-col">
-            <div class="h-1/2 p-3 flex flex-col border-b bg-white">
+            <div class="h-1/2 p-3 flex flex-col border-b bg-white dark:bg-gray-900">
               <ClientOnly>
-                <div class="flex-1 min-h-0 rounded overflow-hidden border border-gray-200">
+                <div class="flex-1 min-h-0 rounded overflow-hidden border border-gray-200 dark:border-gray-700">
                   <MonacoEditor
                     v-model="form.code"
                     :lang="editorLang"
@@ -43,7 +43,7 @@
                   <span v-if="running && runMode === 'save'">Saving...</span>
                   <span v-else>Save</span>
                 </button>
-                <button class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-1.5" :disabled="running" @click="previewRun">
+                <button class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1.5" :disabled="running" @click="previewRun">
                   <Icon v-if="running && runMode === 'preview'" name="heroicons-arrow-path" class="w-3 h-3 animate-spin" />
                   <Icon v-else name="heroicons-play" class="w-3 h-3" />
                   <span v-if="running && runMode === 'preview'">Running...</span>
@@ -52,24 +52,24 @@
               </div>
             </div>
             <div class="h-1/2 p-3 flex flex-col min-h-0">
-              <div class="flex-1 overflow-auto min-h-0 bg-white rounded-lg border border-gray-200">
-                <div v-if="codePreview?.info" class="px-3 py-2 text-xs text-gray-600 border-b bg-gray-50 flex items-center justify-between">
+              <div class="flex-1 overflow-auto min-h-0 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div v-if="codePreview?.info" class="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 border-b bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
                   <span>Results</span>
                   <span>{{ codePreview.info.total_rows?.toLocaleString?.() || codePreview.info.total_rows }} rows</span>
                 </div>
                 <div class="overflow-auto" style="max-height: calc(100% - 36px);">
                   <div v-if="codePreview && codePreview.columns && codePreview.rows">
                     <table class="min-w-full text-xs">
-                      <thead class="bg-gray-50 sticky top-0 border-b">
+                      <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0 border-b">
                         <tr>
-                          <th v-for="col in codePreview.columns" :key="col.field" class="px-3 py-2 text-start text-xs font-medium text-gray-700">
+                          <th v-for="col in codePreview.columns" :key="col.field" class="px-3 py-2 text-start text-xs font-medium text-gray-700 dark:text-gray-300">
                             {{ col.headerName || col.field }}
                           </th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr v-for="(row, rIdx) in codePreview.rows" :key="rIdx" class="border-b hover:bg-gray-50">
-                          <td v-for="col in codePreview.columns" :key="col.field" class="px-3 py-2 text-gray-800">
+                        <tr v-for="(row, rIdx) in codePreview.rows" :key="rIdx" class="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td v-for="col in codePreview.columns" :key="col.field" class="px-3 py-2 text-gray-800 dark:text-gray-200">
                             {{ row[col.field] }}
                           </td>
                         </tr>

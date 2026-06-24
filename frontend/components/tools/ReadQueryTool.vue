@@ -2,13 +2,13 @@
   <div class="mt-1">
     <!-- Status header -->
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDetails">
+      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDetails">
         <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           Reading {{ queryCount > 1 ? `${queryCount} queries` : `query "${queryTitle}"` }}…
         </span>
-        <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700'">
+        <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'">
           <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
           <Icon v-else name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">{{ statusLabel }}</span>

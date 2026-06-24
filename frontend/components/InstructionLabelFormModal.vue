@@ -10,7 +10,7 @@
             <UCard>
                 <template #header>
                     <div class="flex items-center justify-between">
-                        <h3 class="text-base font-semibold text-gray-900">{{ title }}</h3>
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ title }}</h3>
                         <UButton
                             color="gray"
                             variant="ghost"
@@ -22,37 +22,37 @@
 
                 <div class="space-y-3">
                     <div class="flex flex-col">
-                        <label class="text-xs font-medium text-gray-600 mb-1">Name</label>
+                        <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
                         <input
                             ref="nameInput"
                             v-model="form.name"
                             type="text"
-                            class="w-full text-sm p-2 border border-gray-200 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300"
+                            class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                             placeholder="e.g., Finance"
                             required
                         />
                     </div>
 
                     <div class="flex flex-col">
-                        <label class="text-xs font-medium text-gray-600 mb-1">Description</label>
+                        <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
                         <textarea
                             v-model="form.description"
                             rows="3"
-                            class="w-full text-sm p-2 border border-gray-200 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300"
+                            class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                             placeholder="Short description (optional)"
                         />
                     </div>
 
                     <div class="flex flex-col">
-                        <label class="text-xs font-medium text-gray-600 mb-1.5">Color</label>
+                        <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Color</label>
                         <UPopover>
                             <template #default="{ open }">
                                 <button
                                     type="button"
-                                    class="flex items-center gap-2 border border-gray-200 rounded-md px-3 py-1.5 text-xs w-20 justify-between"
+                                    class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs w-20 justify-between"
                                 >
                                     <div class="flex items-center gap-2">
-                                        <span class="w-4 h-4 rounded-full border border-gray-300" :style="{ backgroundColor: form.color }"></span>
+                                        <span class="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600" :style="{ backgroundColor: form.color }"></span>
                                     </div>
                                     <Icon :name="open ? 'heroicons:chevron-up' : 'heroicons:chevron-down'" class="w-4 h-4 text-gray-400" />
                                 </button>
@@ -65,7 +65,7 @@
                                             :key="color"
                                             type="button"
                                             class="w-7 h-7 rounded-full border focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-200"
-                                            :class="form.color === color ? 'border-gray-900' : 'border-gray-200'"
+                                            :class="form.color === color ? 'border-gray-900 dark:border-gray-100' : 'border-gray-200 dark:border-gray-700'"
                                             :style="{ backgroundColor: color }"
                                             @click="form.color = color"
                                         />

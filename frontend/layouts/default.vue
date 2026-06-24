@@ -4,7 +4,7 @@
     <div v-if="showGlobalOnboardingBanner" class="fixed top-0 start-0 end-0 z-[1000]">
       <div
         @click="router.push(showGlobalOnboardingBannerLink)"
-        class="text-center cursor-pointer text-white text-sm bg-blue-500/95 hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
+        class="text-center cursor-pointer text-white text-sm bg-blue-500/95 dark:bg-blue-700/90 hover:bg-blue-600/90 dark:hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
       >
         <UIcon name="i-heroicons-rocket-launch" class="h-5 me-2" />
         <span>{{ showGlobalOnboardingBannerText }}</span>
@@ -32,16 +32,16 @@
     </div>
   <aside id="separator-sidebar"
     :class="[
-      'fixed start-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full rtl:translate-x-full sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80',
+      'fixed start-0 z-40 bg-gray-50 dark:bg-gray-950 transition-all duration-300 -translate-x-full rtl:translate-x-full sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
       isCollapsed ? 'w-14' : 'w-48',
       showTopBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
     <button @click="toggleSidebar" :class="[
-            'flex items-center gap-3 rounded-lg transition-all duration-200 bg-gray-50',
+            'flex items-center gap-3 rounded-lg transition-all duration-200 bg-gray-50 dark:bg-gray-950',
             isCollapsed
-              ? 'px-2 py-2 w-full text-center justify-center -mb-4 text-gray-700 hover:text-blue-500'
-              : 'px-1 py-1 mt-3 ms-auto -mb-5 text-gray-400 hover:text-gray-600'
+              ? 'px-2 py-2 w-full text-center justify-center -mb-4 text-gray-700 dark:text-gray-300 hover:text-blue-500'
+              : 'px-1 py-1 mt-3 ms-auto -mb-5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-4 h-4 text-sm">
@@ -55,7 +55,7 @@
               <span v-if="showText" class="text-xs opacity-75"></span>
             </template>
           </button>
-    <div class="h-full px-3 py-4 bg-gray-50 flex flex-col justify-between">
+    <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col justify-between">
 
       <ul class="font-normal text-[13px] !ps-0">
         <li>
@@ -93,7 +93,7 @@
                @click="createNewReport"
                :disabled="creatingReport"
                :class="[
-                 'flex items-center px-3 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed',
+                 'flex items-center px-3 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50 disabled:cursor-not-allowed',
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
@@ -119,7 +119,7 @@
         <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="{ hidden: item.hidden }">
           <NuxtLink :to="item.href" :class="[
             'flex items-center px-3 py-1.5 w-full rounded-md',
-            isRouteActive(item.activePath || item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+            isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
@@ -143,7 +143,7 @@
         <li v-for="item in bottomNavItems" :key="item.href">
           <a v-if="item.external" :href="item.href" target="_blank" rel="noopener noreferrer" :class="[
             'flex items-center px-3 py-1.5 w-full rounded-md',
-            'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+            'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
@@ -162,7 +162,7 @@
           </a>
           <NuxtLink v-else :to="item.href" :class="[
             'flex items-center px-3 py-1.5 w-full rounded-md',
-            isRouteActive(item.activePath || item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+            isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
@@ -184,7 +184,7 @@
           <button
             @click="showMcpModal = true"
             :class="[
-              'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+              'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
               isCollapsed ? 'justify-center' : 'gap-2.5'
             ]"
           >
@@ -204,7 +204,7 @@
         <li>
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full">
              <button :class="[
-               'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+               'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
                isCollapsed ? 'justify-center' : 'gap-2.5'
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
@@ -223,9 +223,30 @@
             </button>
           </UDropdown>
         </li>
+        <li>
+          <button
+            @click="toggleColorMode"
+            :class="[
+              'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+              isCollapsed ? 'justify-center' : 'gap-2.5'
+            ]"
+          >
+            <UTooltip v-if="isCollapsed" :text="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'" :popper="{ placement: tooltipPlacement }">
+              <span class="flex items-center justify-center w-5 h-5 text-[16px]">
+                <UIcon :name="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
+                <UIcon :name="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'" />
+              </span>
+              <span v-if="showText">{{ colorMode.value === 'dark' ? 'Light mode' : 'Dark mode' }}</span>
+            </template>
+          </button>
+        </li>
         <li v-if="version && !isCollapsed">
           <UTooltip :text="$t('nav.version')" :popper="{ placement: tooltipPlacement }">
-            <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900">
+            <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900 dark:hover:text-white">
               {{ version }}
             </div>
           </UTooltip>
@@ -260,6 +281,16 @@
   import McpModal from '~/components/McpModal.vue'
   import UserProfileModal from '~/components/UserProfileModal.vue'
   import { useCan } from '~/composables/usePermissions'
+
+  const colorMode = useColorMode()
+  const toggleColorMode = () => {
+    const next = colorMode.value === 'dark' ? 'light' : 'dark'
+    if (!document.startViewTransition) {
+      colorMode.preference = next
+      return
+    }
+    document.startViewTransition(() => { colorMode.preference = next })
+  }
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)

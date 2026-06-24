@@ -8,17 +8,17 @@
       <!-- Loading -->
       <div v-if="pageLoading" class="mt-8">
         <Spinner class="w-8 h-8 mx-auto text-gray-400" />
-        <p class="text-sm text-gray-500 mt-4">Loading...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-4">Loading...</p>
       </div>
 
       <!-- Error -->
       <div v-else-if="errorMessage" class="mt-6">
-        <div class="px-6 py-5 border border-red-200 rounded-xl bg-red-50">
+        <div class="px-6 py-5 border border-red-200 rounded-xl bg-red-50 dark:bg-red-950">
           <p class="text-sm text-red-700">{{ errorMessage }}</p>
         </div>
         <button
           @click="deny"
-          class="mt-4 text-sm text-gray-500 hover:text-gray-700 underline"
+          class="mt-4 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 underline"
         >
           Go back
         </button>
@@ -27,15 +27,15 @@
       <!-- Consent screen -->
       <div v-else class="mt-4">
         <h1 class="font-medium text-2xl mb-2">Authorize Access</h1>
-        <p class="text-sm text-gray-500 mb-6">
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
           <strong>{{ clientName }}</strong> wants to access your Bag of Words account.
         </p>
 
-        <div class="px-6 py-5 border border-gray-200 rounded-xl shadow-sm bg-white text-start">
+        <div class="px-6 py-5 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm bg-white dark:bg-gray-900 text-start">
           <!-- Scope info -->
           <div class="mb-5">
             <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">Permissions requested</div>
-            <div class="flex items-center gap-2 text-sm text-gray-700">
+            <div class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <UIcon name="heroicons-check-circle" class="w-4 h-4 text-green-500 flex-shrink-0" />
               Access your MCP tools (query data, create reports)
             </div>
@@ -45,7 +45,7 @@
           <div class="flex gap-3">
             <button
               @click="deny"
-              class="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              class="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               Deny
             </button>

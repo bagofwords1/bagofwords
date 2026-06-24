@@ -5,7 +5,7 @@
         <img src="/assets/logo-128.png" alt="Bag of Words" class="h-10 w-10 mx-auto" />
       </div>
       <h1 class="font-medium text-3xl mt-4 mb-5">{{ $t('auth.signIn') }}</h1>
-      <div class="px-10 py-6  border border-gray-200 rounded-xl shadow-sm bg-white">
+      <div class="px-10 py-6  border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm bg-white dark:bg-gray-900">
       <p v-if="error_message" v-html="error_message" class="mb-4 text-red-500 text-sm whitespace-pre-line"></p>
       <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only' || localOverride">
         <div class="field block mt-3">
@@ -14,7 +14,7 @@
           :placeholder="$t('auth.email')"
           id='email'
           v-model='email'
-          class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
+          class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
           />
         </div>
           <div class="field mt-4">
@@ -22,7 +22,7 @@
           :placeholder="$t('auth.password')"
           id='password'
           v-model='password'
-          class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
+          class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
           />
         </div>
 
@@ -46,10 +46,10 @@
         <div class="mt-3" v-if="authMode !== 'local_only' && (googleSignIn || oidcProviders.length)">
         <div class="relative" v-if="authMode === 'hybrid'">
           <div class="absolute inset-0 flex items-center">
-            <div class="w-full border-t border-gray-300"></div>
+            <div class="w-full border-t border-gray-300 dark:border-gray-600"></div>
           </div>
           <div class="relative flex justify-center text-sm">
-            <span class="px-2 bg-gray-50 text-gray-500">{{ $t('auth.orContinueWith') }}</span>
+            <span class="px-2 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">{{ $t('auth.orContinueWith') }}</span>
           </div>
         </div>
         <div class="mt-3" v-if="googleSignIn">
@@ -57,7 +57,7 @@
             @click="signInWithGoogle"
             type="button"
             :disabled="loadingProvider !== null"
-            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <template v-if="loadingProvider === 'google'">
               <Spinner class="h-5 w-5 me-2" />
@@ -76,7 +76,7 @@
             @click="() => signInWithProvider(p.name)"
             type="button"
             :disabled="loadingProvider !== null"
-            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <template v-if="loadingProvider === p.name">
               <Spinner class="h-5 w-5 me-2" />

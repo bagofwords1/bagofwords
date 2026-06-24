@@ -9,7 +9,7 @@
     />
   </div>
   <!-- Display mode - with variant styling -->
-  <div 
+  <div
     v-else
     class="text-block h-full w-full overflow-auto"
     :class="[variantClass, containerClass]"
@@ -64,10 +64,10 @@ const variantClass = computed(() => {
 const containerClass = computed(() => {
   const v = props.block.variant
   if (v === 'insight' || v === 'callout') {
-    return 'p-4 rounded-lg border-l-4 border-blue-500 bg-blue-50/50'
+    return 'p-4 rounded-lg border-l-4 border-blue-500 bg-blue-50/50 dark:bg-blue-950'
   }
   if (v === 'summary') {
-    return 'p-4 rounded-lg bg-gray-50/50 border border-gray-200/50'
+    return 'p-4 rounded-lg bg-gray-50/50 dark:bg-gray-900 border border-gray-200/50 dark:border-gray-700'
   }
   return 'p-2'
 })
@@ -78,7 +78,7 @@ const proseClass = computed(() => {
     return 'prose-headings:text-xl prose-headings:font-semibold prose-headings:tracking-tight prose-headings:m-0'
   }
   if (v === 'subtitle') {
-    return 'prose-headings:text-sm prose-headings:font-normal prose-headings:text-gray-500 prose-headings:m-0 prose-p:text-sm prose-p:text-gray-500'
+    return 'prose-headings:text-sm prose-headings:font-normal prose-headings:text-gray-500 dark:prose-headings:text-gray-400 prose-headings:m-0 prose-p:text-sm prose-p:text-gray-500 dark:prose-p:text-gray-400'
   }
   if (v === 'insight' || v === 'callout') {
     return 'prose-p:text-blue-800 prose-headings:text-blue-900'
@@ -145,4 +145,3 @@ const proseClass = computed(() => {
   margin: 0.25rem 0;
 }
 </style>
-

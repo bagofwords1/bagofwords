@@ -3,7 +3,7 @@
     <div class="w-full sm:w-1/4">
       <template v-if="!passwordReset">
         <h1 class="font-bold text-lg">{{ $t('auth.resetPasswordTitle') }}</h1>
-        <p class="mt-3 text-sm text-gray-700">
+        <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
           {{ $t('auth.resetPasswordDescription') }}
         </p>
         <form @submit.prevent="submit">
@@ -13,7 +13,7 @@
               id="password"
               v-model="password"
               type="password"
-              class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+              class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               required
               minlength="6"
             />
@@ -24,7 +24,7 @@
               id="confirmPassword"
               v-model="confirmPassword"
               type="password"
-              class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+              class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               required
               minlength="6"
             />
@@ -51,7 +51,7 @@
         <div class="mt-8 text-center">
           <Icon name="heroicons:check-circle" class="w-10 h-10 text-green-500 mx-auto mb-3" />
           <h2 class="font-bold text-lg">{{ $t('auth.resetSuccess') }}</h2>
-          <p class="mt-3 text-sm text-gray-700">
+          <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
             {{ $t('auth.resetSuccessMessage') }}
           </p>
           <NuxtLink to="/users/sign-in" class="text-blue-400 mt-4 block text-center text-sm hover:underline">

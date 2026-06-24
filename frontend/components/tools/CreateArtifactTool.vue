@@ -1,7 +1,7 @@
 <template>
   <div class="mb-2">
     <!-- Main Header -->
-    <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
+    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -9,10 +9,10 @@
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ runningLabel }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700">{{ errorLabel }}</span>
-      <span v-else class="text-gray-700">{{ $t('tools.createArtifact.create') }}</span>
+      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ runningLabel }}</span>
+      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ errorLabel }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createArtifact.create') }}</span>
 
       <!-- Mode Badge -->
       <Transition name="fade-in" appear>
@@ -21,8 +21,8 @@
           :class="[
             'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
             artifactMode === 'slides'
-              ? 'bg-purple-100 text-purple-700'
-              : 'bg-blue-100 text-blue-700'
+              ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
+              : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
           ]"
         >
           {{ artifactMode === 'slides' ? $t('tools.createArtifact.slides') : $t('tools.createArtifact.dashboard') }}
@@ -52,7 +52,7 @@
         <span
           v-for="viz in resolvedVisualizations"
           :key="viz.id"
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
         >
           {{ viz.title }}
         </span>
@@ -60,7 +60,7 @@
 
       <!-- Stopped/Error message -->
       <div v-if="status === 'stopped'" class="mt-1 ms-[18px] text-xs text-gray-400 italic">{{ $t('tools.createArtifact.generationStopped') }}</div>
-      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500">
+      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500 dark:text-gray-400">
         {{ errorMessage }}
       </div>
 
@@ -76,10 +76,10 @@
               :class="[
                 'w-6 h-6 rounded flex items-center justify-center text-[10px] font-medium transition-all',
                 slide.status === 'done'
-                  ? 'bg-green-100 text-green-700'
+                  ? 'bg-green-100 dark:bg-green-900/50 text-green-700'
                   : slide.status === 'generating'
-                    ? 'bg-blue-100 text-blue-700 animate-pulse'
-                    : 'bg-gray-100 text-gray-400'
+                    ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 animate-pulse'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-400'
               ]"
             >
               {{ Number(idx) + 1 }}
@@ -90,17 +90,17 @@
         <div v-else class="text-xs text-gray-400">
           <div v-if="progressStage === 'generating' || progressStage === 'generating_code'">
             <span>{{ $t('tools.createArtifact.generatingCode') }}</span>
-            <span v-if="progressChars" class="ms-1 text-gray-300">{{ $t('tools.createArtifact.charsCount', { n: progressChars }) }}</span>
+            <span v-if="progressChars" class="ms-1 text-gray-300 dark:text-gray-600">{{ $t('tools.createArtifact.charsCount', { n: progressChars }) }}</span>
           </div>
           <div v-else-if="progressStage === 'validating'" class="flex items-center gap-1.5">
             <span>{{ $t('tools.createArtifact.validating') }}</span>
-            <span v-if="validationAttempt" class="text-gray-300">{{ $t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
+            <span v-if="validationAttempt" class="text-gray-300 dark:text-gray-600">{{ $t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
           </div>
           <div v-else-if="progressStage === 'fixing_errors'" class="space-y-1">
             <div class="flex items-center gap-1.5 text-amber-500">
               <Icon name="heroicons:wrench-screwdriver" class="w-3 h-3" />
               <span>{{ $t('tools.createArtifact.fixingErrors') }}</span>
-              <span class="text-gray-300">{{ $t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
+              <span class="text-gray-300 dark:text-gray-600">{{ $t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
             </div>
             <div v-if="fixingErrors.length > 0" class="ms-4 text-[10px] text-gray-400 space-y-0.5">
               <div v-for="(err, idx) in fixingErrors.slice(0, 2)" :key="idx" class="truncate max-w-xs">{{ err }}</div>
@@ -112,25 +112,25 @@
       </div>
 
       <!-- Confirmation card -->
-      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
-        <div class="text-xs font-medium text-gray-700">{{ $t('tools.createArtifact.confirm') }}</div>
+      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 p-2.5 space-y-2">
+        <div class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('tools.createArtifact.confirm') }}</div>
         <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
           <span
             v-for="viz in confirmation.visualizations"
             :key="viz.id"
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white border border-amber-200 text-gray-600"
+            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white dark:bg-gray-900 border border-amber-200 text-gray-600 dark:text-gray-400"
           >
             {{ viz.title }}
           </span>
         </div>
         <input
           v-model="editableTitle"
-          class="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:border-blue-400"
+          class="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 focus:outline-none focus:border-blue-400"
           :placeholder="$t('tools.createArtifact.titlePlaceholder')"
         />
         <div class="flex items-center gap-2">
           <button class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors" @click="approveConfirmation">{{ $t('tools.createArtifact.approve') }}</button>
-          <button class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors" @click="rejectConfirmation">{{ $t('tools.createArtifact.cancel') }}</button>
+          <button class="px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" @click="rejectConfirmation">{{ $t('tools.createArtifact.cancel') }}</button>
           <span class="text-[10px] text-gray-400">{{ $t('tools.createArtifact.autoApprovingIn', { n: confirmationCountdown }) }}</span>
         </div>
       </div>
@@ -140,12 +140,12 @@
         class="mt-1.5 ms-[18px] cursor-pointer group"
         @click="openArtifact"
       >
-      <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all max-w-xs">
+      <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all max-w-xs">
         <!-- Thumbnail -->
         <div
           :class="[
             'w-10 h-10 rounded flex-shrink-0 overflow-hidden flex items-center justify-center',
-            artifactMode === 'slides' ? 'bg-slate-800' : 'bg-blue-50'
+            artifactMode === 'slides' ? 'bg-slate-800' : 'bg-blue-50 dark:bg-blue-950'
           ]"
         >
           <img
@@ -166,7 +166,7 @@
         </div>
         <!-- Title and info -->
         <div class="flex-1 min-w-0">
-          <div class="text-xs font-medium text-gray-700 truncate">{{ artifactTitle || $t('tools.createArtifact.untitled') }}</div>
+          <div class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ artifactTitle || $t('tools.createArtifact.untitled') }}</div>
           <div class="text-[10px] text-gray-400">
             <span v-if="status === 'running'">{{ $t('tools.createArtifact.generating') }}</span>
             <span v-else>{{ artifactMode === 'slides' ? $t('tools.createArtifact.presentation') : $t('tools.createArtifact.dashboard') }}</span>
@@ -174,7 +174,7 @@
           <button
             v-if="createdArtifact && !isCollapsed"
             @click.stop="copyArtifactId"
-            class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 font-mono mt-0.5"
+            class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-400 font-mono mt-0.5"
             :title="$t('tools.createArtifact.copyIdTooltip')"
           >
             <Icon name="heroicons:clipboard-document" class="w-3 h-3" />

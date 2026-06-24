@@ -5,11 +5,11 @@
       <div v-if="step === 'select'">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-semibold">{{ $t('data.addConnection') }}</h3>
-          <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600">
+          <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
-        <p class="text-sm text-gray-500 mb-4">{{ $t('data.selectTypeHint') }}</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ $t('data.selectTypeHint') }}</p>
 
         <!-- Demo data sources at the top -->
         <div v-if="uninstalledDemos.length > 0" class="mb-4">
@@ -20,12 +20,12 @@
               :key="`demo-${demo.id}`"
               @click="handleInstallDemo(demo.id)"
               :disabled="installingDemo === demo.id"
-              class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
               <DataSourceIcon v-else class="h-4" :type="demo.type" />
               {{ demo.name }}
-              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
             </button>
           </div>
         </div>
@@ -54,10 +54,10 @@
             :disabled="isLocked(ds)"
             @click="!isLocked(ds) && selectType(ds)"
             :class="[
-              'group rounded-lg p-3 bg-white border transition-all w-full',
+              'group rounded-lg p-3 bg-white dark:bg-gray-900 border transition-all w-full',
               isLocked(ds)
-                ? 'opacity-60 cursor-not-allowed border-gray-200'
-                : 'hover:bg-gray-50 border-gray-100 hover:border-blue-200'
+                ? 'opacity-60 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200'
             ]"
           >
             <div class="flex flex-col items-center text-center">
@@ -69,9 +69,9 @@
                   </svg>
                 </div>
               </div>
-              <div class="text-xs text-gray-500 mt-1">{{ ds.title }}</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ ds.title }}</div>
               <div v-if="isLocked(ds)" class="mt-1">
-                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
+                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
                   {{ $t('data.enterprise') }}
                 </span>
               </div>
@@ -80,7 +80,7 @@
         </div>
 
         <!-- No results -->
-        <div v-if="!loadingDataSources && filteredDataSources.length === 0" class="text-center py-8 text-gray-500 text-sm">
+        <div v-if="!loadingDataSources && filteredDataSources.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
           {{ $t('data.noSourcesFound', { query: searchQuery }) }}
         </div>
       </div>
@@ -88,12 +88,12 @@
       <!-- Step 2: Connection form -->
       <div v-else-if="step === 'form'">
         <div class="flex items-center gap-2 mb-4">
-          <button type="button" @click="backToSelect" class="text-gray-500 hover:text-gray-700">
+          <button type="button" @click="backToSelect" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
             <UIcon name="heroicons-chevron-left" class="w-5 h-5" />
           </button>
           <DataSourceIcon :type="selectedDataSource?.type" class="h-5" />
           <h3 class="text-lg font-semibold">{{ selectedDataSource?.title }}</h3>
-          <button @click="isOpen = false" class="ms-auto text-gray-400 hover:text-gray-600">
+          <button @click="isOpen = false" class="ms-auto text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
@@ -138,28 +138,28 @@
           <h3 class="text-lg font-semibold">{{ createdConnection?.name || selectedDataSource?.title }}</h3>
           <span
             v-if="indexingState?.status === 'completed'"
-            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-green-50 text-green-700 border-green-200"
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-green-50 dark:bg-green-950 text-green-700 border-green-200"
           >
             <UIcon name="heroicons-check-circle" class="w-3.5 h-3.5" />
             Connected
           </span>
           <span
             v-else-if="indexingState?.status === 'failed'"
-            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-red-50 text-red-700 border-red-200"
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-red-50 dark:bg-red-950 text-red-700 border-red-200"
           >
             <UIcon name="heroicons-exclamation-triangle" class="w-3.5 h-3.5" />
             Failed
           </span>
           <span
             v-else
-            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200"
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-blue-50 dark:bg-blue-950 text-blue-700 border-blue-200"
           >
             <Spinner class="w-3 h-3" />
             Indexing
           </span>
         </div>
 
-        <div class="border border-gray-100 rounded-lg p-4 bg-gray-50">
+        <div class="border border-gray-100 dark:border-gray-800 rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
           <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">Schema discovery</div>
           <ConnectionIndexingProgress :indexing="indexingState" :show-logs="true" />
         </div>

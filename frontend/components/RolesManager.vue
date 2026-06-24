@@ -8,7 +8,7 @@
                         v-model="searchQuery"
                         type="text"
                         :placeholder="$t('rolesManager.searchPlaceholder')"
-                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
@@ -31,9 +31,9 @@
         </div>
 
         <!-- Role cards -->
-        <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
+        <div class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
             <div v-if="isLoading" class="px-6 py-12 text-center">
-                <div class="flex items-center justify-center text-gray-500">
+                <div class="flex items-center justify-center text-gray-500 dark:text-gray-400">
                     <Spinner class="w-4 h-4 me-2" />
                     <span class="text-sm">{{ $t('rolesManager.loading') }}</span>
                 </div>
@@ -41,15 +41,15 @@
             <div v-else-if="filteredRoles.length === 0" class="px-6 py-12 text-center">
                 <div class="flex flex-col items-center">
                     <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-gray-400" />
-                    <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('rolesManager.noRolesFound') }}</h3>
-                    <p class="mt-1 text-sm text-gray-500">{{ $t('rolesManager.noRolesHint') }}</p>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('rolesManager.noRolesFound') }}</h3>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('rolesManager.noRolesHint') }}</p>
                 </div>
             </div>
             <div
                 v-else
                 v-for="role in filteredRoles"
                 :key="role.id"
-                class="p-4 flex items-center justify-between hover:bg-gray-50"
+                class="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800"
             >
                 <div>
                     <div class="flex items-center gap-2">
@@ -63,7 +63,7 @@
                             {{ $t('rolesManager.fullAdmin') }}
                         </UBadge>
                     </div>
-                    <p class="text-sm text-gray-500 mt-1">
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         {{ role.description || $t('rolesManager.permissionsCount', { n: role.permissions?.length || 0 }) }}
                     </p>
                 </div>
@@ -129,20 +129,20 @@
                 <!-- Name + Description -->
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('rolesManager.nameLabel') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('rolesManager.nameLabel') }}</label>
                         <UInput v-model="form.name" :placeholder="$t('rolesManager.namePlaceholder')" size="sm" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
                         <UInput v-model="form.description" :placeholder="$t('rolesManager.descriptionPlaceholder')" size="sm" />
                     </div>
                 </div>
 
                 <!-- Full Admin Toggle -->
-                <div class="mb-5 px-3 py-2.5 bg-gray-50 rounded-lg flex items-center justify-between">
+                <div class="mb-5 px-3 py-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg flex items-center justify-between">
                     <div>
                         <span class="text-sm font-medium">{{ $t('rolesManager.fullAdminAccess') }}</span>
-                        <p class="text-xs text-gray-500">{{ $t('rolesManager.fullAdminBypass') }}</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('rolesManager.fullAdminBypass') }}</p>
                     </div>
                     <UToggle v-model="isFullAdmin" />
                 </div>
@@ -152,9 +152,9 @@
 
                     <!-- Org-wide card -->
                     <div class="border rounded-lg overflow-hidden">
-                        <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500" />
+                                <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                                 <span class="text-sm font-medium">{{ $t('rolesManager.allResources') }}</span>
                             </div>
                             <span class="text-xs text-gray-400">{{ $t('rolesManager.orgWidePermissions') }}</span>
@@ -171,7 +171,7 @@
                                         @update:model-value="togglePermission(perm, $event)"
                                         size="xs"
                                     />
-                                    <span class="text-gray-700">{{ formatPermission(perm) }}</span>
+                                    <span class="text-gray-700 dark:text-gray-300">{{ formatPermission(perm) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -183,7 +183,7 @@
                         :key="`grant-${idx}`"
                         class="border rounded-lg overflow-hidden"
                     >
-                        <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
                                 <UBadge size="xs" color="blue">{{ $t('rolesManager.ds') }}</UBadge>
                                 <span class="text-sm font-medium">{{ grant.resource_name }}</span>
@@ -209,7 +209,7 @@
                                         @update:model-value="toggleResourcePerm(grant, perm, $event)"
                                         size="xs"
                                     />
-                                    <span class="text-gray-700">{{ formatPermission(perm) }}</span>
+                                    <span class="text-gray-700 dark:text-gray-300">{{ formatPermission(perm) }}</span>
                                 </label>
                             </div>
                         </div>

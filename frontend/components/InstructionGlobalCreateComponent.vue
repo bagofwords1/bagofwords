@@ -27,7 +27,7 @@
                             <button
                                 type="button"
                                 @click.stop="versionDropdownOpen = !versionDropdownOpen"
-                                class="flex items-center gap-1.5 px-2 py-1 border border-gray-200 rounded-md text-[11px] text-gray-700 hover:bg-gray-50 bg-white"
+                                class="flex items-center gap-1.5 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-md text-[11px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
                             >
                                 <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
                                 <span v-if="selectedVersion">v{{ selectedVersion.version_number }}</span>
@@ -35,7 +35,7 @@
                                 <span v-else>{{ $t('instructionGlobalCreate.versions.label') }}</span>
                                 <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': versionDropdownOpen }" />
                             </button>
-                            <div v-if="versionDropdownOpen" class="absolute z-20 mt-1 end-0 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden min-w-[200px] max-h-72 overflow-y-auto">
+                            <div v-if="versionDropdownOpen" class="absolute z-20 mt-1 end-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden min-w-[200px] max-h-72 overflow-y-auto">
                                 <button
                                     v-for="v in versionList"
                                     :key="v.id"
@@ -63,7 +63,7 @@
                 </div>
 
                 <!-- Version diff view (selected historical version vs. current) -->
-                <div v-if="isComparingHistorical" class="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                <div v-if="isComparingHistorical" class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800">
                     <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
                         <div class="flex items-center gap-2 text-[11px]">
                             <span class="text-gray-500">{{ $t('instructionGlobalCreate.versions.compareLabel') }}:</span>
@@ -178,7 +178,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div class="px-3 py-2 bg-white">
+                        <div class="px-3 py-2 bg-white dark:bg-gray-800">
                             <TrackedChangesView :diff-ops="tracked.diffOps.value" />
                         </div>
                     </div>
@@ -322,7 +322,7 @@
             </div>
 
             <!-- View Mode Actions (fixed at bottom) -->
-            <div class="shrink-0 bg-white border-t px-5 py-3">
+            <div class="shrink-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-5 py-3">
                 <div class="flex justify-between items-center">
                     <UButton
                         v-if="canDeleteInstructions"
@@ -367,7 +367,7 @@
                         v-model="instructionForm.title"
                         type="text"
                         :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
-                        class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900 placeholder:text-gray-300 tracking-wide"
+                        class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900 dark:text-gray-100 placeholder:text-gray-300 dark:placeholder:text-gray-600 tracking-wide"
                         :class="{ 'uppercase': props.uppercaseTitle }"
                         @input="props.uppercaseTitle && (instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase())"
                     />
@@ -625,8 +625,8 @@
                             @click="instructionForm.is_seen = !instructionForm.is_seen"
                             class="flex w-full items-center justify-between gap-1 px-2 py-1.5 text-xs rounded-md border transition-all"
                             :class="instructionForm.is_seen
-                                ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                                : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'"
+                                ? 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                                : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'"
                         >
                             <span class="inline-flex items-center gap-1">
                                 <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3" />
@@ -718,7 +718,7 @@
             </div>
             
             <!-- Form Actions (fixed at bottom) -->
-            <div class="shrink-0 bg-white border-t px-5 py-3">
+            <div class="shrink-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-5 py-3">
                 <div class="flex justify-between items-center">
                     <!-- Delete button (only show when editing and user can delete) -->
                     <UButton

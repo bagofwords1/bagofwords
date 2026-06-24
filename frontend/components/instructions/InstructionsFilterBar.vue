@@ -7,13 +7,13 @@
                 @input="$emit('update:search', ($event.target as HTMLInputElement).value)"
                 type="text"
                 placeholder="Search instructions..."
-                class="w-full ps-9 pe-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white"
+                class="w-full ps-9 pe-8 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-900"
             />
-            <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2 h-4 w-4 text-gray-400" />
-            <button 
-                v-if="search" 
+            <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2 h-4 w-4 text-gray-400 dark:text-gray-600" />
+            <button
+                v-if="search"
                 @click="$emit('update:search', '')"
-                class="absolute end-3 top-2 text-gray-400 hover:text-gray-600"
+                class="absolute end-3 top-2 text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
             >
                 <UIcon name="i-heroicons-x-mark" class="h-4 w-4" />
             </button>
@@ -71,12 +71,12 @@
         <!-- Labels dropdown with create option -->
         <UPopover v-if="!compact" :popper="{ placement: 'bottom-start' }" :ui="{ width: 'w-auto' }">
             <button
-                class="inline-flex items-center justify-between gap-1 w-28 px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300"
+                class="inline-flex items-center justify-between gap-1 w-28 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600"
             >
-                <span class="truncate text-gray-700">
+                <span class="truncate text-gray-700 dark:text-gray-300">
                     {{ labelIds.length ? `${labelIds.length} label${labelIds.length !== 1 ? 's' : ''}` : 'Labels' }}
                 </span>
-                <UIcon name="i-heroicons-chevron-down-20-solid" class="h-4 w-4 text-gray-400 flex-shrink-0" />
+                <UIcon name="i-heroicons-chevron-down-20-solid" class="h-4 w-4 text-gray-400 dark:text-gray-600 flex-shrink-0" />
             </button>
 
             <template #panel>
@@ -86,27 +86,27 @@
                         <label
                             v-for="option in labelOptions"
                             :key="option.value"
-                            class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                            class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                         >
                             <input
                                 type="checkbox"
                                 :checked="labelIds.includes(option.value)"
                                 @change="toggleLabel(option.value)"
-                                class="h-3.5 w-3.5 rounded border-gray-300 text-gray-800 focus:ring-gray-500"
+                                class="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
                             />
                             <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
-                            <span class="text-xs text-gray-700 truncate">{{ option.label }}</span>
+                            <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ option.label }}</span>
                         </label>
                     </div>
-                    <div v-else class="px-3 py-2 text-xs text-gray-500">
+                    <div v-else class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
                         No labels yet
                     </div>
-                    
+
                     <!-- Create new label -->
-                    <div class="border-t border-gray-100">
+                    <div class="border-t border-gray-100 dark:border-gray-800">
                         <button
                             @click="openCreateLabelModal"
-                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
                         >
                             <UIcon name="i-heroicons-plus" class="h-3.5 w-3.5" />
                             Create new label
@@ -134,7 +134,7 @@
                 <span class="flex items-center gap-1">
                     <UIcon name="i-heroicons-funnel" class="w-3 h-3" />
                     More
-                    <span v-if="advancedFilterCount > 0" class="ms-0.5 px-1 py-0.5 text-[9px] bg-gray-200 rounded-full">
+                    <span v-if="advancedFilterCount > 0" class="ms-0.5 px-1 py-0.5 text-[9px] bg-gray-200 dark:bg-gray-700 rounded-full">
                         {{ advancedFilterCount }}
                     </span>
                 </span>
@@ -144,7 +144,7 @@
                 <div class="p-5 w-80 space-y-4">
                     <!-- Category filter -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-2">Category</label>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Category</label>
                         <USelectMenu
                             :model-value="categories"
                             @update:model-value="$emit('update:categories', $event)"
@@ -169,7 +169,7 @@
 
                     <!-- Load mode filter -->
                     <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-2">Load Rule</label>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Load Rule</label>
                         <USelectMenu
                             :model-value="loadModes"
                             @update:model-value="$emit('update:loadModes', $event)"
@@ -194,7 +194,7 @@
 
                     <!-- Data Source filter (hidden when agent filter is used globally) -->
                     <div v-if="dataSources.length > 0 && !hideAgentFilter">
-                        <label class="block text-xs font-medium text-gray-700 mb-2">Data Source</label>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Data Source</label>
                         <USelectMenu
                             :model-value="dataSourceId"
                             @update:model-value="$emit('update:dataSourceId', $event)"
@@ -225,7 +225,7 @@
                     <button
                         v-if="hasAdvancedFilters"
                         @click="clearAdvancedFilters"
-                        class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1 pt-2 border-t border-gray-100"
+                        class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 pt-2 border-t border-gray-100 dark:border-gray-800"
                     >
                         <UIcon name="i-heroicons-x-mark" class="h-3 w-3" />
                         Clear advanced filters
@@ -237,10 +237,10 @@
         <slot name="actions" />
 
         <!-- Clear all filters -->
-        <button 
+        <button
             v-if="hasActiveFilters"
             @click="$emit('reset')"
-            class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1"
         >
             <UIcon name="i-heroicons-x-mark" class="h-3 w-3" />
             Clear
