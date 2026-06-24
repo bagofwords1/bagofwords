@@ -458,6 +458,7 @@ const copyToClipboard = async (text: string, key: string = 'url') => {
   }
 }
 
+const _df = useFormatDate()
 const formatRelativeTime = (timestamp: string | null) => {
   if (!timestamp) return ''
   const isoTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z'
@@ -473,7 +474,7 @@ const formatRelativeTime = (timestamp: string | null) => {
   if (hours < 24) return `${hours}h ago`
   if (days < 7) return `${days}d ago`
 
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return _df.format(date, { month: 'short', day: 'numeric' })
 }
 
 // ── Init ──

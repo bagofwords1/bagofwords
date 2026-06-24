@@ -73,6 +73,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{ (e: 'select-day', date: string): void }>()
 const { t } = useI18n()
+const _df = useFormatDate()
 
 const onBarClick = (params: any) => {
     if (params?.dataIndex == null || !props.points?.length) return
@@ -130,7 +131,7 @@ const chartOptions = computed((): EChartsOption | null => {
                 const success = successData[idx] || 0
                 const error = errorData[idx] || 0
                 const total = success + error
-                const fullDate = new Date(points[idx].date).toLocaleDateString()
+                const fullDate = _df.formatDate(points[idx].date)
                 return `
                     <div style="font-size:12px">
                         <div style="font-weight:600;margin-bottom:2px">${fullDate}</div>

@@ -629,10 +629,11 @@ const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(
   }
 })
 
+const _df = useFormatDate()
 const formatDate = (iso?: string | null) => {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleString()
+    return _df.formatDateTime(iso)
   } catch {
     return '—'
   }

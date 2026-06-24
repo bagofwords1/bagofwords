@@ -1090,8 +1090,9 @@ const truncateText = (text: string, maxLength: number) => {
     return text.slice(0, maxLength) + '…'
 }
 
+const _df = useFormatDate()
 const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString()
+    return _df.formatDateTime(dateString)
 }
 
 const hasAnyScores = (item: any) => {

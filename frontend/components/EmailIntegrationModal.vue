@@ -296,9 +296,10 @@ function authLabel(t?: string) {
   return t === 'microsoft' ? 'Microsoft 365 (OAuth)' : t === 'google' ? 'Google Workspace (service account)' : 'Password'
 }
 
+const _df = useFormatDate()
 function formatDate(d: string | undefined) {
   if (!d) return 'N/A'
-  return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return _df.format(d, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function buildBody() {

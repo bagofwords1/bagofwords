@@ -264,6 +264,7 @@ const clearFilters = () => {
 }
 
 const { t, locale } = useI18n({ useScope: 'global' })
+const _df = useFormatDate()
 const formatTimestamp = (timestamp: string) => {
   // Ensure UTC parsing if no timezone specified
   const isoTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z'
@@ -279,7 +280,7 @@ const formatTimestamp = (timestamp: string) => {
   if (hours < 24) return t('settings.audit.hoursAbbr', { n: hours })
   if (days < 7) return t('settings.audit.daysAbbr', { n: days })
 
-  return date.toLocaleDateString(locale.value, { month: 'short', day: 'numeric' })
+  return _df.format(date, { month: 'short', day: 'numeric' })
 }
 
 const formatAction = (action: string) => {

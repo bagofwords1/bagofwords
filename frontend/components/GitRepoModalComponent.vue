@@ -922,8 +922,9 @@ function getProviderIcon(provider: string) {
     return found?.icon || 'i-heroicons-server'
 }
 
+const _df = useFormatDate()
 function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    return _df.format(dateStr, {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',

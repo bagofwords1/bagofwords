@@ -142,11 +142,10 @@ const showRelated = ref(true)
 const showImpact = ref(true)
 const expandedInstructionId = ref<string | null>(null)
 
+const _df = useFormatDate()
 const formatDate = (d: string | Date | null | undefined) => {
     if (!d) return ''
-    const dt = typeof d === 'string' ? new Date(d) : d
-    if (!(dt instanceof Date) || isNaN(dt.getTime())) return ''
-    return dt.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+    return _df.format(d, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 </script>
 

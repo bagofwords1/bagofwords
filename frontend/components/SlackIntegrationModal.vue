@@ -153,9 +153,10 @@
     }
   }
   
+  const _df = useFormatDate()
   function formatDate(dateString: string | undefined) {
     if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return _df.format(dateString, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

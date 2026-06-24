@@ -314,15 +314,13 @@ const mockNegativeFeedback = ref([
 ])
 
 // Helper functions for date range formatting
+const _df = useFormatDate()
 const formatDateRange = () => {
     if (!dateRange.value.start || selectedPeriod.value.value === 'all_time') {
         return ''
     }
-    
-    const start = new Date(dateRange.value.start)
-    const end = new Date(dateRange.value.end)
-    
-    return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
+
+    return `${_df.formatDate(dateRange.value.start)} - ${_df.formatDate(dateRange.value.end)}`
 }
 
 const initializeDateRange = () => {

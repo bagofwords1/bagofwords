@@ -1186,14 +1186,15 @@ function isScheduledSystemExpanded(msg: ChatMessage): boolean {
 	return true
 }
 
+const _df = useFormatDate()
 function formatScheduledDate(date?: string) {
 	if (!date) return ''
-	return new Date(date).toLocaleString()
+	return _df.formatDateTime(date)
 }
 
 function formatMessageDate(date?: string) {
 	if (!date) return ''
-	return new Date(date).toLocaleString(undefined, {
+	return _df.format(date, {
 		month: 'short', day: 'numeric',
 		hour: 'numeric', minute: '2-digit'
 	})

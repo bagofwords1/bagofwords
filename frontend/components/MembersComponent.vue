@@ -340,10 +340,10 @@
                                     </div>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
-                                    {{ member.user?.last_login ? new Date(member.user.last_login).toLocaleDateString() : '-' }}
+                                    {{ fmtMemberDate(member.user?.last_login) }}
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
-                                    {{ member.user?.last_seen ? new Date(member.user.last_seen).toLocaleDateString() : '-' }}
+                                    {{ fmtMemberDate(member.user?.last_seen) }}
                                 </td>
                                 <td class="sticky right-0 z-10 border-s border-gray-200 bg-white group-hover:bg-gray-50 px-4 py-2 whitespace-nowrap"
                                     v-if="useCan('remove_organization_members')"
@@ -600,6 +600,8 @@ import { useCan } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { t } = useI18n()
+const _df = useFormatDate()
+const fmtMemberDate = (s?: string | null) => (s ? _df.formatDate(s) : '-')
 
 interface MemberUser {
     id: string

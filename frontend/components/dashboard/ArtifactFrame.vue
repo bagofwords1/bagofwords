@@ -295,6 +295,7 @@ const { token } = useAuth();
 const { organization } = useOrganization();
 
 // Format relative time (e.g., "2 hours ago")
+const _df = useFormatDate()
 function formatRelativeTime(dateString: string): string {
   // Append 'Z' to treat as UTC since backend stores UTC without timezone info
   const date = new Date(dateString.endsWith('Z') ? dateString : dateString + 'Z');
@@ -309,7 +310,7 @@ function formatRelativeTime(dateString: string): string {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  return _df.formatDate(date);
 }
 
 // Copy artifact ID to clipboard

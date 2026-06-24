@@ -124,6 +124,7 @@ watch(isOpen, async (open) => {
 })
 
 // --- helpers ---
+const _df = useFormatDate()
 function relTime(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso).getTime()
@@ -133,7 +134,7 @@ function relTime(iso?: string): string {
   const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`
   const days = Math.floor(h / 24); if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+  return _df.formatDate(iso)
 }
 function truncate(s?: string, n = 60): string {
   if (!s) return ''

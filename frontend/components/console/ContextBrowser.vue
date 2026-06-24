@@ -1018,11 +1018,11 @@ function hasObservationSuccess(obs: any): boolean {
   return !!obs.observation.summary
 }
 
+const _dfCtx = useFormatDate()
 function formatObservationTime(timestamp: string): string {
   if (!timestamp) return ''
   try {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    return _dfCtx.format(timestamp, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   } catch {
     return timestamp
   }

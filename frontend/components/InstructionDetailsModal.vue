@@ -168,8 +168,9 @@ const close = () => {
     isOpen.value = false
 }
 
+const _df = useFormatDate()
 const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return _df.format(dateString, {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
@@ -179,7 +180,7 @@ const formatDate = (dateString: string) => {
 }
 
 const formatShortDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    return _df.format(dateString, {
         year: 'numeric',
         month: 'short',
         day: 'numeric'

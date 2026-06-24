@@ -317,9 +317,10 @@ function resultBadgeClass(r: RunItem) {
     return 'inline-flex px-2 py-1 rounded-full bg-gray-100 text-gray-800'
 }
 
+const _df = useFormatDate()
 function formatDate(iso?: string | null) {
     if (!iso) return '—'
-    try { return new Date(iso).toLocaleString() } catch { return '—' }
+    try { return _df.formatDateTime(iso) } catch { return '—' }
 }
 
 function formatDuration(start?: string | null, end?: string | null) {

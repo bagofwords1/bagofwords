@@ -518,16 +518,12 @@ const goToReport = (report: any) => {
     if (link) router.push(link)
 }
 
+const _df = useFormatDate()
 const formatDate = (iso: string) => {
     if (!iso) return ''
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return iso
-    const datePart = new Intl.DateTimeFormat('en-US', {
-        month: 'short', day: 'numeric', year: 'numeric',
-    }).format(d)
-    const timePart = new Intl.DateTimeFormat('en-US', {
-        hour: 'numeric', minute: '2-digit', hour12: true,
-    }).format(d)
+    const datePart = _df.format(iso, { month: 'short', day: 'numeric', year: 'numeric' })
+    if (!datePart) return ''
+    const timePart = _df.format(iso, { hour: 'numeric', minute: '2-digit', hour12: true })
     return `${datePart} • ${timePart}`
 }
 

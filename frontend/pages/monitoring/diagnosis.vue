@@ -514,10 +514,10 @@ const getIssueTypeLabel = (issueType: string) => {
     }
 }
 
+const _df = useFormatDate()
 const formatDate = (dateString: string) => {
     if (!dateString) return ''
-    const date = new Date(dateString)
-    return date.toLocaleDateString()
+    return _df.formatDate(dateString)
 }
 
 // Add these methods to the existing script section

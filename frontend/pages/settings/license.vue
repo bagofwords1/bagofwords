@@ -162,8 +162,9 @@ definePageMeta({
 
 const { license, loading, isLicensed, isExpired, expiresAt, daysUntilExpiry, isExpiringSoon } = useEnterprise()
 
+const _df = useFormatDate()
 const formatDate = (date: Date) => {
-  return date.toLocaleDateString('en-US', {
+  return _df.format(date, {
     year: 'numeric',
     month: 'long',
     day: 'numeric'

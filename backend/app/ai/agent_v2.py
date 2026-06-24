@@ -183,6 +183,8 @@ class AgentV2:
         self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
+        # Org timezone for the planner's per-turn "current time" (None -> server-local).
+        self.org_timezone = organization_settings.config.get('timezone') if organization_settings else None
 
         self.report = report
         self.report_type = getattr(report, 'report_type', 'regular')
@@ -854,6 +856,7 @@ class AgentV2:
                 planner_input = PlannerInput(
                     organization_name=self.organization.name,
                     organization_ai_analyst_name=self.ai_analyst_name,
+                    timezone=self.org_timezone,
                     instructions=instructions_text,
                     user_message=self.head_completion.prompt.get("content", "") if self.head_completion and self.head_completion.prompt else "",
                     schemas_combined=schemas_text,
@@ -2051,6 +2054,7 @@ class AgentV2:
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
+                        timezone=self.org_timezone,
                         instructions=instructions,
                         user_message=self.head_completion.prompt["content"],
                         schemas_excerpt=None,
@@ -3579,6 +3583,7 @@ class AgentV2:
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
+            timezone=self.org_timezone,
             instructions=instructions,
             user_message=user_message,
             schemas_excerpt=None,

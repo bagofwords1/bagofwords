@@ -103,6 +103,10 @@ class PlannerInput(BaseModel):
     # MCP/API tools context (compact index of available external tools)
     tools_context: Optional[str] = None
 
+    # Org timezone (IANA, e.g. "America/New_York") for rendering the per-turn
+    # "current time" the model sees. None -> server-local fallback.
+    timezone: Optional[str] = None
+
     # Active artifact context (most recent artifact in the current report)
     active_artifact: Optional[Dict[str, Any]] = None
 

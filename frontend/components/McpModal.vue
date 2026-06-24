@@ -220,8 +220,9 @@ async function copy(text: string | undefined) {
     toast.add({ title: t('mcpServerModal.toastCopied'), icon: 'i-heroicons-check-circle', color: 'green' })
 }
 
+const _df = useFormatDate()
 function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleString(undefined, {
+    return _df.format(dateStr, {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',

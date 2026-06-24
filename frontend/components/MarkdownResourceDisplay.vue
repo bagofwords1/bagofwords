@@ -83,12 +83,13 @@ const fileSize = computed(() => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 });
 
+const _df = useFormatDate()
 const lastModified = computed(() => {
   const modified = rawData.value?.last_modified || rawData.value?.modified_at;
   if (!modified) return null;
-  
+
   try {
-    return new Date(modified).toLocaleDateString();
+    return _df.formatDate(modified);
   } catch {
     return null;
   }

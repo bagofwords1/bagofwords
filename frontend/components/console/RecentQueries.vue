@@ -227,10 +227,10 @@ const getContentText = (query: AgentExecutionSummaryItem) => {
     return query.prompt || 'No content available'
 }
 
+const _df = useFormatDate()
 const formatDate = (dateString: string) => {
     if (!dateString) return ''
-    const date = new Date(dateString)
-    return date.toLocaleString()
+    return _df.formatDateTime(dateString)
 }
 
 // Watch for dateRange changes
