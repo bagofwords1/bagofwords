@@ -44,24 +44,31 @@ def shot(page, name):
 
 
 def login(page):
-    page.goto(f"{FE}/users/sign-in", wait_until="domcontentloaded")
-    page.wait_for_timeout(1500)
-    # field ids vary; try a few selectors
-    for sel in ["#email", "input[type=email]", "input[type=text]"]:
-        try:
-            if page.locator(sel).count():
-                page.fill(sel, CRED["email"]); break
-        except Exception:
-            pass
+    page.goto(f"{FE}/users/sign-in", wait_until="networkidle")
+    page.wait_for_selector("#email", timeout=30000)
+    page.wait_for_timeout(1500)  # let Vue hydrate so the submit handler is bound
+    page.fill("#email", CRED["email"])
     page.fill("input[type=password]", CRED["password"])
     page.click("button[type=submit]")
-    page.wait_for_timeout(4000)
+    # wait until we navigate away from the sign-in page
+    try:
+        page.wait_for_url(lambda u: "sign-in" not in u, timeout=20000)
+    except Exception:
+        # retry once (first-compile races can drop the first click)
+        page.click("button[type=submit]")
+        page.wait_for_url(lambda u: "sign-in" not in u, timeout=20000)
+    page.wait_for_timeout(3000)
     print("after login:", page.url)
 
 
 def open_report(page):
-    page.goto(f"{FE}/reports/{RID}", wait_until="domcontentloaded")
-    page.wait_for_timeout(6000)  # let completions load + chips render
+    page.goto(f"{FE}/reports/{RID}", wait_until="networkidle")
+    # wait for the chat content (the user's question) to render, then settle
+    try:
+        page.wait_for_selector("text=top 5 artists", timeout=30000)
+    except Exception:
+        pass
+    page.wait_for_timeout(4000)
 
 
 def main():
