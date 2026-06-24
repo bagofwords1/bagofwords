@@ -188,27 +188,35 @@
               <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.usage.subtitle') }}</p>
             </div>
 
-            <div class="grid grid-cols-3 gap-3">
-              <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.tokens') }}</div>
-                <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.tokens.used) }}</div>
-                <div v-if="usage.tokens.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.tokens.limit) }}</div>
+            <!-- Real per-user counters only exist when the Usage Limits feature
+                 is enabled; otherwise the quota source is empty and showing
+                 zeros would be misleading, so we show an explicit notice. -->
+            <template v-if="usage.enabled">
+              <div class="grid grid-cols-3 gap-3">
+                <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
+                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.tokens') }}</div>
+                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.tokens.used) }}</div>
+                  <div v-if="usage.tokens.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.tokens.limit) }}</div>
+                </div>
+                <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
+                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.queries') }}</div>
+                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.queries.used) }}</div>
+                  <div v-if="usage.queries.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.queries.limit) }}</div>
+                </div>
+                <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
+                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.data') }}</div>
+                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatBytes(usage.data_bytes.used) }}</div>
+                  <div v-if="usage.data_bytes.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatBytes(usage.data_bytes.limit) }}</div>
+                </div>
               </div>
-              <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.queries') }}</div>
-                <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.queries.used) }}</div>
-                <div v-if="usage.queries.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.queries.limit) }}</div>
-              </div>
-              <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.data') }}</div>
-                <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatBytes(usage.data_bytes.used) }}</div>
-                <div v-if="usage.data_bytes.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatBytes(usage.data_bytes.limit) }}</div>
-              </div>
-            </div>
+              <p class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('profile.usage.windowNote') }}</p>
+            </template>
 
-            <p class="text-[11px] text-gray-400 dark:text-gray-500">
-              {{ usage.enabled ? $t('profile.usage.windowNote') : $t('profile.usage.disabledNote') }}
-            </p>
+            <div v-else class="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/30 px-6 py-8 text-center">
+              <UIcon name="i-heroicons-chart-bar" class="w-7 h-7 mx-auto text-gray-300 dark:text-gray-600" />
+              <p class="mt-3 text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('profile.usage.disabledTitle') }}</p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 max-w-sm mx-auto">{{ $t('profile.usage.disabledNote') }}</p>
+            </div>
           </div>
 
           <!-- Appearance -->
