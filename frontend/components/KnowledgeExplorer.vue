@@ -2112,7 +2112,8 @@ const restore = async (v: any) => {
 // ── Display helpers ─────────────────────────────────────
 const displayTitle = (ins: Instruction) => ins?.title || (ins?.text || '').split('\n')[0].slice(0, 60) || 'Untitled'
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
-const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
+const _df = useFormatDate()
+const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({

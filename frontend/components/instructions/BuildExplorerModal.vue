@@ -1554,11 +1554,12 @@ const buildDisplayTitle = (build: any): string => {
     return `Build #${build?.build_number ?? ''}`
 }
 
+const _df = useFormatDate()
 const formatDate = (dateStr: string) => {
     try {
-        return new Date(dateStr).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric' 
+        return _df.format(dateStr, {
+            month: 'short',
+            day: 'numeric'
         })
     } catch {
         return dateStr
@@ -1567,8 +1568,8 @@ const formatDate = (dateStr: string) => {
 
 const formatDateTime = (dateStr: string) => {
     try {
-        return new Date(dateStr).toLocaleString('en-US', { 
-            month: 'short', 
+        return _df.format(dateStr, {
+            month: 'short',
             day: 'numeric',
             hour: 'numeric',
             minute: '2-digit'

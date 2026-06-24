@@ -108,6 +108,12 @@ class OrganizationSettingsConfig(BaseModel):
     # avoid coupling the schema to runtime config).
     locale: Optional[str] = None
 
+    # IANA timezone for this org (e.g. "America/New_York"). When None, UTC is
+    # used. Governs how wall-clock schedules (e.g. the reindex daily time) map
+    # onto the UTC timeline and how timestamps are presented — storage stays UTC.
+    # Validated against zoneinfo at the service layer.
+    timezone: Optional[str] = None
+
     # Signup policy (domain allowlist). Gate: full_admin_access.
     class SignupPolicy(BaseModel):
         enabled: bool = False

@@ -21,6 +21,36 @@ from apscheduler.jobstores.base import JobLookupError
 logger = logging.getLogger(__name__)
 
 
+def _org_timezone_for_report(report_id) -> Optional[str]:
+    """Resolve the org timezone (IANA string) for a report, synchronously.
+
+    Used at cron-registration time so a scheduled prompt fires at the configured
+    wall-clock time *in the organization's timezone* rather than the server's.
+    Returns None on any miss/error → APScheduler falls back to its default tz
+    (the prior behaviour). Storage stays UTC; only the fire schedule is shifted.
+    """
+    import json as _json
+    try:
+        from app.core.scheduler import _engine
+        from sqlalchemy import text
+        with _engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT os.config FROM organization_settings os "
+                    "JOIN reports r ON r.organization_id = os.organization_id "
+                    "WHERE r.id = :rid"
+                ),
+                {"rid": str(report_id)},
+            ).fetchone()
+        if row and row[0]:
+            cfg = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
+            tz = cfg.get("timezone")
+            return tz or None
+    except Exception:
+        return None
+    return None
+
+
 def _parse_cron_expression(cron_expression: str) -> Optional[dict]:
     """Parse a cron expression into APScheduler kwargs. Supports 5 or 6 fields."""
     if not cron_expression:
@@ -345,6 +375,12 @@ class ScheduledPromptService:
         cron_params = _parse_cron_expression(sp.cron_schedule)
         if cron_params is None:
             return
+        # Fire the cron in the org's timezone when configured (UTC/server-local
+        # fallback otherwise). The job re-registers on update/restart, so a later
+        # timezone change is picked up then.
+        tz = _org_timezone_for_report(sp.report_id)
+        if tz:
+            cron_params = {**cron_params, 'timezone': tz}
         scheduler.add_job(
             func=self.scheduled_run_prompt,
             trigger='cron',

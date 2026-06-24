@@ -242,8 +242,9 @@ const mcpServerUrl = computed(() => {
   return `${base}/api/mcp`
 })
 
+const _df = useFormatDate()
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleString(undefined, {
+  return _df.format(dateStr, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',

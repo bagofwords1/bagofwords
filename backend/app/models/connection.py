@@ -38,6 +38,16 @@ class Connection(BaseSchema):
     # cadence (or disable) per source. NULL interval falls back to the default.
     auto_reindex_enabled = Column(Boolean, nullable=False, default=True)
     reindex_interval_hours = Column(Integer, nullable=True, default=None)
+
+    # The schedule is EITHER a recurring interval OR a fixed time-of-day:
+    #   * mode == "interval": fire every `reindex_interval_minutes` (10m floor).
+    #   * mode == "time":     fire once a day at `reindex_at_time` ("HH:MM"),
+    #                         interpreted in the org's timezone (UTC fallback).
+    # `reindex_interval_minutes` supersedes the legacy `reindex_interval_hours`
+    # (kept for back-compat / backfill); minutes is the source of truth.
+    reindex_schedule_mode = Column(String, nullable=False, default="interval")  # interval | time
+    reindex_interval_minutes = Column(Integer, nullable=True, default=None)
+    reindex_at_time = Column(String, nullable=True, default=None)  # "HH:MM" (24h)
     # Failure backoff / "wait for next attempt" state for the sweeper. On a
     # failed (or skipped) background reindex we set next_retry_at so we don't
     # hammer the source every tick — user_required catalogs heal on user login
@@ -45,16 +55,31 @@ class Connection(BaseSchema):
     next_retry_at = Column(DateTime, nullable=True, default=None)
     last_reindex_error = Column(Text, nullable=True, default=None)
 
-    # Default cadence when reindex_interval_hours is unset (every 12 hours).
+    # Default cadence when no interval is configured (every 12 hours).
     DEFAULT_REINDEX_INTERVAL_HOURS = 12
+    DEFAULT_REINDEX_INTERVAL_MINUTES = 12 * 60
+    # Hard floor on interval cadence — guards against runaway tight loops.
+    MIN_REINDEX_INTERVAL_MINUTES = 10
+
+    @property
+    def effective_reindex_interval_minutes(self) -> int:
+        """Resolved interval cadence in minutes — the per-connection override or
+        the default, with a hard floor. Prefers the minutes column; falls back
+        to the legacy hours column for rows written before the minutes split."""
+        val = self.reindex_interval_minutes
+        if val is None or val <= 0:
+            legacy = self.reindex_interval_hours
+            if legacy and legacy > 0:
+                val = legacy * 60
+            else:
+                val = self.DEFAULT_REINDEX_INTERVAL_MINUTES
+        return max(self.MIN_REINDEX_INTERVAL_MINUTES, val)
 
     @property
     def effective_reindex_interval_hours(self) -> int:
-        """Resolved reindex cadence — the per-connection override or the default."""
-        val = self.reindex_interval_hours
-        if val is None or val <= 0:
-            return self.DEFAULT_REINDEX_INTERVAL_HOURS
-        return val
+        """Back-compat shim — resolved cadence in (rounded-up) hours."""
+        minutes = self.effective_reindex_interval_minutes
+        return max(1, (minutes + 59) // 60)
 
     # Organization ownership
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False)

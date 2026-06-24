@@ -57,17 +57,15 @@ def _batch_size() -> int:
         return _DEFAULT_BATCH
 
 
-def _is_due(connection, now: datetime) -> bool:
-    """True if this connection's shared catalog is stale past its interval.
+def _is_due(connection, now: datetime, tz=None) -> bool:
+    """True if this connection's shared catalog is stale past its schedule.
 
     NULL `last_synced_at` (never indexed) counts as due. The per-connection
-    interval (or the model default) governs cadence.
+    schedule — interval or fixed time-of-day (in the org timezone `tz`, UTC if
+    unspecified) — governs cadence. Delegates to `reindex_schedule.is_due`.
     """
-    interval = timedelta(hours=connection.effective_reindex_interval_hours)
-    last = connection.last_synced_at
-    if last is None:
-        return True
-    return (now - last) >= interval
+    from app.services.reindex_schedule import is_due, UTC
+    return is_due(connection, now, tz or UTC)
 
 
 async def sweep_due_reindexes() -> None:
@@ -119,13 +117,24 @@ async def sweep_due_reindexes() -> None:
             )
         ).scalars().all()
 
+        from app.services.reindex_schedule import get_org_timezone, next_run_after
+
+        tz_cache: dict[str, object] = {}
+
+        async def _org_tz(org_id: str):
+            key = str(org_id)
+            if key not in tz_cache:
+                tz_cache[key] = await get_org_timezone(db, key)
+            return tz_cache[key]
+
         due = []
         for conn in candidates:
             # Per-user catalogs (OneDrive, personal Drive) have no admin-side
             # catalog to re-index — they heal on each user's sign-in. Skip.
             if svc._is_per_user_catalog(conn.type):
                 continue
-            if _is_due(conn, now):
+            tz = await _org_tz(conn.organization_id)
+            if _is_due(conn, now, tz):
                 due.append(conn)
             if len(due) >= batch:
                 break
@@ -138,7 +147,8 @@ async def sweep_due_reindexes() -> None:
         # leave the connection eligible to be re-kicked on the very next tick.
         # A successful index clears this and advances last_synced_at.
         for conn in due:
-            conn.next_retry_at = now + timedelta(hours=conn.effective_reindex_interval_hours)
+            tz = await _org_tz(conn.organization_id)
+            conn.next_retry_at = next_run_after(conn, now, tz)
         await db.commit()
 
         kicked = 0

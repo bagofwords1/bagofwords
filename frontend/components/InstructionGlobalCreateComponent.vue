@@ -1005,11 +1005,12 @@ const hasVersionDiff = computed(() => {
     if (!isComparingHistorical.value || selectedVersionText.value === null) return false
     return selectedVersionText.value !== (instructionForm.value.text || '')
 })
+const _df = useFormatDate()
 const formatVersionDate = (raw?: string | null) => {
     if (!raw) return ''
     const d = new Date(raw.endsWith('Z') ? raw : raw + 'Z')
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
-        d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    return _df.format(d, { month: 'short', day: 'numeric' }) + ' ' +
+        _df.format(d, { hour: '2-digit', minute: '2-digit' })
 }
 
 async function loadVersionList() {
@@ -1223,7 +1224,7 @@ const createdAtDisplay = computed(() => {
     const raw = (fullInstruction.value || props.instruction)?.created_at
     if (!raw) return null
     const d = new Date(raw.endsWith('Z') ? raw : raw + 'Z')
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    return _df.format(d, { year: 'numeric', month: 'short', day: 'numeric' }) + ', ' + _df.format(d, { hour: '2-digit', minute: '2-digit' })
 })
 
 // Get file path from instruction (git path only - title is shown separately)

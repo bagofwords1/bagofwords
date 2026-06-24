@@ -96,17 +96,68 @@
           {{ autoReindexLicensed ? $t('data.autoReindexHint') : $t('data.autoReindexEnterprise') }}
         </p>
 
-        <!-- Interval picker — only when enabled & licensed. -->
-        <div v-if="autoReindexLicensed && autoReindexEnabled" class="mt-2 flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.autoReindexEvery') }}</span>
-          <select
-            :value="autoReindexInterval"
-            :disabled="savingAutoReindex"
-            class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
-            @change="onChangeInterval(($event.target as HTMLSelectElement).value)"
-          >
-            <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+        <!-- Schedule picker — either a recurring interval OR a fixed daily time.
+             Only when enabled & licensed. -->
+        <div v-if="autoReindexLicensed && autoReindexEnabled" class="mt-2 space-y-2">
+          <!-- Mode toggle -->
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-500">{{ $t('data.autoReindexSchedule') }}</span>
+            <div class="inline-flex rounded-md border border-gray-200 overflow-hidden text-xs">
+              <button
+                type="button"
+                :disabled="savingAutoReindex"
+                :class="reindexMode === 'interval' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-600'"
+                class="px-2 py-1 disabled:opacity-50"
+                @click="setReindexMode('interval')"
+              >{{ $t('data.autoReindexModeInterval') }}</button>
+              <button
+                type="button"
+                :disabled="savingAutoReindex"
+                :class="reindexMode === 'time' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-600'"
+                class="px-2 py-1 border-l border-gray-200 disabled:opacity-50"
+                @click="setReindexMode('time')"
+              >{{ $t('data.autoReindexModeTime') }}</button>
+            </div>
+          </div>
+
+          <!-- Interval: number + unit (10 minute minimum) -->
+          <div v-if="reindexMode === 'interval'" class="flex items-center justify-between">
+            <span class="text-xs text-gray-500">{{ $t('data.autoReindexEvery') }}</span>
+            <div class="flex items-center gap-1">
+              <input
+                type="number"
+                min="1"
+                v-model.number="intervalValue"
+                :disabled="savingAutoReindex"
+                class="w-16 text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+                @change="onScheduleChange"
+              />
+              <select
+                v-model="intervalUnit"
+                :disabled="savingAutoReindex"
+                class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+                @change="onScheduleChange"
+              >
+                <option value="minutes">{{ $t('data.unitMinutes') }}</option>
+                <option value="hours">{{ $t('data.unitHours') }}</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Fixed daily time (interpreted in the org timezone) -->
+          <div v-else class="flex items-center justify-between">
+            <span class="text-xs text-gray-500">{{ $t('data.autoReindexAt') }}</span>
+            <input
+              type="time"
+              v-model="reindexAtTime"
+              :disabled="savingAutoReindex"
+              class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+              @change="onScheduleChange"
+            />
+          </div>
+
+          <p v-if="reindexScheduleError" class="text-[11px] text-amber-600">{{ reindexScheduleError }}</p>
+          <p v-else-if="reindexMode === 'time'" class="text-[11px] text-gray-400">{{ $t('data.autoReindexTimeHint') }}</p>
         </div>
 
         <!-- Last background failure, if any. -->
@@ -577,15 +628,23 @@ function stopPolling() {
 const { hasFeature } = useEnterprise()
 const autoReindexLicensed = computed(() => hasFeature('scheduled_reindex'))
 const autoReindexEnabled = ref(true)
-const autoReindexInterval = ref(12)
 const autoReindexError = ref<string | null>(null)
 const savingAutoReindex = ref(false)
-const intervalOptions = [
-  { value: 6, label: t('data.everyNHours', { n: 6 }) },
-  { value: 12, label: t('data.everyNHours', { n: 12 }) },
-  { value: 24, label: t('data.everyNHours', { n: 24 }) },
-  { value: 48, label: t('data.everyNHours', { n: 48 }) },
-]
+
+// Schedule: either a recurring interval (value + unit) OR a fixed daily time.
+const MIN_INTERVAL_MINUTES = 10
+const reindexMode = ref<'interval' | 'time'>('interval')
+const intervalValue = ref<number>(12)
+const intervalUnit = ref<'minutes' | 'hours'>('hours')
+const reindexAtTime = ref<string>('02:00')
+const reindexScheduleError = ref<string | null>(null)
+
+// Resolve the interval inputs to minutes, enforcing the 10-minute floor.
+function resolvedIntervalMinutes(): number {
+  const raw = Number(intervalValue.value) || 0
+  const mins = intervalUnit.value === 'hours' ? raw * 60 : raw
+  return Math.max(MIN_INTERVAL_MINUTES, Math.round(mins))
+}
 
 async function fetchAutoReindexConfig() {
   // Only admins can read connection detail (config-bearing). The list payload
@@ -596,8 +655,21 @@ async function fetchAutoReindexConfig() {
     const d = (data as any).value
     if (d) {
       autoReindexEnabled.value = d.auto_reindex_enabled !== false
-      autoReindexInterval.value = d.reindex_interval_hours || 12
       autoReindexError.value = d.last_reindex_error || null
+      reindexMode.value = d.reindex_schedule_mode === 'time' ? 'time' : 'interval'
+      reindexAtTime.value = d.reindex_at_time || '02:00'
+      // Prefer the minutes column; fall back to the legacy hours field. Present
+      // whole-hour intervals in hours, otherwise minutes.
+      const mins = d.reindex_interval_minutes
+        ?? (d.reindex_interval_hours ? d.reindex_interval_hours * 60 : null)
+        ?? (12 * 60)
+      if (mins % 60 === 0) {
+        intervalUnit.value = 'hours'
+        intervalValue.value = mins / 60
+      } else {
+        intervalUnit.value = 'minutes'
+        intervalValue.value = mins
+      }
     }
   } catch {
     // Non-fatal — section just shows defaults.
@@ -608,12 +680,18 @@ async function saveAutoReindex() {
   if (!props.connection?.id || savingAutoReindex.value) return
   savingAutoReindex.value = true
   try {
+    const body: Record<string, any> = {
+      auto_reindex_enabled: autoReindexEnabled.value,
+      reindex_schedule_mode: reindexMode.value,
+    }
+    if (reindexMode.value === 'time') {
+      body.reindex_at_time = reindexAtTime.value
+    } else {
+      body.reindex_interval_minutes = resolvedIntervalMinutes()
+    }
     const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
       method: 'PUT',
-      body: {
-        auto_reindex_enabled: autoReindexEnabled.value,
-        reindex_interval_hours: autoReindexInterval.value,
-      },
+      body,
     })
     if (error.value) {
       toast.add({
@@ -632,9 +710,31 @@ function onToggleAutoReindex(val: boolean) {
   saveAutoReindex()
 }
 
-function onChangeInterval(val: string) {
-  autoReindexInterval.value = parseInt(val, 10) || 12
+function setReindexMode(mode: 'interval' | 'time') {
+  if (reindexMode.value === mode) return
+  reindexMode.value = mode
+  onScheduleChange()
+}
+
+function onScheduleChange() {
+  reindexScheduleError.value = null
+  if (reindexMode.value === 'interval') {
+    const mins = resolvedIntervalMinutes()
+    // Reflect the enforced floor back into the inputs so the UI is honest.
+    if (mins === MIN_INTERVAL_MINUTES && resolvedRawMinutes() < MIN_INTERVAL_MINUTES) {
+      reindexScheduleError.value = t('data.autoReindexMinInterval', { n: MIN_INTERVAL_MINUTES })
+      intervalUnit.value = 'minutes'
+      intervalValue.value = MIN_INTERVAL_MINUTES
+    }
+  } else if (!reindexAtTime.value) {
+    reindexAtTime.value = '02:00'
+  }
   saveAutoReindex()
+}
+
+function resolvedRawMinutes(): number {
+  const raw = Number(intervalValue.value) || 0
+  return intervalUnit.value === 'hours' ? raw * 60 : raw
 }
 
 async function reindex() {

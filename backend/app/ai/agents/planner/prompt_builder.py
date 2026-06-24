@@ -9,6 +9,7 @@ remains only while ``BOW_PLANNER=v2`` is supported as a fallback.
 import json
 from typing import List, Dict, Any, Optional
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
+from app.ai.agents.planner.clock import current_time_str as _current_time_str
 from app.ai.tools import format_tool_schemas
 from datetime import datetime
 
@@ -91,7 +92,7 @@ Deep Analytics mode: If selected, you are expected to perform heavier planning, 
 
         prompt= f"""
 SYSTEM
-Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+Time: {_current_time_str(planner_input.timezone)}
 Mode: {mode_label}
 
 You are an AI Analytics Agent. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
@@ -567,7 +568,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 
         prompt = f"""
 SYSTEM
-Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+Time: {_current_time_str(planner_input.timezone)}
 Mode: Training
 
 You are an AI Data Agent Expert in TRAINING MODE. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
@@ -995,7 +996,7 @@ CRITICAL
 
         prompt = f"""
 SYSTEM
-Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+Time: {_current_time_str(planner_input.timezone)}
 Mode: Knowledge Harness (post-analysis reflection)
 
 Role: AI Data Domain Expert for {planner_input.organization_name}, running in Knowledge Harness mode. Your name is {planner_input.organization_ai_analyst_name}.

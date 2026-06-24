@@ -825,10 +825,10 @@ async function onInstructionSaved(savedInstruction?: any) {
   }
 }
 
+const _df = useFormatDate()
 function formatDate(dateStr: string): string {
   if (!dateStr) return ''
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return _df.format(dateStr, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function promptPreview(promptJson: any): string {

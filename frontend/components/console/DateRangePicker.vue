@@ -59,15 +59,13 @@ const localizedSelectedPeriod = computed(() =>
 
 
 
+const _df = useFormatDate()
 const formatDateRange = () => {
     if (!props.dateRange.start || props.selectedPeriod.value === 'all_time') {
         return ''
     }
-    
-    const start = new Date(props.dateRange.start)
-    const end = new Date(props.dateRange.end)
-    
-    return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
+
+    return `${_df.formatDate(props.dateRange.start)} - ${_df.formatDate(props.dateRange.end)}`
 }
 
 

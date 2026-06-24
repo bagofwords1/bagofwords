@@ -95,6 +95,38 @@ async def update_organization_locale(
     return await settings_service.update_locale(db, organization, current_user, locale)
 
 
+@router.get("/organization/timezone")
+async def get_organization_timezone(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Org timezone override + effective tz (UTC fallback)."""
+    return await settings_service.get_timezone(db, organization, current_user)
+
+
+@router.put("/organization/timezone")
+@requires_permission('manage_settings')
+async def update_organization_timezone(
+    payload: dict,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Set the org timezone. Pass {"timezone": "America/New_York"} or {"timezone": null} to clear."""
+    timezone = payload.get("timezone")
+    return await settings_service.update_timezone(db, organization, current_user, timezone)
+
+
+@router.get("/organization/timezones")
+async def list_supported_timezones(
+    current_user: User = Depends(current_user),
+):
+    """Sorted IANA timezone names for the settings picker."""
+    from zoneinfo import available_timezones
+    return {"timezones": sorted(available_timezones())}
+
+
 @router.get("/organization/signup-policy", response_model=SignupPolicySchema)
 @requires_permission('full_admin_access')
 async def get_signup_policy(

@@ -235,9 +235,10 @@ function getInstructionsEffectiveness() {
     return Math.round(instructionsEffectiveness.value)
 }
 
+const _df = useFormatDate()
 function formatDate(dateString: string) {
     if (!dateString) return '—'
-    try { return new Date(dateString).toLocaleString() } catch { return '—' }
+    try { return _df.formatDateTime(dateString) } catch { return '—' }
 }
 
 function truncate(text: string, length: number) {

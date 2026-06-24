@@ -426,9 +426,9 @@ Examples of good behavior:
 
         # Per-turn timestamp — lives in the user message (which is below the
         # cache breakpoint) so it doesn't invalidate the cached system prefix.
-        now = datetime.now()
-        tz = now.astimezone().tzinfo
-        time_block = f"<time>{now.strftime('%Y-%m-%d %H:%M:%S')} ({tz})</time>"
+        # Rendered in the org timezone when configured (server-local fallback).
+        from app.ai.agents.planner.clock import time_block as _time_block
+        time_block = _time_block(planner_input.timezone)
 
         parts: List[str] = [time_block]
         user_profile_block = PromptBuilderV3._format_user_profile(planner_input)

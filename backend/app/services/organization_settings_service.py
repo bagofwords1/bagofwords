@@ -686,6 +686,74 @@ class OrganizationSettingsService:
             "effective_locale": new_locale or i18n.default_locale,
         }
 
+    async def get_timezone(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Return the org's timezone override + the effective tz (UTC fallback)."""
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("timezone")
+        from app.services.reindex_schedule import resolve_timezone
+        effective = resolve_timezone(raw).key
+        return {
+            "org_timezone": raw,
+            "default_timezone": "UTC",
+            "effective_timezone": effective,
+        }
+
+    async def update_timezone(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        timezone: str | None,
+    ) -> dict:
+        """Set or clear the org timezone. None/empty clears to UTC default."""
+        from zoneinfo import ZoneInfo, available_timezones
+
+        new_tz: str | None
+        if timezone in (None, ""):
+            new_tz = None
+        elif timezone in available_timezones():
+            new_tz = timezone
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Timezone '{timezone}' is not a valid IANA timezone.",
+            )
+
+        settings = await self.get_settings(db, organization, current_user)
+        current_config = dict(settings.config or {})
+        if current_config.get("timezone") != new_tz:
+            current_config["timezone"] = new_tz
+            settings.config = current_config
+            settings.updated_at = datetime.utcnow()
+            flag_modified(settings, "config")
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="settings.timezone_updated",
+                    user_id=str(current_user.id),
+                    resource_type="organization_settings",
+                    resource_id=str(settings.id),
+                    details={"timezone": new_tz},
+                )
+            except Exception:
+                pass
+
+        return {
+            "org_timezone": new_tz,
+            "default_timezone": "UTC",
+            "effective_timezone": new_tz or "UTC",
+        }
+
     async def update_ai_feature(
         self,
         db: AsyncSession,

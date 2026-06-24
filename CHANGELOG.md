@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.421 (June 24, 2026)
+- **Auto-reindex schedule — interval _or_ fixed time** — a connection's scheduled schema reindex (including QVD sources) can now run **either** on a recurring interval (every N minutes/hours, 10-minute minimum) **or** at a fixed daily time, chosen per connection in the connection detail panel. Fixed times are interpreted in the organization timezone. (Enterprise `scheduled_reindex`.)
+- **Organization timezone** — a new **Settings → General** option that sets the org's IANA timezone. Timestamps across the app (reports, monitoring, audit, instructions, integrations, etc.) now render in it, scheduled jobs (reindex times and scheduled reports) fire in it, and the planner is told the current time in it. Storage stays UTC — the timezone only governs schedule interpretation and display; leaving it unset keeps the prior browser-local behavior.
+
 ## Version 0.0.420 (June 23, 2026)
 - **Fix — BigQuery queries failed with "Please install the 'db-dtypes' package"** — added the `db-dtypes` runtime dependency so BigQuery results convert to dataframes correctly.
 

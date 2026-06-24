@@ -109,8 +109,9 @@ const reportUrl = computed(() => `${window.location.origin}/r/${report.value.id}
 
 const selectedSchedule = ref(props.report.cron_schedule || 'None');
 
+const _df = useFormatDate()
 function formatDate(date: string) {
-    return new Date(date).toLocaleString();
+    return _df.formatDateTime(date);
 }
 
 const cronOptions = ref([

@@ -208,12 +208,12 @@ const isBuildPublished = computed(() => {
 })
 
 // Format the published timestamp
+const _df = useFormatDate()
 const publishedAtFormatted = computed(() => {
   const firstDraft = drafts.value[0]
   if (!firstDraft?.build_approved_at) return null
   try {
-    const date = new Date(firstDraft.build_approved_at)
-    return date.toLocaleString(undefined, {
+    return _df.format(firstDraft.build_approved_at, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
