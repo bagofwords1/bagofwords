@@ -2124,20 +2124,20 @@ const TreeGroup = defineComponent({
     // label text opens the panel (`@label`); otherwise the whole row toggles.
     return () => createElement('div', {}, [
       createElement('div', {
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0', props.active ? 'bg-gray-100 text-gray-900' : 'text-gray-600', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 cursor-pointer'],
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0', props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
         style: { paddingLeft: (6 + props.indent * 14) + 'px', paddingRight: '8px' },
         onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200' : 'text-gray-300', props.open ? 'rotate-90' : '', props.labelClickable ? 'cursor-pointer hover:text-gray-500' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rotate-90' : '', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: 'Status' }) : null,
-        slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 shrink-0' }) : null),
+        slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }) : null),
         createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-xs' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
-        props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-gray-400 shrink-0', title: 'Private' }) : null,
-        props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium hover:bg-blue-100', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
-        (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Reload', onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
-        (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Manage', onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
-        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
-        (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
+        props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0', title: 'Private' }) : null,
+        props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
+        (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Reload', onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
+        (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Manage', onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
+        (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400 dark:text-gray-500'] }, String(props.count)) : null,
       ]),
       (props.open && !props.disabled) ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, slots.default ? slots.default() : []) : null,
     ])
@@ -2151,16 +2151,16 @@ const InstrLeaf = defineComponent({
       const ins = props.ins
       const sel = selectedId.value === ins.id
       return createElement('button', {
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'],
+        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
         style: { paddingLeft: (20 + props.indent * 14) + 'px', paddingRight: '8px' },
         onClick: () => openInstruction(ins),
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pendingInstrIds.value.has(ins.id) ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pendingInstrIds.value.has(ins.id) ? 'Pending review' : h.getStatusTooltip(ins) }),
         createElement('span', { class: 'flex-1 text-left truncate' }, displayTitle(ins)),
-        createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.formatCategory(ins.category) }),
-        createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.getSourceTooltip(ins) }),
-        createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 text-gray-500 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
-        (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 text-gray-500 text-[11px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
+        createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
+        createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
+        createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
+        (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
       ])
     }
   },
@@ -2171,8 +2171,8 @@ const EmptyHint = defineComponent({
   emits: ['add'],
   setup(props, { emit }) {
     return () => createElement('div', { class: 'flex items-center gap-2 py-1', style: { paddingLeft: props.pad + 'px' } }, [
-      createElement('span', { class: 'text-[11px] text-gray-300 italic' }, props.text),
-      props.add ? createElement('button', { class: 'text-[11px] text-gray-500 hover:text-gray-900 font-medium', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, '+ Add') : null,
+      createElement('span', { class: 'text-[11px] text-gray-300 dark:text-gray-600 italic' }, props.text),
+      props.add ? createElement('button', { class: 'text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, '+ Add') : null,
     ])
   },
 })
@@ -2183,8 +2183,8 @@ const FilterSection = defineComponent({
   setup(props, { emit }) {
     const toggle = (v: string) => { const cur = [...(props.modelValue || [])]; const i = cur.indexOf(v); i >= 0 ? cur.splice(i, 1) : cur.push(v); emit('update:modelValue', cur) }
     return () => createElement('div', {}, [
-      createElement('div', { class: 'text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1' }, props.label),
-      createElement('div', { class: 'flex flex-wrap gap-1' }, props.options.map(o => createElement('button', { key: o.value, type: 'button', class: ['px-2 h-6 rounded-md text-[11px] font-medium transition-colors', (props.modelValue || []).includes(o.value) ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'], onClick: () => toggle(o.value) }, o.label))),
+      createElement('div', { class: 'text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1' }, props.label),
+      createElement('div', { class: 'flex flex-wrap gap-1' }, props.options.map(o => createElement('button', { key: o.value, type: 'button', class: ['px-2 h-6 rounded-md text-[11px] font-medium transition-colors', (props.modelValue || []).includes(o.value) ? 'bg-gray-900 dark:bg-gray-200 text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'], onClick: () => toggle(o.value) }, o.label))),
     ])
   },
 })

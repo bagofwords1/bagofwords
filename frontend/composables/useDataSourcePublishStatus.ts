@@ -31,13 +31,13 @@ export function publishStatusLabel(status?: string | null): string {
 export function publishStatusBadgeClass(status?: string | null): string {
   switch (status) {
     case 'published':
-      return 'bg-green-50 text-green-700 border-green-200'
+      return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30'
     case 'draft':
-      return 'bg-amber-50 text-amber-700 border-amber-200'
+      return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30'
     case 'disabled':
-      return 'bg-gray-100 text-gray-600 border-gray-200'
+      return 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'
     default:
-      return 'bg-green-50 text-green-700 border-green-200'
+      return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/30'
   }
 }
 
@@ -101,10 +101,10 @@ export function stageWrite(stage: AgentStage): Record<string, string> {
 
 export interface StageMeta { value: AgentStage; label: string; description: string; dot: string; badge: string }
 export const STAGE_OPTIONS: StageMeta[] = [
-  { value: 'production', label: 'Production', description: 'Anyone with access can use it.', dot: 'bg-green-500', badge: 'border-green-200 bg-green-50 text-green-700' },
-  { value: 'training', label: 'Training', description: 'Live for everyone, while you keep improving it.', dot: 'bg-blue-500', badge: 'border-blue-200 bg-blue-50 text-blue-700' },
-  { value: 'development', label: 'Development', description: 'Only people who can manage this agent can see it.', dot: 'bg-amber-500', badge: 'border-amber-200 bg-amber-50 text-amber-700' },
-  { value: 'disabled', label: 'Disabled', description: 'Turned off and hidden everywhere, including from the AI.', dot: 'bg-gray-400', badge: 'border-gray-200 bg-gray-100 text-gray-600' },
+  { value: 'production', label: 'Production', description: 'Anyone with access can use it.', dot: 'bg-green-500', badge: 'border-green-200 bg-green-50 text-green-700 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-400' },
+  { value: 'training', label: 'Training', description: 'Live for everyone, while you keep improving it.', dot: 'bg-blue-500', badge: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-400' },
+  { value: 'development', label: 'Development', description: 'Only people who can manage this agent can see it.', dot: 'bg-amber-500', badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400' },
+  { value: 'disabled', label: 'Disabled', description: 'Turned off and hidden everywhere, including from the AI.', dot: 'bg-gray-400', badge: 'border-gray-200 bg-gray-100 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400' },
 ]
 export function stageMeta(stage: AgentStage): StageMeta {
   return STAGE_OPTIONS.find((o) => o.value === stage) || STAGE_OPTIONS[0]
