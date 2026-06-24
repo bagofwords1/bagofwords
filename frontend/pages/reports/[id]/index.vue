@@ -145,9 +145,7 @@
 										</div>
 									</div>
 									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
-											{{ report.user.name.charAt(0) }}
-										</div>
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report.user.name.charAt(0) }}</span></div>
 									</div>
 								</div>
 							</div>
@@ -209,9 +207,7 @@
 										</div>
 										<!-- User avatar on the right (hidden on mobile) -->
 										<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
-												{{ report.user.name.charAt(0) }}
-											</div>
+											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report.user.name.charAt(0) }}</span></div>
 										</div>
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
