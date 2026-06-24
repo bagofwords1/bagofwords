@@ -46,6 +46,7 @@ const currentPath = computed(() => route.path)
 const allTabs = [
     { name: '', label: 'monitoring.tabExplore', icon: 'i-heroicons-chart-bar' },
     { name: 'diagnosis', label: 'monitoring.tabDiagnosis', icon: 'i-heroicons-wrench' },
+    { name: 'cost', label: 'monitoring.tabCost', icon: 'i-heroicons-banknotes' },
 ]
 
 const visibleTabs = computed(() => {

@@ -120,6 +120,41 @@ class LLMUsageMetrics(BaseModel):
     total_cost_usd: float
     date_range: DateRange
 
+# Cost console — LLM spend broken down by a chosen dimension over time
+class CostBreakdownItem(BaseModel):
+    key: str                 # stable id for the group (model/user/ds/group id, or provider/scope value)
+    label: str               # human-readable display name
+    sublabel: Optional[str] = None  # secondary line (e.g. user email, provider for a model)
+    provider_type: Optional[str] = None  # set for model/provider rows so the UI can flag estimates
+    total_calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    total_tokens: int
+    input_cost_usd: float
+    output_cost_usd: float
+    total_cost_usd: float
+
+class CostTimeSeriesPoint(BaseModel):
+    date: str
+    cost_usd: float
+    tokens: int
+
+class CostMetrics(BaseModel):
+    group_by: str            # one of: model | provider | user | data_source | group | scope
+    items: List[CostBreakdownItem]
+    timeseries: List[CostTimeSeriesPoint]
+    total_calls: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_cache_read_tokens: int
+    total_cache_creation_tokens: int
+    total_tokens: int
+    total_cost_usd: float
+    has_estimated_provider: bool
+    date_range: DateRange
+
 class TopUserData(BaseModel):
     user_id: str
     name: str

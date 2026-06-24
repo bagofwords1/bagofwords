@@ -6,7 +6,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
-from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics
+from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, CostMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from app.models.step import Step
@@ -125,6 +125,19 @@ async def get_llm_usage(
 ):
     """Get aggregated LLM token/cost usage per model."""
     return await console_service.get_llm_usage_metrics(db, organization, params)
+
+@router.get("/console/metrics/cost", response_model=CostMetrics)
+@requires_permission("manage_settings")
+async def get_cost_metrics(
+    group_by: str = "model",
+    params: MetricsQueryParams = Depends(),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Get LLM cost/token spend broken down by a dimension (model, provider,
+    user, data_source, group, scope) with a daily timeseries."""
+    return await console_service.get_cost_metrics(db, organization, params, group_by=group_by)
 
 @router.get("/console/metrics/recent-negative-feedback", response_model=RecentNegativeFeedbackMetrics)
 @requires_permission("manage_settings")
