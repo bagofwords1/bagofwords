@@ -245,6 +245,19 @@
                 </button>
               </div>
             </div>
+
+            <div class="space-y-2">
+              <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('profile.appearance.language') }}</label>
+              <USelect
+                v-model="selectedLocale"
+                :options="localeOptions"
+                option-attribute="label"
+                value-attribute="value"
+                class="max-w-xs"
+                @change="applyLocale"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('profile.appearance.languageDescription') }}</p>
+            </div>
           </div>
         </div>
       </section>
@@ -465,13 +478,75 @@ function setTheme(value: string) {
   colorMode.preference = value
 }
 
-// Load data lazily when the modal opens / tab changes
+// --- Appearance (per-user language override) ---
+// Language is per-user: the org sets a default, but each user can override it,
+// persisted per-browser under `bow.locale` (see plugins/i18n.ts). Picking
+// "System default" clears the override so the user follows the org default.
+const { locale: i18nLocale } = useI18n({ useScope: 'global' })
+const { $setLocale } = useNuxtApp() as any
+
+const LOCALE_NATIVE_LABELS: Record<string, string> = {
+  en: 'English', es: 'Español', he: 'עברית', fr: 'Français', sv: 'Svenska',
+  ar: 'العربية', ru: 'Русский', de: 'Deutsch', pt: 'Português (Brasil)', it: 'Italiano',
+}
+const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+
+const orgLocale = ref<{ default_locale: string; enabled_locales: string[]; effective_locale: string }>({
+  default_locale: 'en', enabled_locales: ['en'], effective_locale: 'en',
+})
+const selectedLocale = ref('')
+
+const localeOptions = computed(() => {
+  const eff = orgLocale.value.effective_locale || 'en'
+  const opts = [{ value: '', label: t('settings.language.systemDefault', { locale: LOCALE_NATIVE_LABELS[eff] || eff }) }]
+  for (const code of (orgLocale.value.enabled_locales || [])) {
+    opts.push({ value: code, label: LOCALE_NATIVE_LABELS[code] || code })
+  }
+  return opts
+})
+
+async function loadOrgLocale() {
+  try {
+    const res = await useMyFetch('/organization/locale')
+    const body = res.data?.value as any
+    if (body) orgLocale.value = body
+  } catch {}
+  try {
+    const stored = localStorage.getItem('bow.locale')
+    selectedLocale.value = stored && (orgLocale.value.enabled_locales || []).includes(stored) ? stored : ''
+  } catch { selectedLocale.value = '' }
+}
+
+function applyDocumentLocale(code: string) {
+  if (typeof document === 'undefined') return
+  document.documentElement.setAttribute('lang', code)
+  document.documentElement.setAttribute('dir', RTL_LOCALES.has(code) ? 'rtl' : 'ltr')
+}
+
+function applyLocale(value: string) {
+  if (value) {
+    // Explicit per-user override (persists to bow.locale).
+    if (typeof $setLocale === 'function') $setLocale(value)
+    else { (i18nLocale as any).value = value; applyDocumentLocale(value) }
+  } else {
+    // System default: clear the override and follow the org's effective locale.
+    try { localStorage.removeItem('bow.locale') } catch {}
+    const eff = orgLocale.value.effective_locale || 'en'
+    ;(i18nLocale as any).value = eff
+    applyDocumentLocale(eff)
+  }
+}
+
+// Load data when the modal opens. The component is v-if-mounted already-open,
+// so the watcher must be immediate (a non-immediate watch never sees the
+// initial true and the General/Appearance data would never load on first open).
 watch(isOpen, (open) => {
   if (open) {
     syncNameInput()
+    loadOrgLocale()
     if (activeTab.value === 'instructions') loadInstructions()
   }
-})
+}, { immediate: true })
 watch(activeTab, (tab) => {
   if (tab === 'instructions') loadInstructions()
 })

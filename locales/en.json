@@ -2397,7 +2397,9 @@
       "theme": "Theme",
       "light": "Light",
       "dark": "Dark",
-      "system": "System"
+      "system": "System",
+      "language": "Language",
+      "languageDescription": "Overrides the organization's default language for your account only."
     }
   },
   "agentPage": {
