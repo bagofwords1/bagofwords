@@ -27,6 +27,24 @@ async def get_general_icon(icon_key: str):
     return FileResponse(resolved)
 
 
+@router.get("/users/avatar/{avatar_key}")
+async def get_user_avatar(avatar_key: str):
+    """Serve an uploaded user avatar. Public (like the org icon): avatars are
+    non-sensitive and need to render in <img> tags without auth headers."""
+    if ".." in avatar_key or "/" in avatar_key or "\\" in avatar_key:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    if not _SAFE_NAME_RE.fullmatch(avatar_key):
+        raise HTTPException(status_code=404, detail="Avatar not found")
+
+    base_dir = os.path.realpath(os.path.join(os.getcwd(), "uploads", "avatars"))
+    resolved = os.path.realpath(os.path.join(base_dir, avatar_key))
+    if not resolved.startswith(base_dir + os.sep):
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    if not os.path.isfile(resolved):
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    return FileResponse(resolved, media_type="image/png")
+
+
 @router.get("/thumbnails/{filename}")
 async def get_thumbnail(filename: str):
     """Serve thumbnail images for artifacts/reports."""

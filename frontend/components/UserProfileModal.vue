@@ -4,7 +4,13 @@
       <!-- Left column (smaller): user header + section nav -->
       <aside class="border-e border-gray-200/80 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 flex flex-col">
         <div class="px-4 pt-5 pb-4 flex flex-col items-center text-center gap-2">
-          <div class="flex items-center justify-center w-12 h-12 rounded-full bg-blue-500 text-white text-lg font-bold">
+          <img
+            v-if="avatarUrl"
+            :src="avatarUrl"
+            alt=""
+            class="w-12 h-12 rounded-full object-cover bg-gray-100 dark:bg-gray-800"
+          />
+          <div v-else class="flex items-center justify-center w-12 h-12 rounded-full bg-blue-500 text-white text-lg font-bold">
             {{ userInitial }}
           </div>
           <div class="min-w-0 w-full">
@@ -52,12 +58,42 @@
 
             <!-- Avatar + full name -->
             <div class="flex items-center gap-4">
-              <div class="flex items-center justify-center w-16 h-16 rounded-full bg-blue-500 text-white text-2xl font-bold shrink-0">
-                {{ userInitial }}
+              <div class="relative shrink-0">
+                <img
+                  v-if="avatarUrl"
+                  :src="avatarUrl"
+                  alt=""
+                  class="w-16 h-16 rounded-full object-cover bg-gray-100 dark:bg-gray-800"
+                />
+                <div
+                  v-else
+                  class="flex items-center justify-center w-16 h-16 rounded-full bg-blue-500 text-white text-2xl font-bold"
+                >
+                  {{ userInitial }}
+                </div>
+                <button
+                  type="button"
+                  :disabled="avatarBusy"
+                  class="absolute -bottom-1 -end-1 w-6 h-6 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
+                  @click="selectAvatar"
+                >
+                  <Spinner v-if="avatarBusy" class="w-3 h-3 animate-spin" />
+                  <UIcon v-else name="i-heroicons-camera" class="w-3.5 h-3.5" />
+                </button>
+                <input ref="avatarInput" type="file" accept="image/*" class="hidden" @change="onAvatarSelected" />
               </div>
               <div class="flex-1 min-w-0 space-y-1.5">
                 <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('profile.general.fullName') }}</label>
                 <UInput v-model="nameInput" :maxlength="50" :placeholder="$t('profile.general.fullNamePlaceholder')" />
+                <button
+                  v-if="avatarUrl"
+                  type="button"
+                  :disabled="avatarBusy"
+                  class="text-[11px] text-gray-400 hover:text-red-500 disabled:opacity-50"
+                  @click="removeAvatar"
+                >
+                  {{ $t('profile.general.removePhoto') }}
+                </button>
               </div>
             </div>
 
@@ -269,6 +305,57 @@ async function saveName() {
     toast.add({ title: e?.message || t('profile.general.saveFailed'), color: 'red' })
   } finally {
     savingName.value = false
+  }
+}
+
+// --- General: avatar ---
+const avatarInput = ref<HTMLInputElement | null>(null)
+const avatarBusy = ref(false)
+const avatarUrl = computed<string | null>(() => (currentUser.value as any)?.image_url || null)
+
+function selectAvatar() {
+  avatarInput.value?.click()
+}
+
+async function onAvatarSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (file.size > 5 * 1024 * 1024) {
+    toast.add({ title: t('profile.general.avatarTooLarge'), color: 'red' })
+    input.value = ''
+    return
+  }
+  avatarBusy.value = true
+  try {
+    const formData = new FormData()
+    formData.append('avatar', file)
+    const res = await useMyFetch('/users/me/avatar', { method: 'POST', body: formData })
+    if (res.status.value !== 'success') {
+      throw new Error((res.error?.value as any)?.data?.detail || t('profile.general.avatarFailed'))
+    }
+    await getSession({ force: true })
+    toast.add({ title: t('profile.general.avatarUpdated'), color: 'green' })
+  } catch (err: any) {
+    toast.add({ title: err?.message || t('profile.general.avatarFailed'), color: 'red' })
+  } finally {
+    avatarBusy.value = false
+    input.value = ''
+  }
+}
+
+async function removeAvatar() {
+  avatarBusy.value = true
+  try {
+    const res = await useMyFetch('/users/me/avatar', { method: 'DELETE' })
+    if (res.status.value !== 'success') {
+      throw new Error((res.error?.value as any)?.data?.detail || t('profile.general.avatarFailed'))
+    }
+    await getSession({ force: true })
+  } catch (err: any) {
+    toast.add({ title: err?.message || t('profile.general.avatarFailed'), color: 'red' })
+  } finally {
+    avatarBusy.value = false
   }
 }
 

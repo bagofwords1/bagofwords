@@ -208,12 +208,14 @@
                isCollapsed ? 'justify-center' : 'gap-2.5'
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
-                <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
                   {{ userInitial }}
                 </div>
               </UTooltip>
               <template v-else>
-                <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
                   {{ userInitial }}
                 </div>
                 <span v-if="showText" class="truncate">{{ currentUserName }}</span>
@@ -445,6 +447,8 @@
     const name = currentUserName.value
     return name.charAt(0).toUpperCase()
   })
+
+  const userImageUrl = computed<string | null>(() => (currentUser.value as any)?.image_url || null)
 
   const { t } = useI18n()
   const userOrganizations = computed<any[]>(() => {

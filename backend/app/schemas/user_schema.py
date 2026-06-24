@@ -31,6 +31,7 @@ class UserUpdate(schemas.BaseUserUpdate):
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
     name: str
+    image_url: Optional[str] = None
 
     # class Config:
       #  orm_mode = True  # Allows the output model to be compatible with ORM objects
@@ -39,6 +40,7 @@ class UserSchema(BaseModel):
     id: str
     name: str
     email: str
+    image_url: Optional[str] = None
     external_user_mappings: List[ExternalUserMappingMinimalSchema] = []
     last_login: Optional[datetime] = None
     last_seen: Optional[datetime] = None
