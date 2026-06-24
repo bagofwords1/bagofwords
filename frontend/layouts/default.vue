@@ -68,7 +68,7 @@
         <li class="mt-4">
           <NuxtLink to="/agents" :class="[
             'flex items-center w-full rounded-lg border transition-all duration-200',
-            isRouteActive('/agents') ? 'border-gray-300 bg-white shadow-sm text-gray-900 font-semibold' : 'border-gray-200 bg-white shadow-sm text-gray-700 hover:border-gray-300 hover:shadow',
+            isRouteActive('/agents') ? 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-white font-semibold' : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow',
             isCollapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2'
           ]">
             <UTooltip v-if="isCollapsed" text="Agents" :popper="{ placement: tooltipPlacement }">
@@ -81,7 +81,7 @@
               <span class="flex items-center justify-center w-[18px] h-[18px] shrink-0"><UIcon name="heroicons-cube" /></span>
               <span v-if="showText" class="font-medium">Agents</span>
               <span v-if="showText && navAgentTypes.length" class="ml-auto flex -space-x-1.5 items-center shrink-0">
-                <DataSourceIcon v-for="(t, i) in navAgentTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
+                <DataSourceIcon v-for="(t, i) in navAgentTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white dark:ring-gray-900 rounded-full bg-white dark:bg-gray-900" />
               </span>
             </template>
           </NuxtLink>
