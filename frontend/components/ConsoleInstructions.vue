@@ -4,7 +4,7 @@
         <div v-if="showHeader" class="flex items-start justify-between mb-6 shrink-0">
             <div>
                 <h1 class="text-lg font-semibold">{{ $t('consoleInstructions.title') }}</h1>
-                <p class="mt-2 text-gray-500">{{ $t('consoleInstructions.subtitle') }}</p>
+                <p class="mt-2 text-gray-500 dark:text-gray-400">{{ $t('consoleInstructions.subtitle') }}</p>
             </div>
             <div class="flex items-center gap-2 mt-1">
                 <!-- AI Suggestions button - only for users who can modify settings -->
@@ -15,7 +15,7 @@
                     size="xs"
                     @click="openLearningSettingsModal"
                 >
-                    <span v-if="learningEnabled" class="text-amber-500">
+                    <span v-if="learningEnabled" class="text-amber-500 dark:text-amber-400">
                         <UIcon name="i-heroicons-bolt" class="w-3 h-3" />
                     </span>
                     <span v-else>

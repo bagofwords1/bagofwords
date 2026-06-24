@@ -26,8 +26,8 @@
         <!-- Delete confirmation -->
         <UModal v-model="showDeleteModal" :ui="{ width: 'sm:max-w-sm' }">
             <div class="p-6">
-                <h3 class="text-sm font-semibold text-gray-900 mb-2">Remove Connection</h3>
-                <p class="text-xs text-gray-500 mb-4">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">Remove Connection</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
                     Remove <strong>{{ deletingConnection?.name }}</strong> from this agent? The connection will remain available for other agents.
                 </p>
                 <div class="flex justify-end gap-2">

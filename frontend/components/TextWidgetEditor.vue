@@ -1,6 +1,6 @@
 <template>
     <div  class="p-1 pb-10 ps-3 border h-full min-h-[140px] w-full rounded-lg relative" :style="wrapperStyle">
-      <div v-if="editor" class="flex items-center gap-1 border-b border-gray-200 mb-2 text-xs">
+      <div v-if="editor" class="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 mb-2 text-xs">
         <button
           @click="editor.chain().focus().toggleBold().run()"
           :disabled="!editor.can().chain().focus().toggleBold().run()"
@@ -41,22 +41,22 @@
         <TiptapEditorContent :editor="editor" />
       </div>
     <div class="absolute bottom-2 start-2">
-        <button 
+        <button
           @click="$emit('save', editor.getHTML())"
           class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded"
         >
             Save
         </button>
-        <button 
+        <button
           @click="$emit('cancel')"
-          class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-500 px-2 py-1 rounded ms-2"
+          class="text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-1 rounded ms-2"
         >
             Cancel
         </button>
     </div>
     </div>
   </template>
-  
+
   <script setup lang="ts">
   import { computed, unref } from 'vue'
   import { useEditor, EditorContent as TiptapEditorContent } from '@tiptap/vue-3'
@@ -81,14 +81,14 @@
     color: tokens.value?.textColor || '#232323',
     borderColor: tokens.value?.cardBorder || '#e5e7eb'
   }))
-  
+
   onBeforeUnmount(() => {
     unref(editor).destroy();
   });
-  
+
   defineEmits(['save', 'cancel']);
   </script>
-  
+
   <style >
     .editor-content {
         border: 1px solid #ccc;
@@ -140,7 +140,7 @@
         outline: none !important;
     }
 
-  
+
 
     .editor-container {
       height: calc(100% - 60px); /* Adjust based on your toolbar height */

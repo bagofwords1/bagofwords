@@ -4,13 +4,13 @@
         <template v-if="injectedFetchError" />
         <template v-else>
         <!-- Connect Git Repository Section (only shown when not connected) -->
-        <div v-if="!hasGitConnection" class="border border-gray-200 rounded-lg p-6">
-            <div class="bg-white">
-                <div class="flex items-center border-b border-gray-200 pb-3 w-full">
-                    <h3 class="text-lg mt-1 font-semibold text-gray-900">Connect your git repository and load dbt, Dataform, LookML, markdown, and Tableau metadata files</h3>
+        <div v-if="!hasGitConnection" class="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+            <div class="bg-white dark:bg-gray-900">
+                <div class="flex items-center border-b border-gray-200 dark:border-gray-700 pb-3 w-full">
+                    <h3 class="text-lg mt-1 font-semibold text-gray-900 dark:text-white">Connect your git repository and load dbt, Dataform, LookML, markdown, and Tableau metadata files</h3>
                 </div>
                 <div class="text-start mb-4 mt-5">
-                    <p class="text-sm text-gray-500 leading-relaxed">
+                    <p class="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
                         Connect additional context from Tableau, dbt, Dataform, LookML, code, and markdown files to your data sources. It will be used by AI agents throughout data analysis.
                         <br />
                         Integration is via git repository.
@@ -25,11 +25,11 @@
                 </div>
 
                 <div class="mb-4 mt-6">
-                    <div v-if="isLoading" class="inline-flex items-center text-gray-500 text-xs">
+                    <div v-if="isLoading" class="inline-flex items-center text-gray-500 dark:text-gray-400 text-xs">
                         <Spinner class="w-4 h-4 me-2" />
                         Loading...
                     </div>
-                    <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Connect Git Repository</UButton>
+                    <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50 dark:hover:bg-gray-800" @click="showGitModal = true">Connect Git Repository</UButton>
                 </div>
             </div>
         </div>
@@ -37,7 +37,7 @@
         <GitRepoModalComponent v-model="showGitModal" :datasource-id="String(dsId)" :git-repository="integration?.git_repository" :metadata-resources="metadataResources" @changed="handleGitRepoChanged" />
 
         <!-- Instructions Section -->
-        <div class="border border-gray-200 rounded-lg p-6">
+        <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
             <!-- Header with filter bar, bulk actions, and count -->
             <div class="flex items-center justify-between gap-4 mb-3">
                 <InstructionsFilterBar

@@ -1,11 +1,11 @@
 <template>
-  <div class="h-full overflow-y-auto bg-white">
+  <div class="h-full overflow-y-auto bg-white dark:bg-gray-900">
     <!-- Header -->
-    <div class="px-4 pt-4 pb-6 bg-gradient-to-b from-amber-50 to-white flex items-center gap-2">
-      <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
-        <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+    <div class="px-4 pt-4 pb-6 bg-gradient-to-b from-amber-50 dark:from-amber-900/15 to-white dark:to-gray-900 flex items-center gap-2">
+      <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
+        <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
       </button>
-      <h2 class="text-sm font-semibold text-gray-900">Summary</h2>
+      <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Summary</h2>
     </div>
 
     <div class="max-w-xl mx-auto px-4 py-4 space-y-6">
@@ -33,14 +33,14 @@
           <li
             v-for="art in visibleArtifacts"
             :key="art.id"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow cursor-pointer transition-all"
             @click="emit('openArtifact', { artifactId: art.id })"
           >
             <Icon name="heroicons:squares-plus" class="w-4 h-4 flex-shrink-0 text-blue-500" />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
-                <span class="text-sm text-gray-700 truncate">{{ art.title || 'Untitled' }}</span>
-                <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Default</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ art.title || 'Untitled' }}</span>
+                <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">Default</span>
               </div>
               <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode }}</div>
             </div>
@@ -76,14 +76,14 @@
           <li
             v-for="inst in instructionsList"
             :key="inst.id"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow transition-all"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow transition-all"
           >
             <Icon
               name="heroicons-cube"
               class="w-4 h-4 flex-shrink-0 text-blue-400"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 truncate">{{ inst.title || 'Untitled instruction' }}</div>
+              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ inst.title || 'Untitled instruction' }}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span v-if="inst.category" class="text-[11px] text-gray-400">{{ inst.category }}</span>
                 <span
@@ -113,12 +113,12 @@
           <li
             v-for="w in webhooks"
             :key="w.id"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow cursor-pointer transition-all"
             @click="showWebhookModal = true"
           >
             <Icon :name="webhookIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-gray-400" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 truncate">{{ w.name }}</div>
+              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ w.name }}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span class="text-[11px] text-gray-400">{{ w.source }} · {{ w.auth_mode }}</span>
                 <span v-if="w.classify_enabled" class="inline-flex items-center gap-1 text-[11px] text-blue-500">
@@ -136,7 +136,7 @@
     <div v-if="reportId" class="max-w-xl mx-auto px-4 pb-6">
       <button
         @click="showWebhookModal = true"
-        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 hover:border-gray-300 transition-colors"
+        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
       >
         <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
         Configure webhook

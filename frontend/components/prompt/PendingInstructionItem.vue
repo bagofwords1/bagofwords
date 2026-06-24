@@ -1,12 +1,12 @@
 <template>
-  <div class="rounded border border-gray-150 bg-gray-50 mx-1 mb-1">
+  <div class="rounded border border-gray-150 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 mx-1 mb-1">
     <!-- Row header -->
     <div class="flex items-start gap-2 px-3 py-1.5">
       <div class="flex-1 min-w-0 cursor-pointer" @click="toggleExpanded">
         <div class="flex items-center gap-1.5">
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 text-gray-400 shrink-0 rtl-flip"
+            class="w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip"
           />
           <span
             :class="[
@@ -16,13 +16,13 @@
           >
             {{ inst.isEdit ? $t('prompt.changeEdit', 'edit') : $t('prompt.changeNew', 'new') }}
           </span>
-          <span dir="auto" class="text-[12px] text-gray-700 truncate hover:text-gray-900">{{ inst.title }}</span>
+          <span dir="auto" class="text-[12px] text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ inst.title }}</span>
           <span v-if="inst.lineCount > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ inst.lineCount }}</span>
         </div>
-        <div v-if="inst.category" class="text-[10px] text-gray-400 mt-0.5 ms-[18px]">{{ inst.category }}</div>
+        <div v-if="inst.category" class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 ms-[18px]">{{ inst.category }}</div>
       </div>
       <button
-        class="text-[10px] text-gray-500 hover:text-gray-800 px-1.5 py-0.5 rounded hover:bg-gray-200 shrink-0 mt-0.5"
+        class="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 px-1.5 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-800 shrink-0 mt-0.5"
         @click.stop="$emit('open')"
       >
         {{ $t('prompt.openInstruction', 'Open') }}
@@ -32,7 +32,7 @@
     <!-- Inline per-hunk tracked changes (Google-docs style). Accept / reject
          each hunk; resolution is applied to main server-side immediately. -->
     <div v-if="isExpanded" class="px-1 pb-2">
-      <div class="border border-gray-200 rounded overflow-hidden bg-white">
+      <div class="border border-gray-200 dark:border-gray-800 rounded overflow-hidden bg-white dark:bg-gray-900">
         <InstructionTrackedChanges
           :instruction-id="inst.instructionId"
           :can-approve="canApprove"

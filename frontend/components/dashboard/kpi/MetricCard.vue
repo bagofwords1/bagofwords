@@ -3,7 +3,7 @@
     <!-- Top section: Metric display -->
     <div class="flex-1 flex flex-col p-5">
       <!-- Title -->
-      <div v-if="title" class="text-sm font-medium text-gray-500 mb-4 truncate">
+      <div v-if="title" class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4 truncate">
         {{ title }}
       </div>
       

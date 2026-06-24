@@ -1,13 +1,14 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Top Prompt Types</h3>
-            <p class="text-sm text-gray-500 mt-1">Most popular prompt categories</p>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Top Prompt Types</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Most popular prompt categories</p>
         </div>
         <div class="p-6">
             <div class="h-80">
                 <VChart
                     v-if="chartOptions"
+                    :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                     class="chart"
                     :option="chartOptions"
                     autoresize
@@ -18,6 +19,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart } from 'echarts/charts'
@@ -53,7 +55,7 @@ const props = defineProps<Props>()
 const chartOptions = computed((): EChartsOption => {
     const data = props.promptTypesData.map(item => item.count)
     const categories = props.promptTypesData.map(item => item.type)
-    
+
     return {
         tooltip: {
             trigger: 'axis',
@@ -151,4 +153,4 @@ const chartOptions = computed((): EChartsOption => {
     width: 100%;
     height: 100%;
 }
-</style> 
+</style>

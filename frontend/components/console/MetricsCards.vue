@@ -1,37 +1,37 @@
 <template>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
         <!-- Messages -->
-        <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ metricsComparison?.current.total_messages || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.messages') }}</div>
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.messages') }}</div>
             <div v-if="metricsComparison?.changes.total_messages" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.total_messages.percentage)">
                     {{ formatChange(metricsComparison.changes.total_messages) }}
                 </span>
             </div>
         </div>
-        
+
         <!-- Queries -->
-        <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ metricsComparison?.current.total_queries || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.queries') }}</div>
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.queries') }}</div>
             <div v-if="metricsComparison?.changes.total_queries" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.total_queries.percentage)">
                     {{ formatChange(metricsComparison.changes.total_queries) }}
                 </span>
             </div>
         </div>
-        
+
         <!-- Accuracy -->
-        <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ isJudgeEnabled ? (metricsComparison?.current?.accuracy || $t('monitoring.cards.na')) : $t('monitoring.cards.na') }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1 flex items-center">
                 {{ $t('monitoring.cards.accuracy') }}
                 <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.accuracyTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
@@ -43,13 +43,13 @@
                 </span>
             </div>
         </div>
-        
+
         <!-- Instruction Coverage -->
-        <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                {{ isJudgeEnabled ? (metricsComparison?.current?.instructions_effectiveness != null ? Math.round(metricsComparison.current.instructions_effectiveness) + '%' : $t('monitoring.cards.na')) : $t('monitoring.cards.na') }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1 flex items-center">
                 {{ $t('monitoring.cards.instructionCoverage') }}
                 <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.instructionCoverageTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
@@ -61,13 +61,13 @@
                 </span>
             </div>
         </div>
-        
+
         <!-- Context Coverage -->
-        <div class="bg-white p-6 border hidden border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border hidden border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ formatScore(metricsComparison?.current.context_effectiveness) }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1 flex items-center">
                 {{ $t('monitoring.cards.contextCoverage') }}
                 <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.contextCoverageTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
@@ -79,13 +79,13 @@
                 </span>
             </div>
         </div>
-        
+
         <!-- Response Quality -->
-        <div class="bg-white p-6 border hidden border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border hidden border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ formatScore(metricsComparison?.current.response_quality) }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1 flex items-center">
                 {{ $t('monitoring.cards.responseQuality') }}
                 <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.responseQualityTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
@@ -97,26 +97,26 @@
                 </span>
             </div>
         </div>
-        
+
         <!-- Feedbacks -->
-        <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ metricsComparison?.current.total_feedbacks || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.feedbacks') }}</div>
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.feedbacks') }}</div>
             <div v-if="metricsComparison?.changes.total_feedbacks" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.total_feedbacks.percentage)">
                     {{ formatChange(metricsComparison.changes.total_feedbacks) }}
                 </span>
             </div>
         </div>
-        
+
         <!-- Active Users -->
-        <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900">
+        <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900 dark:text-white">
                 {{ metricsComparison?.current.active_users || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.activeUsers') }}</div>
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.activeUsers') }}</div>
             <div v-if="metricsComparison?.changes.active_users" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.active_users.percentage)">
                     {{ formatChange(metricsComparison.changes.active_users) }}
@@ -181,4 +181,4 @@ const getChangeClass = (percentage: number) => {
     if (percentage < 0) return 'text-red-600'
     return 'text-gray-500'
 }
-</script> 
+</script>

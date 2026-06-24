@@ -3,14 +3,14 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center gap-1">
           <Icon name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ runningLabel }}</span>
         </span>
-        <span v-else class="text-gray-600 flex items-center gap-1">
+        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
           <Icon name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ doneLabel }}</span>
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
@@ -28,7 +28,7 @@
         <!-- Command (input) -->
         <div v-if="command" class="group">
           <div
-            class="flex items-center text-[11px] text-gray-500 cursor-pointer hover:text-gray-600 mb-0.5"
+            class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click="showCommand = !showCommand"
           >
             <Icon
@@ -37,15 +37,15 @@
             />
             <span>{{ $t('tools.common.input') }}</span>
           </div>
-          <div v-if="showCommand" class="max-h-28 overflow-auto rounded bg-gray-50 border border-gray-100">
-            <pre class="text-[10px] leading-tight text-gray-600 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ command }}</pre>
+          <div v-if="showCommand" class="max-h-28 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
+            <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ command }}</pre>
           </div>
         </div>
 
         <!-- Result preview -->
         <div v-if="preview" class="group">
           <div
-            class="flex items-center text-[11px] text-gray-500 cursor-pointer hover:text-gray-600 mb-0.5"
+            class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click="showPreview = !showPreview"
           >
             <Icon
@@ -54,13 +54,13 @@
             />
             <span>{{ $t('tools.common.output') }}</span>
           </div>
-          <div v-if="showPreview" class="max-h-28 overflow-auto rounded bg-gray-50 border border-gray-100">
-            <pre class="text-[10px] leading-tight text-gray-600 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ preview }}</pre>
+          <div v-if="showPreview" class="max-h-28 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
+            <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ preview }}</pre>
           </div>
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

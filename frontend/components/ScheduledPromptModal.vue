@@ -4,7 +4,7 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <div class="min-w-0">
-                        <h3 class="text-sm font-semibold text-gray-900">{{ isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle') }}</h3>
+                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle') }}</h3>
                         <NuxtLink
                             v-if="isEditing && reportId"
                             :to="`/reports/${reportId}`"
@@ -35,37 +35,37 @@
 
             <!-- Schedule -->
             <div class="mt-3">
-                <div class="text-xs text-gray-500 mb-1.5">{{ $t('scheduledPrompt.schedule') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('scheduledPrompt.schedule') }}</div>
 
-                <div class="flex gap-0.5 p-0.5 bg-gray-100 rounded w-fit mb-2">
+                <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit mb-2">
                     <button
                         v-for="t in scheduleTypes"
                         :key="t.value"
                         class="px-2 py-0.5 text-[11px] rounded transition-colors"
-                        :class="scheduleType === t.value ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
                         @click="scheduleType = t.value"
                     >
                         {{ t.label }}
                     </button>
                 </div>
 
-                <div v-if="scheduleType === 'once'" class="flex items-center gap-1.5 text-xs text-gray-600">
+                <div v-if="scheduleType === 'once'" class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
                     <span>{{ $t('scheduledPrompt.runIn') }}</span>
-                    <input v-model.number="delayAmount" type="number" min="1" class="w-14 rounded border border-gray-200 px-1.5 py-1 text-xs text-center" />
-                    <select v-model="delayUnit" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
+                    <input v-model.number="delayAmount" type="number" min="1" class="w-14 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs text-center" />
+                    <select v-model="delayUnit" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
                         <option value="minutes">{{ $t('scheduledPrompt.unitMinutes') }}</option>
                         <option value="hours">{{ $t('scheduledPrompt.unitHours') }}</option>
                         <option value="days">{{ $t('scheduledPrompt.unitDays') }}</option>
                     </select>
                 </div>
 
-                <div v-else class="flex items-center gap-1.5 text-xs text-gray-600 flex-wrap">
+                <div v-else class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 flex-wrap">
                     <span>{{ $t('scheduledPrompt.every') }}</span>
                     <template v-if="recurInterval === 'minutes' || recurInterval === 'hours'">
                         <input v-model.number="recurEveryN" type="number" min="1" :max="recurInterval === 'minutes' ? 59 : 23"
-                            class="w-12 rounded border border-gray-200 px-1 py-1 text-xs text-center" />
+                            class="w-12 rounded border border-gray-200 dark:border-gray-700 px-1 py-1 text-xs text-center" />
                     </template>
-                    <select v-model="recurInterval" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
+                    <select v-model="recurInterval" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
                         <option value="minutes">{{ $t('scheduledPrompt.intervalMinutes') }}</option>
                         <option value="hours">{{ $t('scheduledPrompt.intervalHours') }}</option>
                         <option value="day">{{ $t('scheduledPrompt.intervalDay') }}</option>
@@ -75,7 +75,7 @@
                     </select>
                     <template v-if="recurInterval === 'day' || recurInterval === 'weekdays' || recurInterval === 'week' || recurInterval === 'month'">
                         <span>{{ $t('scheduledPrompt.at') }}</span>
-                        <select v-model="recurHour" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
+                        <select v-model="recurHour" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
                             <option v-for="h in 24" :key="h - 1" :value="h - 1">{{ String(h - 1).padStart(2, '0') }}:00</option>
                         </select>
                     </template>
@@ -92,7 +92,7 @@
                                 class="flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium border transition-colors"
                                 :class="recurDays.includes(d.value)
                                     ? 'bg-blue-500 text-white border-blue-500'
-                                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'"
+                                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'"
                             >
                                 {{ d.short }}
                             </button>
@@ -100,7 +100,7 @@
                     </template>
                     <template v-if="recurInterval === 'month'">
                         <span>{{ $t('scheduledPrompt.onDay') }}</span>
-                        <select v-model="recurDayOfMonth" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
+                        <select v-model="recurDayOfMonth" class="rounded border border-gray-200 dark:border-gray-700 px-1.5 py-1 text-xs">
                             <option v-for="d in 28" :key="d" :value="d">{{ d }}</option>
                         </select>
                     </template>
@@ -109,7 +109,7 @@
 
             <!-- Active toggle (edit mode) -->
             <div v-if="isEditing" class="mt-3 flex items-center justify-between">
-                <span class="text-xs text-gray-500">{{ $t('scheduledPrompt.active') }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('scheduledPrompt.active') }}</span>
                 <button
                     @click="isActive = !isActive"
                     class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
@@ -120,10 +120,10 @@
             </div>
 
             <!-- Notification subscribers -->
-            <div v-if="smtpEnabled" class="border-t border-gray-100 pt-3 mt-3">
+            <div v-if="smtpEnabled" class="border-t border-gray-100 dark:border-gray-800 pt-3 mt-3">
                 <label class="flex items-start gap-2 cursor-pointer select-none">
                     <UCheckbox v-model="sendSummaryEmail" @change="userTouchedEmailToggle = true" class="mt-0.5" />
-                    <span class="flex items-center gap-1.5 text-xs text-gray-600">
+                    <span class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
                         <Icon name="heroicons:envelope" class="w-3 h-3" />
                         {{ $t('scheduledPrompt.notifyAfterRun') }}
                     </span>
@@ -131,9 +131,9 @@
                 <p v-if="promptMentionsEmail" class="text-[11px] text-amber-600 mt-1 ms-6">
                     {{ $t('scheduledPrompt.promptSendsEmailHint') }}
                 </p>
-                <div v-if="sendSummaryEmail" class="flex flex-wrap items-center gap-1 border border-gray-200 rounded px-2 py-1 min-h-[30px] mt-2 ms-6 focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
+                <div v-if="sendSummaryEmail" class="flex flex-wrap items-center gap-1 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 min-h-[30px] mt-2 ms-6 focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
                     <span v-for="(sub, idx) in subscribers" :key="idx"
-                        class="inline-flex items-center gap-0.5 bg-gray-100 text-gray-600 text-[11px] px-1.5 py-0.5 rounded-full">
+                        class="inline-flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[11px] px-1.5 py-0.5 rounded-full">
                         {{ sub.type === 'user' ? getMemberName(sub.id) : sub.address }}
                         <button @click="removeSubscriber(idx)" class="hover:text-red-500 outline-none">
                             <Icon name="heroicons:x-mark" class="w-2.5 h-2.5" />
@@ -150,11 +150,11 @@
                             @focus="showMemberDropdown = true"
                             @blur="onBlur" />
                         <div v-if="showMemberDropdown && filteredMembers.length > 0"
-                            class="absolute start-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded shadow-lg z-50 max-h-32 overflow-y-auto">
+                            class="absolute start-0 top-full mt-1 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg z-50 max-h-32 overflow-y-auto">
                             <button v-for="member in filteredMembers" :key="member.id"
-                                class="w-full text-start px-2 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
+                                class="w-full text-start px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                                 @mousedown.prevent="addMember(member)">
-                                <span class="text-gray-900">{{ member.name || member.email }}</span>
+                                <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
                                 <span v-if="member.name" class="text-[10px] text-gray-400">{{ member.email }}</span>
                             </button>
                         </div>

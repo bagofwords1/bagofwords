@@ -1,45 +1,45 @@
 <template>
   <div class="w-full">
-    <div v-if="selectedType" class="bg-white rounded-lg p-4">
+    <div v-if="selectedType" class="bg-white dark:bg-gray-900 rounded-lg p-4">
       <div v-if="!hideHeader" class="flex items-center gap-2 mb-3">
         <DataSourceIcon :type="selectedType" class="h-5" />
-        <span class="text-sm text-gray-800">{{ selectedTitle }}</span>
+        <span class="text-sm text-gray-800 dark:text-gray-200">{{ selectedTitle }}</span>
       </div>
 
       <form @submit.prevent="onSubmit" class="space-y-3">
-        <div v-if="props.allowNameEdit !== false" class="p-3 rounded border">
-          <label class="text-sm font-medium text-gray-700 mb-1 block">Connection Name</label>
-          <input v-model="name" type="text" placeholder="e.g., 'Sales DB', 'Production'" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
+        <div v-if="props.allowNameEdit !== false" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Connection Name</label>
+          <input v-model="name" type="text" placeholder="e.g., 'Sales DB', 'Production'" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
         </div>
 
-        <div v-if="fields.config" class="p-3 rounded border">
-          <div class="text-sm font-medium text-gray-700 mb-2">Configuration</div>
+        <div v-if="fields.config" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
+          <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Configuration</div>
           <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
             <div class="mb-1">
-              <label :for="field.field_name" class="text-xs text-gray-700">{{ field.title || field.field_name }}</label>
-              <span v-if="field.description" class="text-xs text-gray-400 ms-3">{{ field.description }}</span>
+              <label :for="field.field_name" class="text-xs text-gray-700 dark:text-gray-300">{{ field.title || field.field_name }}</label>
+              <span v-if="field.description" class="text-xs text-gray-400 dark:text-gray-600 ms-3">{{ field.description }}</span>
             </div>
-            <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-            <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
+            <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+            <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
             <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.config[field.field_name]" size="xs" color="blue" />
-            <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" :placeholder="field.title || field.field_name" rows="3" />
-            <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" rows="3" />
+            <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
             <div v-else-if="uiType(field) === 'keyvalue'" class="space-y-1.5">
               <div v-for="(row, idx) in (kvRowsMap[field.field_name] || [])" :key="idx" class="flex items-center gap-2">
-                <input type="text" v-model="row.k" @input="kvSync(field.field_name)" placeholder="Parameter" class="block w-1/2 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
-                <span class="text-gray-400 text-sm">=</span>
-                <input type="text" v-model="row.v" @input="kvSync(field.field_name)" placeholder="Value" class="block w-1/2 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
-                <button type="button" @click="kvRemove(field.field_name, idx)" class="text-gray-400 hover:text-red-500 text-sm px-1" title="Remove parameter">✕</button>
+                <input type="text" v-model="row.k" @input="kvSync(field.field_name)" placeholder="Parameter" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
+                <span class="text-gray-400 dark:text-gray-600 text-sm">=</span>
+                <input type="text" v-model="row.v" @input="kvSync(field.field_name)" placeholder="Value" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
+                <button type="button" @click="kvRemove(field.field_name, idx)" class="text-gray-400 dark:text-gray-600 hover:text-red-500 text-sm px-1" title="Remove parameter">✕</button>
               </div>
               <button type="button" @click="kvAdd(field.field_name)" class="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Add parameter</button>
             </div>
-            <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
           </div>
         </div>
 
-        <div v-if="true" class="p-3 rounded border">
+        <div v-if="true" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
           <div class="flex items-center justify-between mb-2">
-            <div class="text-sm font-medium text-gray-700">System Credentials</div>
+            <div class="text-sm font-medium text-gray-700 dark:text-gray-300">System Credentials</div>
             <div class="flex items-center gap-2">
               <span v-if="credentialsLocked" class="text-xs text-green-600">✓ Credentials set</span>
               <button
@@ -54,7 +54,7 @@
                 v-if="hasExistingCredentials && !credentialsLocked"
                 type="button"
                 @click="lockCredentials"
-                class="text-xs text-gray-500 hover:text-gray-700"
+                class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
               >
                 Cancel
               </button>
@@ -68,8 +68,8 @@
           <!-- Locked state: show masked fields -->
           <div v-if="credentialsLocked && showSystemCredentialFields">
             <div v-for="field in coreCredentialFields" :key="field.field_name" class="mb-2">
-              <label class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-              <input type="text" disabled value="••••••••" class="block w-full px-3 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-400 cursor-not-allowed" />
+              <label class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
+              <input type="text" disabled value="••••••••" class="block w-full px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-900 text-sm text-gray-400 dark:text-gray-600 cursor-not-allowed" />
             </div>
           </div>
 
@@ -77,30 +77,30 @@
           <template v-if="!credentialsLocked">
             <template v-if="showSystemCredentialFields" v-for="field in coreCredentialFields" :key="field.field_name">
               <div class="mb-2" @change="clearTestResult()">
-                <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-                <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                <label :for="field.field_name" class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
+                <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
                 <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
-                <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
-                <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" rows="3" />
+                <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
               </div>
             </template>
           </template>
 
           <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
-            <span class="text-xs text-gray-700">Require user authentication</span>
+            <span class="text-xs text-gray-700 dark:text-gray-300">Require user authentication</span>
           </div>
 
           <!-- OAuth credential overrides (only visible when user auth is enabled) -->
           <template v-if="!credentialsLocked && require_user_auth && oauthCredentialFields.length">
-            <div class="border-t border-gray-200 mt-3 pt-3">
-              <div class="text-xs font-medium text-gray-500 mb-2">OAuth Credentials (optional)</div>
-              <p class="text-xs text-gray-400 mb-2">Only needed if user sign-in uses a different app registration than the service principal above.</p>
+            <div class="border-t border-gray-200 dark:border-gray-700 mt-3 pt-3">
+              <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">OAuth Credentials (optional)</div>
+              <p class="text-xs text-gray-400 dark:text-gray-600 mb-2">Only needed if user sign-in uses a different app registration than the service principal above.</p>
               <template v-for="field in oauthCredentialFields" :key="field.field_name">
                 <div class="mb-2" @change="clearTestResult()">
-                  <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-                  <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-                  <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                  <label :for="field.field_name" class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
+                  <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+                  <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
                 </div>
               </template>
             </div>
@@ -111,7 +111,7 @@
         <div class="pt-1">
           <div v-if="showLLMToggle !== false" class="flex items-center gap-2 mb-2">
             <UToggle color="blue" v-model="use_llm_onboarding" />
-            <span class="text-xs text-gray-700">Use LLM to learn data source</span>
+            <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn data source</span>
           </div>
           <div v-if="testResultOk !== null" class="mb-2">
             <div :class="testResultOk ? 'text-green-600' : 'text-red-600'" class="text-xs break-words line-clamp-2">
@@ -120,7 +120,7 @@
           </div>
           <div class="flex items-center justify-end gap-2 mt-3">
             <UTooltip v-if="showTestButton !== false" text="Regular charges may occur">
-              <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="isTestingConnection" @click="testConnection">
+              <UButton variant="soft" color="gray" class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" :disabled="isTestingConnection" @click="testConnection">
                 <template v-if="isTestingConnection">
                   <Spinner />
                   Testing...
@@ -142,7 +142,7 @@
       </form>
     </div>
   </div>
-  
+
 </template>
 
 <script setup lang="ts">
@@ -451,7 +451,7 @@ async function onSubmit() {
       use_llm_sync: use_llm_onboarding.value
     }
     emit('submitted', payload)
-    
+
     // Handle connection editing (uses /connections endpoint)
     if (isConnectionEdit.value && props.connectionId) {
       const connectionPayload: any = {
@@ -466,7 +466,7 @@ async function onSubmit() {
           connectionPayload.credentials = cleanCredentials(formData.credentials)
         }
       }
-      
+
       const res = await useMyFetch(`/connections/${props.connectionId}`, { method: 'PUT', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
       if ((res.status as any)?.value === 'success') {
         const updated = (res.data as any)?.value
@@ -532,7 +532,7 @@ async function testConnection() {
   connectionTestPassed.value = false
   try {
     let res: any
-    
+
     // When editing a connection, send current form values so the backend merges
     // new credentials with saved ones (blank fields keep existing values)
     if (isConnectionEdit.value && props.connectionId) {
@@ -561,7 +561,7 @@ async function testConnection() {
       }
       res = await useMyFetch('/data_sources/test_connection', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
     }
-    
+
     const data: any = (res.data as any)?.value
     const ok = !!(data?.success)
     const msg = data?.message || (ok ? 'Connection successful' : 'Connection failed')
@@ -605,5 +605,4 @@ onMounted(() => { fetchAvailable() })
 
 <style scoped>
 </style>
-
 

@@ -4,12 +4,12 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
                 </div>
                 <div class="mt-2 space-y-2">
                     <div class="flex flex-col md:flex-row md:items-center gap-2">
-                        <div class="text-xs text-gray-600 md:w-20">Suite</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400 md:w-20">Suite</div>
                         <div class="flex-1">
                             <USelectMenu
                                 v-model="selectedSuiteIdLocal"
@@ -27,7 +27,7 @@
                         </div>
                     </div>
                     <div class="flex flex-col md:flex-row md:items-center gap-2">
-                        <div class="text-xs text-gray-600 md:w-20">Build</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400 md:w-20">Build</div>
                         <div class="flex-1">
                             <USelectMenu
                                 v-model="selectedBuildId"
@@ -43,7 +43,7 @@
                             </USelectMenu>
                         </div>
                     </div>
-                    <div class="text-[11px] text-gray-400">
+                    <div class="text-[11px] text-gray-400 dark:text-gray-600">
                         Select an existing suite{{ isEditing ? '' : ' or choose "Create New Suite…" to add one' }}. Build version affects "Save and Run".
                     </div>
                 </div>
@@ -52,8 +52,8 @@
             <div class="max-h-[62vh] overflow-hidden pe-1">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[420px]">
                 <!-- Left: Prompt -->
-                <div class="border border-gray-200 rounded-lg overflow-hidden">
-                    <div class="px-3 py-2 border-b border-gray-200 text-xs text-gray-600">Prompt</div>
+                <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400">Prompt</div>
                     <div class="p-2">
                         <TestPromptBox
                             :textareaContent="promptText"
@@ -69,21 +69,21 @@
                 </div>
 
                 <!-- Right: Expectations Builder -->
-                <div class="border border-gray-100 rounded-lg overflow-hidden flex flex-col max-h-[58vh]">
-                    <div class="px-3 py-2 border-b border-gray-100 text-xs text-gray-700">Expectations</div>
+                <div class="border border-gray-100 dark:border-gray-800 rounded-lg overflow-hidden flex flex-col max-h-[58vh]">
+                    <div class="px-3 py-2 border-b border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300">Expectations</div>
                     <div class="p-3 flex-1 flex flex-col space-y-3 overflow-y-auto">
                         <div v-if="categoryRules.length === 0" class="p-6 text-center">
-                          <div class="text-sm font-medium text-gray-800 mb-1">No rules yet</div>
-                          <div class="text-[11px] text-gray-500 mb-3">Define expectations for your test. Add your first rule to get started.</div>
+                          <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">No rules yet</div>
+                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Define expectations for your test. Add your first rule to get started.</div>
                           <div class="flex items-center justify-center">
                             <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
                           </div>
-                          <div class="text-[11px] text-gray-500 mt-2" v-if="catalogLoading">Loading catalog…</div>
+                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-2" v-if="catalogLoading">Loading catalog…</div>
                         </div>
                         <template v-else>
                           <div class="flex items-center gap-2">
                               <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
-                              <div class="text-[11px] text-gray-500 ms-auto" v-if="catalogLoading">Loading catalog…</div>
+                              <div class="text-[11px] text-gray-500 dark:text-gray-400 ms-auto" v-if="catalogLoading">Loading catalog…</div>
                           </div>
                           <!-- Category list -->
                           <div class="space-y-3">
@@ -115,7 +115,7 @@
                             </div>
 
                             <!-- Category helper text -->
-                            <div class="px-3 pb-1 text-[11px] text-gray-500">
+                            <div class="px-3 pb-1 text-[11px] text-gray-500 dark:text-gray-400">
                               {{ categoryShortHelp(cat.categoryId) }}
                             </div>
 
@@ -123,40 +123,40 @@
                             <div v-if="cat.categoryId === 'judge'" class="px-3 pb-3 space-y-3">
                               <!-- Judge prompt textarea -->
                               <div class="space-y-1">
-                                <div class="text-[11px] text-gray-500 mb-1">Prompt</div>
+                                <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Prompt</div>
                                 <textarea
                                   v-model="(getJudgeRule(cat, 'prompt').matcher as any).value"
                                   rows="4"
-                                  class="border border-gray-300 rounded px-2 py-1 text-xs w-full"
+                                  class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full"
                                   placeholder="Write the evaluation prompt..."
                                 />
                               </div>
                               <div class="space-y-1">
-                                <div class="text-[11px] text-gray-500 mb-1">Output</div>
+                                <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Output</div>
                                 <div class="flex items-center gap-2">
-                                  <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-md">Pass</span>
-                                  <span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-md">Fail</span>
+                                  <span class="bg-green-100 dark:bg-green-900/50 text-green-800 text-xs px-2 py-1 rounded-md">Pass</span>
+                                  <span class="bg-red-100 dark:bg-red-900/50 text-red-800 text-xs px-2 py-1 rounded-md">Fail</span>
                                 </div>
                               </div>
                               <!-- Judge model selector (popover UI like PromptBoxV2) -->
                               <div class="space-y-1">
-                                <div class="text-[11px] text-gray-500 mb-1">Model</div>
+                                <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Model</div>
                                 <UPopover>
                                   <UTooltip :text="judgeSelectedModelLabel(cat)" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                                    <button class="text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center border border-gray-200">
+                                    <button class="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md px-2 py-1 text-xs flex items-center border border-gray-200 dark:border-gray-700">
                                       <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
                                       <span class="ms-1 truncate max-w-[240px] text-start">{{ judgeSelectedModelLabel(cat) }}</span>
                                     </button>
                                   </UTooltip>
                                   <template #panel="{ close }">
                                     <div class="p-2 text-xs max-h-64 overflow-y-auto w-[260px]">
-                                      <div v-for="m in judgeModels" :key="m.id || m.model_id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center" @click="() => { setJudgeModel(cat, m); close(); }">
+                                      <div v-for="m in judgeModels" :key="m.id || m.model_id" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer flex items-center" @click="() => { setJudgeModel(cat, m); close(); }">
                                         <div class="me-2">
                                           <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                         </div>
                                         <div class="flex flex-col flex-1 text-start min-w-0">
                                           <span class="font-medium truncate">{{ m.name || m.model_id }}</span>
-                                          <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
+                                          <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
                                         </div>
                                         <Icon v-if="(getJudgeRule(cat, 'model_id').matcher as any).value === (m.model_id || m.value)" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                                       </div>
@@ -169,7 +169,7 @@
                               <div v-for="fr in cat.fieldRules" :key="fr.key" class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center">
                                 <!-- Field -->
                                 <div class="md:col-span-2">
-                                  <div class="text-[11px] text-gray-500 mb-1">Field</div>
+                                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Field</div>
                                   <USelectMenu
                                     v-model="fr.target.field"
                                     :options="fieldOptionsForCategory(cat.categoryId)"
@@ -190,7 +190,7 @@
                                 </div>
                                 <!-- Op -->
                                 <div class="md:col-span-2">
-                                  <div class="text-[11px] text-gray-500 mb-1">Operator</div>
+                                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Operator</div>
                                   <USelectMenu
                                     v-model="(fr.matcher as any).type"
                                     :options="opOptionsFor(cat, fr)"
@@ -211,7 +211,7 @@
                                 </div>
                                 <!-- Value editor -->
                                 <div class="md:col-span-3">
-                                  <div class="text-[11px] text-gray-500 mb-1">Value</div>
+                                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Value</div>
                                   <div v-if="(fr.matcher as any).type === 'number.cmp' || (fr.matcher as any).type === 'length.cmp'" class="flex items-center gap-2">
                                     <USelectMenu
                                       v-model="(fr.matcher as any).op"
@@ -225,7 +225,7 @@
                                         <div class="text-xs truncate">{{ option.label }}</div>
                                       </template>
                                     </USelectMenu>
-                                    <input type="number" v-model.number="(fr.matcher as any).value" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" />
+                                    <input type="number" v-model.number="(fr.matcher as any).value" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" />
                                   </div>
                                   <USelectMenu
                                     v-else-if="getFieldMeta(cat.categoryId, fr.target.field)?.options?.length && (fr.matcher as any).type !== 'text.regex' && (fr.matcher as any).type !== 'list.contains_any' && (fr.matcher as any).type !== 'list.contains_all'"
@@ -240,9 +240,9 @@
                                        <div class="text-xs truncate">{{ option.label }}</div>
                                      </template>
                                    </USelectMenu>
-                                  <input v-else-if="(fr.matcher as any).type === 'text.regex'" type="text" v-model="(fr.matcher as any).pattern" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" placeholder="/pattern/" />
-                                  <input v-else-if="(fr.matcher as any).type === 'list.contains_any' || (fr.matcher as any).type === 'list.contains_all'" type="text" v-model="fr.valuesComma" @change="onValuesCommaChange(fr)" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" placeholder="apple, banana" />
-                                  <input v-else type="text" v-model="(fr.matcher as any).value" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" />
+                                  <input v-else-if="(fr.matcher as any).type === 'text.regex'" type="text" v-model="(fr.matcher as any).pattern" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" placeholder="/pattern/" />
+                                  <input v-else-if="(fr.matcher as any).type === 'list.contains_any' || (fr.matcher as any).type === 'list.contains_all'" type="text" v-model="fr.valuesComma" @change="onValuesCommaChange(fr)" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" placeholder="apple, banana" />
+                                  <input v-else type="text" v-model="(fr.matcher as any).value" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" />
                                 </div>
                                 <div class="md:col-span-1 flex items-end justify-end h-full">
                                   <UButton color="gray" size="xs" variant="ghost" icon="i-heroicons-trash" @click="removeField(cat, fr.key)" />
@@ -257,47 +257,47 @@
                         </template>
 
                         <!-- Other rules (preserved through round-trip) -->
-                        <div v-if="otherRules.length" class="space-y-2 pt-2 border-t border-gray-100">
-                          <div class="text-[11px] text-gray-500">Other rules</div>
+                        <div v-if="otherRules.length" class="space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                          <div class="text-[11px] text-gray-500 dark:text-gray-400">Other rules</div>
                           <div v-for="(r, idx) in otherRules" :key="`other:${idx}`" class="rounded-md border border-blue-200 px-3 py-2 space-y-2">
                             <div class="flex items-center gap-2">
-                              <span class="bg-blue-50 text-blue-700 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
+                              <span class="bg-blue-50 dark:bg-blue-950 text-blue-700 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
                               <UButton class="ms-auto" color="gray" variant="ghost" size="xs" icon="i-heroicons-trash" @click="removeOtherRule(idx)" />
                             </div>
 
                             <template v-if="r.type === 'tool.calls'">
                               <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center">
                                 <div class="md:col-span-3">
-                                  <div class="text-[11px] text-gray-500 mb-1">Tool</div>
-                                  <input type="text" v-model="r.tool" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" placeholder="e.g. create_data" />
+                                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Tool</div>
+                                  <input type="text" v-model="r.tool" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" placeholder="e.g. create_data" />
                                 </div>
                                 <div class="md:col-span-2">
-                                  <div class="text-[11px] text-gray-500 mb-1">Min calls</div>
-                                  <input type="number" min="0" v-model.number="r.min_calls" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" />
+                                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Min calls</div>
+                                  <input type="number" min="0" v-model.number="r.min_calls" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" />
                                 </div>
                                 <div class="md:col-span-3">
-                                  <div class="text-[11px] text-gray-500 mb-1">Max calls (optional)</div>
-                                  <input type="number" min="0" :value="r.max_calls ?? ''" @input="(e: any) => { const v = e.target.value; r.max_calls = v === '' ? null : Number(v) }" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" />
+                                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Max calls (optional)</div>
+                                  <input type="number" min="0" :value="r.max_calls ?? ''" @input="(e: any) => { const v = e.target.value; r.max_calls = v === '' ? null : Number(v) }" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" />
                                 </div>
                               </div>
                             </template>
 
                             <template v-else-if="r.type === 'ordering'">
-                              <div class="text-[11px] text-gray-600">
+                              <div class="text-[11px] text-gray-600 dark:text-gray-400">
                                 Mode: <span class="font-medium">{{ r.mode || 'flexible' }}</span> · Sequence: <span class="font-mono">{{ (r.sequence || []).map((s: any) => s.tool_or_bind).join(' → ') }}</span>
                               </div>
-                              <div class="text-[10px] text-gray-400">Read-only — edit via JSON for now.</div>
+                              <div class="text-[10px] text-gray-400 dark:text-gray-600">Read-only — edit via JSON for now.</div>
                             </template>
 
                             <template v-else-if="r.type === 'phase'">
-                              <div class="text-[11px] text-gray-600">
+                              <div class="text-[11px] text-gray-600 dark:text-gray-400">
                                 Phase <span class="font-medium">{{ r.phase }}</span> {{ r.occurred === false ? 'did NOT run' : 'ran' }}{{ typeof r.turn === 'number' ? ` on turn ${r.turn}` : '' }}
                               </div>
-                              <div class="text-[10px] text-gray-400">Read-only — edit via JSON for now.</div>
+                              <div class="text-[10px] text-gray-400 dark:text-gray-600">Read-only — edit via JSON for now.</div>
                             </template>
 
                             <template v-else>
-                              <pre class="text-[10px] bg-gray-50 p-2 rounded overflow-x-auto">{{ JSON.stringify(r, null, 2) }}</pre>
+                              <pre class="text-[10px] bg-gray-50 dark:bg-gray-900 p-2 rounded overflow-x-auto">{{ JSON.stringify(r, null, 2) }}</pre>
                             </template>
                           </div>
                         </div>

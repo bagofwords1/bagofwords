@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span>Searching files for&nbsp;</span>
@@ -10,33 +10,33 @@
           </Transition>
           <span>…</span>
         </span>
-        <span v-else class="text-gray-700 flex items-center">
+        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">Searched files for&nbsp;</span>
           <Transition name="fade-in" mode="out-in">
             <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
           </Transition>
-          <span v-if="files.length" class="ms-2 text-gray-400">({{ files.length }})</span>
+          <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
         </span>
       </div>
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="files.length" class="text-xs text-gray-600">
+      <div v-if="files.length" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
-              class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50"
+              class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
               <Icon name="heroicons-document" class="w-3 h-3 me-1 text-gray-400" />
-              <div class="font-medium text-gray-700 truncate">{{ f.name || 'file' }}</div>
+              <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || 'file' }}</div>
               <span v-if="f.size" class="ms-2 text-[10px] text-gray-400">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
-              <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 space-y-0.5">
+              <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">
                 <div v-if="f.path" class="text-[11px]"><span class="text-gray-400">Path:</span> {{ f.path }}</div>
                 <div v-if="f.mime_type" class="text-[11px]"><span class="text-gray-400">Type:</span> {{ f.mime_type }}</div>
                 <div v-if="f.modified_at" class="text-[11px]"><span class="text-gray-400">Modified:</span> {{ f.modified_at }}</div>

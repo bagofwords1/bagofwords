@@ -1,7 +1,7 @@
 <template>
     <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900">{{ $t('settings.general') }}
-            <p class="text-sm text-gray-500 font-normal mb-8">
+        <h2 class="text-lg font-medium text-gray-900 dark:text-white">{{ $t('settings.general') }}
+            <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-8">
                 {{ $t('settings.subtitle') }}
             </p>
         </h2>
@@ -17,16 +17,16 @@
         <div v-if="!loading && !error" class="space-y-6">
             <!-- Organization Name -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">{{ $t('settings.organizationName') }}</div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.organizationName') }}</div>
                 <UInput v-model="form.organization_name" :maxlength="80" :placeholder="$t('settings.workspacePlaceholder')" />
             </div>
             <!-- Organization Icon -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">{{ $t('settings.organizationIcon') }}</div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.organizationIcon') }}</div>
                 <div class="flex items-center space-x-4">
-                    <div class="w-20 h-14 rounded border bg-white overflow-hidden flex items-center justify-center">
+                    <div class="w-20 h-14 rounded border bg-white dark:bg-gray-900 overflow-hidden flex items-center justify-center">
                         <img v-if="form.icon_url" :src="form.icon_url" class="max-w-full max-h-full object-contain" />
-                        <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-gray-400" />
+                        <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-gray-400 dark:text-gray-400" />
                     </div>
                     <div class="space-x-2">
                         <UButton size="sm" variant="outline" color="blue" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>
@@ -34,33 +34,33 @@
                         <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
                     </div>
                 </div>
-                <div class="text-xs text-gray-500">{{ $t('settings.iconConstraints') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.iconConstraints') }}</div>
             </div>
 
 
 
             <!-- AI Analyst Name -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">{{ $t('settings.aiAnalystName') }}</div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.aiAnalystName') }}</div>
                 <UInput v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
             </div>
 
             <!-- Credit toggle -->
             <div class="md:w-2/3 flex items-center justify-between">
-                <div class="text-sm text-gray-800">{{ $t('settings.showCredit') }}</div>
+                <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('settings.showCredit') }}</div>
                 <UToggle v-model="form.bow_credit" />
             </div>
 
             <!-- Organization language -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">{{ $t('settings.language.label') }}</div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.language.label') }}</div>
                 <USelect
                     v-model="form.locale"
                     :options="localeOptions"
                     option-attribute="label"
                     value-attribute="value"
                 />
-                <div class="text-xs text-gray-500">{{ $t('settings.language.description') }}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.language.description') }}</div>
             </div>
 
             <!-- Organization timezone -->
@@ -294,5 +294,4 @@ const queueRemoveIcon = () => {
 
 onMounted(fetchSettings)
 </script>
-
 

@@ -15,17 +15,17 @@
       <span v-if="status === 'in_progress' || status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-gray-400" />
         Searching the web
-        <span v-if="displayQuery" class="ms-1 truncate max-w-[320px] text-gray-500">“{{ displayQuery }}”</span>
+        <span v-if="displayQuery" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">"{{ displayQuery }}"</span>
       </span>
-      <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
+      <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-green-500" />
         <span>Searched the web</span>
-        <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600">“{{ displayQuery }}”</span>
+        <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span>
       </span>
-      <span v-else class="text-gray-600 flex items-center">
+      <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-orange-500" />
         <span>Web search failed</span>
-        <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600">“{{ displayQuery }}”</span>
+        <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span>
       </span>
       <span v-if="sources.length" class="ms-1.5 text-[10px] text-gray-400 shrink-0">
         · {{ sources.length }} {{ sources.length === 1 ? 'source' : 'sources' }}
@@ -36,7 +36,7 @@
     <div v-if="expanded" class="mt-1.5 ms-4 space-y-1">
       <!-- Additional queries the provider ran -->
       <div v-if="extraQueries.length" class="space-y-0.5">
-        <div v-for="(q, i) in extraQueries" :key="`q${i}`" class="text-[11px] text-gray-400 truncate max-w-[380px]">“{{ q }}”</div>
+        <div v-for="(q, i) in extraQueries" :key="`q${i}`" class="text-[11px] text-gray-400 truncate max-w-[380px]">"{{ q }}"</div>
       </div>
 
       <!-- Sources with favicons -->

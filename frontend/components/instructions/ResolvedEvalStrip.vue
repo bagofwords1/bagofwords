@@ -2,40 +2,40 @@
   <span v-if="loaded && data" class="inline-flex items-center text-[11px]" @click.stop>
     <!-- Global instruction: count + link, nothing to run inline -->
     <template v-if="data.is_global">
-      <span class="inline-flex items-center gap-1 text-gray-500">
+      <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
         <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-violet-400" />
         {{ data.case_count }} eval{{ data.case_count === 1 ? '' : 's' }} · {{ data.agent_count }} agent{{ data.agent_count === 1 ? '' : 's' }}
       </span>
-      <NuxtLink to="/evals" class="ms-1.5 text-blue-600 hover:underline">View all</NuxtLink>
+      <NuxtLink to="/evals" class="ms-1.5 text-blue-600 dark:text-blue-400 hover:underline">View all</NuxtLink>
     </template>
 
     <!-- Scoped with cases: compact Run-eval button + chevron popover -->
     <template v-else-if="data.case_count > 0">
-      <div class="inline-flex items-center rounded-md border border-gray-200 overflow-hidden bg-white">
-        <button type="button" class="inline-flex items-center gap-1 px-2 h-6 hover:bg-gray-50 disabled:opacity-50"
+      <div class="inline-flex items-center rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900">
+        <button type="button" class="inline-flex items-center gap-1 px-2 h-6 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
           :disabled="runState === 'running'" @click.stop="runEval">
           <Spinner v-if="runState === 'running'" class="w-3 h-3 text-violet-600" />
           <UIcon v-else name="i-heroicons-beaker" class="w-3.5 h-3.5 text-violet-500" />
-          <span v-if="runState === 'running'" class="text-gray-600">Running {{ doneCount }}/{{ data.case_count }}</span>
+          <span v-if="runState === 'running'" class="text-gray-600 dark:text-gray-400">Running {{ doneCount }}/{{ data.case_count }}</span>
           <span v-else-if="runState === 'done'" class="inline-flex items-center gap-1">
-            <span class="text-green-600 font-medium">✓ {{ passed }}</span>
-            <span v-if="failed" class="text-red-600 font-medium">✗ {{ failed }}</span>
+            <span class="text-green-600 dark:text-green-400 font-medium">✓ {{ passed }}</span>
+            <span v-if="failed" class="text-red-600 dark:text-red-400 font-medium">✗ {{ failed }}</span>
           </span>
-          <span v-else class="text-gray-700">Run eval</span>
+          <span v-else class="text-gray-700 dark:text-gray-300">Run eval</span>
         </button>
         <UPopover :popper="{ placement: 'bottom-end' }">
-          <button type="button" class="px-1 h-6 border-s border-gray-200 hover:bg-gray-50" :title="`${data.case_count} resolved eval${data.case_count === 1 ? '' : 's'}`" @click.stop>
-            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 text-gray-400" />
+          <button type="button" class="px-1 h-6 border-s border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" :title="`${data.case_count} resolved eval${data.case_count === 1 ? '' : 's'}`" @click.stop>
+            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
           </button>
           <template #panel>
             <div class="p-2 w-72 max-h-72 overflow-auto" @click.stop>
-              <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5 px-0.5">
+              <div class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5 px-0.5">
                 {{ data.case_count }} eval{{ data.case_count === 1 ? '' : 's' }} for this agent
-                <span v-if="buildId" class="normal-case text-gray-400">· pinned to this change</span>
+                <span v-if="buildId" class="normal-case text-gray-400 dark:text-gray-500">· pinned to this change</span>
               </div>
               <div v-for="c in data.cases" :key="c.id" class="flex items-center gap-1.5 py-1 px-0.5 text-[11px]">
                 <span class="w-3 text-center shrink-0" :class="statusColor(c.id)">{{ statusSymbol(c.id) }}</span>
-                <span class="truncate text-gray-700">{{ c.name }}</span>
+                <span class="truncate text-gray-700 dark:text-gray-300">{{ c.name }}</span>
               </div>
             </div>
           </template>
@@ -45,7 +45,7 @@
 
     <!-- No evals resolved: grayed, disabled -->
     <template v-else>
-      <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed"
+      <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 text-gray-300 dark:text-gray-600 cursor-not-allowed"
         title="No evals resolved for this agent yet">
         <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5" />
         Run eval

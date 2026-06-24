@@ -3,7 +3,7 @@
         <div class="p-4 relative h-[550px] flex flex-col">
             <!-- Header with close button -->
             <div class="flex items-center justify-between mb-3">
-                <h1 class="text-base font-semibold text-gray-900">Instructions</h1>
+                <h1 class="text-base font-semibold text-gray-900 dark:text-white">Instructions</h1>
                 <button @click="instructionsListModal = false"
                     class="text-gray-400 hover:text-gray-600 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
@@ -32,7 +32,7 @@
                     @update:data-source-id="v => inst.setFilter('dataSourceId', v)"
                     @reset="inst.resetFilters"
                 />
-                
+
                 <!-- Right side: Git button + Add button -->
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <GitConnectionButton

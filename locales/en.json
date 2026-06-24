@@ -2348,6 +2348,60 @@
     "unknownError": "Unknown error",
     "goHome": "Go home"
   },
+  "profile": {
+    "menuItem": "Profile",
+    "nav": {
+      "general": "General",
+      "instructions": "Custom Instructions",
+      "usage": "Usage",
+      "appearance": "Appearance"
+    },
+    "general": {
+      "title": "General",
+      "subtitle": "Your personal details and connected platforms.",
+      "fullName": "Full name",
+      "fullNamePlaceholder": "Your name",
+      "email": "Email",
+      "saved": "Profile updated",
+      "saveFailed": "Failed to update profile",
+      "removePhoto": "Remove photo",
+      "avatarUpdated": "Photo updated",
+      "avatarFailed": "Failed to update photo",
+      "avatarTooLarge": "Image is too large (max 5 MB)",
+      "platforms": "External platforms",
+      "platformsSubtitle": "Accounts linked to your profile across integrations.",
+      "connected": "Connected",
+      "pending": "Pending",
+      "noPlatforms": "No external platforms connected yet."
+    },
+    "instructions": {
+      "title": "Custom Instructions",
+      "subtitle": "Tell the AI about yourself — your role and what you care about. It's shared with the AI when it works on your behalf in this organization.",
+      "placeholder": "e.g. I'm the CEO. I focus on revenue and growth — keep answers high-level and concise, and show figures in USD.",
+      "saved": "Instructions saved",
+      "saveFailed": "Failed to save instructions"
+    },
+    "usage": {
+      "title": "Usage",
+      "subtitle": "Your activity for the current billing window.",
+      "tokens": "Tokens",
+      "queries": "Queries",
+      "data": "Data scanned",
+      "windowNote": "Usage resets at the start of each month.",
+      "disabledTitle": "Usage tracking isn't enabled",
+      "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan."
+    },
+    "appearance": {
+      "title": "Appearance",
+      "subtitle": "Customize how the app looks for you.",
+      "theme": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System",
+      "language": "Language",
+      "languageDescription": "Overrides the organization's default language for your account only."
+    }
+  },
   "agentPage": {
     "tables": {
       "manageConnections": "Manage Connections",

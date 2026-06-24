@@ -2,8 +2,8 @@
     <div class="py-6">
         <!-- Hide content when there's a fetch error (layout shows error state) -->
         <div v-if="injectedFetchError" />
-        <div v-else class="border border-gray-200 rounded-xl p-6 bg-white">
-            <div v-if="!ready" class="inline-flex items-center text-gray-500 text-xs">
+        <div v-else class="border border-gray-200 dark:border-gray-700 rounded-xl p-6 bg-white dark:bg-gray-900">
+            <div v-if="!ready" class="inline-flex items-center text-gray-500 dark:text-gray-400 text-xs">
                 <Spinner class="w-4 h-4 me-2" />
                 Loading settings...
             </div>
@@ -11,20 +11,20 @@
             <div v-else class="space-y-8">
                 <!-- Agent Name -->
                 <div class="space-y-2">
-                    <label class="block text-sm font-medium text-gray-800">Agent name</label>
+                    <label class="block text-sm font-medium text-gray-800 dark:text-gray-200">Agent name</label>
                     <div class="flex items-center gap-2">
                         <input
                             v-model="form.name"
                             type="text"
                             :disabled="!canManageDs"
-                            class="border border-gray-200 rounded-lg px-3 py-2 w-full max-w-md h-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-50 disabled:text-gray-500"
+                            class="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 w-full max-w-md h-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-50 disabled:text-gray-500"
                             placeholder="Name"
                         />
                         <button
                             v-if="canManageDs"
                             @click="saveName"
                             :disabled="saving.name || form.name.trim() === '' || form.name === original.name"
-                            :class="['px-3 py-1.5 text-xs rounded-lg border transition-colors', (saving.name || form.name.trim() === '' || form.name === original.name) ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed' : 'border-gray-300 text-gray-700 hover:bg-gray-50']"
+                            :class="['px-3 py-1.5 text-xs rounded-lg border transition-colors', (saving.name || form.name.trim() === '' || form.name === original.name) ? 'border-gray-200 dark:border-gray-700 text-gray-400 bg-gray-50 dark:bg-gray-900 cursor-not-allowed' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800']"
                         >
                             {{ saving.name ? 'Saving…' : 'Save' }}
                         </button>
@@ -33,10 +33,10 @@
 
                 <!-- Access -->
                 <div class="space-y-2">
-                    <label class="block text-sm font-medium text-gray-800">Access</label>
+                    <label class="block text-sm font-medium text-gray-800 dark:text-gray-200">Access</label>
                     <div class="flex items-center space-x-3">
                         <UToggle v-model="form.isPublic" @update:model-value="onTogglePublic" :disabled="!canManageDs" />
-                        <span class="text-xs text-gray-500">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">
                             Public access allows all organization members to use this agent.
                         </span>
                     </div>
@@ -46,8 +46,8 @@
                 <div v-if="!form.isPublic" class="space-y-4">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h3 class="text-sm font-medium text-gray-800">Members</h3>
-                            <p class="text-xs text-gray-500 mt-0.5">Everyone listed here can query this agent. The role below only grants extra management rights — use <span class="font-medium">Remove</span> to revoke access.</p>
+                            <h3 class="text-sm font-medium text-gray-800 dark:text-gray-200">Members</h3>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Everyone listed here can query this agent. The role below only grants extra management rights — use <span class="font-medium">Remove</span> to revoke access.</p>
                         </div>
                         <button
                             v-if="canManageDsMembers"
@@ -58,17 +58,17 @@
                         </button>
                     </div>
 
-                    <div class="border border-gray-200 rounded-lg shadow-sm">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
+                    <div class="border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-900">
                                 <tr>
-                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">User / Group</th>
-                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Management role</th>
-                                    <th v-if="canManageDsMembers" class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">User / Group</th>
+                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Management role</th>
+                                    <th v-if="canManageDsMembers" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-for="m in members" :key="m.grant_id" class="hover:bg-gray-50">
+                            <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                                <tr v-for="m in members" :key="m.grant_id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <td class="px-4 py-3">
                                         <div class="flex items-center gap-1.5">
                                             <UIcon
@@ -77,12 +77,12 @@
                                             />
                                             <div class="min-w-0">
                                                 <div class="flex items-center gap-1.5">
-                                                    <span class="text-sm font-medium text-gray-900">{{ principalDisplayName(m) }}</span>
+                                                    <span class="text-sm font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
                                                     <template v-if="m.principal_type === 'group'">
                                                         <span class="text-xs text-gray-400">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                                         <button
                                                             @click="toggleGroupExpand(m.principal_id)"
-                                                            class="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 text-xs leading-none"
+                                                            class="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
                                                         >
                                                             {{ expandedGroups.has(m.principal_id) ? '−' : '+' }}
                                                         </button>

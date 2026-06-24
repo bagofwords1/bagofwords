@@ -1,9 +1,9 @@
 <template>
-  <span v-if="!markdown" class="whitespace-pre-wrap text-[13px] leading-relaxed text-gray-900">
+  <span v-if="!markdown" class="whitespace-pre-wrap text-[13px] leading-relaxed text-gray-900 dark:text-white">
     <template v-for="(segment, i) in segments" :key="i">
       <span
         v-if="segment.ref || segment.mention"
-        class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-indigo-50 border border-indigo-100 text-[11px] font-sans font-medium text-indigo-700 align-baseline"
+        class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 border border-indigo-100 text-[11px] font-sans font-medium text-indigo-700 align-baseline"
       >
         <template v-if="segment.ref">
           <DataSourceIcon

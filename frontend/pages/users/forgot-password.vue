@@ -5,7 +5,7 @@
         <div class="text-center">
           <Icon name="heroicons:exclamation-triangle" class="w-10 h-10 text-yellow-500 mx-auto mb-3" />
           <h1 class="font-bold text-lg">{{ $t('auth.resetUnavailable') }}</h1>
-          <p class="mt-3 text-sm text-gray-700">
+          <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
             {{ $t('auth.smtpDisabled') }}
           </p>
           <div class="mt-5">
@@ -17,7 +17,7 @@
       </template>
       <template v-else-if="!emailSent" class="bg-white">
         <h1 class="font-bold text-lg">{{ $t('auth.forgotPasswordTitle') }}</h1>
-        <p class="mt-3 text-sm text-gray-700">
+        <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
           {{ $t('auth.forgotPasswordDescription') }}
         </p>
         <form @submit.prevent="submit">
@@ -27,7 +27,7 @@
               id="email"
               v-model="email"
               type="email"
-              class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+              class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
               required
             />
           </div>
@@ -54,7 +54,7 @@
         <div class="mt-8 text-center">
           <Icon name="heroicons:envelope" class="w-10 h-10 text-green-500 mx-auto mb-3" />
           <h2 class="font-bold text-lg">{{ $t('auth.checkYourEmail') }}</h2>
-          <p class="mt-3 text-sm text-gray-700">
+          <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
             <i18n-t keypath="auth.resetSentTo" tag="span">
               <template #email><strong>{{ email }}</strong></template>
             </i18n-t>

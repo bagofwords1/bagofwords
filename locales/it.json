@@ -2097,5 +2097,59 @@
     "genericTitle": "Qualcosa è andato storto",
     "unknownError": "Errore sconosciuto",
     "goHome": "Vai alla home"
+  },
+  "profile": {
+    "menuItem": "Profilo",
+    "nav": {
+      "general": "Generale",
+      "instructions": "Istruzioni personalizzate",
+      "usage": "Utilizzo",
+      "appearance": "Aspetto"
+    },
+    "general": {
+      "title": "Generale",
+      "subtitle": "I tuoi dati personali e le piattaforme collegate.",
+      "fullName": "Nome completo",
+      "fullNamePlaceholder": "Il tuo nome",
+      "email": "Email",
+      "saved": "Profilo aggiornato",
+      "saveFailed": "Impossibile aggiornare il profilo",
+      "removePhoto": "Rimuovi foto",
+      "avatarUpdated": "Foto aggiornata",
+      "avatarFailed": "Impossibile aggiornare la foto",
+      "avatarTooLarge": "L'immagine è troppo grande (max 5 MB)",
+      "platforms": "Piattaforme esterne",
+      "platformsSubtitle": "Account collegati al tuo profilo tramite le integrazioni.",
+      "connected": "Connesso",
+      "pending": "In sospeso",
+      "noPlatforms": "Nessuna piattaforma esterna ancora collegata."
+    },
+    "instructions": {
+      "title": "Istruzioni personalizzate",
+      "subtitle": "Racconta all'IA di te: il tuo ruolo e ciò che ti interessa. Queste informazioni vengono condivise con l'IA quando lavora per tuo conto in questa organizzazione.",
+      "placeholder": "es. Sono l'amministratore delegato. Mi concentro su ricavi e crescita: risposte concise e di alto livello, e mostra gli importi in USD.",
+      "saved": "Istruzioni salvate",
+      "saveFailed": "Impossibile salvare le istruzioni"
+    },
+    "usage": {
+      "title": "Utilizzo",
+      "subtitle": "La tua attività per il periodo di fatturazione corrente.",
+      "tokens": "Token",
+      "queries": "Query",
+      "data": "Dati analizzati",
+      "windowNote": "L'utilizzo si azzera all'inizio di ogni mese.",
+      "disabledTitle": "Il monitoraggio dell'utilizzo non è abilitato",
+      "disabledNote": "L'utilizzo per utente (token, query e dati analizzati) viene monitorato quando la funzione Limiti di utilizzo è abilitata nel tuo piano."
+    },
+    "appearance": {
+      "title": "Aspetto",
+      "subtitle": "Personalizza l'aspetto dell'app.",
+      "theme": "Tema",
+      "light": "Chiaro",
+      "dark": "Scuro",
+      "system": "Sistema",
+      "language": "Lingua",
+      "languageDescription": "Sostituisce la lingua predefinita dell'organizzazione solo per il tuo account."
+    }
   }
 }

@@ -2,28 +2,28 @@
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-lg' }">
         <div class="p-8">
             <!-- Header -->
-            <div class="flex items-center justify-between mb-3 border-b border-gray-100 pb-3">
+            <div class="flex items-center justify-between mb-3 border-b border-gray-100 dark:border-gray-800 pb-3">
                 <div class="flex items-center gap-2.5">
-                    <UIcon 
-                        :name="currentSavedMode === 'on' ? 'i-heroicons-bolt' : 'i-heroicons-bolt-slash'" 
+                    <UIcon
+                        :name="currentSavedMode === 'on' ? 'i-heroicons-bolt' : 'i-heroicons-bolt-slash'"
                         class="w-5 h-5"
                         :class="currentSavedMode === 'on' ? 'text-amber-500' : 'text-gray-400'"
                     />
-                    <h3 class="text-lg font-semibold text-gray-900">AI Suggestions</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">AI Suggestions</h3>
                 </div>
-                <button @click="close" class="text-gray-400 hover:text-gray-600">
+                <button @click="close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
 
             <!-- Description -->
-            <p class="text-sm text-gray-500 leading-relaxed mb-8">
+            <p class="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-8">
                 The AI intelligently learns from your interactions by extracting definitions and semantics, remembering corrections, and capturing patterns, then suggests instructions for your review.
             </p>
 
             <!-- Mode selection -->
             <div class="mb-8">
-                <label class="block text-sm font-medium text-gray-700 mb-3">Mode</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Mode</label>
                 <USelectMenu
                     v-model="form.mode"
                     :options="modeOptions"
@@ -41,28 +41,28 @@
                                     Recommended
                                 </span>
                             </div>
-                            <span class="text-xs text-gray-500 mt-0.5">{{ selectedOption?.description }}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ selectedOption?.description }}</span>
                         </div>
                     </template>
                     <template #option="{ option }">
                         <div class="py-1.5">
                             <div class="flex items-center gap-2">
-                                <p class="text-sm font-medium text-gray-900">{{ option.label }}</p>
+                                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</p>
                                 <span v-if="option.recommended" class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
                                     Recommended
                                 </span>
                             </div>
-                            <p class="text-xs text-gray-500 mt-0.5">{{ option.description }}</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ option.description }}</p>
                         </div>
                     </template>
                 </USelectMenu>
-                <p v-if="!canEdit" class="text-xs text-gray-400 mt-3">
+                <p v-if="!canEdit" class="text-xs text-gray-400 dark:text-gray-500 mt-3">
                     Only admins can change this setting.
                 </p>
             </div>
 
             <!-- Footer -->
-            <div class="flex justify-end gap-3 pt-5 border-t border-gray-100">
+            <div class="flex justify-end gap-3 pt-5 border-t border-gray-100 dark:border-gray-800">
                 <UButton color="gray" variant="ghost" @click="close" :disabled="isSaving">
                     {{ canEdit ? 'Cancel' : 'Close' }}
                 </UButton>

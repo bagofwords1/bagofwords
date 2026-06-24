@@ -4,23 +4,23 @@
       <!-- Full-page empty state (no published, no drafts, no search) -->
       <div v-if="!loading && isPageEmpty" class="flex flex-col items-center justify-center text-center py-20 px-4">
         <img src="/assets/empty-states/empty-leaves.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
-        <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('queries.noPublished') }}</h3>
-        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">{{ $t('queries.publishedDescription') }}</p>
+        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('queries.noPublished') }}</h3>
+        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('queries.publishedDescription') }}</p>
       </div>
 
       <template v-else>
       <div class="mb-5">
-        <h1 class="text-lg font-semibold text-gray-900">{{ $t('queries.title') }}</h1>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('queries.title') }}</h1>
 
         <!-- Filter tabs -->
-        <div class="mt-3 flex items-center gap-2 border-b border-gray-200">
+        <div class="mt-3 flex items-center gap-2 border-b border-gray-200 dark:border-gray-800">
           <button
             @click="filterType = 'published'"
             :class="[
               'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
               filterType === 'published'
                 ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             ]"
           >
             {{ $t('queries.published') }}
@@ -31,7 +31,7 @@
               'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
               filterType === 'suggested'
                 ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             ]"
           >
             {{ isAdmin ? $t('queries.draftSuggested') : $t('queries.myDrafts') }}
@@ -40,26 +40,26 @@
         </div>
 
         <div class="mt-3 flex items-center gap-2">
-          <input v-model="q" type="text" :placeholder="$t('queries.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2" @keyup.enter="reload()" />
-          <button class="text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50" @click="reload()">{{ $t('queries.search') }}</button>
+          <input v-model="q" type="text" :placeholder="$t('queries.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" @keyup.enter="reload()" />
+          <button class="text-xs px-3 py-2 rounded border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="reload()">{{ $t('queries.search') }}</button>
         </div>
       </div>
 
-      <div v-if="loading" class="text-xs text-gray-500 inline-flex items-center">
+      <div v-if="loading" class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center">
         <Spinner class="me-1" /> {{ $t('queries.loading') }}
       </div>
       <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center text-center py-10 px-4">
         <img src="/assets/empty-states/empty-leaves.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
-        <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white ring-1 ring-gray-200/70 shadow-sm">
+        <div class="w-12 h-12 -mt-6 flex items-center justify-center rounded-xl bg-white dark:bg-gray-900 ring-1 ring-gray-200/70 dark:ring-gray-700/70 shadow-sm">
           <Icon
             :name="filterType === 'suggested' ? 'heroicons:light-bulb' : 'heroicons:cube'"
-            class="w-5 h-5 text-gray-400"
+            class="w-5 h-5 text-gray-400 dark:text-gray-500"
           />
         </div>
-        <h3 class="mt-3 text-base font-medium text-gray-900">
+        <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">
           {{ filterType === 'suggested' ? $t('queries.noDrafts') : $t('queries.noPublished') }}
         </h3>
-        <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">
+        <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">
           {{ filterType === 'suggested'
             ? $t('queries.draftsDescription')
             : $t('queries.publishedDescription')
@@ -71,7 +71,7 @@
         <div
           v-for="item in filteredItems"
           :key="item.id"
-          class="border border-gray-100 bg-white rounded-lg p-4 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer"
+          class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all cursor-pointer"
           @click="navigateToEntity(item.id)"
         >
           <div class="flex items-start justify-between gap-3">
@@ -97,21 +97,21 @@
                 >{{ $t('queries.archivedBadge') }}</span>
                 <span
                   v-else-if="getEntityType(item) === 'draft'"
-                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
+                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
                 >{{ $t('queries.draftBadge') }}</span>
                 <span
                   v-else-if="getEntityType(item) === 'private'"
-                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
+                  class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
                 >{{ $t('queries.draftBadge') }}</span>
                 <span
                   v-else-if="getEntityType(item) === 'suggested'"
                   class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50"
                 >{{ $t('queries.suggestedBadge') }}</span>
                 
-                <span class="text-[11px] text-gray-400">{{ timeAgo(item.updated_at) }}</span>
+                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ timeAgo(item.updated_at) }}</span>
               </div>
-              <div class="text-sm font-medium text-gray-900 mb-1">{{ item.title || item.slug }}</div>
-              <div class="text-[12px] text-gray-500 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
+              <div class="text-sm font-medium text-gray-900 dark:text-white mb-1">{{ item.title || item.slug }}</div>
+              <div class="text-[12px] text-gray-500 dark:text-gray-400 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
 
               <!-- Metadata icons -->
               <div class="flex items-center gap-3 mt-3">
@@ -122,14 +122,14 @@
                     :src="dataSourceIcon(ds.type)"
                     :alt="ds.type"
                     :title="ds.name || ds.type"
-                    class="w-4 h-4 rounded border border-gray-100 bg-white object-contain p-0.5"
+                    class="w-4 h-4 rounded border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 object-contain p-0.5"
                     @error="(e: any) => e.target && (e.target.style.visibility = 'hidden')"
                   />
-                  <span v-if="item.data_sources.length > 3" class="text-[11px] text-gray-400">+{{ item.data_sources.length - 3 }}</span>
+                  <span v-if="item.data_sources.length > 3" class="text-[11px] text-gray-400 dark:text-gray-500">+{{ item.data_sources.length - 3 }}</span>
                 </div>
-                
+
                 <!-- Data stats -->
-                <div v-if="hasStats(item)" class="flex items-center gap-3 text-[11px] text-gray-500">
+                <div v-if="hasStats(item)" class="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
                   <div v-if="item.data?.info?.total_rows !== undefined" class="flex items-center gap-1" :title="$t('queries.rowsTitle')">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
@@ -150,7 +150,7 @@
       </div>
 
       <!-- Results summary -->
-      <div v-if="!loading && filteredItems.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
+      <div v-if="!loading && filteredItems.length > 0" class="mt-6 text-center text-[11px] text-gray-500 dark:text-gray-400">
         {{ summaryLabel }}
       </div>
       </template>

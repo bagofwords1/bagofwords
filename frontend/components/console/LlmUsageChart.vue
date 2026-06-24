@@ -1,27 +1,27 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50 flex flex-col gap-2">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800 flex flex-col gap-2">
             <div class="flex items-center justify-between">
                 <div>
-                    <h3 class="text-lg font-semibold text-gray-900">LLM Usage {{ hasEstimatedProvider ? 'Estimated Cost' : 'Cost' }}</h3>
-                    <p class="text-sm text-gray-500 mt-1">Model usage by {{ hasEstimatedProvider ? 'estimated cost' : 'cost' }} and tokens</p>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">LLM Usage {{ hasEstimatedProvider ? 'Estimated Cost' : 'Cost' }}</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Model usage by {{ hasEstimatedProvider ? 'estimated cost' : 'cost' }} and tokens</p>
                 </div>
-                <div class="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5 gap-1">
+                <div class="inline-flex rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-0.5 gap-1">
                     <button
                         v-for="option in metricOptions"
                         :key="option.value"
                         class="px-2.5 py-0.5 text-xs font-medium rounded-full transition"
-                        :class="selectedMetric === option.value ? 'bg-white shadow text-gray-900' : 'text-gray-500'"
+                        :class="selectedMetric === option.value ? 'bg-white shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
                         @click="selectedMetric = option.value"
                     >
                         {{ option.label }}
                     </button>
                 </div>
             </div>
-            <div v-if="llmUsageData" class="text-sm text-gray-500">
-                Total calls: <span class="font-semibold text-gray-900">{{ llmUsageData.total_calls.toLocaleString() }}</span>
-                · {{ hasEstimatedProvider ? 'Est. cost' : 'Total cost' }}: <span class="font-semibold text-gray-900">${{ llmUsageData.total_cost_usd.toFixed(2) }}</span>
-                · Tokens: <span class="font-semibold text-gray-900">{{ (llmUsageData.total_prompt_tokens + llmUsageData.total_completion_tokens).toLocaleString() }}</span>
+            <div v-if="llmUsageData" class="text-sm text-gray-500 dark:text-gray-400">
+                Total calls: <span class="font-semibold text-gray-900 dark:text-white">{{ llmUsageData.total_calls.toLocaleString() }}</span>
+                · {{ hasEstimatedProvider ? 'Est. cost' : 'Total cost' }}: <span class="font-semibold text-gray-900 dark:text-white">${{ llmUsageData.total_cost_usd.toFixed(2) }}</span>
+                · Tokens: <span class="font-semibold text-gray-900 dark:text-white">{{ (llmUsageData.total_prompt_tokens + llmUsageData.total_completion_tokens).toLocaleString() }}</span>
             </div>
         </div>
         <div class="p-6">
@@ -29,16 +29,17 @@
                 <div v-if="isLoading" class="flex items-center justify-center h-full">
                     <div class="flex items-center space-x-2">
                         <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                        <span class="text-gray-600">Loading LLM usage...</span>
+                        <span class="text-gray-600 dark:text-gray-400">Loading LLM usage...</span>
                     </div>
                 </div>
                 <VChart
                     v-else-if="chartOptions"
+                    :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                     class="chart"
                     :option="chartOptions"
                     autoresize
                 />
-                <div v-else class="flex items-center justify-center h-full text-gray-500">
+                <div v-else class="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
                     No LLM usage data available
                 </div>
             </div>
@@ -47,6 +48,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart } from 'echarts/charts'
@@ -225,4 +227,3 @@ const chartOptions = computed((): EChartsOption | null => {
     height: 100%;
 }
 </style>
-

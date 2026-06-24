@@ -1,12 +1,12 @@
 <template>
     <!-- Access error overlay -->
-    <div v-if="accessError" class="h-screen w-screen flex items-center justify-center bg-gray-50">
+    <div v-if="accessError" class="h-screen w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div class="text-center max-w-md mx-auto px-6">
             <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
-            <h2 class="text-lg font-semibold text-gray-900 mb-2">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
             </h2>
-            <p class="text-sm text-gray-500 mb-6">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
                 {{ accessError === 'login'
                     ? 'You need to sign in to view this dashboard.'
                     : 'You don\'t have permission to view this dashboard. Ask the owner to share it with you.' }}
@@ -16,15 +16,15 @@
                 Sign in
             </a>
             <a v-else href="/"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                 Go home
             </a>
         </div>
     </div>
 
-    <div v-else class="h-screen w-screen relative bg-gray-50 flex flex-col">
+    <div v-else class="h-screen w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col">
         <!-- Top Bar -->
-        <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white border-b border-gray-200 relative">
+        <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 relative">
             <!-- Left: Back to app (absolute) -->
             <a
                 href="/"
@@ -44,8 +44,8 @@
                             :class="[
                                 'px-3 py-1.5 text-xs font-medium rounded transition-colors',
                                 activeTab === 'report'
-                                    ? 'bg-gray-100 text-gray-900'
-                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                             ]"
                         >
                             Report
@@ -55,8 +55,8 @@
                             :class="[
                                 'px-3 py-1.5 text-xs font-medium rounded transition-colors',
                                 activeTab === 'data'
-                                    ? 'bg-gray-100 text-gray-900'
-                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                             ]"
                         >
                             Data ({{ visualizationsData.length }})
@@ -84,7 +84,7 @@
                 </button>
                 <span
                     v-else-if="forkEligibility && !forkEligibility.can_fork"
-                    class="text-[10px] text-gray-300 cursor-default"
+                    class="text-[10px] text-gray-300 dark:text-gray-600 cursor-default"
                     :title="forkReasonLabel"
                 >
                     <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5 inline" />
@@ -99,7 +99,7 @@
                 </NuxtLink>
                 <button
                     @click="showTopBar = false"
-                    class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                    class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                 >
                     <Icon name="heroicons:x-mark" class="w-4 h-4" />
                 </button>
@@ -159,7 +159,7 @@
             </template>
 
             <!-- Data Tab: Visualizations List -->
-            <div v-else-if="activeTab === 'data'" class="absolute inset-0 overflow-y-auto bg-gray-50 p-4">
+            <div v-else-if="activeTab === 'data'" class="absolute inset-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4">
                 <div v-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
                     <p>No visualizations available</p>
                 </div>

@@ -1,7 +1,7 @@
 <template>
     <div>
         <div class="flex rounded-lg p-1"
-            :class="{ 'bg-red-50': localCompletion.status === 'error',
+            :class="{ 'bg-red-50 dark:bg-red-950': localCompletion.status === 'error',
              'border border-red-200': localCompletion.status === 'error',
              '-mt-2': localCompletion.role == 'ai_agent',
              'mb-4': localCompletion.role == 'ai_agent' }">
@@ -14,7 +14,7 @@
                 <div v-if="localCompletion.prompt?.content.length > 0" class="pt-1">
                     <div class="inline float-right" v-if="useCan('view_completion_plan')">
                         <button @click="showPlan(localCompletion)"
-                                class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded flex items-center">
+                                class="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex items-center">
                             <Icon name="heroicons-eye" class="me-1" />
                         </button>
                     </div>
@@ -26,7 +26,7 @@
                     <!-- Attached images -->
                     <div v-if="attachedImages.length > 0" class="mt-2 flex flex-wrap gap-2">
                         <div v-for="file in attachedImages" :key="file.id"
-                             class="relative group rounded-lg overflow-hidden border border-gray-200">
+                             class="relative group rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
                             <AuthenticatedImage
                                  :file-id="file.id"
                                  :alt="file.filename"
@@ -46,13 +46,13 @@
                     </div>
                     <!-- Collapsible reasoning section -->
                         <div v-if="localCompletion.completion?.reasoning && localCompletion.completion?.reasoning.length > 0">
-                            <div class="flex justify-between items-center cursor-pointer" 
+                            <div class="flex justify-between items-center cursor-pointer"
                                 @click="reasoningCollapsed = !reasoningCollapsed">
-                            <div class="font-medium text-sm text-gray-400 mb-2">
+                            <div class="font-medium text-sm text-gray-400 dark:text-gray-600 mb-2">
                                 <!-- Always show "Thought Process" when content is available -->
                                 <div class="flex items-center">
-                                    <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
-                                         class="w-4 h-4 text-gray-500 rtl-flip" />
+                                    <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
+                                         class="w-4 h-4 text-gray-500 dark:text-gray-400 rtl-flip" />
                                     <span v-if="(localCompletion.completion?.content && localCompletion.completion?.content.length > 0) || localCompletion.status === 'stopped' || localCompletion.status === 'error' || localCompletion.sigkill" class="ms-1">
                                         Thought Process
                                     </span>
@@ -62,30 +62,30 @@
                                     </span>
                                 </div>
                             </div>
-                            
+
                         </div>
                         <Transition name="fade">
-                            <div v-if="!reasoningCollapsed" 
-                                 class="text-sm mt-2 leading-relaxed text-gray-500 mb-3 reasoning-content">
+                            <div v-if="!reasoningCollapsed"
+                                 class="text-sm mt-2 leading-relaxed text-gray-500 dark:text-gray-400 mb-3 reasoning-content">
                                 <MDC :value="localCompletion.completion?.reasoning" class="markdown-content" />
                             </div>
                         </Transition>
                     </div>
-                    
+
                     <!-- Always show content when available -->
                     <div v-if="localCompletion.completion?.content" class="markdown-wrapper">
                         <MDC :value="localCompletion.completion?.content" class="markdown-content" />
                     </div>
-                    
+
                     <div class="text-xs mt-2 w-full" v-if="localCompletion.widget">
-                        <div class="border-2 text-gray-600 bg-white rounded-lg overflow-hidden" :class="{
+                        <div class="border-2 text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 rounded-lg overflow-hidden" :class="{
                             'border-blue-500': isSelected(localCompletion.widget.id, localCompletion.step?.id),
-                            'border-gray-200': !isSelected(localCompletion.widget.id, localCompletion.step?.id)
+                            'border-gray-200 dark:border-gray-700': !isSelected(localCompletion.widget.id, localCompletion.step?.id)
                         }">
                             <div class="p-2 flex justify-between items-center">
-                                <h3 class="text-md font-bold text-gray-600">
+                                <h3 class="text-md font-bold text-gray-600 dark:text-gray-400">
                                     {{ localCompletion.widget.title }}
-                                    <span v-if="localCompletion.step?.id" class="text-xs font-normal text-gray-400">
+                                    <span v-if="localCompletion.step?.id" class="text-xs font-normal text-gray-400 dark:text-gray-600">
                                         Version: {{ localCompletion.step?.id.split('-')[1] }}
                                     </span>
                                 </h3>
@@ -93,13 +93,13 @@
                                     <UTooltip text="Download CSV" v-if="localCompletion.step?.id && localCompletion.step?.status === 'success'">
                                     <button @click="downloadStepCSV(localCompletion.step?.id, localCompletion.widget?.title, localCompletion.step?.slug)"
                                         v-if="localCompletion.step?.id && localCompletion.step?.status === 'success'"
-                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600 me-2"
+                                        class="cursor-pointer text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 me-2"
                                         title="Download CSV">
                                         <Icon name="heroicons-arrow-down-tray" />
                                     </button>
-                                </UTooltip> 
+                                </UTooltip>
                                     <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
-                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
+                                        class="cursor-pointer text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400">
                                         <Icon
                                             :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"  class="rtl-flip" />
                                     </button>
@@ -141,7 +141,7 @@
                                                 (selected)
                                             </span>
                                         </button>
-    
+
                                     </div>
                                 </div>
                             </div>
@@ -150,10 +150,10 @@
 
                     </div>
                         <div class="flex mt-3">
-                                <CompletionItemFeedback 
+                                <CompletionItemFeedback
                                     v-if="localCompletion.status === 'success' || localCompletion.status === 'error'"
-                                    :completion="localCompletion" 
-                                    :feedbackScore="localCompletion.feedback_score || 0" 
+                                    :completion="localCompletion"
+                                    :feedbackScore="localCompletion.feedback_score || 0"
                                 />
                         </div>
 
@@ -164,9 +164,9 @@
                 <!-- AI messages -->
                 <div v-else-if="localCompletion.role == 'ai_agent'">
                     <span v-if="localCompletion.role == 'ai_agent'" class="text-green-500 text-xs me-1 inline">
-                        <Icon name="heroicons-cube" 
+                        <Icon name="heroicons-cube"
                             :class="{ 'spin-three-times': true }" />
-                        <span class="text-gray-500 ms-2">
+                        <span class="text-gray-500 dark:text-gray-400 ms-2">
                             {{ localCompletion.completion?.content || 'Improving code...' }}
                         </span>
                     </span>
@@ -182,7 +182,7 @@
         <div class="p-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-lg font-bold">X-ray View</h2>
-                <button @click="showPlanModal = false" class="text-gray-500 hover:text-gray-700">
+                <button @click="showPlanModal = false" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                     <Icon name="heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
@@ -194,14 +194,14 @@
             <div v-else-if="plans.length > 0" class="markdown-wrapper max-h-[60vh] overflow-auto">
                 <!-- Plans Navigation -->
                 <div class="mb-4 flex space-x-2">
-                    <button 
-                        v-for="(p, index) in plans" 
+                    <button
+                        v-for="(p, index) in plans"
                         :key="index"
                         @click="switchPlan(index)"
                         class="px-3 py-1 rounded text-sm"
                         :class="{
                             'bg-blue-500 text-white': activePlanIndex === index,
-                            'bg-gray-100 hover:bg-gray-200': activePlanIndex !== index
+                            'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700': activePlanIndex !== index
                         }"
                     >
                         Plan {{ index + 1 }}
@@ -215,7 +215,7 @@
                         <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
-                    
+
                     <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
                         <h3 class="text-md font-bold mb-2">Plan</h3>
                         <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
@@ -231,7 +231,7 @@
                         <h3 class="text-md font-bold mb-2">Token Usage</h3>
                         <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
-                    <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 p-3 rounded">
+                    <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 dark:bg-gray-900 p-3 rounded">
                         <div v-if="plan_content.token_usage">
                             <div class="grid grid-cols-2 gap-2">
                                 <div>Prompt Tokens:</div>
@@ -242,13 +242,13 @@
                                 <div class="font-mono font-bold">{{ plan_content.token_usage.total_tokens }}</div>
                             </div>
                         </div>
-                        <div v-else class="text-gray-500">
+                        <div v-else class="text-gray-500 dark:text-gray-400">
                             Token usage information not available
                         </div>
                     </div>
                 </div>
             </div>
-            <div v-else class="text-gray-500 py-4 text-center">
+            <div v-else class="text-gray-500 dark:text-gray-400 py-4 text-center">
                 No plan information available
             </div>
         </div>
@@ -342,7 +342,7 @@ const downloadStepCSV = async (stepId, widgetTitle, stepSlug) => {
         const a = document.createElement('a');
         a.style.display = 'none';
         a.href = url;
-        
+
         // Sanitize and create a more human-readable filename
         const safeWidgetTitle = widgetTitle?.replace(/[^a-zA-Z0-9_-\s]/g, '').trim() || 'widget';
         const fileName = `${safeWidgetTitle.replace(/\s+/g, '_')}-${stepSlug || stepId}.csv`;
@@ -380,7 +380,7 @@ const toggleTokensCollapsed = () => {
 const showPlan = async (completion: any) => {
     showPlanModal.value = true;
     planLoading.value = true;
-    
+
     try {
         if (completion.id) {
             await getPlan(completion.id);
@@ -403,7 +403,7 @@ const getPlan = async (completionId: string) => {
     try {
         const response = await useMyFetch(`/api/completions/${completionId}/plans`);
         plans.value = response.data.value || [];
-        
+
         // If there are plans, set the first one as active
         if (plans.value.length > 0) {
             plan.value = plans.value[0];

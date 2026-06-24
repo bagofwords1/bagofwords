@@ -1,5 +1,5 @@
 <template>
-    <div class="hover:bg-gray-50 hover:text-blue-500 cursor-pointer inline text-sm p-2"   @click="goBack" >
+    <div class="hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-blue-500 cursor-pointer inline text-sm p-2"   @click="goBack" >
         <Icon name="heroicons-chevron-left" class="rtl-flip" />
     </div>
 </template>

@@ -2097,5 +2097,59 @@
     "genericTitle": "Något gick fel",
     "unknownError": "Okänt fel",
     "goHome": "Gå till start"
+  },
+  "profile": {
+    "menuItem": "Profil",
+    "nav": {
+      "general": "Allmänt",
+      "instructions": "Anpassade instruktioner",
+      "usage": "Användning",
+      "appearance": "Utseende"
+    },
+    "general": {
+      "title": "Allmänt",
+      "subtitle": "Dina personuppgifter och anslutna plattformar.",
+      "fullName": "Fullständigt namn",
+      "fullNamePlaceholder": "Ditt namn",
+      "email": "E-post",
+      "saved": "Profilen uppdaterad",
+      "saveFailed": "Det gick inte att uppdatera profilen",
+      "removePhoto": "Ta bort foto",
+      "avatarUpdated": "Fotot uppdaterat",
+      "avatarFailed": "Det gick inte att uppdatera fotot",
+      "avatarTooLarge": "Bilden är för stor (max 5 MB)",
+      "platforms": "Externa plattformar",
+      "platformsSubtitle": "Konton kopplade till din profil via integrationer.",
+      "connected": "Ansluten",
+      "pending": "Väntar",
+      "noPlatforms": "Inga externa plattformar anslutna ännu."
+    },
+    "instructions": {
+      "title": "Anpassade instruktioner",
+      "subtitle": "Berätta för AI:n om dig själv – din roll och vad som är viktigt för dig. Det delas med AI:n när den arbetar å dina vägnar i den här organisationen.",
+      "placeholder": "t.ex. Jag är vd. Jag fokuserar på intäkter och tillväxt – håll svaren korta och övergripande och visa belopp i USD.",
+      "saved": "Instruktionerna sparade",
+      "saveFailed": "Det gick inte att spara instruktionerna"
+    },
+    "usage": {
+      "title": "Användning",
+      "subtitle": "Din aktivitet under den aktuella faktureringsperioden.",
+      "tokens": "Tokens",
+      "queries": "Frågor",
+      "data": "Skannade data",
+      "windowNote": "Användningen återställs i början av varje månad.",
+      "disabledTitle": "Användningsspårning är inte aktiverad",
+      "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan."
+    },
+    "appearance": {
+      "title": "Utseende",
+      "subtitle": "Anpassa hur appen ser ut för dig.",
+      "theme": "Tema",
+      "light": "Ljust",
+      "dark": "Mörkt",
+      "system": "System",
+      "language": "Språk",
+      "languageDescription": "Åsidosätter organisationens standardspråk endast för ditt konto."
+    }
   }
 }

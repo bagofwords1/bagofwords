@@ -8,11 +8,11 @@
                         v-model="searchQuery"
                         type="text"
                         :placeholder="$t('settings.members.searchPlaceholder')"
-                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500"
                     />
                 </div>
             </div>
@@ -85,7 +85,7 @@
             v-if="canBulkActions && selectedIds.length"
             class="flex flex-wrap items-center gap-2 mb-4 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/60"
         >
-            <span class="text-sm font-medium text-gray-700">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {{ selectedIds.length }} {{ $t('settings.members.selected') }}
             </span>
             <div class="flex items-center gap-2 ms-auto">
@@ -125,10 +125,10 @@
         </div>
 
         <!-- Table card -->
-        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-100">
-                    <thead class="bg-gray-50/60">
+                <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+                    <thead class="bg-gray-50/60 dark:bg-gray-900">
                         <tr>
                             <th v-if="canBulkActions" class="ps-4 pe-1 py-2 w-8">
                                 <UCheckbox
@@ -137,26 +137,26 @@
                                     @change="toggleSelectAll"
                                 />
                             </th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colUser') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colRole') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colGroups') }}</th>
-                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colQuota') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colStatus') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Note</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colExternalPlatforms') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Last Login</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Last Seen</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.members.colUser') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.members.colRole') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.members.colGroups') }}</th>
+                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colQuota') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.members.colStatus') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">Note</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.members.colExternalPlatforms') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">Last Login</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">Last Seen</th>
                             <th
                                 v-if="useCan('remove_organization_members')"
-                                class="sticky right-0 z-20 bg-gray-50 border-s border-gray-200 px-4 py-2 text-end text-xs font-medium text-gray-500"
+                                class="sticky right-0 z-20 bg-gray-50 dark:bg-gray-900 border-s border-gray-200 dark:border-gray-800 px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400"
                             >{{ $t('settings.members.colActions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-100">
+                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
                         <!-- Loading state -->
                         <tr v-if="isLoading">
                             <td :colspan="membersColspan" class="px-6 py-12 text-center">
-                                <div class="flex items-center justify-center text-gray-500">
+                                <div class="flex items-center justify-center text-gray-500 dark:text-gray-400">
                                     <Spinner class="w-4 h-4 me-2" />
                                     <span class="text-sm">{{ $t('common.loading') }}</span>
                                 </div>
@@ -164,25 +164,25 @@
                         </tr>
                         <!-- Data rows -->
                         <template v-else>
-                            <tr v-for="member in paginatedMembers" :key="member.id" class="group hover:bg-gray-50/70 transition-colors" :class="{ 'bg-blue-50/40': isSelected(member.id) }">
+                            <tr v-for="member in paginatedMembers" :key="member.id" class="group hover:bg-gray-50/70 dark:hover:bg-gray-800/50 transition-colors" :class="{ 'bg-blue-50/40': isSelected(member.id) }">
                                 <td v-if="canBulkActions" class="ps-4 pe-1 py-2">
                                     <UCheckbox :model-value="isSelected(member.id)" @change="toggleSelect(member.id)" />
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div v-if="member.user" class="flex items-center">
-                                        <div class="flex-shrink-0 h-7 w-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-medium">
+                                        <div class="flex-shrink-0 h-7 w-7 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex items-center justify-center text-xs font-medium">
                                             {{ member.user.name?.[0]?.toUpperCase() || member.user.email[0].toUpperCase() }}
                                         </div>
                                         <div class="ms-2.5 leading-tight">
-                                            <div class="text-sm font-medium text-gray-900">{{ member.user.name }}</div>
-                                            <div class="text-xs text-gray-400">{{ member.user.email }}</div>
+                                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ member.user.name }}</div>
+                                            <div class="text-xs text-gray-400 dark:text-gray-500">{{ member.user.email }}</div>
                                         </div>
                                     </div>
                                     <div v-else class="flex items-center">
-                                        <div class="flex-shrink-0 h-7 w-7 rounded-full bg-gray-50 text-gray-300 flex items-center justify-center text-xs font-medium ring-1 ring-inset ring-gray-200">
+                                        <div class="flex-shrink-0 h-7 w-7 rounded-full bg-gray-50 dark:bg-gray-900 text-gray-300 dark:text-gray-600 flex items-center justify-center text-xs font-medium ring-1 ring-inset ring-gray-200 dark:ring-gray-800">
                                             {{ member.email?.[0]?.toUpperCase() || '?' }}
                                         </div>
-                                        <div class="ms-2.5 text-sm text-gray-500">{{ member.email }}</div>
+                                        <div class="ms-2.5 text-sm text-gray-500 dark:text-gray-400">{{ member.email }}</div>
                                     </div>
                                 </td>
                                 <td class="px-4 py-2">
@@ -260,7 +260,7 @@
                                                 </div>
                                             </template>
                                         </UPopover>
-                                        <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
+                                        <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 dark:text-gray-500 text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
                                 <td v-if="showQuotaColumn" class="px-4 py-2">
@@ -289,7 +289,7 @@
                                                     <span v-if="quota.source === 'inherited'" class="me-1 opacity-70">{{ $t('quotaPolicies.inherited') }}</span>
                                                     {{ quota.name }}
                                                 </UBadge>
-                                                <span v-if="getMemberQuotaPolicies(member).length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                                                <span v-if="getMemberQuotaPolicies(member).length === 0" class="text-gray-400 dark:text-gray-500 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
                                             </span>
                                         </template>
                                         <template #option="{ option }">
@@ -298,7 +298,7 @@
                                     </USelectMenu>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
-                                    <span v-if="member.user" class="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                                    <span v-if="member.user" class="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
                                         <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
                                         {{ $t('settings.members.statusActive') }}
                                     </span>
@@ -306,7 +306,7 @@
                                         <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
                                         {{ $t('settings.members.statusExpired') }}
                                     </span>
-                                    <span v-else class="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                                    <span v-else class="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
                                         <span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
                                         {{ $t('settings.members.statusPending') }}
                                     </span>
@@ -320,12 +320,12 @@
                                         type="text"
                                         maxlength="500"
                                         placeholder="—"
-                                        class="w-full text-sm text-gray-700 placeholder:text-gray-300 border border-transparent hover:bg-gray-100 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md px-2 py-1 outline-none bg-transparent transition-colors"
+                                        class="w-full text-sm text-gray-700 dark:text-gray-300 placeholder:text-gray-300 dark:placeholder:text-gray-600 border border-transparent hover:bg-gray-100 dark:hover:bg-gray-800/70 focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md px-2 py-1 outline-none bg-transparent transition-colors"
                                     />
                                     <UTooltip v-else-if="member.note" :text="member.note">
-                                        <span class="text-sm text-gray-700 truncate block max-w-[16rem]">{{ member.note }}</span>
+                                        <span class="text-sm text-gray-700 dark:text-gray-300 truncate block max-w-[16rem]">{{ member.note }}</span>
                                     </UTooltip>
-                                    <span v-else class="text-gray-400 italic text-sm">—</span>
+                                    <span v-else class="text-gray-400 dark:text-gray-500 italic text-sm">—</span>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div v-if="member.user?.external_user_mappings.length > 0">
@@ -336,16 +336,16 @@
                                         </div>
                                     </div>
                                     <div v-else>
-                                        <span class="text-gray-400 italic">{{ $t('settings.members.emptyNone') }}</span>
+                                        <span class="text-gray-400 dark:text-gray-500 italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
-                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                     {{ fmtMemberDate(member.user?.last_login) }}
                                 </td>
-                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                     {{ fmtMemberDate(member.user?.last_seen) }}
                                 </td>
-                                <td class="sticky right-0 z-10 border-s border-gray-200 bg-white group-hover:bg-gray-50 px-4 py-2 whitespace-nowrap"
+                                <td class="sticky right-0 z-10 border-s border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50 px-4 py-2 whitespace-nowrap"
                                     v-if="useCan('remove_organization_members')"
                                 >
                                     <div class="flex items-center justify-end gap-4">
@@ -353,7 +353,7 @@
                                             v-if="!member.user && useCan('update_organization_members')"
                                             @click="copyInviteLink(member)"
                                             :disabled="copyingId === member.id"
-                                            class="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+                                            class="inline-flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50"
                                         >
                                             <UIcon name="i-heroicons-link" class="h-3.5 w-3.5" />
                                             {{ $t('settings.members.copyLink') }}
@@ -381,17 +381,17 @@
                             <tr v-if="filteredMembers.length === 0">
                                 <td
                                     :colspan="membersColspan"
-                                    class="px-6 py-12 text-center text-gray-500 text-sm"
+                                    class="px-6 py-12 text-center text-gray-500 dark:text-gray-400 text-sm"
                                 >
                                     <div class="flex flex-col items-center">
                                         <Icon
                                             name="heroicons:users"
-                                            class="mx-auto h-12 w-12 text-gray-400"
+                                            class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
                                         />
-                                        <h3 class="mt-2 text-sm font-medium text-gray-900">
+                                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
                                             {{ $t('settings.members.noMembers') }}
                                         </h3>
-                                        <p class="mt-1 text-sm text-gray-500">
+                                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                                             {{ $t('settings.members.noMembersHint') }}
                                         </p>
                                     </div>
@@ -404,7 +404,7 @@
             <!-- Pagination -->
             <div
                 v-if="!isLoading && filteredMembers.length > pageSize"
-                class="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 text-sm text-gray-500"
+                class="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 dark:border-gray-800 text-sm text-gray-500 dark:text-gray-400"
             >
                 <span>
                     {{ pageRangeStart }}–{{ pageRangeEnd }} {{ $t('settings.members.paginationOf') }} {{ filteredMembers.length }}
@@ -423,16 +423,16 @@
     <!-- Invite Modal -->
     <UModal v-model="inviteModalOpen">
         <div class="p-4 relative">
-            <button @click="inviteModalOpen = false" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
+            <button @click="inviteModalOpen = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">{{ $t('settings.members.inviteTitle') }}</h1>
-            <p class="text-sm text-gray-500">{{ $t('settings.members.inviteSubtitle') }}</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('settings.members.inviteSubtitle') }}</p>
             <hr class="my-4" />
 
             <form @submit.prevent="inviteMember" class="space-y-4">
                 <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('settings.members.emailLabel') }}</label>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('settings.members.emailLabel') }}</label>
                     <UInput
                         v-model="inviteForm.email"
                         type="email"
@@ -442,7 +442,7 @@
                 </div>
 
                 <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('settings.members.roleLabel') }}</label>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('settings.members.roleLabel') }}</label>
                     <USelectMenu
                         v-model="inviteForm.role"
                         :options="inviteRoleOptions"
@@ -453,7 +453,7 @@
                 </div>
 
                 <div v-if="canManageGroups && groups.length" class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('settings.members.colGroups') }}</label>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('settings.members.colGroups') }}</label>
                     <USelectMenu
                         v-model="inviteForm.group_ids"
                         :options="groups"
@@ -469,13 +469,13 @@
                                     {{ groups.find(g => g.id === gid)?.name }}
                                 </UBadge>
                             </span>
-                            <span v-else class="text-gray-400">{{ $t('settings.members.emptyNone') }}</span>
+                            <span v-else class="text-gray-400 dark:text-gray-500">{{ $t('settings.members.emptyNone') }}</span>
                         </template>
                     </USelectMenu>
                 </div>
 
                 <div v-if="showQuotaColumn && usagePolicies.length" class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('quotaPolicies.colQuota') }}</label>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('quotaPolicies.colQuota') }}</label>
                     <USelectMenu
                         v-model="inviteForm.quota_policy_id"
                         :options="quotaSelectOptions"
@@ -507,12 +507,12 @@
     <!-- Import Modal -->
     <UModal v-model="importModalOpen" :ui="{ width: 'sm:max-w-2xl' }">
         <div class="p-4 relative">
-            <button @click="closeImportModal" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
+            <button @click="closeImportModal" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Import members</h1>
-            <p class="text-sm text-gray-500 mt-1">
-                Upload an Excel (.xlsx) or CSV file with columns <code class="text-xs bg-gray-100 px-1 rounded">email</code> (required) and <code class="text-xs bg-gray-100 px-1 rounded">note</code> (optional).
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Upload an Excel (.xlsx) or CSV file with columns <code class="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">email</code> (required) and <code class="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">note</code> (optional).
                 Re-importing the same file is safe — existing roles and group memberships are never touched; only the note is updated.
             </p>
             <hr class="my-4" />
@@ -523,7 +523,7 @@
                     type="file"
                     accept=".xlsx,.csv"
                     @change="onImportFileSelected"
-                    class="block w-full text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    class="block w-full text-sm text-gray-700 dark:text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
                 <button
                     type="button"
@@ -535,7 +535,7 @@
                 <div v-if="importError" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
                     {{ importError }}
                 </div>
-                <div v-if="importLoading" class="flex items-center gap-2 text-sm text-gray-500">
+                <div v-if="importLoading" class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                     <Spinner class="w-4 h-4" />
                     <span>Validating file…</span>
                 </div>
@@ -550,21 +550,21 @@
                     <UBadge v-if="importReport.dry_run" color="yellow" variant="solid">Preview — not applied</UBadge>
                     <UBadge v-else color="green" variant="solid">Applied</UBadge>
                 </div>
-                <div class="max-h-80 overflow-auto border border-gray-200 rounded">
+                <div class="max-h-80 overflow-auto border border-gray-200 dark:border-gray-800 rounded">
                     <table class="min-w-full text-sm">
-                        <thead class="bg-gray-50 sticky top-0">
+                        <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
                             <tr>
-                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Row</th>
-                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Email</th>
-                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Note</th>
-                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Status</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 dark:text-gray-400 text-xs uppercase">Row</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 dark:text-gray-400 text-xs uppercase">Email</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 dark:text-gray-400 text-xs uppercase">Note</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 dark:text-gray-400 text-xs uppercase">Status</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100">
+                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
                             <tr v-for="row in importReport.rows" :key="row.row">
-                                <td class="px-3 py-2 text-gray-500">{{ row.row }}</td>
+                                <td class="px-3 py-2 text-gray-500 dark:text-gray-400">{{ row.row }}</td>
                                 <td class="px-3 py-2">{{ row.email || '—' }}</td>
-                                <td class="px-3 py-2 text-gray-600 truncate max-w-[16rem]">{{ row.note || '—' }}</td>
+                                <td class="px-3 py-2 text-gray-600 dark:text-gray-400 truncate max-w-[16rem]">{{ row.note || '—' }}</td>
                                 <td class="px-3 py-2">
                                     <UBadge v-if="row.status === 'error'" color="red" variant="subtle" size="xs">{{ row.error }}</UBadge>
                                     <UBadge v-else-if="row.status === 'created'" color="blue" variant="subtle" size="xs">created</UBadge>
@@ -759,10 +759,10 @@ function cap(name?: string): string {
 // subtle hover background, content-width, and a muted chevron that firms up
 // on hover. Keeps the table minimal while staying inline-editable.
 const inlineSelectUi = {
-    base: 'group relative inline-flex w-fit items-center gap-1 text-left cursor-pointer rounded-md transition-colors hover:bg-gray-100 focus:outline-none',
+    base: 'group relative inline-flex w-fit items-center gap-1 text-left cursor-pointer rounded-md transition-colors hover:bg-gray-100 dark:hover:bg-gray-800/70 focus:outline-none',
     padding: { sm: 'ps-1.5 pe-5 py-1' },
     trailing: { padding: { sm: 'pe-1' } },
-    icon: { base: 'text-gray-300 group-hover:text-gray-500 transition-colors', size: { sm: 'h-3.5 w-3.5' } },
+    icon: { base: 'text-gray-300 dark:text-gray-600 group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors', size: { sm: 'h-3.5 w-3.5' } },
 }
 
 function getMemberGroups(member: Member): GroupData[] {

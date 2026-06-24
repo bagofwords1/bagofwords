@@ -29,7 +29,7 @@
     </UCommandPalette>
 
     <!-- Footer keyboard hints -->
-    <div class="flex items-center gap-4 px-4 py-2 border-t border-gray-100 text-[11px] text-gray-400 bg-gray-50/60 rounded-b-lg">
+    <div class="flex items-center gap-4 px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-[11px] text-gray-400 bg-gray-50/60 dark:bg-gray-900 rounded-b-lg">
       <span><kbd class="font-sans">↑↓</kbd> navigate</span>
       <span><kbd class="font-sans">↵</kbd> open</span>
       <span><kbd class="font-sans">esc</kbd> close</span>

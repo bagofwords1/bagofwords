@@ -2,16 +2,16 @@
   <!-- Hide entirely when not loading and no drafts -->
   <div v-if="isLoading || drafts.length > 0" class="mb-2">
     <!-- Title section -->
-    <div class="flex items-center text-xs text-gray-500 mb-3">
+    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-3">
       <!-- Status icon -->
-      <Spinner v-if="isLoading" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Spinner v-if="isLoading" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-600" />
       <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 me-1.5 text-green-500" />
 
       <!-- Title with shimmer for loading -->
       <span v-if="isLoading" class="tool-shimmer">
         Suggesting Instructions...
       </span>
-      <span v-else class="text-gray-700">
+      <span v-else class="text-gray-700 dark:text-gray-300">
         Suggested {{ drafts.length }} instruction{{ drafts.length === 1 ? '' : 's' }}
       </span>
     </div>
@@ -23,7 +23,7 @@
         :key="d.id || i"
         :class="[
           'border border-gray-150 rounded-md p-3 transition-colors',
-          !isBuildPublished && !selectedIds.has(d.id) ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50'
+          !isBuildPublished && !selectedIds.has(d.id) ? 'opacity-50 bg-gray-50 dark:bg-gray-900' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
         ]"
       >
         <div class="flex items-start gap-2">
@@ -36,27 +36,27 @@
             class="mt-0.5"
           />
           <div class="flex-1">
-            <div v-if="d.title" class="text-[10px] font-mono font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            <div v-if="d.title" class="text-[10px] font-mono font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
               {{ d.title }}
             </div>
             <div
               @click="!isBuildPublished ? handleEdit(d, i) : null"
               :class="[
-                'text-[12px] text-gray-800 leading-relaxed',
+                'text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed',
                 isBuildPublished ? '' : 'cursor-pointer'
               ]"
             >
               {{ d.text }}
             </div>
-            <div v-if="d.category" class="text-xs hidden text-gray-500 mt-1 font-medium">{{ d.category }}</div>
+            <div v-if="d.category" class="text-xs hidden text-gray-500 dark:text-gray-400 mt-1 font-medium">{{ d.category }}</div>
           </div>
         </div>
 
         <!-- Action buttons for unpublished builds -->
-        <div v-if="!isBuildPublished" class="flex justify-start gap-2 pt-2 mt-2 border-t border-gray-200">
+        <div v-if="!isBuildPublished" class="flex justify-start gap-2 pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
           <button
             @click="handleEdit(d, i)"
-            class="flex items-center text-[9px] text-gray-500 hover:text-gray-700 transition-colors"
+            class="flex items-center text-[9px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
           >
             <Icon name="heroicons:pencil" class="w-2.5 h-2.5 me-0.5" />
             <span>Edit</span>
@@ -86,7 +86,7 @@
     <div v-if="drafts.length > 0 && !isLoading && isBuildPublished" class="mt-2 flex items-center text-xs text-green-600">
       <Icon name="heroicons:check-circle-solid" class="w-4 h-4 me-1.5" />
       <span class="font-medium">Published</span>
-      <span v-if="publishedAtFormatted" class="text-gray-500 ms-1">
+      <span v-if="publishedAtFormatted" class="text-gray-500 dark:text-gray-400 ms-1">
         at {{ publishedAtFormatted }}
       </span>
     </div>

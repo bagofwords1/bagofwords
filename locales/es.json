@@ -2190,5 +2190,59 @@
       "fileUploadFailed": "Error al subir el archivo",
       "fileRemoveFailed": "Error al eliminar el archivo"
     }
+  },
+  "profile": {
+    "menuItem": "Perfil",
+    "nav": {
+      "general": "General",
+      "instructions": "Instrucciones personalizadas",
+      "usage": "Uso",
+      "appearance": "Apariencia"
+    },
+    "general": {
+      "title": "General",
+      "subtitle": "Tus datos personales y plataformas conectadas.",
+      "fullName": "Nombre completo",
+      "fullNamePlaceholder": "Tu nombre",
+      "email": "Correo electrónico",
+      "saved": "Perfil actualizado",
+      "saveFailed": "No se pudo actualizar el perfil",
+      "removePhoto": "Quitar foto",
+      "avatarUpdated": "Foto actualizada",
+      "avatarFailed": "No se pudo actualizar la foto",
+      "avatarTooLarge": "La imagen es demasiado grande (máx. 5 MB)",
+      "platforms": "Plataformas externas",
+      "platformsSubtitle": "Cuentas vinculadas a tu perfil en las integraciones.",
+      "connected": "Conectado",
+      "pending": "Pendiente",
+      "noPlatforms": "Aún no hay plataformas externas conectadas."
+    },
+    "instructions": {
+      "title": "Instrucciones personalizadas",
+      "subtitle": "Cuéntale a la IA sobre ti: tu rol y lo que te importa. Se comparte con la IA cuando trabaja en tu nombre en esta organización.",
+      "placeholder": "p. ej. Soy el director ejecutivo. Me centro en los ingresos y el crecimiento: respuestas concisas y de alto nivel, y muestra las cifras en USD.",
+      "saved": "Instrucciones guardadas",
+      "saveFailed": "No se pudieron guardar las instrucciones"
+    },
+    "usage": {
+      "title": "Uso",
+      "subtitle": "Tu actividad en el período de facturación actual.",
+      "tokens": "Tokens",
+      "queries": "Consultas",
+      "data": "Datos analizados",
+      "windowNote": "El uso se reinicia al comienzo de cada mes.",
+      "disabledTitle": "El seguimiento de uso no está habilitado",
+      "disabledNote": "El uso por usuario (tokens, consultas y datos analizados) se registra cuando la función de Límites de uso está habilitada en tu plan."
+    },
+    "appearance": {
+      "title": "Apariencia",
+      "subtitle": "Personaliza cómo se ve la aplicación para ti.",
+      "theme": "Tema",
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema",
+      "language": "Idioma",
+      "languageDescription": "Anula el idioma predeterminado de la organización solo para tu cuenta."
+    }
   }
 }

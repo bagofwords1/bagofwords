@@ -1,7 +1,7 @@
 <template>
-    <div class="h-screen w-full bg-white flex flex-col overflow-hidden">
+    <div class="h-screen w-full bg-white dark:bg-gray-900 flex flex-col overflow-hidden">
         <!-- Loading state -->
-        <div v-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500">
+        <div v-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
             <Spinner class="w-5 h-5 me-2" />
             <span class="text-sm">Loading conversation…</span>
         </div>
@@ -10,10 +10,10 @@
         <div v-else-if="accessError" class="flex-1 flex items-center justify-center">
             <div class="text-center max-w-md mx-auto px-6">
                 <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h2 class="text-lg font-semibold text-gray-900 mb-2">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                     {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
                 </h2>
-                <p class="text-sm text-gray-500 mb-6">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
                     {{ accessError === 'login'
                         ? 'You need to sign in to view this conversation.'
                         : 'You don\'t have permission to view this conversation. Ask the owner to share it with you.' }}
@@ -23,7 +23,7 @@
                     Sign in
                 </a>
                 <a v-else href="/"
-                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                     Go home
                 </a>
             </div>
@@ -32,8 +32,8 @@
         <!-- Error state -->
         <div v-else-if="error" class="flex-1 flex items-center justify-center">
             <div class="text-center">
-                <Icon name="heroicons:exclamation-circle" class="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <h1 class="text-lg font-medium text-gray-700">Conversation not found</h1>
+                <Icon name="heroicons:exclamation-circle" class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+                <h1 class="text-lg font-medium text-gray-700 dark:text-gray-300">Conversation not found</h1>
                 <p class="text-sm text-gray-400 mt-1">This conversation may have been unshared or doesn't exist.</p>
             </div>
         </div>
@@ -41,10 +41,10 @@
         <!-- Conversation content -->
         <template v-else>
             <!-- Minimal header -->
-            <header class="flex-none border-b border-gray-100 py-5 px-4 bg-white z-10">
+            <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
                 <div class="max-w-2xl mx-auto flex items-start justify-between">
                     <div>
-                        <h1 class="text-base font-medium text-gray-900">{{ conversation.title || 'Untitled' }}</h1>
+                        <h1 class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
                         <p class="text-xs text-gray-400 mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
                     </div>
                     <!-- Fork button -->
@@ -61,7 +61,7 @@
             </header>
 
             <!-- Messages -->
-            <div 
+            <div
                 ref="messagesContainer"
                 class="flex-1 overflow-y-auto py-6 px-4"
                 @scroll="handleScroll"
@@ -71,25 +71,25 @@
                     <Spinner class="w-4 h-4 text-gray-400" />
                     <span class="text-xs text-gray-400 ms-2">Loading older messages…</span>
                 </div>
-                
+
                 <!-- Load more button (shown when there's more to load) -->
                 <div v-else-if="hasMore" class="flex justify-center py-3 mb-4">
-                    <button 
+                    <button
                         @click="loadPreviousCompletions"
                         class="text-xs text-gray-400 hover:text-gray-600 transition-colors"
                     >
                         ↑ Load older messages
                     </button>
                 </div>
-                
+
                 <ul class="max-w-2xl mx-auto space-y-4">
-                    <li v-for="m in conversation.completions" :key="m.id" class="text-gray-700 text-sm">
+                    <li v-for="m in conversation.completions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-sm">
                         <!-- Scheduled prompt indicator -->
                         <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
-                            <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50">
+                            <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
                                 <Icon name="heroicons-clock" class="w-3.5 h-3.5" />
-                                <span class="font-medium text-gray-500">Scheduled run</span>
-                                <span class="text-gray-300">{{ new Date(m.created_at).toLocaleString() }}</span>
+                                <span class="font-medium text-gray-500 dark:text-gray-400">Scheduled run</span>
+                                <span class="text-gray-300 dark:text-gray-600">{{ new Date(m.created_at).toLocaleString() }}</span>
                             </div>
                         </div>
                         <div v-else class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
@@ -97,7 +97,7 @@
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
                                     <div class="flex-1 flex justify-end">
-                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start">
+                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <MDC :value="m.prompt.content" class="markdown-content" />
                                             </div>
@@ -105,7 +105,7 @@
                                     </div>
                                     <!-- User avatar -->
                                     <div class="w-[28px] flex-shrink-0">
-                                        <div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full">
+                                        <div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 dark:bg-blue-900/50 rounded-full">
                                             {{ conversation.user_name?.charAt(0) || '?' }}
                                         </div>
                                     </div>
@@ -152,7 +152,7 @@
 
                                             <!-- 3. Tool execution -->
                                             <div v-if="block.tool_execution" class="tool-execution-container">
-                                                <component 
+                                                <component
                                                     v-if="shouldUseToolComponent(block.tool_execution)"
                                                     :is="getToolComponent(block.tool_execution.tool_name)"
                                                     :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
@@ -161,11 +161,11 @@
                                                 />
                                                 <!-- Fallback to generic expandable tool display -->
                                                 <div v-else>
-                                                    <div class="text-xs text-gray-500 mb-1">
-                                                        <span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
+                                                    <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                                                        <span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
                                                             {{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
                                                         </span>
-                                                        <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+                                                        <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
                                                             <div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
                                                             <div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
                                                         </div>
@@ -186,11 +186,11 @@
                                     </div>
 
                                     <!-- Status messages -->
-                                    <div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
+                                    <div v-if="m.status === 'stopped'" class="text-xs text-gray-500 dark:text-gray-400 mt-2 italic">
                                         <Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
                                         Generation stopped
                                     </div>
-                                    <div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
+                                    <div v-else-if="m.status === 'error'" class="text-xs text-gray-500 dark:text-gray-400">
                                         <Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
                                         <span class="italic">An error occurred</span>
                                     </div>
@@ -202,8 +202,8 @@
             </div>
 
             <!-- Footer -->
-            <footer class="flex-none border-t border-gray-100 py-2 text-center bg-white z-10">
-                <a href="https://bagofwords.com" target="_blank" class="text-[10px] text-gray-300 hover:text-gray-400 transition-colors">
+            <footer class="flex-none border-t border-gray-100 dark:border-gray-800 py-2 text-center bg-white dark:bg-gray-900 z-10">
+                <a href="https://bagofwords.com" target="_blank" class="text-[10px] text-gray-300 dark:text-gray-600 hover:text-gray-400 transition-colors">
                     Powered by Bag of Words
                 </a>
             </footer>
@@ -285,8 +285,8 @@ function formatDate(dateString: string | null): string {
     if (!dateString) return ''
     try {
         const date = new Date(dateString)
-        return date.toLocaleDateString('en-US', { 
-            month: 'short', 
+        return date.toLocaleDateString('en-US', {
+            month: 'short',
             day: 'numeric',
             year: 'numeric'
         })
@@ -325,7 +325,7 @@ function hasCompletedContent(block: any): boolean {
 
 function getThoughtProcessLabel(block: any): string {
     if (block.status === 'stopped') return 'Thought Process'
-    
+
     if (block.started_at && block.completed_at) {
         const startTime = new Date(block.started_at).getTime()
         const endTime = new Date(block.completed_at).getTime()
@@ -334,12 +334,12 @@ function getThoughtProcessLabel(block: any): string {
         if (durationSeconds > 1800) return 'Stopped'
         return `Thought for ${durationSeconds}s`
     }
-    
+
     if (block.tool_execution?.duration_ms) {
         const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
         return `Thought for ${durationSeconds}s`
     }
-    
+
     return 'Thought Process'
 }
 
@@ -385,7 +385,7 @@ function shouldUseToolComponent(toolExecution: any): boolean {
 function shouldShowToolWidgetPreview(toolExecution: any): boolean {
     if (!toolExecution) return false
     const showForTools = ['create_and_execute_code', 'execute_code', 'execute_sql']
-    return showForTools.includes(toolExecution.tool_name) && 
+    return showForTools.includes(toolExecution.tool_name) &&
            toolExecution.status === 'success' &&
            (toolExecution.created_widget || toolExecution.created_step)
 }
@@ -405,12 +405,12 @@ async function loadConversation() {
             error.value = true
             return
         }
-        
+
         conversation.value = data.value
         hasMore.value = (data.value as any).has_more || false
         nextBefore.value = (data.value as any).next_before || null
         forkEligibility.value = (data.value as any).fork_eligibility || null
-        
+
         // Auto-collapse reasoning for blocks that have content
         for (const completion of conversation.value.completions || []) {
             for (const block of completion.completion_blocks || []) {
@@ -424,7 +424,7 @@ async function loadConversation() {
         error.value = true
     } finally {
         isLoading.value = false
-        
+
         // Scroll to bottom after DOM renders (must be after isLoading = false)
         await nextTick()
         // Use a slightly longer timeout and requestAnimationFrame to ensure layout is stable
@@ -445,27 +445,27 @@ function scrollToBottom() {
 
 async function loadPreviousCompletions() {
     if (isLoadingMore.value || !hasMore.value || !nextBefore.value) return
-    
+
     isLoadingMore.value = true
-    
+
     try {
         const { data, error: fetchError } = await useMyFetch(`/api/c/${token}?limit=10&before=${nextBefore.value}`)
-        
+
         if (fetchError.value || !data.value) {
             return
         }
-        
+
         // Get scroll height before prepending
         const container = messagesContainer.value
         const scrollHeightBefore = container?.scrollHeight || 0
-        
+
         // Prepend older completions
         const olderCompletions = (data.value as any).completions || []
         conversation.value.completions = [...olderCompletions, ...conversation.value.completions]
-        
+
         hasMore.value = (data.value as any).has_more || false
         nextBefore.value = (data.value as any).next_before || null
-        
+
         // Auto-collapse reasoning for new blocks
         for (const completion of olderCompletions) {
             for (const block of completion.completion_blocks || []) {
@@ -474,7 +474,7 @@ async function loadPreviousCompletions() {
                 }
             }
         }
-        
+
         // Maintain scroll position after prepending
         await nextTick()
         if (container) {
@@ -608,7 +608,7 @@ onUnmounted(() => {
         font-size: 12px;
         color: #374151;
     }
-    a { 
+    a {
         @apply text-gray-900 no-underline relative;
         transition: color 0.15s ease;
     }

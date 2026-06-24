@@ -2,12 +2,12 @@
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-sm' }">
         <div class="p-5">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-semibold text-gray-900">Set Source Scope</h3>
-                <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Set Source Scope</h3>
+                <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
-            
+
             <USelectMenu
                 v-model="selectedValues"
                 :options="options"
@@ -21,7 +21,7 @@
                     <div class="flex items-center gap-1 flex-wrap" v-if="selectedValues.length">
                         <template v-if="isGlobalSelected">
                             <span class="flex items-center gap-1 text-xs">
-                                <UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-500" />
+                                <UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                                 Global
                             </span>
                         </template>
@@ -39,20 +39,20 @@
                 </template>
                 <template #option="{ option }">
                     <div class="flex items-center gap-2">
-                        <UIcon v-if="option.value === 'global'" name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500" />
+                        <UIcon v-if="option.value === 'global'" name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                         <DataSourceIcon v-else :type="option.type" class="h-4" />
                         <span>{{ option.label }}</span>
                     </div>
                 </template>
             </USelectMenu>
-            
-            <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-gray-100">
+
+            <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
                 <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">
                     Cancel
                 </UButton>
-                <UButton 
-                    color="blue" 
-                    size="xs" 
+                <UButton
+                    color="blue"
+                    size="xs"
                     @click="handleConfirm"
                     :disabled="selectedValues.length === 0"
                 >
@@ -119,7 +119,7 @@ function getOptionType(value: string): string | undefined {
 watch(selectedValues, (newValues, oldValues) => {
     const hadGlobal = oldValues.includes('global')
     const hasGlobal = newValues.includes('global')
-    
+
     if (hasGlobal && !hadGlobal) {
         // Just selected Global - clear other selections
         selectedValues.value = ['global']

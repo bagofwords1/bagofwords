@@ -12,12 +12,12 @@
         <!-- Loading state -->
         <div v-if="loading" class="py-8 text-center">
           <Spinner class="h-5 w-5 mx-auto text-gray-400" />
-          <p class="text-sm text-gray-500 mt-2">Loading connections...</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading connections...</p>
         </div>
 
         <!-- Empty state -->
-        <div v-else-if="connections.length === 0" class="py-8 text-center text-gray-500">
-          <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
+        <div v-else-if="connections.length === 0" class="py-8 text-center text-gray-500 dark:text-gray-400">
+          <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
           <p class="text-sm">No connections yet.</p>
           <UButton color="primary" variant="soft" size="sm" class="mt-3" @click="navigateTo('/agents/new'); isOpen = false">
             Add Connection
@@ -25,9 +25,9 @@
         </div>
 
         <!-- Connections list -->
-        <div v-else class="divide-y divide-gray-100">
-          <div 
-            v-for="conn in connections" 
+        <div v-else class="divide-y divide-gray-100 dark:divide-gray-800">
+          <div
+            v-for="conn in connections"
             :key="conn.id"
             class="py-3 first:pt-0 last:pb-0"
           >
@@ -35,17 +35,17 @@
               <div class="flex items-center gap-3">
                 <DataSourceIcon :type="conn.type" class="h-6" />
                 <div>
-                  <div class="font-medium text-gray-900">{{ conn.name }}</div>
-                  <div class="text-xs text-gray-500">
+                  <div class="font-medium text-gray-900 dark:text-white">{{ conn.name }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
                     {{ conn.type }} · {{ conn.agent_count }} agent{{ conn.agent_count !== 1 ? 's' : '' }} · {{ conn.table_count }} table{{ conn.table_count !== 1 ? 's' : '' }}
                   </div>
                 </div>
               </div>
               <div class="flex items-center gap-1">
                 <!-- Test button -->
-                <UButton 
-                  color="gray" 
-                  variant="ghost" 
+                <UButton
+                  color="gray"
+                  variant="ghost"
                   size="xs"
                   :disabled="testingId === conn.id"
                   @click="testConnection(conn)"
@@ -55,9 +55,9 @@
                 </UButton>
 
                 <!-- Edit button -->
-                <UButton 
-                  color="gray" 
-                  variant="ghost" 
+                <UButton
+                  color="gray"
+                  variant="ghost"
                   size="xs"
                   @click="openEdit(conn)"
                 >
@@ -68,7 +68,7 @@
 
             <!-- Test result -->
             <div v-if="testResults[conn.id]" class="mt-2 text-xs px-9">
-              <span 
+              <span
                 :class="testResults[conn.id].success ? 'text-green-600' : 'text-red-600'"
               >
                 {{ testResults[conn.id].message }}
@@ -105,7 +105,7 @@
 
       <div v-if="loadingEditDetails" class="py-8 text-center">
         <Spinner class="h-5 w-5 mx-auto text-gray-400" />
-        <p class="text-sm text-gray-500 mt-2">Loading connection details...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading connection details...</p>
       </div>
 
       <div v-else-if="editingConnection && editFormInitialValues">
@@ -133,7 +133,7 @@
         <h3 class="text-lg font-semibold text-red-600">Delete Connection</h3>
       </template>
 
-      <p class="text-sm text-gray-600">
+      <p class="text-sm text-gray-600 dark:text-gray-400">
         Are you sure you want to delete <strong>{{ deletingConnection?.name }}</strong>? This action cannot be undone.
       </p>
 
@@ -217,8 +217,8 @@ async function testConnection(conn: any) {
       testResults.value[conn.id] = { success: false, message: error.value.message || 'Test failed' }
     } else {
       const result = data.value as any
-      testResults.value[conn.id] = { 
-        success: result.success, 
+      testResults.value[conn.id] = {
+        success: result.success,
         message: result.success ? 'Connection successful!' : (result.message || 'Connection failed')
       }
     }
@@ -232,14 +232,14 @@ async function testConnection(conn: any) {
 async function openEdit(conn: any) {
   editingConnection.value = conn
   editConnectionDetails.value = null
-  
+
   // Close the parent modal first to avoid nested modal issues
   isOpen.value = false
-  
+
   // Small delay to ensure parent modal is closed before opening edit modal
   await nextTick()
   showEditModal.value = true
-  
+
   // Load full connection details
   loadingEditDetails.value = true
   try {
@@ -299,4 +299,3 @@ watch(showEditModal, async (newVal) => {
   }
 })
 </script>
-

@@ -2097,5 +2097,59 @@
     "genericTitle": "Une erreur s'est produite",
     "unknownError": "Erreur inconnue",
     "goHome": "Retour à l'accueil"
+  },
+  "profile": {
+    "menuItem": "Profil",
+    "nav": {
+      "general": "Général",
+      "instructions": "Instructions personnalisées",
+      "usage": "Utilisation",
+      "appearance": "Apparence"
+    },
+    "general": {
+      "title": "Général",
+      "subtitle": "Vos informations personnelles et plateformes connectées.",
+      "fullName": "Nom complet",
+      "fullNamePlaceholder": "Votre nom",
+      "email": "E-mail",
+      "saved": "Profil mis à jour",
+      "saveFailed": "Échec de la mise à jour du profil",
+      "removePhoto": "Supprimer la photo",
+      "avatarUpdated": "Photo mise à jour",
+      "avatarFailed": "Échec de la mise à jour de la photo",
+      "avatarTooLarge": "L'image est trop volumineuse (max. 5 Mo)",
+      "platforms": "Plateformes externes",
+      "platformsSubtitle": "Comptes liés à votre profil via les intégrations.",
+      "connected": "Connecté",
+      "pending": "En attente",
+      "noPlatforms": "Aucune plateforme externe connectée pour le moment."
+    },
+    "instructions": {
+      "title": "Instructions personnalisées",
+      "subtitle": "Parlez de vous à l'IA : votre rôle et ce qui compte pour vous. Ces informations sont partagées avec l'IA lorsqu'elle travaille en votre nom dans cette organisation.",
+      "placeholder": "p. ex. Je suis le PDG. Je me concentre sur le chiffre d'affaires et la croissance — des réponses concises et de haut niveau, et affichez les montants en USD.",
+      "saved": "Instructions enregistrées",
+      "saveFailed": "Échec de l'enregistrement des instructions"
+    },
+    "usage": {
+      "title": "Utilisation",
+      "subtitle": "Votre activité pour la période de facturation en cours.",
+      "tokens": "Jetons",
+      "queries": "Requêtes",
+      "data": "Données analysées",
+      "windowNote": "L'utilisation est réinitialisée au début de chaque mois.",
+      "disabledTitle": "Le suivi de l'utilisation n'est pas activé",
+      "disabledNote": "L'utilisation par utilisateur (jetons, requêtes et données analysées) est suivie lorsque la fonctionnalité Limites d'utilisation est activée sur votre forfait."
+    },
+    "appearance": {
+      "title": "Apparence",
+      "subtitle": "Personnalisez l'apparence de l'application.",
+      "theme": "Thème",
+      "light": "Clair",
+      "dark": "Sombre",
+      "system": "Système",
+      "language": "Langue",
+      "languageDescription": "Remplace la langue par défaut de l'organisation pour votre compte uniquement."
+    }
   }
 }

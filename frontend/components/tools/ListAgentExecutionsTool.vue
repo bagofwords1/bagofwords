@@ -3,24 +3,24 @@
     <!-- Header line -->
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center gap-1.5">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
           <span>{{ $t('tools.listAgentExecutions.loading') }}</span>
         </span>
-        <span v-else-if="isSuccess" class="flex items-center gap-1.5 text-gray-600">
+        <span v-else-if="isSuccess" class="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
           <Icon name="heroicons-list-bullet" class="w-3 h-3 text-blue-500" />
           <span class="font-medium">{{ $t('tools.listAgentExecutions.title') }}</span>
-          <span class="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px]">{{ executions.length }}/{{ output.total }}</span>
-          <span v-if="appliedFilter" class="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-[10px]">{{ filterLabel(appliedFilter) }}</span>
+          <span class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded text-[10px]">{{ executions.length }}/{{ output.total }}</span>
+          <span v-if="appliedFilter" class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950 text-blue-600 rounded text-[10px]">{{ filterLabel(appliedFilter) }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 text-gray-400 rtl-flip"
+            class="w-3 h-3 text-gray-400 dark:text-gray-500 rtl-flip"
           />
         </span>
-        <span v-else class="flex items-center gap-1.5 text-gray-600">
+        <span v-else class="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
           <Icon name="heroicons-x-circle" class="w-3 h-3 text-red-500" />
           <span>{{ $t('tools.listAgentExecutions.failed') }}</span>
         </span>
@@ -35,7 +35,7 @@
           <div
             v-for="item in pagedExecutions"
             :key="item.agent_execution_id"
-            class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-gray-50 transition-colors min-w-0"
+            class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors min-w-0"
             @click.stop="openTrace(item)"
           >
             <!-- Status dot -->
@@ -44,7 +44,7 @@
               :class="item.status === 'error' ? 'bg-red-400' : 'bg-green-400'"
             />
             <!-- Prompt (short, fixed width) -->
-            <span class="text-[11px] text-gray-700 truncate flex-shrink-0 w-32">
+            <span class="text-[11px] text-gray-700 dark:text-gray-300 truncate flex-shrink-0 w-32">
               {{ item.prompt || '—' }}
             </span>
             <!-- Step title chips or tool name pills (fills remaining space) -->
@@ -53,19 +53,19 @@
                 <span
                   v-for="(title, idx) in item.step_titles.slice(0, 2)"
                   :key="'s'+idx"
-                  class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px] leading-none truncate max-w-[120px] flex-shrink-0"
+                  class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-[9px] leading-none truncate max-w-[120px] flex-shrink-0"
                 >{{ title }}</span>
-                <span v-if="item.step_titles.length > 2" class="text-[9px] text-gray-400 flex-shrink-0">+{{ item.step_titles.length - 2 }}</span>
+                <span v-if="item.step_titles.length > 2" class="text-[9px] text-gray-400 dark:text-gray-500 flex-shrink-0">+{{ item.step_titles.length - 2 }}</span>
               </template>
               <template v-else-if="item.tool_names && item.tool_names.length > 0">
                 <span
                   v-for="(name, idx) in item.tool_names.slice(0, 3)"
                   :key="'t'+idx"
-                  class="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-[9px] leading-none truncate max-w-[110px] flex-shrink-0"
+                  class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950 text-blue-600 rounded text-[9px] leading-none truncate max-w-[110px] flex-shrink-0"
                 >{{ toolLabel(name) }}</span>
-                <span v-if="item.tool_names.length > 3" class="text-[9px] text-gray-400 flex-shrink-0">+{{ item.tool_names.length - 3 }}</span>
+                <span v-if="item.tool_names.length > 3" class="text-[9px] text-gray-400 dark:text-gray-500 flex-shrink-0">+{{ item.tool_names.length - 3 }}</span>
               </template>
-              <span v-else class="text-[9px] text-gray-300 italic">no output</span>
+              <span v-else class="text-[9px] text-gray-300 dark:text-gray-600 italic">no output</span>
             </span>
             <!-- Feedback -->
             <span
@@ -92,25 +92,25 @@
               {{ item.total_failed_tools }}
             </span>
             <!-- Date -->
-            <span class="text-[10px] text-gray-400 flex-shrink-0 w-6 text-right">
+            <span class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 w-6 text-right">
               {{ formatRelative(item.created_at) }}
             </span>
           </div>
         </div>
 
         <!-- Pagination -->
-        <div v-if="totalPages > 1" class="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-100">
+        <div v-if="totalPages > 1" class="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-100 dark:border-gray-800">
           <button
-            class="flex items-center gap-0.5 text-[10px] text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            class="flex items-center gap-0.5 text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
             :disabled="currentPage === 1"
             @click.stop="currentPage--"
           >
             <Icon name="heroicons-chevron-left" class="w-3 h-3" />
             Prev
           </button>
-          <span class="text-[10px] text-gray-400">{{ currentPage }} / {{ totalPages }}</span>
+          <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ currentPage }} / {{ totalPages }}</span>
           <button
-            class="flex items-center gap-0.5 text-[10px] text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            class="flex items-center gap-0.5 text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
             :disabled="currentPage === totalPages"
             @click.stop="currentPage++"
           >
@@ -120,7 +120,7 @@
         </div>
 
         <!-- Empty filtered state -->
-        <div v-if="filteredExecutions.length === 0" class="text-center py-3 text-[11px] text-gray-400">
+        <div v-if="filteredExecutions.length === 0" class="text-center py-3 text-[11px] text-gray-400 dark:text-gray-500">
           {{ $t('tools.listAgentExecutions.noMatch') }}
         </div>
       </div>
@@ -128,7 +128,7 @@
 
     <!-- Empty state when success but no results -->
     <Transition name="fade">
-      <div v-if="isExpanded && isSuccess && executions.length === 0" class="mt-2 text-[11px] text-gray-400 ps-1">
+      <div v-if="isExpanded && isSuccess && executions.length === 0" class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 ps-1">
         {{ $t('tools.listAgentExecutions.empty') }}
       </div>
     </Transition>

@@ -1,5 +1,5 @@
 <template>
-    <div class="flex flex-col min-h-screen bg-gray-50">
+    <div class="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
         <!-- Top bar -->
         <div class="flex justify-between items-center p-3">
             <div class="logo">
@@ -17,11 +17,11 @@
         <!-- Existing content -->
         <div class="flex flex-col p-4 flex-grow">
             <h1 class="text-3xl mt-10 font-bold">{{ $t('excel.greeting', { name: currentUser.name }) }}</h1>
-            <p class="text-sm mt-2 text-gray-500">{{ $t('excel.continuePrompt') }}</p>
-            <div @click="createNewReport" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+            <p class="text-sm mt-2 text-gray-500 dark:text-gray-400">{{ $t('excel.continuePrompt') }}</p>
+            <div @click="createNewReport" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700 hover:shadow-md hover:border-blue-300">
                 <div class="flex">
                     <div class="w-5/6 pe-4">
-                        <p class="text-sm text-gray-600 italic">
+                        <p class="text-sm text-gray-600 dark:text-gray-400 italic">
                             {{ $t('excel.createNewPrompt') }}
                         </p>
                     </div>
@@ -32,20 +32,20 @@
                     </div>
                 </div>
             </div>
-            <div class="flex flex-col w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200">
+            <div class="flex flex-col w-full text-start mt-4 p-2 bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
                 <div class="text-xs font-semibold text-blue-500 mb-2">
                     {{ $t('excel.reportsHeader') }}
                 </div>
                 <div v-for="report in previous_reports.slice(0, 7)" :key="report.id"
-                class="flex flex-row justify-between items-left w-full py-2 px-2 text-sm hover:bg-gray-50">
-                    <NuxtLink :to="`/excel/reports/${report.id}`"> 
+                class="flex flex-row justify-between items-left w-full py-2 px-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <NuxtLink :to="`/excel/reports/${report.id}`">
                         <li> {{ report.title }}</li>
                     </NuxtLink>
                 </div>
             </div>
 
 
-            <div @click="router.push('/agents')" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+            <div @click="router.push('/agents')" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700 hover:shadow-md hover:border-blue-300">
                 <div class="flex">
                     <div class="w-4/5 pe-4">
                         <p class="text-sm text-black">
@@ -153,8 +153,8 @@ const createNewReport = async () => {
 }
 
 async function signOff() {
-  await signOut({ 
-    callbackUrl: '/' 
+  await signOut({
+    callbackUrl: '/'
   })
 }
 </script>

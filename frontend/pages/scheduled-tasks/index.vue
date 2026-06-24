@@ -4,8 +4,8 @@
       <!-- Full-page empty state (no tasks, no active search) -->
       <div v-if="!isLoading && tasks.length === 0 && !searchTerm" class="flex flex-col items-center justify-center text-center py-20 px-4">
         <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
-        <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('scheduled.empty') }}</h3>
-        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">{{ $t('scheduled.emptyDescription') }}</p>
+        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('scheduled.empty') }}</h3>
+        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('scheduled.emptyDescription') }}</p>
         <button
           @click="openNewTask"
           :disabled="creatingTask"
@@ -20,7 +20,7 @@
       <template v-else>
       <div class="mb-5">
         <div class="flex items-center justify-between">
-          <h1 class="text-lg font-semibold text-gray-900">
+          <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
             <GoBackChevron v-if="isExcel" />
             {{ $t('scheduled.title') }}
           </h1>
@@ -36,17 +36,17 @@
         </div>
 
         <div class="mt-3 flex items-center gap-2">
-          <input v-model="searchTerm" type="text" :placeholder="$t('scheduled.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2" />
+          <input v-model="searchTerm" type="text" :placeholder="$t('scheduled.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
         </div>
       </div>
 
       <!-- Loading -->
-      <div v-if="isLoading" class="text-xs text-gray-500 inline-flex items-center">
+      <div v-if="isLoading" class="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center">
         <Spinner class="me-1" /> {{ $t('scheduled.loading') }}
       </div>
 
       <!-- No matches for the current search (page chrome stays visible) -->
-      <div v-else-if="tasks.length === 0" class="py-12 text-center text-xs text-gray-500">
+      <div v-else-if="tasks.length === 0" class="py-12 text-center text-xs text-gray-500 dark:text-gray-400">
         {{ $t('scheduled.empty') }}
       </div>
 
@@ -55,7 +55,7 @@
         <div
           v-for="task in tasks"
           :key="task.id"
-          class="border border-gray-100 bg-white rounded-lg p-4 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer"
+          class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all cursor-pointer"
           @click="openTask(task)"
         >
           <div class="flex items-start justify-between gap-3">
@@ -65,12 +65,12 @@
                   class="text-[10px] px-1.5 py-0.5 rounded border"
                   :class="task.is_active
                     ? 'text-green-700 border-green-200 bg-green-50'
-                    : 'text-gray-700 border-gray-200 bg-gray-50'"
+                    : 'text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'"
                 >{{ task.is_active ? $t('scheduled.active') : $t('scheduled.paused') }}</span>
-                <span class="text-[11px] text-gray-400">{{ getCronLabel(task.cron_schedule) }}</span>
-                <span v-if="task.last_run_at" class="text-[11px] text-gray-400">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
+                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule) }}</span>
+                <span v-if="task.last_run_at" class="text-[11px] text-gray-400 dark:text-gray-500">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
               </div>
-              <div class="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
+              <div class="text-sm font-medium text-gray-900 dark:text-white mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
               <div class="flex items-center gap-3 mt-2">
                 <NuxtLink
                   :to="`/reports/${task.report_id}`"
@@ -80,7 +80,7 @@
                   <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3" />
                   {{ task.report?.title || $t('scheduled.untitledReport') }}
                 </NuxtLink>
-                <span v-if="task.user_name" class="text-[11px] text-gray-400">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
+                <span v-if="task.user_name" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
             </div>
           </div>
@@ -88,7 +88,7 @@
       </div>
 
       <!-- Results summary -->
-      <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
+      <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-[11px] text-gray-500 dark:text-gray-400">
         {{ $t(pagination.total === 1 ? 'scheduled.showingOne' : 'scheduled.showingMany', { shown: tasks.length, total: pagination.total }) }}
       </div>
 
@@ -97,7 +97,7 @@
         <button
           @click="loadMore"
           :disabled="isLoadingMore"
-          class="text-xs px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+          class="text-xs px-3 py-1.5 rounded border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400 disabled:opacity-50"
         >
           <template v-if="isLoadingMore"><Spinner class="w-3 h-3 inline me-1" /> {{ $t('scheduled.loading') }}</template>
           <template v-else>{{ $t('scheduled.loadMore') }}</template>

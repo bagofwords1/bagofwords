@@ -9,16 +9,16 @@
           </span>
           <span :class="labelClass(step.key)">{{ step.label }}</span>
         </span>
-        <span v-if="idx < activeSteps.length - 1" class="mx-2 w-6 h-px bg-gray-200"></span>
+        <span v-if="idx < activeSteps.length - 1" class="mx-2 w-6 h-px bg-gray-200 dark:bg-gray-700"></span>
       </li>
     </ol>
   </nav>
-  
+
 </template>
 
 <script setup lang="ts">
-const props = withDefaults(defineProps<{ 
-  current: 'connect' | 'schema' | 'context', 
+const props = withDefaults(defineProps<{
+  current: 'connect' | 'schema' | 'context',
   dsId?: string,
   // mode is kept for backward compatibility, but the wizard now routes through /data/new for all creation flows.
   mode?: 'connection' | 'agent'
@@ -36,14 +36,14 @@ const steps = [
 const activeSteps = computed(() => steps)
 
 function circleClass(key: string) {
-  if (isDone(key)) return 'bg-green-100 text-green-600'
+  if (isDone(key)) return 'bg-green-100 dark:bg-green-950 text-green-600'
   if (key === props.current) return 'bg-gray-900 text-white'
-  return 'bg-gray-100 text-gray-500'
+  return 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
 }
 
 function labelClass(key: string) {
-  if (key === props.current) return 'text-gray-900'
-  return 'text-gray-500'
+  if (key === props.current) return 'text-gray-900 dark:text-white'
+  return 'text-gray-500 dark:text-gray-400'
 }
 
 const order = ['connect','schema','context'] as const
@@ -69,5 +69,4 @@ function go(key: string) {
 
 <style scoped>
 </style>
-
 

@@ -14,6 +14,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
     name = Column(String, index=True, nullable=False)
+    image_url = Column(String, nullable=True)  # Public path to uploaded avatar; NULL = use initial placeholder
     last_login = Column(DateTime, nullable=True)
     last_seen = Column(DateTime, nullable=True)
     scim_external_id = Column(String(255), nullable=True, index=True)  # IdP external identifier for SCIM provisioning

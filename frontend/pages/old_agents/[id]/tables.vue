@@ -9,7 +9,7 @@
                 <div
                     v-for="conn in connections.slice(0, 3)"
                     :key="conn.id"
-                    class="inline-flex items-center gap-1.5 text-xs text-gray-600"
+                    class="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400"
                 >
                     <span :class="['w-1.5 h-1.5 rounded-full flex-shrink-0', statusDotClass(getEffectiveStatus(conn))]" />
                     <DataSourceIcon :type="conn.type" class="h-3.5" />
@@ -33,7 +33,7 @@
                 <div
                     v-for="file in files.slice(0, 3)"
                     :key="file.id"
-                    class="inline-flex items-center gap-1.5 text-xs text-gray-600 group"
+                    class="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 group"
                 >
                     <UIcon name="i-heroicons-paper-clip" class="w-3 h-3 flex-shrink-0 text-gray-400" />
                     <UTooltip :text="file.filename">
@@ -42,7 +42,7 @@
                     <button
                         v-if="canUpdateDataSource"
                         type="button"
-                        class="text-gray-300 hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100"
+                        class="text-gray-300 dark:text-gray-600 hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100"
                         :title="t('agentPage.tables.removeFile')"
                         @click="removeFile(file)"
                     >
@@ -72,7 +72,7 @@
             <!-- Schema indexing in progress -->
             <div
                 v-if="anyIndexing"
-                class="mb-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800"
+                class="mb-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 px-3 py-2 text-xs text-blue-800"
             >
                 <UIcon name="heroicons-arrow-path" class="w-4 h-4 animate-spin" />
                 <span>{{ t('agentPage.tables.schemaRefreshing') }}</span>
@@ -83,11 +83,11 @@
                  instead of an "empty catalog" UI that reads as broken. -->
             <div
                 v-if="needsSignIn"
-                class="border border-gray-200 rounded-lg p-10 text-center bg-gray-50"
+                class="border border-gray-200 dark:border-gray-700 rounded-lg p-10 text-center bg-gray-50 dark:bg-gray-900"
             >
                 <DataSourceIcon :type="pendingSignInConn?.type" class="h-10 mx-auto mb-3" />
-                <h3 class="text-base font-semibold text-gray-900">Sign in to access your {{ shapeNoun.plural }}</h3>
-                <p class="text-sm text-gray-600 mt-1">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-white">Sign in to access your {{ shapeNoun.plural }}</h3>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {{ pendingSignInConn?.name || 'This connection' }} uses per-user authentication —
                     your own {{ shapeNoun.plural }} will load after you sign in with {{ signInProviderName }}.
                 </p>
@@ -96,7 +96,7 @@
                 </UButton>
             </div>
 
-            <div v-else class="border border-gray-200 rounded-lg p-6">
+            <div v-else class="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
                 <TablesSelector :ds-id="id" :schema="schemaMode" :can-update="canUpdateDataSource" :show-refresh="true" :show-save="canUpdateDataSource" :show-header="true" :header-title="headerTitle" :header-subtitle="headerSubtitle" :save-label="t('agentPage.tables.save')" :show-stats="true" :item-noun="shapeNoun" @saved="onSaved" />
             </div>
 

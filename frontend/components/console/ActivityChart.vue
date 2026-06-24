@@ -1,19 +1,20 @@
 <template>
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.charts.activityTitle') }}</h3>
-            <p class="text-sm text-gray-500 mt-1">{{ $t('monitoring.charts.activitySubtitle') }}</p>
+    <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-50 dark:border-gray-800">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('monitoring.charts.activityTitle') }}</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('monitoring.charts.activitySubtitle') }}</p>
         </div>
         <div class="p-6">
             <div class="h-80">
                 <div v-if="isLoading" class="flex items-center justify-center h-full">
                     <div class="flex items-center space-x-2">
                         <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                        <span class="text-gray-600">Loading chart...</span>
+                        <span class="text-gray-600 dark:text-gray-400">Loading chart...</span>
                     </div>
                 </div>
                 <VChart
                     v-else-if="chartOptions"
+                    :theme="colorMode.value === 'dark' ? 'dark' : undefined"
                     class="chart"
                     :option="chartOptions"
                     autoresize
@@ -24,6 +25,7 @@
 </template>
 
 <script setup lang="ts">
+const colorMode = useColorMode()
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -64,18 +66,18 @@ const props = defineProps<Props>()
 
 const chartOptions = computed((): EChartsOption | null => {
     if (!props.activityMetrics) return null
-    
+
     const messages = props.activityMetrics.messages
     const queries = props.activityMetrics.queries
-    
+
     const dates = messages.map(item => {
         const date = new Date(item.date)
         return `${date.getMonth() + 1}/${date.getDate()}`
     })
-    
+
     const messagesData = messages.map(item => item.value)
     const queriesData = queries.map(item => item.value)
-    
+
     const numDates = dates.length
     let interval = 0
     if (numDates > 20) {
@@ -83,7 +85,7 @@ const chartOptions = computed((): EChartsOption | null => {
     } else if (numDates > 10) {
         interval = Math.floor(numDates / 6)
     }
-    
+
     return {
         tooltip: {
             trigger: 'axis',
@@ -212,4 +214,4 @@ const chartOptions = computed((): EChartsOption | null => {
     width: 100%;
     height: 100%;
 }
-</style> 
+</style>

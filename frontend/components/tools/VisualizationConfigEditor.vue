@@ -1,11 +1,11 @@
 <template>
-  <div class="h-full flex flex-col text-xs text-gray-700">
+  <div class="h-full flex flex-col text-xs text-gray-700 dark:text-gray-300">
     <!-- Scrollable content -->
     <div class="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pe-1">
     <!-- Type selector -->
     <div>
-      <div class="font-medium text-gray-800 mb-1">Type</div>
-      <select v-model="local.type" class="w-full border rounded px-2 py-1.5 bg-white">
+      <div class="font-medium text-gray-800 dark:text-gray-200 mb-1">Type</div>
+      <select v-model="local.type" class="w-full border rounded px-2 py-1.5 bg-white dark:bg-gray-900">
         <option v-for="opt in typeOptionsFromMeta" :key="opt" :value="opt">{{ opt }}</option>
       </select>
     </div>
@@ -13,15 +13,15 @@
     <!-- Encoding editor (dynamic by type) -->
     <div v-if="showEncoding">
       <div class="flex items-center justify-between">
-        <div class="font-medium text-gray-800">Encoding</div>
-        <button class="text-[11px] text-gray-500 hover:text-gray-700" @click="detectEncoding">Detect from data</button>
+        <div class="font-medium text-gray-800 dark:text-gray-200">Encoding</div>
+        <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="detectEncoding">Detect from data</button>
       </div>
 
       <!-- Bar/Line/Area -->
       <div v-if="isType(['bar_chart','line_chart','area_chart'])" class="space-y-2">
         <div>
-          <div class="text-gray-600 mb-1">Category</div>
-          <select v-model="encoding.category" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Category</div>
+          <select v-model="encoding.category" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option value="">-- Select column --</option>
             <optgroup label="Suggested">
               <option v-for="c in stringColumns" :key="`cat-s-${c}`" :value="c">{{ c }}</option>
@@ -32,11 +32,11 @@
           </select>
         </div>
         <div>
-          <div class="text-gray-600 mb-1">Series</div>
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Series</div>
           <div class="space-y-2">
             <div v-for="(s, idx) in encoding.series" :key="idx" class="flex items-center space-x-2">
               <input v-model="s.name" placeholder="name" class="flex-1 border rounded px-2 py-1" />
-              <select v-model="s.value" class="w-32 border rounded px-2 py-1 bg-white">
+              <select v-model="s.value" class="w-32 border rounded px-2 py-1 bg-white dark:bg-gray-900">
                 <option value="">value</option>
                 <optgroup label="Suggested">
                   <option v-for="c in numericColumns" :key="`val-s-${c}`" :value="c">{{ c }}</option>
@@ -45,22 +45,22 @@
                   <option v-for="c in otherNumericColumns" :key="`val-a-${c}`" :value="c">{{ c }}</option>
                 </optgroup>
               </select>
-              <select v-model="s.aggregation" class="w-24 border rounded px-2 py-1 bg-white" title="Aggregation applied to duplicate category rows">
+              <select v-model="s.aggregation" class="w-24 border rounded px-2 py-1 bg-white dark:bg-gray-900" title="Aggregation applied to duplicate category rows">
                 <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
               </select>
-              <button class="px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="removeSeries(idx)">Remove</button>
+              <button class="px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeSeries(idx)">Remove</button>
             </div>
           </div>
-          <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="addSeries">Add series</button>
+          <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addSeries">Add series</button>
         </div>
-        
+
       </div>
 
       <!-- Pie -->
       <div v-else-if="isType(['pie_chart'])" class="space-y-2">
         <div>
-          <div class="text-gray-600 mb-1">Category</div>
-          <select v-model="encoding.category" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Category</div>
+          <select v-model="encoding.category" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option value="">-- Select column --</option>
             <optgroup label="Suggested">
               <option v-for="c in stringColumns" :key="`pie-cat-s-${c}`" :value="c">{{ c }}</option>
@@ -71,8 +71,8 @@
           </select>
         </div>
         <div>
-          <div class="text-gray-600 mb-1">Value</div>
-          <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Value</div>
+          <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option value="">-- Select column --</option>
             <optgroup label="Suggested">
               <option v-for="c in numericColumns" :key="`pie-val-s-${c}`" :value="c">{{ c }}</option>
@@ -83,8 +83,8 @@
           </select>
         </div>
         <div>
-          <div class="text-gray-600 mb-1">Aggregation</div>
-          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Aggregation</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </div>
@@ -94,8 +94,8 @@
       <div v-else-if="isType(['scatter_plot'])" class="space-y-2">
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <div class="text-gray-600 mb-1">X</div>
-            <select v-model="encoding.x" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">X</div>
+            <select v-model="encoding.x" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`scat-x-s-${c}`" :value="c">{{ c }}</option>
@@ -106,8 +106,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Y</div>
-            <select v-model="encoding.y" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Y</div>
+            <select v-model="encoding.y" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`scat-y-s-${c}`" :value="c">{{ c }}</option>
@@ -119,8 +119,8 @@
           </div>
         </div>
         <div>
-          <div class="text-gray-600 mb-1">Aggregation (groups duplicate X)</div>
-          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Aggregation (groups duplicate X)</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </div>
@@ -130,8 +130,8 @@
       <div v-else-if="isType(['heatmap'])" class="space-y-2">
         <div class="grid grid-cols-3 gap-2">
           <div>
-            <div class="text-gray-600 mb-1">X</div>
-            <select v-model="encoding.x" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">X</div>
+            <select v-model="encoding.x" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in stringColumns" :key="`heat-x-s-${c}`" :value="c">{{ c }}</option>
@@ -142,8 +142,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Y</div>
-            <select v-model="encoding.y" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Y</div>
+            <select v-model="encoding.y" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in stringColumns" :key="`heat-y-s-${c}`" :value="c">{{ c }}</option>
@@ -154,8 +154,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Value</div>
-            <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Value</div>
+            <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`heat-v-s-${c}`" :value="c">{{ c }}</option>
@@ -167,8 +167,8 @@
           </div>
         </div>
         <div>
-          <div class="text-gray-600 mb-1">Aggregation</div>
-          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Aggregation</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </div>
@@ -178,8 +178,8 @@
       <div v-else-if="isType(['candlestick'])" class="space-y-2">
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <div class="text-gray-600 mb-1">Time/Key</div>
-            <select v-model="encoding.key" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Time/Key</div>
+            <select v-model="encoding.key" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in stringColumns" :key="`can-k-s-${c}`" :value="c">{{ c }}</option>
@@ -190,8 +190,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Open</div>
-            <select v-model="encoding.open" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Open</div>
+            <select v-model="encoding.open" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`can-o-s-${c}`" :value="c">{{ c }}</option>
@@ -202,8 +202,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Close</div>
-            <select v-model="encoding.close" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Close</div>
+            <select v-model="encoding.close" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`can-c-s-${c}`" :value="c">{{ c }}</option>
@@ -214,8 +214,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Low</div>
-            <select v-model="encoding.low" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Low</div>
+            <select v-model="encoding.low" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`can-l-s-${c}`" :value="c">{{ c }}</option>
@@ -226,8 +226,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">High</div>
-            <select v-model="encoding.high" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">High</div>
+            <select v-model="encoding.high" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`can-h-s-${c}`" :value="c">{{ c }}</option>
@@ -244,8 +244,8 @@
       <div v-else-if="isType(['treemap'])" class="space-y-2">
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <div class="text-gray-600 mb-1">Name</div>
-            <select v-model="encoding.name" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Name</div>
+            <select v-model="encoding.name" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in stringColumns" :key="`tree-n-s-${c}`" :value="c">{{ c }}</option>
@@ -256,8 +256,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Value</div>
-            <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Value</div>
+            <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`tree-v-s-${c}`" :value="c">{{ c }}</option>
@@ -268,8 +268,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Parent Id (optional)</div>
-            <select v-model="encoding.parentId" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Parent Id (optional)</div>
+            <select v-model="encoding.parentId" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in stringColumns" :key="`tree-p-s-${c}`" :value="c">{{ c }}</option>
@@ -280,8 +280,8 @@
             </select>
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Id (optional)</div>
-            <select v-model="encoding.id" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Id (optional)</div>
+            <select v-model="encoding.id" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- Select column --</option>
               <optgroup label="Suggested">
                 <option v-for="c in stringColumns" :key="`tree-i-s-${c}`" :value="c">{{ c }}</option>
@@ -297,8 +297,8 @@
       <!-- Radar -->
       <div v-else-if="isType(['radar_chart'])" class="space-y-2">
         <div>
-          <div class="text-gray-600 mb-1">Series name key (row label)</div>
-          <select v-model="encoding.key" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Series name key (row label)</div>
+          <select v-model="encoding.key" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option value="">-- Select column --</option>
             <optgroup label="Suggested">
               <option v-for="c in stringColumns" :key="`rad-k-s-${c}`" :value="c">{{ c }}</option>
@@ -309,10 +309,10 @@
           </select>
         </div>
         <div>
-          <div class="text-gray-600 mb-1">Dimensions</div>
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Dimensions</div>
           <div class="space-y-2">
             <div v-for="(d, idx) in dimensions" :key="idx" class="flex items-center space-x-2">
-              <select v-model="dimensions[idx]" class="flex-1 border rounded px-2 py-1 bg-white">
+              <select v-model="dimensions[idx]" class="flex-1 border rounded px-2 py-1 bg-white dark:bg-gray-900">
                 <option value="">-- Select column --</option>
                 <optgroup label="Suggested">
                   <option v-for="c in numericColumns" :key="`rad-d-s-${c}`" :value="c">{{ c }}</option>
@@ -321,10 +321,10 @@
                   <option v-for="c in otherNumericColumns" :key="`rad-d-a-${c}`" :value="c">{{ c }}</option>
                 </optgroup>
               </select>
-              <button class="px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="removeDimension(idx)">Remove</button>
+              <button class="px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeDimension(idx)">Remove</button>
             </div>
           </div>
-          <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="addDimension">Add dimension</button>
+          <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addDimension">Add dimension</button>
         </div>
       </div>
 
@@ -332,8 +332,8 @@
       <div v-else-if="isType(['metric_card'])" class="space-y-3">
         <!-- Value column -->
         <div>
-          <div class="text-gray-600 mb-1">Value column</div>
-          <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Value column</div>
+          <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option value="">-- Select column --</option>
             <optgroup label="Suggested">
               <option v-for="c in numericColumns" :key="`mc-val-s-${c}`" :value="c">{{ c }}</option>
@@ -346,16 +346,16 @@
 
         <!-- Aggregation -->
         <div>
-          <div class="text-gray-600 mb-1">Aggregation (required for granular rows)</div>
-          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Aggregation (required for granular rows)</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </div>
 
         <!-- Format -->
         <div>
-          <div class="text-gray-600 mb-1">Format</div>
-          <select v-model="local.metricFormat" class="w-full border rounded px-2 py-1 bg-white">
+          <div class="text-gray-600 dark:text-gray-400 mb-1">Format</div>
+          <select v-model="local.metricFormat" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
             <option value="number">Number</option>
             <option value="currency">Currency ($)</option>
             <option value="percent">Percent (%)</option>
@@ -366,11 +366,11 @@
         <!-- Prefix / Suffix -->
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <div class="text-gray-600 mb-1">Prefix</div>
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Prefix</div>
             <input v-model="local.metricPrefix" placeholder="e.g. $" class="w-full border rounded px-2 py-1" />
           </div>
           <div>
-            <div class="text-gray-600 mb-1">Suffix</div>
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Suffix</div>
             <input v-model="local.metricSuffix" placeholder="e.g. users" class="w-full border rounded px-2 py-1" />
           </div>
         </div>
@@ -378,12 +378,12 @@
         <!-- Comparison section -->
         <div class="border-t pt-3 mt-3">
           <div class="flex items-center justify-between mb-2">
-            <div class="text-gray-600 font-medium">Comparison</div>
+            <div class="text-gray-600 dark:text-gray-400 font-medium">Comparison</div>
           </div>
-          
+
           <div>
-            <div class="text-gray-600 mb-1">Comparison column (optional)</div>
-            <select v-model="encoding.comparison" class="w-full border rounded px-2 py-1 bg-white">
+            <div class="text-gray-600 dark:text-gray-400 mb-1">Comparison column (optional)</div>
+            <select v-model="encoding.comparison" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
               <option value="">-- None --</option>
               <optgroup label="Suggested">
                 <option v-for="c in numericColumns" :key="`mc-cmp-s-${c}`" :value="c">{{ c }}</option>
@@ -396,20 +396,20 @@
 
           <div v-if="encoding.comparison" class="mt-2 space-y-2">
             <div>
-              <div class="text-gray-600 mb-1">Comparison format</div>
-              <select v-model="local.comparisonFormat" class="w-full border rounded px-2 py-1 bg-white">
+              <div class="text-gray-600 dark:text-gray-400 mb-1">Comparison format</div>
+              <select v-model="local.comparisonFormat" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900">
                 <option value="percent">Percent (%)</option>
                 <option value="number">Number</option>
                 <option value="compact">Compact</option>
               </select>
             </div>
             <div>
-              <div class="text-gray-600 mb-1">Comparison label</div>
+              <div class="text-gray-600 dark:text-gray-400 mb-1">Comparison label</div>
               <input v-model="local.comparisonLabel" placeholder="e.g. vs last period" class="w-full border rounded px-2 py-1" />
             </div>
             <label class="flex items-center space-x-2 text-xs">
               <input type="checkbox" v-model="local.invertTrend" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span class="text-gray-600">Invert trend (down is good)</span>
+              <span class="text-gray-600 dark:text-gray-400">Invert trend (down is good)</span>
             </label>
           </div>
         </div>
@@ -418,26 +418,26 @@
         <div class="border-t pt-3 mt-3">
           <label class="flex items-center space-x-2 text-xs mb-2">
             <input type="checkbox" v-model="local.sparklineEnabled" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-gray-600 font-medium">Enable Sparkline</span>
+            <span class="text-gray-600 dark:text-gray-400 font-medium">Enable Sparkline</span>
           </label>
-          
+
           <div v-if="local.sparklineEnabled" class="space-y-2 ps-4">
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <div class="text-gray-600 mb-1 text-[11px]">Type</div>
-                <select v-model="local.sparklineType" class="w-full border rounded px-2 py-1 bg-white text-[11px]">
+                <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">Type</div>
+                <select v-model="local.sparklineType" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
                   <option value="area">Area</option>
                   <option value="line">Line</option>
                 </select>
               </div>
               <div>
-                <div class="text-gray-600 mb-1 text-[11px]">Height (px)</div>
+                <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">Height (px)</div>
                 <input type="number" v-model.number="local.sparklineHeight" min="32" max="120" class="w-full border rounded px-2 py-1 text-[11px]" />
               </div>
             </div>
             <div>
-              <div class="text-gray-600 mb-1 text-[11px]">X-axis column (time/category)</div>
-              <select v-model="local.sparklineXColumn" class="w-full border rounded px-2 py-1 bg-white text-[11px]">
+              <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">X-axis column (time/category)</div>
+              <select v-model="local.sparklineXColumn" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
                 <option value="">-- Auto-detect --</option>
                 <optgroup label="Suggested">
                   <option v-for="c in stringColumns" :key="`mc-spk-x-s-${c}`" :value="c">{{ c }}</option>
@@ -448,8 +448,8 @@
               </select>
             </div>
             <div>
-              <div class="text-gray-600 mb-1 text-[11px]">Value column (optional, defaults to main value)</div>
-              <select v-model="local.sparklineColumn" class="w-full border rounded px-2 py-1 bg-white text-[11px]">
+              <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">Value column (optional, defaults to main value)</div>
+              <select v-model="local.sparklineColumn" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
                 <option value="">-- Use main value --</option>
                 <optgroup label="Suggested">
                   <option v-for="c in numericColumns" :key="`mc-spk-v-s-${c}`" :value="c">{{ c }}</option>
@@ -466,22 +466,22 @@
 
     <!-- Default Filters -->
     <div v-if="showEncoding">
-      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.defaultFilters = !expanded.defaultFilters">
+      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.defaultFilters = !expanded.defaultFilters">
         <Icon :name="expanded.defaultFilters ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
         Default Filters
         <span v-if="defaultFilters.length" class="ml-2 text-[10px] text-gray-400 normal-case">({{ defaultFilters.length }})</span>
       </div>
       <Transition name="fade">
         <div v-if="expanded.defaultFilters" class="space-y-2">
-          <div class="text-[10px] text-gray-500 mb-1">
+          <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">
             Applied automatically when this visualization renders (e.g. to focus a granular dataset on the latest period).
           </div>
           <div v-for="(f, idx) in defaultFilters" :key="idx" class="flex items-center space-x-1.5">
-            <select v-model="f.column" class="flex-1 border rounded px-2 py-1 bg-white text-[11px]">
+            <select v-model="f.column" class="flex-1 border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
               <option value="">-- Column --</option>
               <option v-for="c in allColumns" :key="`df-col-${idx}-${c}`" :value="c">{{ c }}</option>
             </select>
-            <select v-model="f.operator" class="w-28 border rounded px-2 py-1 bg-white text-[11px]">
+            <select v-model="f.operator" class="w-28 border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
               <option v-for="op in filterOperators" :key="op.value" :value="op.value">{{ op.label }}</option>
             </select>
             <input
@@ -490,16 +490,16 @@
               placeholder="value"
               class="w-24 border rounded px-2 py-1 text-[11px]"
             />
-            <button class="px-1.5 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="removeDefaultFilter(idx)">×</button>
+            <button class="px-1.5 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeDefaultFilter(idx)">×</button>
           </div>
-          <button class="mt-1 px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="addDefaultFilter">Add filter</button>
+          <button class="mt-1 px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addDefaultFilter">Add filter</button>
         </div>
       </Transition>
     </div>
 
     <!-- Styling -->
     <div>
-      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.style = !expanded.style">
+      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.style = !expanded.style">
         <Icon :name="expanded.style ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Style
       </div>
@@ -510,26 +510,26 @@
             <!-- Legend - show for chart types that support it -->
             <label v-if="isType(['bar_chart','line_chart','area_chart','pie_chart','radar_chart'])" class="flex items-center space-x-2 text-xs">
               <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span class="text-gray-600">Show Legend</span>
+              <span class="text-gray-600 dark:text-gray-400">Show Legend</span>
             </label>
-            
+
             <div v-if="isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="space-y-2">
               <label class="flex items-center space-x-2 text-xs">
                 <input type="checkbox" v-model="local.xAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <span class="text-gray-600">Show X Axis</span>
+                <span class="text-gray-600 dark:text-gray-400">Show X Axis</span>
               </label>
-              
+
               <!-- X-Axis Labels section - auto-expanded when X-axis is visible -->
               <div v-if="local.xAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
-                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
+                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
                   <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                   X-Axis Labels
                 </div>
                 <Transition name="fade">
                   <div v-if="expanded.xAxisLabels" class="grid grid-cols-2 gap-2 ps-4">
                     <div>
-                      <div class="text-gray-600 mb-1 text-[10px]">Label rotation</div>
-                      <select v-model.number="local.xAxisRotate" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
+                      <div class="text-gray-600 dark:text-gray-400 mb-1 text-[10px]">Label rotation</div>
+                      <select v-model.number="local.xAxisRotate" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[10px]">
                         <option :value="null">Auto</option>
                         <option :value="0">0° (horizontal)</option>
                         <option :value="45">45° (diagonal)</option>
@@ -538,8 +538,8 @@
                       </select>
                     </div>
                     <div>
-                      <div class="text-gray-600 mb-1 text-[10px]">Label interval</div>
-                      <select v-model.number="local.xAxisInterval" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
+                      <div class="text-gray-600 dark:text-gray-400 mb-1 text-[10px]">Label interval</div>
+                      <select v-model.number="local.xAxisInterval" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[10px]">
                         <option :value="null">Auto</option>
                         <option :value="0">Show all (0)</option>
                         <option :value="1">Every 2nd (1)</option>
@@ -550,29 +550,29 @@
                   </div>
                 </Transition>
               </div>
-              
+
               <label class="flex items-center space-x-2 text-xs">
                 <input type="checkbox" v-model="local.yAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <span class="text-gray-600">Show Y Axis</span>
+                <span class="text-gray-600 dark:text-gray-400">Show Y Axis</span>
               </label>
-              
+
               <!-- Y-Axis section - placeholder for future controls -->
               <div v-if="local.yAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
-                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
+                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
                   <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                   Y-Axis Labels
                 </div>
                 <Transition name="fade">
-                  <div v-if="expanded.yAxisLabels" class="text-[10px] text-gray-500 ps-4">
+                  <div v-if="expanded.yAxisLabels" class="text-[10px] text-gray-500 dark:text-gray-400 ps-4">
                     Y-axis controls will be available here in future updates.
                   </div>
                 </Transition>
               </div>
             </div>
-            
+
             <label v-if="isType(['bar_chart','line_chart','area_chart'])" class="flex items-center space-x-2 text-xs">
               <input type="checkbox" v-model="local.showGrid" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span class="text-gray-600">Show Grid lines</span>
+              <span class="text-gray-600 dark:text-gray-400">Show Grid lines</span>
             </label>
           </div>
         </div>
@@ -581,10 +581,10 @@
     </div>
 
     <!-- Sticky Actions -->
-    <div class="flex-shrink-0 pt-3 mt-3 border-t bg-white flex items-center justify-end space-x-2">
+    <div class="flex-shrink-0 pt-3 mt-3 border-t bg-white dark:bg-gray-900 flex items-center justify-end space-x-2">
       <div v-if="error" class="text-red-600 text-[11px] me-auto">{{ error }}</div>
-      <button class="px-2 py-1 text-[11px] border rounded text-gray-700 hover:bg-gray-50" @click="reset">Reset</button>
-      <button class="px-2 py-1 text-[11px] border rounded text-gray-700 hover:bg-gray-50" @click="apply">Apply</button>
+      <button class="px-2 py-1 text-[11px] border rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="reset">Reset</button>
+      <button class="px-2 py-1 text-[11px] border rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="apply">Apply</button>
       <button class="px-3 py-1.5 text-[11px] rounded bg-gray-800 text-white hover:bg-gray-700 disabled:opacity-50" :disabled="saving" @click="save">
         <span v-if="saving">Saving…</span>
         <span v-else>Save</span>
@@ -689,20 +689,20 @@ function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v || {})) }
 function initFromView(view: any, step: any) {
   const raw = view || {}
   const dm = step?.data_model || {}
-  
+
   // Unwrap v2 format: { view: {...}, style: {...} } -> use inner view
   const v = raw.view?.type ? raw.view : raw
   const style = raw.style || v.style || {}
-  
+
   // Build encoding from view.encoding, or construct from data_model.series/view fields
   let enc = deepClone(v.encoding || {})
-  
+
   // Check if encoding is missing common fields for various chart types
   const needsCartesianEnc = !enc.category && !enc.series?.length && !enc.x && !enc.y
   const needsCandlestickEnc = !enc.key && !enc.open && !enc.close && !enc.low && !enc.high
   const needsTreemapEnc = !enc.name && !enc.value
   const needsRadarEnc = !Array.isArray(enc.dimensions) || !enc.dimensions.length
-  
+
   if (needsCartesianEnc) {
     // Try to build encoding from v2 fields or data_model
     if (v.x) enc.category = v.x
@@ -724,7 +724,7 @@ function initFromView(view: any, step: any) {
       enc.y = enc.y || s0.y
     }
   }
-  
+
   // Fallback for candlestick from data_model.series
   if (needsCandlestickEnc && dm.series?.length) {
     const s0 = dm.series[0]
@@ -734,7 +734,7 @@ function initFromView(view: any, step: any) {
     enc.low = enc.low || s0.low
     enc.high = enc.high || s0.high
   }
-  
+
   // Fallback for treemap from data_model.series
   if (needsTreemapEnc && dm.series?.length) {
     const s0 = dm.series[0]
@@ -743,7 +743,7 @@ function initFromView(view: any, step: any) {
     enc.id = enc.id || s0.id
     enc.parentId = enc.parentId || s0.parentId
   }
-  
+
   // Fallback for radar from data_model.series
   if (needsRadarEnc && dm.series?.length) {
     const s0 = dm.series[0]
@@ -941,10 +941,10 @@ function removeDimension(idx: number) {
 function toViewPayload() {
   const t = local.type
   const caps = capsForType.value || {}
-  
+
   // Base view with type
   const view: any = { type: t }
-  
+
   // v2 Palette (for charts that support it)
   if (['bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'scatter_plot', 'count', 'metric_card'].includes(t)) {
     view.palette = {
@@ -952,7 +952,7 @@ function toViewPayload() {
       scale: local.paletteScale || 'primary',
     }
   }
-  
+
   // v2 Legend (nested object) - add for chart types that support legends
   if (['bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'radar_chart'].includes(t)) {
     view.legend = {
@@ -960,7 +960,7 @@ function toViewPayload() {
       position: local.legendPosition || 'bottom',
     }
   }
-  
+
   // v2 Axis options (nested objects) - for charts with axes
   if (['bar_chart', 'line_chart', 'area_chart', 'scatter_plot', 'heatmap'].includes(t)) {
     view.axisX = {
@@ -974,12 +974,12 @@ function toViewPayload() {
       interval: local.yAxisInterval ?? 0,
     }
   }
-  
+
   // v2 Grid - for cartesian charts
   if (['bar_chart', 'line_chart', 'area_chart'].includes(t)) {
     view.showGrid = local.showGrid ?? true
   }
-  
+
   // Chart-specific v2 fields
   if (['bar_chart', 'line_chart', 'area_chart'].includes(t)) {
     // Transform legacy encoding to v2 format
@@ -994,12 +994,12 @@ function toViewPayload() {
     view.stacked = local.stacked ?? false
     view.smooth = local.smooth ?? false
     view.showDataZoom = local.showDataZoom ?? false
-    
+
     // Bar chart specific
     if (t === 'bar_chart') {
       view.horizontal = local.horizontal ?? false
     }
-    
+
     // Keep legacy encoding for backward compatibility
     if (enc.category && Array.isArray(enc.series) && enc.series.length) {
       enc.series = enc.series.map((s: any) => ({ ...s, key: enc.category }))
@@ -1038,7 +1038,7 @@ function toViewPayload() {
     view.format = local.metricFormat || 'number'
     if (local.metricPrefix) view.prefix = local.metricPrefix
     if (local.metricSuffix) view.suffix = local.metricSuffix
-    
+
     // Comparison
     if (enc.comparison) {
       view.comparison = enc.comparison
@@ -1046,7 +1046,7 @@ function toViewPayload() {
       if (local.comparisonLabel) view.comparisonLabel = local.comparisonLabel
       if (local.invertTrend) view.invertTrend = true
     }
-    
+
     // Sparkline
     if (local.sparklineEnabled) {
       view.sparkline = {
@@ -1057,7 +1057,7 @@ function toViewPayload() {
       if (local.sparklineXColumn) view.sparkline.xColumn = local.sparklineXColumn
       if (local.sparklineColumn) view.sparkline.column = local.sparklineColumn
     }
-    
+
     view.encoding = enc
   } else if (t === 'table') {
     // Table doesn't need much
@@ -1094,7 +1094,7 @@ function toViewPayload() {
       view.encoding = deepClone(encoding)
     }
   }
-  
+
   // Legacy fields for backward compatibility
   if (local.style && Object.keys(local.style).length) {
     view.style = local.style
@@ -1288,7 +1288,7 @@ function detectEncoding() {
   } else if (t === 'candlestick') {
     // Try to detect OHLC columns by name first, then fall back to position
     const findCol = (names: string[]) => cols.find((c: string) => names.includes(c.toLowerCase()))
-    
+
     encoding.key = encoding.key || findCol(['time', 'date', 'datetime', 'timestamp', 'period']) || str[0] || cols[0]
     encoding.open = encoding.open || findCol(['open']) || num[0] || cols[1]
     encoding.high = encoding.high || findCol(['high']) || num[1] || cols[2]
@@ -1355,5 +1355,4 @@ watch(() => local.yAxisVisible, (visible) => {
 
 <style scoped>
 </style>
-
 

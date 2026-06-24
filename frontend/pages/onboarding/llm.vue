@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center py-12 px-4">
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="llm_configured" :hideNextButton="true">
         <template #llm>
@@ -10,65 +10,65 @@
                 v-for="option in providerTypeOptions"
                 :key="option.type"
                 @click="selectProviderType(option.type)"
-                class="flex items-center gap-3 px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer"
+                class="flex items-center gap-3 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
               >
                 <LLMProviderIcon :icon="true" :provider="option.type" class="w-6 h-6" />
-                <span class="text-sm text-gray-800">{{ option.name }}</span>
+                <span class="text-sm text-gray-800 dark:text-gray-200">{{ option.name }}</span>
               </div>
             </div>
 
             <!-- Back + details header -->
             <div v-else>
               <div class="flex items-center gap-2 mb-2">
-                <button type="button" @click="goBackToProviderList" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+                <button type="button" @click="goBackToProviderList" class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700">
                   <Icon name="heroicons:chevron-left" class="w-4 h-4" />
                 </button>
                 <LLMProviderIcon v-if="providerForm.provider_type" :provider="providerForm.provider_type" class="w-5 h-5" />
-                <span class="text-sm text-gray-800">{{ selectedProviderDisplayName }}</span>
+                <span class="text-sm text-gray-800 dark:text-gray-200">{{ selectedProviderDisplayName }}</span>
               </div>
 
               <!-- Existing provider form -->
               <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
                 <div v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock'">
-                  <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.apiKey') }}</label>
-                  <input v-model="selectedProvider.credentials.api_key" type="text" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.apiKey') }}</label>
+                  <input v-model="selectedProvider.credentials.api_key" type="text" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                 </div>
 
                 <!-- Bedrock: existing provider edit -->
                 <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
                   <div>
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.region') }} <span class="text-red-500">*</span></label>
-                    <input v-model="selectedProvider.credentials.region" type="text" :placeholder="$t('onboarding.llm.regionPlaceholder')" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.region') }} <span class="text-red-500">*</span></label>
+                    <input v-model="selectedProvider.credentials.region" type="text" :placeholder="$t('onboarding.llm.regionPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
                   <div>
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.authentication') }}</label>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.authentication') }}</label>
                     <div class="flex gap-2 mt-2">
                       <button type="button" @click="selectedProvider.credentials.auth_mode = 'iam'; clearTestResult()"
-                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                         {{ $t('onboarding.llm.iam') }}
                       </button>
                       <button type="button" @click="selectedProvider.credentials.auth_mode = 'access_keys'; clearTestResult()"
-                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                         {{ $t('onboarding.llm.accessKeys') }}
                       </button>
                     </div>
-                    <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 mt-1.5">{{ $t('onboarding.llm.iamHint') }}</p>
+                    <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">{{ $t('onboarding.llm.iamHint') }}</p>
                   </div>
                   <template v-if="selectedProvider.credentials.auth_mode === 'access_keys'">
                     <div>
-                      <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.awsAccessKeyId') }} <span class="text-red-500">*</span></label>
-                      <input v-model="selectedProvider.credentials.aws_access_key_id" type="text" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.awsAccessKeyId') }} <span class="text-red-500">*</span></label>
+                      <input v-model="selectedProvider.credentials.aws_access_key_id" type="text" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                     </div>
                     <div>
-                      <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.awsSecretAccessKey') }} <span class="text-red-500">*</span></label>
-                      <input v-model="selectedProvider.credentials.aws_secret_access_key" type="password" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.awsSecretAccessKey') }} <span class="text-red-500">*</span></label>
+                      <input v-model="selectedProvider.credentials.aws_secret_access_key" type="password" :placeholder="$t('onboarding.llm.apiKeyPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                     </div>
                   </template>
                 </template>
 
                 <div v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
-                  <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.endpointUrl') }}</label>
-                  <input v-model="selectedProvider.credentials.endpoint_url" type="text" :placeholder="$t('onboarding.llm.endpointPlaceholder')" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.endpointUrl') }}</label>
+                  <input v-model="selectedProvider.credentials.endpoint_url" type="text" :placeholder="$t('onboarding.llm.endpointPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                 </div>
 
                 <div v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
@@ -78,28 +78,28 @@
                     </button>
                   </div>
                   <div v-if="showBaseUrl" class="mt-2">
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.baseUrl') }}</label>
-                    <input v-model="selectedProvider.credentials.base_url" type="text" :placeholder="$t('onboarding.llm.baseUrlPlaceholder')" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.baseUrl') }}</label>
+                    <input v-model="selectedProvider.credentials.base_url" type="text" :placeholder="$t('onboarding.llm.baseUrlPlaceholder')" class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
                 </div>
 
                 <!-- Models -->
           <div>
-                  <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.models') }}</label>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.models') }}</label>
                   <div class="space-y-2">
-                    <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                    <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-lg">
                       <UCheckbox v-model="model.is_enabled" @change="clearTestResult()" />
                       <div class="flex-1">
-                        <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
-                        <div class="text-xs text-gray-500">{{ $t('onboarding.llm.modelId', { id: model.model_id }) }}</div>
+                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ model.name }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('onboarding.llm.modelId', { id: model.model_id }) }}</div>
                       </div>
                     </div>
 
                     <!-- Custom models for existing provider -->
-                    <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                    <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950">
                       <UCheckbox v-model="customModel.is_enabled" @change="clearTestResult()" />
                       <div class="flex-1">
-                        <input v-model="customModel.model_id" type="text" :placeholder="$t('onboarding.llm.modelIdPlaceholder')" class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                        <input v-model="customModel.model_id" type="text" :placeholder="$t('onboarding.llm.modelIdPlaceholder')" class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                       </div>
                       <button type="button" @click="removeExistingProviderCustomModel(index)" class="text-red-500 hover:text-red-700">
                         <Icon name="heroicons:trash" class="w-4 h-4" />
@@ -122,49 +122,49 @@
 
                 <div v-if="providerForm.provider_type">
                   <div class="flex flex-col mb-4">
-                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.name') }}</label>
-                    <input v-model="providerForm.name" type="text" required :placeholder="$t('onboarding.llm.namePlaceholder', { type: providerForm.provider_type })" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.name') }}</label>
+                    <input v-model="providerForm.name" type="text" required :placeholder="$t('onboarding.llm.namePlaceholder', { type: providerForm.provider_type })" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
                   <div v-for="(field, index) in credentialFieldsForNewProvider" :key="field.key">
-                    <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
-                    <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 mt-2">{{ field.title }}</label>
+                    <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
                   <!-- Bedrock: auth info for new provider -->
                   <template v-if="providerForm.provider_type === 'bedrock'">
                     <div class="mt-3">
-                      <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.authentication') }}</label>
+                      <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.authentication') }}</label>
                       <div class="flex gap-2 mt-2">
                         <button type="button" @click="providerForm.credentials.auth_mode = 'iam'; clearTestResult()"
-                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                           {{ $t('onboarding.llm.iam') }}
                         </button>
                         <button type="button" @click="providerForm.credentials.auth_mode = 'access_keys'; clearTestResult()"
-                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                           {{ $t('onboarding.llm.accessKeys') }}
                         </button>
                       </div>
-                      <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 mt-1.5">{{ $t('onboarding.llm.iamHint') }}</p>
+                      <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">{{ $t('onboarding.llm.iamHint') }}</p>
                     </div>
                     <template v-if="providerForm.credentials.auth_mode === 'access_keys'">
                       <div>
-                        <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.awsAccessKeyId') }} <span class="text-red-500">*</span></label>
-                        <input v-model="providerForm.credentials.aws_access_key_id" type="text" :placeholder="$t('onboarding.llm.awsAccessKeyIdPlaceholder')" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.awsAccessKeyId') }} <span class="text-red-500">*</span></label>
+                        <input v-model="providerForm.credentials.aws_access_key_id" type="text" :placeholder="$t('onboarding.llm.awsAccessKeyIdPlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                       </div>
                       <div>
-                        <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.awsSecretAccessKey') }} <span class="text-red-500">*</span></label>
-                        <input v-model="providerForm.credentials.aws_secret_access_key" type="password" :placeholder="$t('onboarding.llm.awsSecretAccessKeyPlaceholder')" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.awsSecretAccessKey') }} <span class="text-red-500">*</span></label>
+                        <input v-model="providerForm.credentials.aws_secret_access_key" type="password" :placeholder="$t('onboarding.llm.awsSecretAccessKeyPlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                       </div>
                     </template>
                   </template>
                   <div v-if="providerForm.provider_type === 'custom'" class="flex items-center gap-2 mt-3">
                     <UCheckbox v-model="providerForm.credentials.verify_ssl" @change="clearTestResult()" />
-                    <label class="text-sm text-gray-700">{{ $t('onboarding.llm.verifySsl') }}</label>
+                    <label class="text-sm text-gray-700 dark:text-gray-300">{{ $t('onboarding.llm.verifySsl') }}</label>
                   </div>
                   <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                     <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">{{ showBaseUrlNew ? $t('onboarding.llm.useDefaultBaseUrl') : $t('onboarding.llm.setCustomBaseUrl') }}</button>
                     <div v-if="showBaseUrlNew" class="mt-2">
-                      <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.baseUrl') }}</label>
-                      <input v-model="providerForm.credentials.base_url" type="text" :placeholder="$t('onboarding.llm.baseUrlPlaceholder')" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.baseUrl') }}</label>
+                      <input v-model="providerForm.credentials.base_url" type="text" :placeholder="$t('onboarding.llm.baseUrlPlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                     </div>
                   </div>
                 </div>
@@ -172,26 +172,26 @@
 
               <!-- Models block for new provider -->
               <div v-if="providerForm.provider_type">
-                <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('onboarding.llm.models') }}</label>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('onboarding.llm.models') }}</label>
                 <div class="space-y-2">
                   <template v-if="filteredModels.length > 0">
-                    <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                    <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-lg">
                       <UCheckbox v-model="model.is_enabled" @change="clearTestResult()" />
                       <div class="flex-1">
-                        <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
-                        <div class="text-xs text-gray-500">{{ $t('onboarding.llm.modelId', { id: model.model_id }) }}</div>
+                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ model.name }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('onboarding.llm.modelId', { id: model.model_id }) }}</div>
                       </div>
                     </div>
                   </template>
                   <template v-else>
-                    <div class="text-xs text-gray-500 italic">{{ $t('onboarding.llm.noPresetModels') }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 italic">{{ $t('onboarding.llm.noPresetModels') }}</div>
                   </template>
 
                   <!-- Custom Models -->
-                  <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                  <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950">
                     <UCheckbox v-model="customModel.is_enabled" @change="clearTestResult()" />
                     <div class="flex-1">
-                      <input v-model="customModel.model_id" type="text" :placeholder="$t('onboarding.llm.modelIdPlaceholder')" class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      <input v-model="customModel.model_id" type="text" :placeholder="$t('onboarding.llm.modelIdPlaceholder')" class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                     </div>
                     <button type="button" @click="removeCustomModel(index)" class="text-red-500 hover:text-red-700">
                       <Icon name="heroicons:trash" class="w-4 h-4" />
@@ -219,7 +219,7 @@
               <!-- Actions: Test + Save -->
               <div class="flex items-center justify-end gap-2 pt-4">
                 <UTooltip :text="$t('onboarding.llm.chargesMayOccur')">
-                  <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="isTestingConnection || !canTestConnection" @click="testConnection" :title="$t('onboarding.llm.chargesMayOccur')">
+                  <UButton variant="soft" color="gray" class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" :disabled="isTestingConnection || !canTestConnection" @click="testConnection" :title="$t('onboarding.llm.chargesMayOccur')">
                     <template v-if="isTestingConnection">
                       <Spinner class="w-4 h-4 me-2 inline-block align-[-0.125em]" />
                       {{ $t('onboarding.llm.testing') }}
@@ -247,11 +247,11 @@
         </template>
       </OnboardingView>
       <div class="text-center mt-6">
-        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">{{ $t('onboarding.skip') }}</button>
+        <button @click="skipForNow" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 text-sm">{{ $t('onboarding.skip') }}</button>
       </div>
     </div>
   </div>
-  
+
 </template>
 
 <script setup lang="ts">
@@ -610,5 +610,4 @@ async function handleSave() {
 
 async function skipForNow() { await updateOnboarding({ dismissed: true }); router.push('/') }
 </script>
-
 

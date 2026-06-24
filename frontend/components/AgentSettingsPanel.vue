@@ -1,21 +1,21 @@
 <template>
     <div class="text-sm px-6 py-5 max-w-2xl">
-        <div v-if="!ready" class="inline-flex items-center text-gray-500 text-xs">
+        <div v-if="!ready" class="inline-flex items-center text-gray-500 dark:text-gray-400 text-xs">
             <Spinner class="w-4 h-4 me-2" />
             Loading settings…
         </div>
 
         <div v-else>
             <!-- General -->
-            <div class="border-b border-gray-100 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">General</div>
-                <label class="block text-[11px] text-gray-400 mb-1">Agent name</label>
+            <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">General</div>
+                <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Agent name</label>
                 <div class="flex items-center gap-2">
                     <input
                         v-model="form.name"
                         type="text"
                         :disabled="!canManageDs"
-                        class="flex-1 h-8 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white disabled:opacity-60"
+                        class="flex-1 h-8 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white disabled:opacity-60 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
                         placeholder="Name"
                     />
                     <button
@@ -30,20 +30,20 @@
             </div>
 
             <!-- Access -->
-            <div class="border-b border-gray-100 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Access</div>
+            <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Access</div>
                 <div class="flex items-center gap-3">
                     <UToggle v-model="form.isPublic" @update:model-value="onTogglePublic" :disabled="!canManageDs" />
-                    <span class="text-[11px] text-gray-400">
+                    <span class="text-[11px] text-gray-400 dark:text-gray-500">
                         Public access allows all organization members to use this agent.
                     </span>
                 </div>
             </div>
 
             <!-- Channels -->
-            <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Channels</div>
-                <p class="text-[11px] text-gray-400 mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
+            <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Channels</div>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
                 <div class="space-y-2">
                     <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-3">
                         <UToggle
@@ -51,10 +51,10 @@
                             :disabled="!canManageDs || savingChannels"
                             @update:model-value="onToggleChannel(ch.key, $event)"
                         />
-                        <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-600">
+                        <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-400">
                             <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
-                            <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600" />
-                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-400" />
+                            <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
                             {{ ch.name }}
                         </span>
                     </div>
@@ -62,54 +62,54 @@
             </div>
 
             <!-- Members (only shown when not public) -->
-            <div v-if="!form.isPublic" class="border-b border-gray-100 pb-5 mb-5">
+            <div v-if="!form.isPublic" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
                 <div class="flex items-center justify-between mb-2">
-                    <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Members</div>
+                    <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Members</div>
                     <button
                         v-if="canManageDsMembers"
                         @click="openAdd"
-                        class="h-7 px-2.5 rounded-lg border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50"
+                        class="h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
                         Add member
                     </button>
                 </div>
-                <p class="text-[11px] text-gray-400 mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
 
                 <div class="space-y-1">
                     <div
                         v-for="m in members"
                         :key="m.grant_id"
-                        class="rounded-md border border-gray-100 px-3 py-2 hover:bg-gray-50"
+                        class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0 flex items-start gap-1.5">
-                                <UIcon :name="principalIcon(m)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+                                <UIcon :name="principalIcon(m)" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0 mt-0.5" />
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-1.5">
-                                        <span class="text-xs font-medium text-gray-900">{{ principalDisplayName(m) }}</span>
+                                        <span class="text-xs font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
                                         <template v-if="m.principal_type === 'group'">
-                                            <span class="text-[11px] text-gray-400">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
+                                            <span class="text-[11px] text-gray-400 dark:text-gray-500">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                             <button
                                                 @click="toggleGroupExpand(m.principal_id)"
-                                                class="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 text-xs leading-none"
+                                                class="w-4 h-4 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 text-xs leading-none"
                                             >
                                                 {{ expandedGroups.has(m.principal_id) ? '−' : '+' }}
                                             </button>
                                         </template>
                                     </div>
-                                    <div class="text-[11px] text-gray-400" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
+                                    <div class="text-[11px] text-gray-400 dark:text-gray-500" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
                                     <!-- Expanded group members -->
                                     <div v-if="m.principal_type === 'group' && expandedGroups.has(m.principal_id)" class="mt-1.5 ps-1 space-y-1">
                                         <div
                                             v-for="gm in (groupMembers[m.principal_id] || [])"
                                             :key="gm.user_id"
-                                            class="flex items-center gap-1.5 text-[11px] text-gray-400"
+                                            class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500"
                                         >
-                                            <UIcon name="i-heroicons-user" class="w-3 h-3 text-gray-300 flex-shrink-0" />
+                                            <UIcon name="i-heroicons-user" class="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
                                             <span>{{ gm.user_name || gm.user_email }}</span>
-                                            <span v-if="gm.user_name && gm.user_email" class="text-gray-400">{{ gm.user_email }}</span>
+                                            <span v-if="gm.user_name && gm.user_email" class="text-gray-400 dark:text-gray-500">{{ gm.user_email }}</span>
                                         </div>
-                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-[11px] text-gray-300 italic">No members</div>
+                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-[11px] text-gray-300 dark:text-gray-600 italic">No members</div>
                                     </div>
                                     <!-- Permissions -->
                                     <div class="mt-1.5">
@@ -131,12 +131,12 @@
                                                 <span v-if="m.permissions?.length" class="flex items-center gap-1 flex-wrap">
                                                     <UBadge v-for="p in m.permissions" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
                                                 </span>
-                                                <span v-else class="text-gray-400" title="This member can query the agent but has no extra management rights">Query only</span>
+                                                <span v-else class="text-gray-400 dark:text-gray-500" title="This member can query the agent but has no extra management rights">Query only</span>
                                             </UButton>
                                         </UDropdown>
                                         <div v-else class="flex gap-1 flex-wrap">
                                             <UBadge v-for="p in m.permissions" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
-                                            <span v-if="!m.permissions?.length" class="text-[11px] text-gray-400" title="This member can query the agent but has no extra management rights">Query only</span>
+                                            <span v-if="!m.permissions?.length" class="text-[11px] text-gray-400 dark:text-gray-500" title="This member can query the agent but has no extra management rights">Query only</span>
                                         </div>
                                     </div>
                                 </div>
@@ -144,13 +144,13 @@
                             <button
                                 v-if="canManageDsMembers"
                                 @click="removeMember(m)"
-                                class="shrink-0 h-7 px-2.5 rounded-lg border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50"
+                                class="shrink-0 h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
                             >
                                 Remove
                             </button>
                         </div>
                     </div>
-                    <div v-if="members.length === 0" class="rounded-md border border-gray-100 px-3 py-4 text-[11px] text-gray-400 text-center">
+                    <div v-if="members.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-4 text-[11px] text-gray-400 dark:text-gray-500 text-center">
                         No members yet. All organization members have access by default.
                     </div>
                 </div>
@@ -158,11 +158,11 @@
 
             <!-- Danger zone (last section, no border) -->
             <div v-if="canManageDs">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Danger zone</div>
-                <p class="text-[11px] text-gray-400 mb-2">Removing this agent will disconnect it from the data source. You can reconnect later.</p>
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Danger zone</div>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">Removing this agent will disconnect it from the data source. You can reconnect later.</p>
                 <button
                     @click="showDelete = true"
-                    class="h-8 px-3 rounded-lg border border-red-200 text-red-600 text-xs font-medium hover:bg-red-50"
+                    class="h-8 px-3 rounded-lg border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10"
                 >
                     Remove agent
                 </button>
@@ -172,8 +172,8 @@
         <!-- Add member modal -->
         <UModal v-model="showAddModal" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-4">
-                <div class="text-sm font-medium text-gray-900 mb-2">Add members</div>
-                <div class="text-xs text-gray-500 mb-3">Select users or groups to grant access to this agent.</div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white mb-2">Add members</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">Select users or groups to grant access to this agent.</div>
 
                 <!-- Principal type toggle (only shown with enterprise) -->
                 <div v-if="addTabs.length > 1" class="flex gap-2 mb-3">
@@ -184,8 +184,8 @@
                         :class="[
                             'px-3 py-1 text-xs rounded-lg border transition-colors',
                             addPrincipalType === tab.key
-                                ? 'bg-gray-100 border-gray-300 text-gray-800'
-                                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                ? 'bg-gray-100 border-gray-300 text-gray-800 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200'
+                                : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800/50'
                         ]"
                     >
                         {{ tab.label }}
@@ -221,7 +221,7 @@
 
                 <!-- Permission picker (granular per-agent grants) -->
                 <div class="mt-3">
-                    <div class="text-[11px] text-gray-400 mb-1">Permissions</div>
+                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-1">Permissions</div>
                     <div class="flex flex-wrap gap-2">
                         <label
                             v-for="perm in dsPermOptions"
@@ -238,7 +238,7 @@
                 </div>
 
                 <div class="flex justify-end gap-2 mt-4">
-                    <button @click="showAddModal = false" class="h-8 px-3 rounded-lg border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50">Cancel</button>
+                    <button @click="showAddModal = false" class="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50">Cancel</button>
                     <button @click="addSelected" :disabled="addDisabled || adding" class="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50">
                         {{ adding ? 'Adding…' : 'Add' }}
                     </button>
@@ -249,10 +249,10 @@
         <!-- Delete confirmation modal -->
         <UModal v-model="showDelete" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">Remove agent?</div>
-                <div class="text-xs text-gray-500 mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">Remove agent?</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
                 <div class="flex justify-end gap-2 mt-5">
-                    <button @click="showDelete = false" class="h-8 px-3 rounded-lg border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50">Cancel</button>
+                    <button @click="showDelete = false" class="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50">Cancel</button>
                     <button @click="confirmDelete" :disabled="deleting" class="h-8 px-3 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50">
                         {{ deleting ? 'Deleting…' : 'Delete' }}
                     </button>

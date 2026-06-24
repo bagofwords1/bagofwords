@@ -1,11 +1,11 @@
 <template>
     <UModal v-model="providerModalOpen" :ui="{ width: 'sm:max-w-xl' }">
         <div class="p-4 relative">
-            <button @click="providerModalOpen = false" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700">
+            <button @click="providerModalOpen = false" class="absolute top-2 end-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Integrate Models</h1>
-            <p class="text-sm text-gray-500">Configure and manage LLM models and providers</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Configure and manage LLM models and providers</p>
             <hr class="my-4" />
 
             <form @submit.prevent class="space-y-4">
@@ -15,100 +15,100 @@
                         v-for="option in providersWithNewOption"
                         :key="option.name"
                         @click="selectOption(option)"
-                        class="flex items-center gap-3 px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer"
+                        class="flex items-center gap-3 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                     >
                         <Icon v-if="option.type === 'new_provider'" name="heroicons:plus-circle" class="w-5 h-5 text-blue-600" />
                         <LLMProviderIcon v-else :icon="true" :provider="option.type" class="w-6 h-6" />
-                        <span class="text-sm" :class="option.type === 'new_provider' ? 'text-blue-600' : 'text-gray-800'">{{ option.name }}</span>
+                        <span class="text-sm" :class="option.type === 'new_provider' ? 'text-blue-600' : 'text-gray-800 dark:text-gray-200'">{{ option.name }}</span>
                     </div>
                 </div>
 
                 <!-- Back to providers + details -->
                 <div v-if="selectedProvider">
                     <div class="flex items-center gap-2 mb-2">
-                        <button type="button" @click="goBackToProviderList" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+                        <button type="button" @click="goBackToProviderList" class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                             <Icon name="heroicons:chevron-left" class="w-4 h-4" />
                             Providers
                         </button>
-                        <span class="text-sm text-gray-800">/
+                        <span class="text-sm text-gray-800 dark:text-gray-200">/
                             <span v-if="selectedProvider.type !== 'new_provider'">{{ selectedProvider.name }}</span>
                             <span v-else>New Provider</span>
                         </span>
                     </div>
                     <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
                         <div class="" v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock'">
-                            <label class="text-sm font-medium text-gray-700 mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 API Key
                             </label>
                             <input
                                 v-model="selectedProvider.credentials.api_key"
                                 type="text"
                                 placeholder="Keep blank to use stored key"
-                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
-                            <label class="text-sm font-medium text-gray-700 mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Endpoint URL
                             </label>
-                            <input 
-                                v-model="selectedProvider.credentials.endpoint_url" 
-                                type="text" 
+                            <input
+                                v-model="selectedProvider.credentials.endpoint_url"
+                                type="text"
                                 placeholder="e.g. https://<resource>.openai.azure.com"
-                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                                class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'custom' || selectedProvider?.type === 'custom'">
-                            <label class="text-sm font-medium text-gray-700 mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Base URL <span class="text-red-500">*</span>
                             </label>
                             <input
                                 v-model="selectedProvider.credentials.base_url"
                                 type="text"
                                 placeholder="http://localhost:11434/v1"
-                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
-                            <p class="text-xs text-gray-500 mt-1">OpenAI-compatible endpoint (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">OpenAI-compatible endpoint (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)</p>
                             <div class="flex items-center gap-2 mt-3">
                                 <UCheckbox v-model="selectedProvider.credentials.verify_ssl" />
-                                <label class="text-sm text-gray-700">Verify SSL</label>
+                                <label class="text-sm text-gray-700 dark:text-gray-300">Verify SSL</label>
                             </div>
                         </div>
                         <!-- Bedrock: existing provider edit -->
                         <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
                             <div>
-                                <label class="text-sm font-medium text-gray-700 mb-2">Region <span class="text-red-500">*</span></label>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Region <span class="text-red-500">*</span></label>
                                 <input
                                     v-model="selectedProvider.credentials.region"
                                     type="text"
                                     placeholder="e.g. us-east-1"
-                                    class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                    class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                                 />
                             </div>
                             <div>
-                                <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Authentication</label>
                                 <div class="flex gap-2 mt-2">
                                     <button type="button" @click="selectedProvider.credentials.auth_mode = 'iam'"
-                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                                         IAM (from environment)
                                     </button>
                                     <button type="button" @click="selectedProvider.credentials.auth_mode = 'access_keys'"
-                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                                         Access Keys
                                     </button>
                                 </div>
-                                <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
+                                <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                             </div>
                             <template v-if="selectedProvider.credentials.auth_mode === 'access_keys'">
                                 <div>
-                                    <label class="text-sm font-medium text-gray-700 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
                                     <input v-model="selectedProvider.credentials.aws_access_key_id" type="text" placeholder="Keep blank to use stored key"
-                                        class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                 </div>
                                 <div>
-                                    <label class="text-sm font-medium text-gray-700 mb-2">AWS Secret Access Key <span class="text-red-500">*</span></label>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AWS Secret Access Key <span class="text-red-500">*</span></label>
                                     <input v-model="selectedProvider.credentials.aws_secret_access_key" type="password" placeholder="Keep blank to use stored key"
-                                        class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                 </div>
                             </template>
                         </template>
@@ -119,14 +119,14 @@
                                 </button>
                             </div>
                             <div v-if="showBaseUrl" class="mt-2">
-                                <label class="text-sm font-medium text-gray-700 mb-2">
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                     Base URL (optional)
                                 </label>
-                                <input 
-                                    v-model="selectedProvider.credentials.base_url" 
-                                    type="text" 
+                                <input
+                                    v-model="selectedProvider.credentials.base_url"
+                                    type="text"
                                     placeholder="e.g. https://my-openai-proxy.example.com/v1"
-                                    class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                                    class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                                 />
                             </div>
                         </div>
@@ -134,17 +134,17 @@
                         <div class="" v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
                             <div class="flex items-center gap-2">
                                 <UCheckbox v-model="selectedProvider.credentials.use_responses_api" />
-                                <label class="text-sm font-medium text-gray-700">Use Responses API</label>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Use Responses API</label>
                             </div>
-                            <p class="text-xs text-gray-500 mt-1">
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                 Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.
                             </p>
                             <div v-if="selectedProvider.credentials.use_responses_api" class="mt-3 ms-1">
                                 <div class="flex items-center gap-2">
                                     <UCheckbox v-model="selectedProvider.credentials.enable_web_search" />
-                                    <label class="text-sm font-medium text-gray-700">Enable web search</label>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Enable web search</label>
                                 </div>
-                                <p class="text-xs text-gray-500 mt-1">
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                     Native, provider-executed web search for facts not in your connected data. Requires the org-level Web Fetch setting to also be on.
                                 </p>
                             </div>
@@ -153,28 +153,28 @@
                         <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
                             <div class="flex items-center gap-2">
                                 <UCheckbox v-model="selectedProvider.credentials.enable_web_search" />
-                                <label class="text-sm font-medium text-gray-700">Enable web search</label>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Enable web search</label>
                             </div>
-                            <p class="text-xs text-gray-500 mt-1">
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                 Lets the agent run native, provider-executed web searches for facts not in your connected data. Requires the org-level Web Fetch setting to also be on.
                             </p>
-                            <p v-if="selectedProvider.credentials.base_url" class="text-xs text-gray-500 mt-1">
+                            <p v-if="selectedProvider.credentials.base_url" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                 Note: a custom base URL uses the Chat Completions API, which does not support web search. Clear it to use web search.
                             </p>
                         </div>
                         <div class="">
-                            <label class="text-sm font-medium text-gray-700 mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Models
                             </label>
                             <div class="space-y-2">
                                 <!-- Existing Models -->
-                                <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                                <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-lg">
                                     <UCheckbox v-model="model.is_enabled" />
                                     <div class="flex-1">
-                                        <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
-                                        <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
+                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ model.name }}</div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400">Model ID: {{ model.model_id }}</div>
                                     </div>
-                                    <button 
+                                    <button
                                         v-if="model.is_custom"
                                         type="button"
                                         @click="removeExistingCustomModel(model.id)"
@@ -183,19 +183,19 @@
                                         <Icon name="heroicons:trash" class="w-4 h-4" />
                                     </button>
                                 </div>
-                                
+
                                 <!-- Custom Models for existing provider -->
-                                <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                                <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950">
                                     <UCheckbox v-model="customModel.is_enabled" />
                                     <div class="flex-1">
-                                        <input 
-                                            v-model="customModel.model_id" 
-                                            type="text" 
+                                        <input
+                                            v-model="customModel.model_id"
+                                            type="text"
                                             placeholder="Model ID"
-                                            class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                            class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
-                                    <button 
+                                    <button
                                         type="button"
                                         @click="removeExistingProviderCustomModel(index)"
                                         class="text-red-500 hover:text-red-700"
@@ -203,10 +203,10 @@
                                         <Icon name="heroicons:trash" class="w-4 h-4" />
                                     </button>
                                 </div>
-                                
+
                                 <!-- Add Custom Model Button for existing provider -->
                                 <div class="pt-2">
-                                    <button 
+                                    <button
                                         type="button"
                                         @click="addExistingProviderCustomModel"
                                         class="text-sm text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
@@ -219,9 +219,9 @@
                         </div>
                         <div class="" v-if="selectedProvider?.type !== 'new_provider'">
                             <div>
-                                <button 
+                                <button
                                     type="button"
-                                    class="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2"
+                                    class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
                                     @click="showDangerZone = !showDangerZone" >
                                     <span class="transform transition-transform mt-1" :class="{ 'rotate-90': showDangerZone }">
                                         <Icon name="heroicons:chevron-right" class="w-3" />
@@ -229,9 +229,9 @@
                                     Danger Zone
                                 </button>
                                 <div v-if="showDangerZone" class="mt-2">
-                                    <UButton 
+                                    <UButton
                                         type="button"
-                                        color="red" 
+                                        color="red"
                                         variant="soft"
                                         class="inline-block"
                                         @click="deleteProvider(selectedProvider.id)"
@@ -246,18 +246,18 @@
                     <div v-else class="space-y-4">
                         <div class="flex flex-col">
                             <div class="grid grid-cols-3 gap-2 mt-2">
-                                <button v-for="provider in providers" 
-                                    @click="providerForm.provider_type = provider.type" 
-                                    :key="provider.type" 
-                                    class="bg-white hover:border-blue-300 border border-gray-200 rounded-lg flex items-center justify-center py-4 transition-colors"
+                                <button v-for="provider in providers"
+                                    @click="providerForm.provider_type = provider.type"
+                                    :key="provider.type"
+                                    class="bg-white dark:bg-gray-900 hover:border-blue-300 border border-gray-200 dark:border-gray-700 rounded-lg flex items-center justify-center py-4 transition-colors"
                                     type="button"
                                     :class="{ '!border-blue-500 border-2': providerForm.provider_type === provider.type }"
                                 >
                                     <!-- Custom provider: show icon + text inline -->
                                     <template v-if="provider.type === 'custom'">
                                         <div class="flex items-center gap-1.5">
-                                            <Icon name="heroicons-cpu-chip" class="w-6 h-6 text-gray-500" />
-                                            <span class="text-base text-gray-600 font-medium">Custom</span>
+                                            <Icon name="heroicons-cpu-chip" class="w-6 h-6 text-gray-500 dark:text-gray-400" />
+                                            <span class="text-base text-gray-600 dark:text-gray-400 font-medium">Custom</span>
                                         </div>
                                     </template>
                                     <!-- Other providers: show logo -->
@@ -268,118 +268,118 @@
 
                         <div v-if="providerForm.provider_type">
                             <div class="flex flex-col mb-4">
-                                <label class="text-sm font-medium text-gray-700 mb-2">Name</label>
-                                <input v-model="providerForm.name" type="text" required 
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Name</label>
+                                <input v-model="providerForm.name" type="text" required
                                     :placeholder="`Provider Name (e.g. ${providerForm.provider_type} production)`"
-                                    class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
                             <div v-for="(field, index) in credentialFieldsForNewProvider" :key="field.key">
-                                <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 mt-2">{{ field.title }}</label>
                                 <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required"
                                     :placeholder="getFieldPlaceholder(field)"
-                                    class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
                             <!-- Bedrock: auth info for new provider -->
                             <template v-if="providerForm.provider_type === 'bedrock'">
                                 <div class="mt-3">
-                                    <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Authentication</label>
                                     <div class="flex gap-2 mt-2">
                                         <button type="button" @click="providerForm.credentials.auth_mode = 'iam'"
-                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                                             IAM (from environment)
                                         </button>
                                         <button type="button" @click="providerForm.credentials.auth_mode = 'access_keys'"
-                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                                             Access Keys
                                         </button>
                                     </div>
-                                    <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
+                                    <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                                 </div>
                                 <template v-if="providerForm.credentials.auth_mode === 'access_keys'">
                                     <div>
-                                        <label class="text-sm font-medium text-gray-700 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
                                         <input v-model="providerForm.credentials.aws_access_key_id" type="text" placeholder="AKIA..."
-                                            class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                     </div>
                                     <div>
-                                        <label class="text-sm font-medium text-gray-700 mb-2">AWS Secret Access Key <span class="text-red-500">*</span></label>
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AWS Secret Access Key <span class="text-red-500">*</span></label>
                                         <input v-model="providerForm.credentials.aws_secret_access_key" type="password" placeholder="Enter secret access key"
-                                            class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                     </div>
                                 </template>
                             </template>
                             <div v-if="providerForm.provider_type === 'custom'" class="flex items-center gap-2 mt-3">
                                 <UCheckbox v-model="providerForm.credentials.verify_ssl" />
-                                <label class="text-sm text-gray-700">Verify SSL</label>
+                                <label class="text-sm text-gray-700 dark:text-gray-300">Verify SSL</label>
                             </div>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                                 <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">
                                     {{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}
                                 </button>
                                 <div v-if="showBaseUrlNew" class="mt-2">
-                                    <label class="text-sm font-medium text-gray-700 mb-2">Base URL (optional)</label>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Base URL (optional)</label>
                                     <input v-model="providerForm.credentials.base_url" type="text"
                                         placeholder="e.g. https://my-openai-proxy.example.com/v1"
-                                        class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                        class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                 </div>
                             </div>
                             <!-- Azure: Responses API opt-in gates web search -->
                             <div v-if="providerForm.provider_type === 'azure'" class="mt-3">
                                 <div class="flex items-center gap-2">
                                     <UCheckbox v-model="providerForm.credentials.use_responses_api" />
-                                    <label class="text-sm text-gray-700">Use Responses API</label>
+                                    <label class="text-sm text-gray-700 dark:text-gray-300">Use Responses API</label>
                                 </div>
-                                <p class="text-xs text-gray-500 mt-1">Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support it.</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support it.</p>
                                 <div v-if="providerForm.credentials.use_responses_api" class="mt-3 ms-1">
                                     <div class="flex items-center gap-2">
                                         <UCheckbox v-model="providerForm.credentials.enable_web_search" />
-                                        <label class="text-sm text-gray-700">Enable web search</label>
+                                        <label class="text-sm text-gray-700 dark:text-gray-300">Enable web search</label>
                                     </div>
-                                    <p class="text-xs text-gray-500 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
                                 </div>
                             </div>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-3">
                                 <div class="flex items-center gap-2">
                                     <UCheckbox v-model="providerForm.credentials.enable_web_search" />
-                                    <label class="text-sm text-gray-700">Enable web search</label>
+                                    <label class="text-sm text-gray-700 dark:text-gray-300">Enable web search</label>
                                 </div>
-                                <p class="text-xs text-gray-500 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
                                         <div v-if="providerForm.provider_type">
-                            <label class="text-sm font-medium text-gray-700 mb-2">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Models
                             </label>
                             <div class="space-y-2">
                                 <!-- Preset Models (if any) -->
                                 <template v-if="filteredModels.length > 0">
-                                    <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                                    <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-lg">
                                         <UCheckbox v-model="model.is_enabled" />
                                         <div class="flex-1">
-                                            <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
-                                            <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
+                                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ model.name }}</div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">Model ID: {{ model.model_id }}</div>
                                         </div>
                                     </div>
                                 </template>
                                 <template v-else>
-                                    <div class="text-xs text-gray-500 italic">No preset models available for this provider. Add a custom model below.</div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400 italic">No preset models available for this provider. Add a custom model below.</div>
                                 </template>
-                                
+
                                 <!-- Custom Models -->
-                                <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                                <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950">
                                     <UCheckbox v-model="customModel.is_enabled" />
                                     <div class="flex-1">
-                                        <input 
-                                            v-model="customModel.model_id" 
-                                            type="text" 
+                                        <input
+                                            v-model="customModel.model_id"
+                                            type="text"
                                             placeholder="Model ID"
-                                            class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                            class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
-                                    <button 
+                                    <button
                                         type="button"
                                         @click="removeCustomModel(index)"
                                         class="text-red-500 hover:text-red-700"
@@ -387,10 +387,10 @@
                                         <Icon name="heroicons:trash" class="w-4 h-4" />
                                     </button>
                                 </div>
-                                
+
                                 <!-- Add Custom Model Button -->
                                 <div class="pt-2">
-                                    <button 
+                                    <button
                                         type="button"
                                         @click="addCustomModel"
                                         class="text-sm text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
@@ -405,10 +405,10 @@
                 <div class="flex items-center pt-4">
                     <div v-if="showTestConnection">
                         <UTooltip text="Regular charges may occur">
-                            <UButton 
-                                variant="soft" 
+                            <UButton
+                                variant="soft"
                                 color="gray"
-                                class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 me-2"
+                                class="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 me-2"
                                 :disabled="isTestingConnection || !canTestConnection"
                                 @click="testConnection"
                                 title="Regular charges may occur"
@@ -425,10 +425,10 @@
                     </div>
                     <div class="ms-auto space-x-2">
                         <UButton label="Cancel" color="gray" variant="soft" @click="providerModalOpen = false" />
-                        <UButton 
-                            type="submit" 
-                            :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"  
-                            class="!bg-blue-500 !text-white" 
+                        <UButton
+                            type="submit"
+                            :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"
+                            class="!bg-blue-500 !text-white"
                             @click="selectedProvider?.type === 'new_provider' ? createProvider() : updateProvider()"
                         />
                     </div>
@@ -481,7 +481,7 @@ onMounted(async () => {
       useMyFetch('/api/llm/providers'),
       useMyFetch('/api/llm/available_models')
     ]);
-    
+
     providers.value = (providersRes.data.value as unknown as AvailableProvider[]) || [];
     organizationProviders.value = (orgProvidersRes.data.value as unknown as OrgProvider[]) || [];
     models.value = ((modelsRes.data.value as unknown) as AvailableModel[]).map((model: any) => ({
@@ -508,7 +508,7 @@ const providersWithNewOption = computed(() => {
         ...(organizationProviders.value || []).map(p => ({
             ...p,
             type: p.provider_type
-        })), 
+        })),
         { name: 'New Provider', type: 'new_provider' }
     ];
 });
@@ -603,8 +603,8 @@ const showTestConnection = computed(() => {
 // fieldsForProvider moved above to include required keys
 
 const filteredModels = computed<AvailableModel[]>(() => {
-    const providerType = isNewProviderSelected.value 
-        ? providerForm.value.provider_type 
+    const providerType = isNewProviderSelected.value
+        ? providerForm.value.provider_type
         : selectedProvider.value?.type;
     return models.value.filter((model: AvailableModel) => model.provider_type === providerType);
 });
@@ -898,7 +898,7 @@ async function updateProvider() {
 watch(selectedProvider, (newValue) => {
     // Reset showDangerZone when switching providers
     showDangerZone.value = false;
-    
+
     if (newValue && newValue?.type !== 'new_provider') {
         // Initialize credentials if null
         if (!newValue.credentials) {
@@ -973,7 +973,7 @@ async function deleteProvider(providerId: string) {
             const response = await useMyFetch(`/api/llm/providers/${providerId}`, {
                 method: 'DELETE'
             });
-            
+
             if (response.status.value === 'success') {
                 resetForm();
                 providerModalOpen.value = false;

@@ -6,7 +6,7 @@
                     <Icon name="heroicons:envelope" class="w-10 h-10 text-green-500" />
                 </div>
                 <h1 class="font-bold text-lg">{{ $t('auth.verifyEmail') }}</h1>
-                <p class="mt-3 text-sm text-gray-700">
+                <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
                     {{ $t('auth.verifyEmailMessage') }}<br /><br />
                     {{ $t('auth.verifyEmailFollow') }}
                 </p>
@@ -15,7 +15,7 @@
                 <div class="text-center">
                     <Icon name="heroicons:exclamation-triangle" class="w-10 h-10 text-yellow-500 mx-auto mb-3" />
                     <h1 class="font-bold text-lg">{{ $t('auth.verifyUnavailable') }}</h1>
-                    <p class="mt-3 text-sm text-gray-700">
+                    <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
                         {{ $t('auth.verifyDisabled') }}
                     </p>
                     <div class="mt-5">

@@ -2,7 +2,7 @@
   <div>
     <!-- Use existing connection (create mode only) -->
     <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
-      <label class="block text-xs font-medium text-gray-700 mb-1">Use existing connection</label>
+      <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Use existing connection</label>
       <USelectMenu
         v-model="selectedExisting"
         :options="existingConnectionOptions"
@@ -12,26 +12,26 @@
         class="w-full"
       />
       <div v-if="!selectedExistingId" class="relative my-4">
-        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200" /></div>
-        <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-gray-400">— or create new —</span></div>
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200 dark:border-gray-800" /></div>
+        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-gray-400 dark:text-gray-500">— or create new —</span></div>
       </div>
     </div>
 
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <template v-if="!selectedExistingId">
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Connection Name</label>
-          <input v-model="form.name" type="text" placeholder="e.g., Internal API" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Connection Name</label>
+          <input v-model="form.name" type="text" placeholder="e.g., Internal API" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Base URL</label>
-          <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Base URL</label>
+          <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Authentication</label>
-          <select v-model="form.auth_type" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authentication</label>
+          <select v-model="form.auth_type" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="none">No Auth</option>
             <option value="bearer">Bearer Token</option>
             <option value="api_key">API Key</option>
@@ -39,31 +39,31 @@
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
-          <label class="block text-xs font-medium text-gray-700 mb-1">Bearer Token</label>
-          <input v-model="form.token" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter token'" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Bearer Token</label>
+          <input v-model="form.token" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter token'" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
         <div v-if="form.auth_type === 'api_key'" class="space-y-3">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">API Key</label>
-            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter API key'" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+            <input v-model="form.api_key" type="password" :placeholder="isEditMode ? '(unchanged)' : 'Enter API key'" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Header Name</label>
-            <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Header Name</label>
+            <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
             Custom Headers
-            <span class="text-gray-400 font-normal">(sent with every request)</span>
+            <span class="text-gray-400 dark:text-gray-500 font-normal">(sent with every request)</span>
           </label>
           <div class="space-y-1.5">
             <div v-for="(header, idx) in customHeaders" :key="idx" class="flex items-center gap-2">
-              <input v-model="header.key" type="text" placeholder="Header name" class="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <input v-model="header.value" type="text" placeholder="Value" class="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <button type="button" @click="customHeaders.splice(idx, 1)" class="text-gray-400 hover:text-red-500 p-0.5">
+              <input v-model="header.key" type="text" placeholder="Header name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="header.value" type="text" placeholder="Value" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <button type="button" @click="customHeaders.splice(idx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5">
                 <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -75,9 +75,9 @@
 
         <div>
           <div class="flex items-center justify-between mb-1">
-            <label class="block text-xs font-medium text-gray-700">
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
               Endpoints
-              <span class="text-gray-400 font-normal">(operations exposed as tools)</span>
+              <span class="text-gray-400 dark:text-gray-500 font-normal">(operations exposed as tools)</span>
             </label>
             <button type="button" @click="toggleRawMode" class="text-[11px] text-blue-600 hover:text-blue-800">
               {{ rawMode ? 'Visual editor' : 'Advanced (raw JSON)' }}
@@ -86,34 +86,34 @@
 
           <!-- Visual builder -->
           <div v-if="!rawMode" class="space-y-3">
-            <div v-for="(ep, epIdx) in endpoints" :key="epIdx" class="border border-gray-200 rounded-md p-3 space-y-2">
+            <div v-for="(ep, epIdx) in endpoints" :key="epIdx" class="border border-gray-200 dark:border-gray-800 rounded-md p-3 space-y-2">
               <div class="flex items-center gap-2">
-                <select v-model="ep.method" class="border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <select v-model="ep.method" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                   <option v-for="m in methodOptions" :key="m" :value="m">{{ m }}</option>
                 </select>
-                <input v-model="ep.name" type="text" placeholder="tool_name" class="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                <button type="button" @click="endpoints.splice(epIdx, 1)" class="text-gray-400 hover:text-red-500 p-0.5" title="Remove endpoint">
+                <input v-model="ep.name" type="text" placeholder="tool_name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <button type="button" @click="endpoints.splice(epIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" title="Remove endpoint">
                   <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                 </button>
               </div>
-              <input v-model="ep.path" type="text" placeholder="/customers/{id}" class="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
-              <input v-model="ep.description" type="text" placeholder="Description (helps the agent decide when to use this)" class="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="ep.path" type="text" placeholder="/customers/{id}" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="ep.description" type="text" placeholder="Description (helps the agent decide when to use this)" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
 
               <div>
-                <div class="text-[11px] font-medium text-gray-500 mb-1">Parameters</div>
+                <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">Parameters</div>
                 <div v-if="ep.parameters.length" class="space-y-1.5">
                   <div v-for="(p, pIdx) in ep.parameters" :key="pIdx" class="flex items-center gap-1.5">
-                    <input v-model="p.name" type="text" placeholder="name" class="flex-1 border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                    <select v-model="p.in" class="border border-gray-300 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <input v-model="p.name" type="text" placeholder="name" class="flex-1 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <select v-model="p.in" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                       <option v-for="loc in inOptions" :key="loc" :value="loc">{{ loc }}</option>
                     </select>
-                    <select v-model="p.type" class="border border-gray-300 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    <select v-model="p.type" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                       <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
                     </select>
-                    <label class="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap">
+                    <label class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       <input type="checkbox" v-model="p.required" /> req
                     </label>
-                    <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 hover:text-red-500 p-0.5" title="Remove parameter">
+                    <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" title="Remove parameter">
                       <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -145,7 +145,7 @@
     ]
   }
 ]'
-              class="w-full border border-gray-300 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+              class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <p v-if="endpointsError" class="text-xs text-red-500 mt-1">{{ endpointsError }}</p>
           </div>

@@ -4,14 +4,14 @@
         <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-5 h-5" />
         <h1 class="text-lg font-semibold">WhatsApp Integration</h1>
       </div>
-      <p class="text-sm text-gray-500">Configure and manage WhatsApp Cloud API integration for your organization</p>
+      <p class="text-sm text-gray-500 dark:text-gray-400">Configure and manage WhatsApp Cloud API integration for your organization</p>
       <hr class="my-4" />
 
       <div v-if="integrated" class="mb-4">
         <p class="text-green-600 mb-4">WhatsApp is currently connected.</p>
 
         <!-- Usage Notes -->
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+        <div class="bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-lg p-4 mb-4">
           <h3 class="text-sm font-medium text-blue-800 mb-2">Usage Notes</h3>
           <ul class="text-sm text-blue-700 space-y-1 list-disc list-inside">
             <li>Only registered users can message the bot</li>
@@ -21,43 +21,43 @@
         </div>
 
         <!-- Integration Details -->
-        <div class="bg-gray-50 rounded-lg p-4 mb-4">
-          <h3 class="text-sm font-medium text-gray-700 mb-3">Integration Details</h3>
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+          <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Integration Details</h3>
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-              <span class="text-gray-600">Business Name:</span>
+              <span class="text-gray-600 dark:text-gray-400">Business Name:</span>
               <span class="font-medium">{{ integrationData?.platform_config?.verified_name || 'N/A' }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-600">Phone Number:</span>
+              <span class="text-gray-600 dark:text-gray-400">Phone Number:</span>
               <span class="font-mono text-xs">{{ integrationData?.platform_config?.display_phone_number || 'N/A' }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-600">Phone Number ID:</span>
+              <span class="text-gray-600 dark:text-gray-400">Phone Number ID:</span>
               <span class="font-mono text-xs">{{ integrationData?.platform_config?.phone_number_id || 'N/A' }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-600">WABA ID:</span>
+              <span class="text-gray-600 dark:text-gray-400">WABA ID:</span>
               <span class="font-mono text-xs">{{ integrationData?.platform_config?.waba_id || 'N/A' }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-600">Connected:</span>
+              <span class="text-gray-600 dark:text-gray-400">Connected:</span>
               <span class="font-medium">{{ formatDate(integrationData?.created_at) }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-600">Last Updated:</span>
+              <span class="text-gray-600 dark:text-gray-400">Last Updated:</span>
               <span class="font-medium">{{ formatDate(integrationData?.updated_at) }}</span>
             </div>
           </div>
         </div>
 
         <!-- Webhook Setup Info -->
-        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+        <div class="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 rounded-lg p-4 mb-4">
           <h3 class="text-sm font-medium text-yellow-800 mb-2">Webhook Setup</h3>
           <p class="text-xs text-yellow-700 mb-1">
             Configure your Meta app's webhook URL to:
           </p>
-          <code class="block bg-white border border-yellow-200 rounded px-2 py-1 text-xs break-all">
+          <code class="block bg-white dark:bg-gray-900 border border-yellow-200 rounded px-2 py-1 text-xs break-all">
             {{ webhookUrl }}
           </code>
           <p class="text-xs text-yellow-700 mt-2">
@@ -78,7 +78,7 @@
           <div class="mb-4">
             <label class="block text-sm font-medium mb-1">Access Token</label>
             <input v-model="accessToken" type="password" class="w-full border rounded px-2 py-1" required />
-            <p class="text-xs text-gray-500 mt-1">System User access token with <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code>.</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">System User access token with <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code>.</p>
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium mb-1">Phone Number ID</label>
@@ -91,17 +91,17 @@
           <div class="mb-4">
             <label class="block text-sm font-medium mb-1">App Secret</label>
             <input v-model="appSecret" type="password" class="w-full border rounded px-2 py-1" required />
-            <p class="text-xs text-gray-500 mt-1">Used to verify <code>X-Hub-Signature-256</code> on inbound webhooks.</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Used to verify <code>X-Hub-Signature-256</code> on inbound webhooks.</p>
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium mb-1">Verify Token</label>
             <input v-model="verifyToken" type="text" class="w-full border rounded px-2 py-1" required />
-            <p class="text-xs text-gray-500 mt-1">A string you pick — Meta sends it back during webhook verification.</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">A string you pick — Meta sends it back during webhook verification.</p>
           </div>
 
-          <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
-            <p class="text-xs text-gray-600 mb-1">After connecting, set your Meta app's webhook URL to:</p>
-            <code class="block bg-white border border-gray-200 rounded px-2 py-1 text-xs break-all">
+          <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-4">
+            <p class="text-xs text-gray-600 dark:text-gray-400 mb-1">After connecting, set your Meta app's webhook URL to:</p>
+            <code class="block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-xs break-all">
               {{ webhookUrl }}
             </code>
           </div>
@@ -109,7 +109,7 @@
           <button type="submit" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md">Connect</button>
         </form>
       </div>
-      <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600" @click="$emit('close')">✕</button>
+      <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-400" @click="$emit('close')">✕</button>
     </div>
   </template>
 

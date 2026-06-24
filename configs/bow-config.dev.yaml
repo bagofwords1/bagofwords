@@ -14,7 +14,7 @@ features:
   verify_emails: false
 
 auth:
-  mode: "sso_only"
+  mode: "local_only"
 
 google_oauth:
   enabled: false
@@ -37,7 +37,7 @@ oidc_providers:
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
 - name: entra
-  enabled: true
+  enabled: false
   issuer: https://login.microsoftonline.com/3871cb7e-3f16-4b81-84c5-1a5e185509f9/v2.0
   client_id: a9010cd3-08ff-451b-b041-5007a94ba677
   client_secret: ${BOW_ENTRA_CLIENT_SECRET}

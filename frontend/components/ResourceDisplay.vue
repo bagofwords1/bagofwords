@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm">
+  <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 text-sm">
     <DBTResourceDisplay v-if="isDbtResource" :resource="resource" />
     <LookMLResourceDisplay v-else-if="isLookMLResource" :resource="resource" />
     <MarkdownResourceDisplay v-else-if="isMarkdownResource" :resource="resource" />

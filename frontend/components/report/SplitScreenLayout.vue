@@ -1,6 +1,6 @@
 <template>
 
-    <div class="flex flex-row h-screen overflow-y-hidden bg-white">
+    <div class="flex flex-row h-screen overflow-y-hidden bg-white dark:bg-gray-900">
         <!-- Left (Chat) — z-20 so popovers can overlap the right panel -->
         <div class="relative z-20" :style="{
                 width: isSplitScreen ? `${leftPanelWidth}px` : '100%',
@@ -15,14 +15,14 @@
              :style="{
                  transition: isResizing ? 'none' : 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }"
-             class="flex-1 min-w-0 relative z-10 bg-white flex flex-col">
+             class="flex-1 min-w-0 relative z-10 bg-white dark:bg-gray-900 flex flex-col">
             <!-- Right header (tabs) -->
             <div class="flex-shrink-0 flex items-center justify-between px-3 pt-1.5">
                 <slot name="right-header" />
             </div>
             <!-- Right content (rounded panel) -->
             <div class="flex-1 min-h-0 p-2 pt-1.5 relative">
-                <div class="h-full w-full bg-[#f8f8f7] rounded-xl border border-black/[0.08] overflow-hidden">
+                <div class="h-full w-full bg-[#f8f8f7] dark:bg-gray-900 rounded-xl border border-black/[0.08] dark:border-white/[0.07] overflow-hidden">
                     <slot name="right" />
                 </div>
                 <!-- Resizer overlaid on rounded panel's start edge (between
@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ 
+const props = defineProps<{
     isSplitScreen: boolean,
     leftPanelWidth: number,
     isResizing: boolean,
@@ -55,5 +55,4 @@ defineEmits(['startResize'])
     background-size: 20px 20px;
 }
 </style>
-
 

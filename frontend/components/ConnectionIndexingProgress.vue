@@ -6,7 +6,7 @@
                 <span class="font-medium">{{ summary }}</span>
                 <span v-if="hasTotal">{{ percent }}%</span>
             </div>
-            <div class="h-1.5 w-full bg-blue-100 rounded overflow-hidden">
+            <div class="h-1.5 w-full bg-blue-100 dark:bg-blue-900/50 rounded overflow-hidden">
                 <div
                     class="h-full bg-blue-500 transition-all duration-300"
                     :class="{ 'animate-pulse w-1/3': !hasTotal }"
@@ -44,15 +44,15 @@
         <div v-if="showLogs && (indexing?.events?.length ?? 0) > 0" class="pt-1">
             <button
                 type="button"
-                class="text-[11px] text-gray-500 hover:text-gray-700 inline-flex items-center gap-1"
+                class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center gap-1"
                 @click="logsOpen = !logsOpen"
             >
                 <UIcon :name="logsOpen ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
                 {{ logsOpen ? 'Hide' : 'Show' }} logs ({{ indexing.events.length }})
             </button>
-            <div v-if="logsOpen" class="mt-2 max-h-48 overflow-y-auto rounded border border-gray-200 bg-gray-50 p-2 text-[11px] font-mono text-gray-700 space-y-0.5">
+            <div v-if="logsOpen" class="mt-2 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-2 text-[11px] font-mono text-gray-700 dark:text-gray-300 space-y-0.5">
                 <div v-for="(ev, i) in indexing.events" :key="i" class="flex gap-2">
-                    <span class="text-gray-400 flex-none">{{ formatTs(ev.ts) }}</span>
+                    <span class="text-gray-400 dark:text-gray-600 flex-none">{{ formatTs(ev.ts) }}</span>
                     <span :class="levelClass(ev.level)">{{ ev.message }}</span>
                 </div>
             </div>

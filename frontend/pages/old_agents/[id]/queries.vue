@@ -4,14 +4,14 @@
         <div v-else>
             <!-- Filter tabs + search -->
             <div class="flex items-center justify-between gap-3 mb-4">
-                <div class="flex items-center gap-1 border-b border-gray-200">
+                <div class="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
                     <button
                         @click="filterType = 'published'"
                         :class="[
                             'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
                             filterType === 'published'
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 hover:text-gray-700'
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
                         ]"
                     >
                         {{ $t('queries.published') }}
@@ -22,7 +22,7 @@
                             'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
                             filterType === 'suggested'
                                 ? 'border-amber-500 text-amber-600'
-                                : 'border-transparent text-gray-500 hover:text-gray-700'
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
                         ]"
                     >
                         {{ isAdmin ? $t('queries.draftSuggested') : $t('queries.myDrafts') }}
@@ -33,7 +33,7 @@
                     v-model="q"
                     type="text"
                     :placeholder="$t('queries.searchPlaceholder')"
-                    class="border border-gray-200 rounded-md px-3 py-1.5 text-xs w-52 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                    class="border border-gray-200 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs w-52 focus:outline-none focus:ring-1 focus:ring-blue-200"
                 />
             </div>
 
@@ -45,13 +45,13 @@
 
             <!-- Empty state -->
             <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center py-16">
-                <div class="w-14 h-14 rounded-full bg-gray-50 flex items-center justify-center mb-3">
+                <div class="w-14 h-14 rounded-full bg-gray-50 dark:bg-gray-900 flex items-center justify-center mb-3">
                     <Icon
                         :name="filterType === 'suggested' ? 'heroicons:light-bulb' : 'heroicons:cube'"
-                        class="w-7 h-7 text-gray-300"
+                        class="w-7 h-7 text-gray-300 dark:text-gray-600"
                     />
                 </div>
-                <p class="text-sm text-gray-500">
+                <p class="text-sm text-gray-500 dark:text-gray-400">
                     {{ filterType === 'suggested' ? $t('queries.noDrafts') : $t('queries.noPublished') }}
                 </p>
             </div>
@@ -61,7 +61,7 @@
                 <div
                     v-for="item in filteredItems"
                     :key="item.id"
-                    class="border border-gray-100 bg-white rounded-lg p-4 hover:shadow-sm hover:border-gray-200 transition-all cursor-pointer"
+                    class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-sm hover:border-gray-200 transition-all cursor-pointer"
                     @click="navigateToEntity(item.id)"
                 >
                     <div class="flex items-start gap-3">
@@ -69,17 +69,17 @@
                             <div class="flex items-center gap-2 mb-1">
                                 <span
                                     class="text-[10px] px-1.5 py-0.5 rounded border"
-                                    :class="item.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
+                                    :class="item.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50 dark:bg-blue-950'"
                                 >{{ (item.type || '').toUpperCase() }}</span>
                                 <Icon v-if="getEntityType(item) === 'global'" name="heroicons:check-badge" class="w-4 h-4 text-green-600" title="Approved" />
-                                <span v-if="getEntityType(item) === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50">{{ $t('queries.archivedBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50">{{ $t('queries.draftBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'private'" class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50">{{ $t('queries.draftBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'suggested'" class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50">{{ $t('queries.suggestedBadge') }}</span>
+                                <span v-if="getEntityType(item) === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50 dark:bg-red-950">{{ $t('queries.archivedBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'private'" class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'suggested'" class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950">{{ $t('queries.suggestedBadge') }}</span>
                                 <span class="text-[11px] text-gray-400">{{ timeAgo(item.updated_at) }}</span>
                             </div>
-                            <div class="text-sm font-medium text-gray-900 mb-0.5">{{ item.title || item.slug }}</div>
-                            <div class="text-xs text-gray-500 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
+                            <div class="text-sm font-medium text-gray-900 dark:text-white mb-0.5">{{ item.title || item.slug }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
 
                             <div class="flex items-center gap-3 mt-2">
                                 <div v-if="item.data?.info?.total_rows !== undefined || item.data?.info?.total_columns !== undefined" class="flex items-center gap-3 text-[11px] text-gray-400">

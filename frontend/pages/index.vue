@@ -1,7 +1,7 @@
 <template>
   <!-- Excel compact mode -->
-  <div v-if="isExcel" class="flex flex-col h-screen bg-white">
-    <div class="flex items-center justify-between p-3 border-b border-gray-100">
+  <div v-if="isExcel" class="flex flex-col h-screen bg-white dark:bg-gray-900">
+    <div class="flex items-center justify-between p-3 border-b border-gray-100 dark:border-gray-800">
       <NuxtLink to="/">
         <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="h-8 max-w-[120px] object-contain cursor-pointer" />
       </NuxtLink>
@@ -23,8 +23,8 @@
     </div>
     <div class="flex-1 flex flex-col justify-center px-3">
       <div class="ps-4">
-        <h2 class="text-3xl font-bold text-gray-900 text-start">{{ orgAIAnalystName || $t('home.title') }}</h2>
-        <p class="text-base text-gray-500 text-start mt-1">
+        <h2 class="text-3xl font-bold text-gray-900 dark:text-white text-start">{{ orgAIAnalystName || $t('home.title') }}</h2>
+        <p class="text-base text-gray-500 dark:text-gray-400 text-start mt-1">
           {{ $t('home.subtitle') }}
         </p>
       </div>
@@ -41,7 +41,7 @@
   </div>
 
   <!-- Normal mode -->
-  <div v-else class="flex flex-col min-h-screen bg-white relative">
+  <div v-else class="flex flex-col min-h-screen bg-white dark:bg-gray-900 relative">
 
     <!-- Add background div with grid -->
     <div class="absolute inset-0 pointer-events-none"
@@ -79,12 +79,12 @@
 
     <div v-if="isLoading" class="flex flex-col items-center justify-center flex-grow py-20">
       <Spinner class="h-4 w-4 text-gray-400" />
-      <p class="text-sm text-gray-500 mt-2">{{ $t('common.loading') }}</p>
+      <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
     </div>
 
     <div v-else class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-14">
       <div v-if="showSetupComplete" class="mb-10">
-        <div class="mx-auto max-w-xl bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
+        <div class="mx-auto max-w-xl bg-green-50 dark:bg-green-950 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
           <span class="me-2 flex items-center">
             <Icon name="heroicons-check" />
           </span>
@@ -95,9 +95,9 @@
       <h1 class="text-5xl mt-5 font-bold">
         {{ orgAIAnalystName || $t('home.title') }}
       </h1>
-      <div class="w-full mx-auto mt-2 space-x-3 space-y-3 bg-red-100">
+      <div class="w-full mx-auto mt-2 space-x-3 space-y-3 bg-red-100 dark:bg-red-900/50">
       </div>
-      <p class="text-lg mt-5 font-light text-gray-500">
+      <p class="text-lg mt-5 font-light text-gray-500 dark:text-gray-400">
           {{ $t('home.subtitle') }}
       </p>
       <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
@@ -124,7 +124,7 @@
     <!-- Existing content -->
     <div v-if="!isLoading" class="flex flex-col p-4 flex-grow md:w-1/3 md:mx-auto relative z-10">
 
-      <div class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300"
+      <div class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700 hover:shadow-md hover:border-blue-300"
         v-if="models.length === 0"
         @click="router.push('/settings/models')"
       >
@@ -146,7 +146,7 @@
 
         <div
         @click="router.push('/agents')"
-        class="flex hidden cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+        class="flex hidden cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700 hover:shadow-md hover:border-blue-300">
             <div class="flex">
 
                 <div class="w-4/5 pe-4">
@@ -271,7 +271,7 @@ const orgAIAnalystName = computed(() => {
   return org?.ai_analyst_name || "AI Analyst"
 })
 
-definePageMeta({ 
+definePageMeta({
   layout: 'default',
   auth: true,
   permissions: ['view_reports']
@@ -382,7 +382,7 @@ onMounted(async () => {
       else router.replace('/onboarding')
       return
     }
-    
+
     // Only proceed with API calls if organization is available
     // Note: agents are already loaded by the layout via initAgent()
     if (organization.value?.id) {
@@ -426,8 +426,8 @@ const subscription = computed(() => (currentUser.value as any)?.organizations?.f
 
 
 async function signOff() {
-await signOut({ 
-  callbackUrl: '/' 
+await signOut({
+  callbackUrl: '/'
 })
 }
 </script>

@@ -4,17 +4,17 @@
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-base font-semibold text-gray-900">Create Suite</h3>
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">Create Suite</h3>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
                 </div>
             </template>
             <div class="space-y-2">
-                <label class="text-xs text-gray-600">Name</label>
+                <label class="text-xs text-gray-600 dark:text-gray-400">Name</label>
                 <input
                     v-model="suiteName"
                     type="text"
                     placeholder="Suite name"
-                    class="border border-gray-300 rounded px-2 py-1 text-xs w-full"
+                    class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
                     @keyup.enter="create"
                 />
             </div>

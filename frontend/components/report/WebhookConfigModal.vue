@@ -4,7 +4,7 @@
 			<template #header>
 				<div class="flex items-start justify-between">
 					<div>
-						<h3 class="text-base font-semibold text-gray-900">Webhooks</h3>
+						<h3 class="text-base font-semibold text-gray-900 dark:text-white">Webhooks</h3>
 						<p class="text-sm text-gray-400 mt-0.5">Send external events into this report.</p>
 					</div>
 					<UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
@@ -18,18 +18,18 @@
 					<div
 						v-for="w in webhooks"
 						:key="w.id"
-						class="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-gray-200"
+						class="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700"
 					>
 						<Icon :name="sourceIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-gray-400" />
 						<div class="flex-1 min-w-0">
-							<div class="text-sm text-gray-800 truncate">{{ w.name }}</div>
+							<div class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ w.name }}</div>
 							<div class="text-[11px] text-gray-400">{{ w.source }} · {{ authLabel(w.auth_mode) }}<span v-if="w.classify_enabled"> · AI</span></div>
 						</div>
 						<UTooltip text="Rotate signing key">
-							<button class="text-gray-300 hover:text-gray-600 p-1" @click="rotate(w)"><Icon name="heroicons-arrow-path" class="w-4 h-4" /></button>
+							<button class="text-gray-300 dark:text-gray-600 hover:text-gray-600 p-1" @click="rotate(w)"><Icon name="heroicons-arrow-path" class="w-4 h-4" /></button>
 						</UTooltip>
 						<UTooltip text="Delete">
-							<button class="text-gray-300 hover:text-red-500 p-1" @click="remove(w)"><Icon name="heroicons-trash" class="w-4 h-4" /></button>
+							<button class="text-gray-300 dark:text-gray-600 hover:text-red-500 p-1" @click="remove(w)"><Icon name="heroicons-trash" class="w-4 h-4" /></button>
 						</UTooltip>
 					</div>
 				</div>
@@ -39,15 +39,15 @@
 			<section v-if="reveal" class="mb-6">
 				<h4 class="text-xs font-medium text-green-600 uppercase tracking-wide mb-2">Copy now — shown only once</h4>
 				<div class="space-y-2">
-					<div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+					<div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
 						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">URL</span>
-						<code class="flex-1 text-xs text-gray-700 truncate">{{ reveal.delivery_url }}</code>
-						<button class="text-gray-400 hover:text-gray-700" @click="copy(reveal.delivery_url)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
+						<code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">{{ reveal.delivery_url }}</code>
+						<button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.delivery_url)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
 					</div>
-					<div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+					<div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
 						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">Key</span>
-						<code class="flex-1 text-xs text-gray-700 truncate">{{ reveal.secret }}</code>
-						<button class="text-gray-400 hover:text-gray-700" @click="copy(reveal.secret)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
+						<code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">{{ reveal.secret }}</code>
+						<button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.secret)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
 					</div>
 				</div>
 			</section>
@@ -58,23 +58,23 @@
 
 				<div class="space-y-4">
 					<div>
-						<label class="block text-xs text-gray-500 mb-1.5">Name</label>
+						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Name</label>
 						<input v-model="form.name" type="text" placeholder="PR triage"
-							class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300" />
+							class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300" />
 					</div>
 
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="block text-xs text-gray-500 mb-1.5">Source</label>
+							<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Source</label>
 							<select v-model="form.source"
-								class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
+								class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
 								<option v-for="s in sources" :key="s.source" :value="s.source">{{ s.label }}</option>
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs text-gray-500 mb-1.5">Auth</label>
+							<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Auth</label>
 							<select v-model="form.auth_mode"
-								class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
+								class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
 								<option value="token">Token header</option>
 								<option value="hmac">HMAC (signed)</option>
 								<option value="url_token">URL token</option>
@@ -82,15 +82,15 @@
 						</div>
 					</div>
 
-					<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-						<input v-model="form.classify_enabled" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-200" />
+					<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+						<input v-model="form.classify_enabled" type="checkbox" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" />
 						Let AI decide whether to respond
 					</label>
 
 					<div v-if="form.classify_enabled">
-						<label class="block text-xs text-gray-500 mb-1.5">Guidance (optional)</label>
+						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Guidance (optional)</label>
 						<textarea v-model="form.classifier_prompt" rows="2" placeholder="Only respond to PRs touching billing; ignore dependabot."
-							class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
+							class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
 					</div>
 
 					<div class="flex justify-end pt-1">

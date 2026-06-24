@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1">
     <!-- Running -->
-    <div v-if="status === 'running'" class="flex items-center text-xs text-gray-500">
+    <div v-if="status === 'running'" class="flex items-center text-xs text-gray-500 dark:text-gray-400">
       <span class="tool-shimmer flex items-center">
         <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-gray-400" />
         Scheduling task…
@@ -17,12 +17,12 @@
     </Transition>
 
     <!-- Error -->
-    <div v-else class="text-xs text-gray-500">
-      <div class="flex items-center text-gray-600">
+    <div v-else class="text-xs text-gray-500 dark:text-gray-400">
+      <div class="flex items-center text-gray-600 dark:text-gray-400">
         <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
         <span>Couldn't schedule task</span>
       </div>
-      <div v-if="errorMessage" class="mt-1 text-[10px] text-red-500 bg-red-50/50 rounded px-2 py-1">
+      <div v-if="errorMessage" class="mt-1 text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
         {{ errorMessage }}
       </div>
     </div>

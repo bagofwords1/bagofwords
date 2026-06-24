@@ -6,18 +6,18 @@
                     <GoBackChevron v-if="isExcel" />
                     {{ $t('reports.title') }}
                 </h1>
-                <p class="mt-2 text-gray-500">{{ $t('reports.subtitle') }}</p>
+                <p class="mt-2 text-gray-500 dark:text-gray-400">{{ $t('reports.subtitle') }}</p>
             </div>
 
             <div class="mt-6">
                 <!-- Main tabs (My / Shared) -->
-                <div class="border-b border-gray-200 mb-4">
+                <div class="border-b border-gray-200 dark:border-gray-700 mb-4">
                     <nav class="-mb-px flex space-x-6">
                         <button
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
                             :class="activeFilter === 'my'
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-300'"
                             @click="setActiveFilter('my')"
                         >
                             <span>{{ $t('reports.myReports') }}</span>
@@ -26,7 +26,7 @@
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
                             :class="activeFilter === 'shared'
                                 ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
+                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-300'"
                             @click="setActiveFilter('shared')"
                         >
                             <span>{{ $t('reports.sharedWithMe') }}</span>
@@ -42,7 +42,7 @@
                                 v-model="searchTerm"
                                 type="text"
                                 :placeholder="$t('reports.searchPlaceholder')"
-                                class="w-full ps-10 pe-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full ps-10 pe-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
@@ -58,8 +58,8 @@
                                 @click="showFilters = !showFilters"
                                 class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors"
                                 :class="showFilters || activeFilterCount > 0
-                                    ? 'border-blue-300 bg-blue-50 text-blue-700'
-                                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
+                                    ? 'border-blue-300 bg-blue-50 dark:bg-blue-950 text-blue-700'
+                                    : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'"
                             >
                                 <UIcon name="i-heroicons-funnel" class="h-4 w-4" />
                                 <span>{{ $t('reports.filtersButton') }}</span>
@@ -79,11 +79,11 @@
                             <!-- Filters popover -->
                             <div
                                 v-if="showFilters"
-                                class="absolute end-0 z-20 mt-2 w-[360px] bg-white border border-gray-200 rounded-xl shadow-lg p-4"
+                                class="absolute end-0 z-20 mt-2 w-[360px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-4"
                             >
                                 <div class="space-y-3">
                                     <div class="flex items-center justify-between gap-3">
-                                        <span class="text-sm text-gray-600">{{ $t('reports.filters.typeLabel') }}</span>
+                                        <span class="text-sm text-gray-600 dark:text-gray-400">{{ $t('reports.filters.typeLabel') }}</span>
                                         <USelectMenu
                                             :model-value="typeFilter"
                                             @update:model-value="setTypeFilter"
@@ -98,7 +98,7 @@
                                         </USelectMenu>
                                     </div>
                                     <div class="flex items-center justify-between gap-3">
-                                        <span class="text-sm text-gray-600">{{ $t('reports.filters.statusLabel') }}</span>
+                                        <span class="text-sm text-gray-600 dark:text-gray-400">{{ $t('reports.filters.statusLabel') }}</span>
                                         <USelectMenu
                                             :model-value="statusFilter"
                                             @update:model-value="setStatusFilter"
@@ -113,7 +113,7 @@
                                         </USelectMenu>
                                     </div>
                                     <div class="flex items-center justify-between gap-3">
-                                        <span class="text-sm text-gray-600">{{ $t('reports.filters.scheduleLabel') }}</span>
+                                        <span class="text-sm text-gray-600 dark:text-gray-400">{{ $t('reports.filters.scheduleLabel') }}</span>
                                         <USelectMenu
                                             :model-value="scheduledFilter"
                                             @update:model-value="setScheduledFilter"
@@ -128,7 +128,7 @@
                                         </USelectMenu>
                                     </div>
                                     <div class="flex items-center justify-between gap-3">
-                                        <span class="text-sm text-gray-600">{{ $t('reports.filters.dataSourceLabel') }}</span>
+                                        <span class="text-sm text-gray-600 dark:text-gray-400">{{ $t('reports.filters.dataSourceLabel') }}</span>
                                         <USelectMenu
                                             :model-value="dataSourceFilter"
                                             @update:model-value="setDataSourceFilter"
@@ -143,7 +143,7 @@
                                         </USelectMenu>
                                     </div>
                                     <div class="flex items-center justify-between gap-3">
-                                        <span class="text-sm text-gray-600">{{ $t('reports.filters.artifactsLabel') }}</span>
+                                        <span class="text-sm text-gray-600 dark:text-gray-400">{{ $t('reports.filters.artifactsLabel') }}</span>
                                         <USelectMenu
                                             :model-value="artifactFilter"
                                             @update:model-value="setArtifactFilter"
@@ -158,10 +158,10 @@
                                         </USelectMenu>
                                     </div>
                                 </div>
-                                <div v-if="activeFilterCount > 0" class="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+                                <div v-if="activeFilterCount > 0" class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-end">
                                     <button
                                         @click="clearFilters"
-                                        class="text-xs font-medium text-gray-500 hover:text-gray-700"
+                                        class="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                                     >
                                         {{ $t('reports.filters.clear') }}
                                     </button>
@@ -201,13 +201,13 @@
                 <!-- Select-all bar (only when there are rows) -->
                 <div
                     v-if="activeFilter === 'my' && !isLoading && visibleReports.length"
-                    class="flex items-center gap-2 px-1 py-2 text-xs text-gray-500"
+                    class="flex items-center gap-2 px-1 py-2 text-xs text-gray-500 dark:text-gray-400"
                 >
                     <input
                         type="checkbox"
                         :checked="allVisibleSelected"
                         @change="toggleAllVisible"
-                        class="rounded border-gray-300"
+                        class="rounded border-gray-300 dark:border-gray-600"
                     />
                     <span v-if="selectedIds.size > 0">{{ selectedIds.size }} selected</span>
                     <span v-else>Select all</span>
@@ -216,26 +216,26 @@
                 <!-- List -->
                 <div class="mt-1">
                     <!-- Loading state -->
-                    <div v-if="isLoading" class="py-16 flex items-center justify-center text-gray-500">
+                    <div v-if="isLoading" class="py-16 flex items-center justify-center text-gray-500 dark:text-gray-400">
                         <Spinner class="w-4 h-4 me-2" />
                         <span class="text-sm">{{ $t('common.loading') }}</span>
                     </div>
 
                     <template v-else>
                         <!-- Empty state -->
-                        <div v-if="visibleReports.length === 0" class="py-16 text-center text-gray-500">
+                        <div v-if="visibleReports.length === 0" class="py-16 text-center text-gray-500 dark:text-gray-400">
                             <Icon name="heroicons:document-text" class="mx-auto h-12 w-12 text-gray-400" />
-                            <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('reports.empty') }}</h3>
-                            <p class="mt-1 text-sm text-gray-500">{{ $t('reports.emptyHint') }}</p>
+                            <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('reports.empty') }}</h3>
+                            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('reports.emptyHint') }}</p>
                         </div>
 
                         <!-- Report rows -->
-                        <ul v-else class="divide-y divide-gray-100">
+                        <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800">
                             <li
                                 v-for="report in visibleReports"
                                 :key="report.id"
                                 @click="goToReport(report)"
-                                class="group flex items-center gap-3 py-5 px-3 -mx-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                                class="group flex items-center gap-3 py-5 px-3 -mx-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
                             >
                                 <!-- Bulk select (My reports) -->
                                 <input
@@ -244,7 +244,7 @@
                                     :checked="selectedIds.has(report.id)"
                                     @change="toggleOne(report.id)"
                                     @click.stop
-                                    class="rounded border-gray-300 opacity-0 group-hover:opacity-100 checked:opacity-100 transition-opacity"
+                                    class="rounded border-gray-300 dark:border-gray-600 opacity-0 group-hover:opacity-100 checked:opacity-100 transition-opacity"
                                 />
 
                                 <!-- Star -->
@@ -256,14 +256,14 @@
                                         <UIcon
                                             :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
                                             class="h-[18px] w-[18px] transition-colors"
-                                            :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-yellow-400'"
+                                            :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-400'"
                                         />
                                     </button>
                                 </UTooltip>
 
                                 <!-- Type avatar -->
-                                <div class="shrink-0 h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center">
-                                    <Icon :name="reportTypeIcon(report)" class="h-5 w-5 text-gray-500" />
+                                <div class="shrink-0 h-9 w-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                                    <Icon :name="reportTypeIcon(report)" class="h-5 w-5 text-gray-500 dark:text-gray-400" />
                                 </div>
 
                                 <!-- Title block -->
@@ -273,26 +273,26 @@
                                             v-if="reportLink(report)"
                                             :to="reportLink(report)"
                                             @click.stop
-                                            class="font-medium text-gray-900 hover:text-blue-600 truncate"
+                                            class="font-medium text-gray-900 dark:text-white hover:text-blue-600 truncate"
                                         >
                                             {{ report.title }}
                                         </NuxtLink>
                                         <span
                                             v-else
                                             @click.stop
-                                            class="font-medium text-gray-900 truncate"
+                                            class="font-medium text-gray-900 dark:text-white truncate"
                                         >
                                             {{ report.title }}
                                         </span>
                                         <!-- Visibility badges -->
                                         <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? $t('reports.dashboardWithVisibility', { visibility: visibilityLabel(report.artifact_visibility) }) : $t('reports.dashboardPrivate')">
-                                            <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
+                                            <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-px">
                                                 {{ $t('reports.dashboardLabel') }}
                                                 <Icon v-if="report.artifact_visibility !== 'none'" :name="visibilityIcon(report.artifact_visibility)" class="w-3 h-3" />
                                             </span>
                                         </UTooltip>
                                         <UTooltip v-if="report.conversation_visibility !== 'none'" :text="visibilityLabel(report.conversation_visibility)">
-                                            <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
+                                            <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-px">
                                                 {{ $t('reports.conversationLabel') }}
                                                 <Icon :name="visibilityIcon(report.conversation_visibility)" class="w-3 h-3" />
                                             </span>
@@ -311,13 +311,13 @@
                                         </UTooltip>
                                     </div>
                                     <!-- Type sub-label + data sources + metrics -->
-                                    <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+                                    <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
                                         <span class="inline-flex items-center gap-1">
                                             <Icon :name="reportTypeIcon(report)" class="h-3.5 w-3.5" />
                                             {{ reportTypeLabel(report) }}
                                         </span>
                                         <template v-if="report.data_sources.length">
-                                            <span class="text-gray-300">·</span>
+                                            <span class="text-gray-300 dark:text-gray-600">·</span>
                                             <span class="inline-flex items-center gap-1.5">
                                                 <UTooltip
                                                     v-for="data_source in report.data_sources.slice(0, 2)"
@@ -335,7 +335,7 @@
                                             </span>
                                         </template>
                                         <template v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count || report.webhook_count">
-                                            <span class="text-gray-300">·</span>
+                                            <span class="text-gray-300 dark:text-gray-600">·</span>
                                             <span class="inline-flex items-center gap-1.5 flex-wrap text-gray-400">
                                                 <span v-if="report.query_count" class="inline-flex items-center gap-1">
                                                     <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
@@ -363,7 +363,7 @@
                                 </div>
 
                                 <!-- Right metadata: date -->
-                                <div class="shrink-0 hidden sm:block text-xs text-gray-500">
+                                <div class="shrink-0 hidden sm:block text-xs text-gray-500 dark:text-gray-400">
                                     {{ formatDate(report.created_at) }}
                                 </div>
 
@@ -372,7 +372,7 @@
                                     <UTooltip v-if="canDeleteReport(report)" :text="$t('reports.archive')">
                                         <button
                                             @click.stop="confirmDelete(report.id)"
-                                            class="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"
+                                            class="text-gray-300 dark:text-gray-600 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"
                                         >
                                             <Icon name="heroicons:archive-box" class="w-4 h-4" />
                                         </button>
@@ -386,9 +386,9 @@
                 <!-- Pagination -->
                 <div
                     v-if="!isLoading && visibleReports.length"
-                    class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between gap-3"
+                    class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3"
                 >
-                    <div class="flex items-center gap-2 text-xs text-gray-500">
+                    <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                         <span>{{ $t('reports.pagination.rowsPerPage') }}</span>
                         <USelectMenu
                             :model-value="pagination.limit"
@@ -398,7 +398,7 @@
                         />
                     </div>
 
-                    <div class="text-xs text-gray-500">
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
                         {{ $t('reports.pagination.page', { page: currentPage }) }}
                     </div>
 
@@ -408,8 +408,8 @@
                             :disabled="currentPage === 1"
                             class="p-1.5 rounded-md border transition-colors"
                             :class="currentPage === 1
-                                ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                                : 'border-gray-300 text-gray-600 hover:bg-gray-50'"
+                                ? 'border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                                : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                         >
                             <Icon name="heroicons:chevron-left" class="w-4 h-4" />
                         </button>
@@ -418,8 +418,8 @@
                             :disabled="currentPage >= pagination.total_pages"
                             class="p-1.5 rounded-md border transition-colors"
                             :class="currentPage >= pagination.total_pages
-                                ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                                : 'border-gray-300 text-gray-600 hover:bg-gray-50'"
+                                ? 'border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                                : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
                         >
                             <Icon name="heroicons:chevron-right" class="w-4 h-4" />
                         </button>

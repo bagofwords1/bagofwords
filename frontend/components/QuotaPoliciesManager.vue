@@ -7,7 +7,7 @@
                         v-model="searchQuery"
                         type="text"
                         :placeholder="$t('quotaPolicies.searchPlaceholder')"
-                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
@@ -29,36 +29,36 @@
             </div>
         </div>
 
-        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-100">
+                <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
                     <thead class="bg-gray-50/60">
                         <tr>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colPolicy') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colLimits') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colAssignments') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colOverrides') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colStatus') }}</th>
-                            <th v-if="useCan('manage_settings')" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colActions') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colPolicy') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colLimits') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colAssignments') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colOverrides') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colStatus') }}</th>
+                            <th v-if="useCan('manage_settings')" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.colActions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-100">
+                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
                         <tr v-if="isLoading">
                             <td :colspan="useCan('manage_settings') ? 6 : 5" class="px-6 py-12 text-center">
-                                <div class="flex items-center justify-center text-gray-500">
+                                <div class="flex items-center justify-center text-gray-500 dark:text-gray-400">
                                     <Spinner class="w-4 h-4 me-2" />
                                     <span class="text-sm">{{ $t('quotaPolicies.loading') }}</span>
                                 </div>
                             </td>
                         </tr>
                         <template v-else>
-                            <tr v-for="policy in filteredPolicies" :key="policy.id" class="hover:bg-gray-50/70 transition-colors">
+                            <tr v-for="policy in filteredPolicies" :key="policy.id" class="hover:bg-gray-50/70 dark:hover:bg-gray-800 transition-colors">
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-2">
                                         <Icon name="heroicons:chart-bar-square" class="h-5 w-5 text-gray-400" />
                                         <div>
-                                            <div class="text-sm font-medium text-gray-900">{{ policy.name }}</div>
-                                            <div class="text-sm text-gray-500">{{ policy.description || '-' }}</div>
+                                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ policy.name }}</div>
+                                            <div class="text-sm text-gray-500 dark:text-gray-400">{{ policy.description || '-' }}</div>
                                         </div>
                                     </div>
                                 </td>
@@ -139,11 +139,11 @@
                                 </td>
                             </tr>
                             <tr v-if="filteredPolicies.length === 0">
-                                <td :colspan="useCan('manage_settings') ? 6 : 5" class="px-6 py-12 text-center text-gray-500 text-sm">
+                                <td :colspan="useCan('manage_settings') ? 6 : 5" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400 text-sm">
                                     <div class="flex flex-col items-center">
                                         <Icon name="heroicons:chart-bar-square" class="mx-auto h-12 w-12 text-gray-400" />
-                                        <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('quotaPolicies.noPoliciesFound') }}</h3>
-                                        <p class="mt-1 text-sm text-gray-500">{{ $t('quotaPolicies.noPoliciesHint') }}</p>
+                                        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('quotaPolicies.noPoliciesFound') }}</h3>
+                                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.noPoliciesHint') }}</p>
                                     </div>
                                 </td>
                             </tr>
@@ -166,41 +166,41 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.nameLabel') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.nameLabel') }}</label>
                         <UInput v-model="form.name" :placeholder="$t('quotaPolicies.namePlaceholder')" size="sm" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.descriptionLabel') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.descriptionLabel') }}</label>
                         <UInput v-model="form.description" :placeholder="$t('quotaPolicies.descriptionPlaceholder')" size="sm" />
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 gap-3 mb-5">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.monthlyTokenLimit') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.monthlyTokenLimit') }}</label>
                         <UInput v-model="form.monthlyTokenLimit" type="number" min="0" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.monthlyQueryLimit') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.monthlyQueryLimit') }}</label>
                         <UInput v-model="form.monthlyQueryLimit" type="number" min="0" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.monthlyDataLimitMb') }}</label>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.monthlyDataLimitMb') }}</label>
                         <UInput v-model="form.monthlyDataLimitMb" type="number" min="0" step="0.01" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
                     </div>
                 </div>
 
                 <div class="border rounded-lg">
-                    <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+                    <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
                         <span class="text-sm font-medium">{{ $t('quotaPolicies.connectionOverrides') }}</span>
                     </div>
                     <div class="p-3 space-y-3">
                         <div class="grid grid-cols-1 gap-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.connection') }}</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.connection') }}</label>
                                 <select
                                     v-model="overrideConnection"
-                                    class="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    class="block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 >
                                     <option :value="null" disabled>{{ $t('quotaPolicies.selectConnection') }}</option>
                                     <option
@@ -213,11 +213,11 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.queries') }}</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.queries') }}</label>
                                 <UInput v-model="overrideQueryLimit" type="number" min="0" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.dataMb') }}</label>
+                                <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.dataMb') }}</label>
                                 <UInput v-model="overrideDataLimitMb" type="number" min="0" step="0.01" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
                             </div>
                             <UButton
@@ -245,11 +245,11 @@
                             <div
                                 v-for="override in form.connectionOverrides"
                                 :key="override.connection_id"
-                                class="flex items-center justify-between gap-3 border border-gray-100 rounded-md px-3 py-2"
+                                class="flex items-center justify-between gap-3 border border-gray-100 dark:border-gray-800 rounded-md px-3 py-2"
                             >
                                 <div class="min-w-0 text-sm">
-                                    <div class="font-medium text-gray-900 truncate">{{ connectionName(override.connection_id) }}</div>
-                                    <div class="text-gray-500">
+                                    <div class="font-medium text-gray-900 dark:text-white truncate">{{ connectionName(override.connection_id) }}</div>
+                                    <div class="text-gray-500 dark:text-gray-400">
                                         {{ $t('quotaPolicies.queriesShort') }}: {{ formatCountLimit(override.monthly_query_limit) }}
                                         <span class="mx-1">/</span>
                                         {{ $t('quotaPolicies.dataShort') }}: {{ formatBytesLimit(override.monthly_data_bytes_limit) }}
