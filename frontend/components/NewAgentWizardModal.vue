@@ -3,12 +3,12 @@
     <div class="p-5">
       <!-- Header -->
       <div class="flex items-center justify-between mb-1">
-        <h3 class="text-lg font-semibold text-gray-900">Create Data Agent</h3>
-        <button class="text-gray-400 hover:text-gray-600" @click="isOpen = false">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Create Data Agent</h3>
+        <button class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300" @click="isOpen = false">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
-      <p class="text-sm text-gray-500">Set data source, select tables, and define additional context</p>
+      <p class="text-sm text-gray-500 dark:text-gray-400">Set data source, select tables, and define additional context</p>
 
       <!-- Stepper -->
       <nav class="w-full my-5">
@@ -19,9 +19,9 @@
                 <UIcon v-if="isDone(s.key)" name="heroicons-check" class="w-3.5 h-3.5" />
                 <span v-else>{{ idx + 1 }}</span>
               </span>
-              <span :class="s.key === step ? 'text-gray-900' : 'text-gray-500'">{{ s.label }}</span>
+              <span :class="s.key === step ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'">{{ s.label }}</span>
             </span>
-            <span v-if="idx < steps.length - 1" class="mx-2 w-6 h-px bg-gray-200"></span>
+            <span v-if="idx < steps.length - 1" class="mx-2 w-6 h-px bg-gray-200 dark:bg-gray-800"></span>
           </li>
         </ol>
       </nav>
@@ -30,14 +30,14 @@
       <div v-if="step === 'connect'">
         <!-- Loading connections -->
         <div v-if="loadingConnections" class="flex flex-col items-center justify-center py-16">
-          <Spinner class="h-4 w-4 text-gray-400" />
-          <p class="text-sm text-gray-500 mt-2">Loading connections...</p>
+          <Spinner class="h-4 w-4 text-gray-400 dark:text-gray-500" />
+          <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading connections...</p>
         </div>
 
-        <div v-else class="bg-white rounded-lg border border-gray-200 p-4">
+        <div v-else class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4">
           <!-- Agent name -->
           <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Name <span class="text-red-500">*</span>
             </label>
             <UInput
@@ -50,7 +50,7 @@
 
           <!-- Connection selector (multi-select for existing connections) -->
           <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Connections <span class="text-red-500">*</span>
             </label>
             <USelectMenu
@@ -69,20 +69,20 @@
               <template #label>
                 <div v-if="selectedConnections.length > 0" class="flex items-center gap-1.5 flex-wrap">
                   <template v-for="conn in selectedConnections" :key="conn.id">
-                    <div class="flex items-center gap-1 bg-gray-100 rounded px-1.5 py-0.5">
+                    <div class="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5">
                       <DataSourceIcon :type="conn.type" class="h-3.5 flex-shrink-0" />
                       <span class="text-xs truncate max-w-[100px]">{{ conn.name }}</span>
                     </div>
                   </template>
                 </div>
-                <span v-else class="text-gray-400">Select connections</span>
+                <span v-else class="text-gray-400 dark:text-gray-500">Select connections</span>
               </template>
               <template #option="{ option }">
                 <div class="flex items-center gap-2 w-full">
                   <DataSourceIcon :type="option.type" class="h-4 flex-shrink-0" />
                   <div class="flex-1 min-w-0">
                     <div class="font-medium truncate">{{ option.name }}</div>
-                    <div class="text-[10px] text-gray-400">
+                    <div class="text-[10px] text-gray-400 dark:text-gray-500">
                       {{ option.table_count || 0 }} tables · {{ option.agent_count || 0 }} agents
                     </div>
                   </div>
@@ -104,15 +104,15 @@
           <div v-if="selectedConnections.length > 0">
             <div class="flex items-center gap-2 mb-4">
               <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
-              <span class="text-xs text-gray-700">Use LLM to learn agent</span>
+              <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn agent</span>
             </div>
 
-            <div v-if="errorMessage" class="p-3 bg-red-50 text-red-700 rounded-lg text-sm mb-4">
+            <div v-if="errorMessage" class="p-3 bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 rounded-lg text-sm mb-4">
               {{ errorMessage }}
             </div>
 
-            <div class="flex justify-between items-center pt-4 border-t border-gray-100">
-              <button class="text-sm text-gray-500 hover:text-gray-700" @click="isOpen = false">
+            <div class="flex justify-between items-center pt-4 border-t border-gray-100 dark:border-gray-800">
+              <button class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="isOpen = false">
                 ← Cancel
               </button>
               <UButton
@@ -128,8 +128,8 @@
           </div>
 
           <!-- No selection yet (just show cancel) -->
-          <div v-else class="flex justify-start pt-4 border-t border-gray-100">
-            <button class="text-sm text-gray-500 hover:text-gray-700" @click="isOpen = false">
+          <div v-else class="flex justify-start pt-4 border-t border-gray-100 dark:border-gray-800">
+            <button class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="isOpen = false">
               ← Cancel
             </button>
           </div>
@@ -138,8 +138,8 @@
 
       <!-- ── Step 2: Select Tables ────────────────────────────────── -->
       <div v-else-if="step === 'schema'">
-        <p class="text-sm text-gray-500 text-center mb-4">Choose 5-20 related tables for this agent. You can always add more later.</p>
-        <div class="bg-white rounded-lg">
+        <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Choose 5-20 related tables for this agent. You can always add more later.</p>
+        <div class="bg-white dark:bg-gray-900 rounded-lg">
           <TablesSelector
             :ds-id="dsId"
             schema="full"
@@ -161,12 +161,12 @@
         <div class="space-y-6">
           <!-- Instruction editor -->
           <div>
-            <h3 class="text-base font-semibold text-gray-900 mb-1">Add custom AI rules and instructions</h3>
-            <p class="text-sm text-gray-500 mb-3">Business-specific context, glossary, and useful code guidelines.</p>
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">Add custom AI rules and instructions</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">Business-specific context, glossary, and useful code guidelines.</p>
 
-            <div class="border border-gray-200 rounded-md px-3 py-2 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
+            <div class="border border-gray-200 dark:border-gray-800 rounded-md px-3 py-2 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
               <!-- Loading overlay -->
-              <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
+              <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400 dark:text-gray-500">
                 <Spinner class="w-4 h-4" />
                 <span>Generating overview instruction…</span>
               </div>
@@ -183,7 +183,7 @@
           </div>
 
           <!-- Git integration — only shown when no repo is connected -->
-          <div v-if="!integration?.git_repository" class="flex items-center gap-1.5 text-xs text-gray-400">
+          <div v-if="!integration?.git_repository" class="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
             <GitBranchIcon class="w-3.5 h-3.5" />
             <span>Connect a git repository for Tableau, dbt, and markdown context —</span>
             <button class="text-blue-500 hover:text-blue-600 underline-offset-2 hover:underline" @click="showGitModal = true">integrate</button>
@@ -238,9 +238,9 @@ function isDone(key: string) {
   return order.indexOf(key) < order.indexOf(step.value)
 }
 function circleClass(key: string) {
-  if (isDone(key)) return 'bg-green-100 text-green-600'
+  if (isDone(key)) return 'bg-green-100 text-green-600 dark:bg-green-500/10 dark:text-green-400'
   if (key === step.value) return 'bg-gray-900 text-white'
-  return 'bg-gray-100 text-gray-500'
+  return 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
 }
 
 // The created agent / data source id (carries across steps)

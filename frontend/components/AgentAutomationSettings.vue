@@ -1,13 +1,13 @@
 <template>
   <div class="space-y-4">
-    <p class="text-xs text-gray-500 max-w-md">
+    <p class="text-xs text-gray-500 dark:text-gray-400 max-w-md">
       Decide how this agent improves itself when a new instruction suggestion comes in
       (from the knowledge harness or a teammate).
     </p>
 
     <!-- Mode dropdown -->
     <div>
-      <label class="block text-sm font-medium text-gray-900 mb-1.5">When a new suggestion comes in…</label>
+      <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5">When a new suggestion comes in…</label>
       <USelectMenu
         v-model="form.mode"
         :options="modeOptions"
@@ -19,50 +19,50 @@
         :ui="{ width: 'w-full' }"
         @update:model-value="markDirty"
       />
-      <p v-if="!hasEvals" class="mt-1.5 text-[11px] text-gray-400">
+      <p v-if="!hasEvals" class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
         Add eval test cases for this agent to enable the “Run evals…” modes.
       </p>
     </div>
 
     <!-- Effective behavior summary -->
-    <div class="flex items-start gap-2 rounded-md bg-blue-50 border border-blue-100 px-3 py-2">
-      <UIcon name="i-heroicons-information-circle" class="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-      <p class="text-[11px] text-blue-800 leading-relaxed">{{ summary }}</p>
+    <div class="flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 px-3 py-2">
+      <UIcon name="i-heroicons-information-circle" class="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" />
+      <p class="text-[11px] text-blue-800 dark:text-blue-300 leading-relaxed">{{ summary }}</p>
     </div>
 
     <!-- Advanced — only relevant when evals run and auto-promote -->
-    <div v-if="form.mode === 'eval_auto'" class="rounded-md border border-gray-200 divide-y divide-gray-100">
-      <div class="px-3 py-2 text-[10px] uppercase tracking-wide text-gray-400">Advanced</div>
+    <div v-if="form.mode === 'eval_auto'" class="rounded-md border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+      <div class="px-3 py-2 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Advanced</div>
       <div class="flex items-start justify-between px-3 py-2.5">
         <div class="pe-4">
-          <div class="text-xs font-medium text-gray-800">Auto-fix on failure</div>
-          <div class="text-[11px] text-gray-500 max-w-sm">When evals fail, draft instructions to fix them and re-eval. Off ⇒ the suggestion stays in Review marked “eval failed” (main untouched).</div>
+          <div class="text-xs font-medium text-gray-800 dark:text-gray-200">Auto-fix on failure</div>
+          <div class="text-[11px] text-gray-500 dark:text-gray-400 max-w-sm">When evals fail, draft instructions to fix them and re-eval. Off ⇒ the suggestion stays in Review marked “eval failed” (main untouched).</div>
         </div>
         <UToggle v-model="form.auto_fix_on_failure" :disabled="!canManage" @update:model-value="markDirty" />
       </div>
       <div v-if="form.auto_fix_on_failure" class="flex items-center justify-between px-3 py-2.5">
         <div class="pe-4">
-          <div class="text-xs font-medium text-gray-800">On repeated failure</div>
-          <div class="text-[11px] text-gray-500">When the fix loop can’t reach green.</div>
+          <div class="text-xs font-medium text-gray-800 dark:text-gray-200">On repeated failure</div>
+          <div class="text-[11px] text-gray-500 dark:text-gray-400">When the fix loop can’t reach green.</div>
         </div>
-        <select v-model="form.on_repeated_failure" :disabled="!canManage" @change="markDirty" class="h-7 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0">
+        <select v-model="form.on_repeated_failure" :disabled="!canManage" @change="markDirty" class="h-7 px-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 shrink-0">
           <option value="training">Move to training (keeps serving)</option>
           <option value="development">Move to development (pull from users)</option>
         </select>
       </div>
       <div v-if="form.auto_fix_on_failure" class="flex items-center justify-between px-3 py-2.5">
         <div class="pe-4">
-          <div class="text-xs font-medium text-gray-800">Max training iterations</div>
-          <div class="text-[11px] text-gray-500">Cap on the train → re-eval loop. Guards cost.</div>
+          <div class="text-xs font-medium text-gray-800 dark:text-gray-200">Max training iterations</div>
+          <div class="text-[11px] text-gray-500 dark:text-gray-400">Cap on the train → re-eval loop. Guards cost.</div>
         </div>
-        <input v-model.number="form.max_iterations" type="number" min="1" max="10" :disabled="!canManage" @change="markDirty" class="h-7 w-16 px-2 text-xs bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400 shrink-0" />
+        <input v-model.number="form.max_iterations" type="number" min="1" max="10" :disabled="!canManage" @change="markDirty" class="h-7 w-16 px-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500 rounded-md outline-none focus:border-gray-400 shrink-0" />
       </div>
     </div>
 
     <div v-if="canManage" class="flex items-center gap-2">
       <UButton color="blue" size="xs" :disabled="!dirty" :loading="savingSettings" @click="saveSettings">Save</UButton>
       <UButton color="gray" variant="ghost" size="xs" :disabled="!dirty" @click="loadAutomation">Reset</UButton>
-      <span v-if="savedOk" class="text-xs text-green-600">Saved</span>
+      <span v-if="savedOk" class="text-xs text-green-600 dark:text-green-400">Saved</span>
     </div>
   </div>
 </template>

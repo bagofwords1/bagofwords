@@ -3,11 +3,11 @@
     <!-- Header -->
     <div class="flex items-center justify-between pl-3 pr-4 py-3 shrink-0">
       <div>
-        <h1 class="text-lg font-semibold text-gray-900">Agents</h1>
-        <p class="mt-1 text-sm text-gray-500">Configure your agents and the data, tools, skills and instructions they reason with.</p>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">Agents</h1>
+        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Configure your agents and the data, tools, skills and instructions they reason with.</p>
       </div>
       <div class="flex items-center gap-2.5">
-        <button v-if="reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="openReview(null)">
+        <button v-if="reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors" @click="openReview(null)">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ reviewCount }} to review
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
@@ -18,13 +18,13 @@
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-52">
-              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="openCreate(); close()">
-                <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                <span><span class="block text-xs font-medium text-gray-800">Instruction</span><span class="block text-[10px] text-gray-400">A rule, skill or note for your agents</span></span>
+              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="openCreate(); close()">
+                <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">Instruction</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">A rule, skill or note for your agents</span></span>
               </button>
-              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="showNewAgent = true; close()">
-                <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                <span><span class="block text-xs font-medium text-gray-800">Agent</span><span class="block text-[10px] text-gray-400">Connect data, tools and tables</span></span>
+              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="showNewAgent = true; close()">
+                <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">Agent</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">Connect data, tools and tables</span></span>
               </button>
             </div>
           </template>
@@ -33,18 +33,18 @@
     </div>
 
     <!-- Body: tree → detail → versions -->
-    <div class="flex-1 min-h-0 flex border-t border-gray-200">
+    <div class="flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
-      <aside class="shrink-0 border-r border-gray-200 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
+      <aside class="shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
-            <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input v-model="search" type="text" placeholder="Search everything…" class="w-full h-9 pl-8 pr-2 text-[13px] bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400" />
+            <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+            <input v-model="search" type="text" placeholder="Search everything…" class="w-full h-9 pl-8 pr-2 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
           </div>
           <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
-            <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50" title="Filters">
+            <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" title="Filters">
               <UIcon name="i-heroicons-adjustments-horizontal" class="w-4 h-4" />
-              <span v-if="activeFilterCount" class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-900 text-white text-[8px] font-semibold flex items-center justify-center">{{ activeFilterCount }}</span>
+              <span v-if="activeFilterCount" class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-900 dark:bg-gray-700 text-white text-[8px] font-semibold flex items-center justify-center">{{ activeFilterCount }}</span>
             </button>
             <template #panel="{ close }">
               <div class="p-3 w-56 space-y-3">
@@ -52,9 +52,9 @@
                 <FilterSection label="Loading" :options="loadOpts" v-model="fLoad" />
                 <FilterSection label="Source" :options="sourceOpts" v-model="fSource" />
                 <FilterSection v-if="categoryOpts.length" label="Category" :options="categoryOpts" v-model="fCategory" />
-                <div class="flex items-center justify-between pt-1 border-t border-gray-100">
-                  <button class="text-[11px] text-gray-500 hover:text-gray-800" @click="clearFilters">Clear all</button>
-                  <button class="text-[11px] font-medium text-gray-900" @click="close && close()">Done</button>
+                <div class="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
+                  <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" @click="clearFilters">Clear all</button>
+                  <button class="text-[11px] font-medium text-gray-900 dark:text-white" @click="close && close()">Done</button>
                 </div>
               </div>
             </template>
@@ -72,20 +72,20 @@
           </TreeGroup>
           <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0"
                   style="padding-left:6px;padding-right:8px"
-                  :class="reviewView ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'"
+                  :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
                   @click="openReview(null)">
             <span class="w-3 shrink-0"></span>
-            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 shrink-0" />
+            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
             <span class="flex-1 text-left truncate">Review</span>
-            <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 text-amber-700 tabular-nums">{{ reviewCount }}</span>
+            <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 tabular-nums">{{ reviewCount }}</span>
           </button>
 
-          <div class="h-px bg-gray-100 my-2 mx-1"></div>
+          <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
-            <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Agents</span>
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Agents</span>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
-              <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+              <label class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
                 <span>{{ $t('data.showAllAgents') }}</span>
               </label>
@@ -107,12 +107,12 @@
               <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
-                  <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 shrink-0" /></template>
-                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600" style="padding-left:62px;padding-right:8px">
-                    <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
+                  <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" /></template>
+                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600 dark:text-gray-400" style="padding-left:62px;padding-right:8px">
+                    <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
                     <span class="flex-1 text-left truncate font-mono text-xs">{{ tool.name }}</span>
-                    <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 text-gray-400">off</span>
-                    <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 text-gray-500">{{ tool.policy }}</span>
+                    <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500">off</span>
+                    <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ tool.policy }}</span>
                   </div>
                 </TreeGroup>
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" text="No tools connected." :pad="48" />
@@ -122,15 +122,15 @@
                 <div
                   v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
                   class="group/file w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer"
-                  :class="previewFile && previewFile.id === f.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'"
+                  :class="previewFile && previewFile.id === f.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
                   style="padding-left:48px;padding-right:8px" @click="openFile(f, agent.id)"
                 >
-                  <UIcon :name="fileIcon(f.content_type, f.filename)" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <UIcon :name="fileIcon(f.content_type, f.filename)" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
                   <span class="flex-1 text-left truncate">{{ f.filename }}</span>
-                  <button v-if="canManageAgent(agent.id)" class="shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600 opacity-0 group-hover/file:opacity-100 flex items-center justify-center" title="Delete file" @click.stop="deleteFile(agent.id, f)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
+                  <button v-if="canManageAgent(agent.id)" class="shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover/file:opacity-100 flex items-center justify-center" title="Delete file" @click.stop="deleteFile(agent.id, f)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
                 </div>
                 <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" text="No files." add @add="triggerUpload(agent.id)" :pad="48" />
-                <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 italic py-1" style="padding-left:48px">Uploading…</div>
+                <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-left:48px">Uploading…</div>
               </TreeGroup>
 
               <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
@@ -138,50 +138,50 @@
                 <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
               </TreeGroup>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
                 <span class="w-3 shrink-0"></span>
-                <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 shrink-0" />
+                <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 text-left truncate">Evals</span>
-                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
+                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100" />
               </button>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('settings', agent.id)">
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:20px;padding-right:8px" @click="openPanel('settings', agent.id)">
                 <span class="w-3 shrink-0"></span>
-                <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400 shrink-0" />
+                <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 text-left truncate">Settings</span>
-                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
+                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100" />
               </button>
             </TreeGroup>
           </template>
         </div>
 
         <!-- Connections footer -->
-        <div class="border-t border-gray-200 px-3 py-2 flex items-center gap-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mr-1">Connections</span>
+        <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mr-1">Connections</span>
           <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
-            <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 hover:bg-gray-50" @click="openConnectionDetail(c)">
+            <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
               <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
               <span class="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </button>
           </UTooltip>
           <UTooltip v-if="connections.length > 4" :text="`View all ${connections.length} connections`">
-            <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
+            <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 dark:border-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
           <UTooltip v-if="canCreateDataSource && connections.length" text="New connection">
-            <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="connTargetAgentId = null; showAddConnection = true">
+            <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 text-[11px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             Add connection
           </button>
-          <button v-if="connections.length" type="button" class="ml-auto text-[11px] text-gray-400 hover:text-gray-700" @click="showConnectionsModal = true">View all</button>
+          <button v-if="connections.length" type="button" class="ml-auto text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">View all</button>
         </div>
 
         <!-- Drag handle to resize the tree pane -->
-        <div class="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-gray-300 transition-colors z-10" title="Drag to resize" @mousedown="startTreeResize"></div>
+        <div class="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" title="Drag to resize" @mousedown="startTreeResize"></div>
       </aside>
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
@@ -189,45 +189,45 @@
         <!-- Review feed -->
         <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
           <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
-          <div v-if="reviewNavLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
-            <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-gray-400 animate-spin" />
+          <div v-if="reviewNavLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px]">
+            <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
           </div>
         </div>
         <!-- Agent overview -->
         <template v-else-if="agentView">
-          <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100">
+          <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 min-w-0">
                   <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" class="w-4 h-4 shrink-0" />
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? 'Active' : 'Inactive'"></span>
-                  <h2 class="text-base font-semibold text-gray-900 truncate">{{ agentDetail?.name || agentViewName }}</h2>
+                  <h2 class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
-                    <button type="button" class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0 transition-colors" :class="agentDetail?.is_public ? 'border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100'">
+                    <button type="button" class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0 transition-colors" :class="agentDetail?.is_public ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'">
                       <UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}
                       <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-60" />
                     </button>
                     <template #panel="{ close }">
                       <div class="p-1 w-40">
-                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 text-left" @click="setAgentPublic(true); close()"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" />Public<UIcon v-if="agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900" /></button>
-                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 text-left" @click="setAgentPublic(false); close()"><UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 text-gray-400" />Private<UIcon v-if="!agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900" /></button>
+                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="setAgentPublic(true); close()"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Public<UIcon v-if="agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900 dark:text-white" /></button>
+                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="setAgentPublic(false); close()"><UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Private<UIcon v-if="!agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900 dark:text-white" /></button>
                       </div>
                     </template>
                   </UPopover>
-                  <span v-else class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0" :class="agentDetail?.is_public ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-gray-200 bg-gray-50 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
+                  <span v-else class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0" :class="agentDetail?.is_public ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
                   <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" :reliability-status="agentDetail.reliability_status" @updated="onAgentPublishUpdated" />
                   <!-- Auth badges (parity with the legacy agents page) -->
                   <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" text="Runs via the connection's service account (admin/owner fallback) — no personal sign-in needed">
-                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-emerald-50 text-emerald-700"><UIcon name="i-heroicons-cpu-chip" class="w-2.5 h-2.5" />Service account</span>
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"><UIcon name="i-heroicons-cpu-chip" class="w-2.5 h-2.5" />Service account</span>
                   </UTooltip>
                   <UTooltip v-if="agentListItem?.admin_only" text="Visible to you via admin access — you are not a member of this agent">
-                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-amber-100 text-amber-700 uppercase tracking-wide font-medium"><UIcon name="i-heroicons-shield-check" class="w-2.5 h-2.5" />Admin</span>
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 uppercase tracking-wide font-medium"><UIcon name="i-heroicons-shield-check" class="w-2.5 h-2.5" />Admin</span>
                   </UTooltip>
                 </div>
                 <div class="mt-1.5 group">
-                  <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
+                  <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 dark:text-gray-300 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
                   <div v-else class="flex items-center gap-2">
-                    <p class="text-sm text-gray-500 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail?.description || (agentCanUpdate ? 'Add a description…' : '') }}</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/70' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail?.description || (agentCanUpdate ? 'Add a description…' : '') }}</p>
                     <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 shrink-0" @click="startEditDesc">Edit</button>
                   </div>
                 </div>
@@ -237,50 +237,50 @@
                 <div v-if="activitySeries.length" class="flex items-center gap-2.5 pr-1" title="Tasks over the last 14 days">
                   <span class="flex flex-col items-center leading-none">
                     <svg width="78" height="20" viewBox="0 0 96 26" preserveAspectRatio="none" class="overflow-visible"><path :d="sparkPath" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /></svg>
-                    <span class="mt-1 text-[10px] text-gray-400">Activity</span>
+                    <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">Activity</span>
                   </span>
                   <span class="flex flex-col items-start leading-none">
-                    <span class="text-sm font-semibold text-gray-900 tabular-nums">{{ totalTasks.toLocaleString() }}</span>
-                    <span class="mt-1 text-[10px] text-gray-400">tasks</span>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">{{ totalTasks.toLocaleString() }}</span>
+                    <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">tasks</span>
                   </span>
                 </div>
-                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Configure how this agent learns from new suggestions" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
+                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure how this agent learns from new suggestions" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
                 <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
-                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
           </div>
           <div class="flex-1 overflow-y-auto px-6 py-5 max-w-3xl">
-            <div v-if="agentDetailLoading" class="flex items-center justify-center py-16 text-gray-400">
+            <div v-if="agentDetailLoading" class="flex items-center justify-center py-16 text-gray-400 dark:text-gray-500">
               <Spinner class="w-5 h-5 animate-spin" />
             </div>
             <template v-else>
             <!-- Connections / Connect -->
             <div class="flex flex-wrap items-center gap-1.5 mb-3">
-              <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 text-gray-600 text-[11px] hover:bg-gray-50" @click="openConnectionDetail(c)">
+              <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />{{ c.name }}
                 <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
-              <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-medium hover:bg-blue-100" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
+              <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-[11px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
               <UTooltip text="Manage connections">
-                <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="openConnModal(agentView.agentId)"><UIcon name="i-heroicons-cog-6-tooth" class="w-3.5 h-3.5" /></button>
+                <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="openConnModal(agentView.agentId)"><UIcon name="i-heroicons-cog-6-tooth" class="w-3.5 h-3.5" /></button>
               </UTooltip>
             </div>
 
             <!-- Counts (clean) -->
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mb-6 pb-5 border-b border-gray-100">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400" />{{ agentCount(agentView.agentId) }} instructions</span>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentCount(agentView.agentId) }} instructions</span>
             </div>
 
             <!-- Primary instruction (inline, clean editor) -->
             <div v-if="creatingPrimary || editingPrimary">
               <div class="flex items-center justify-between gap-2 mb-2">
-                <input v-model="primaryDraft.title" type="text" placeholder="Untitled" class="flex-1 min-w-0 text-sm font-medium text-gray-900 bg-transparent outline-none placeholder:text-gray-300" />
+                <input v-model="primaryDraft.title" type="text" placeholder="Untitled" class="flex-1 min-w-0 text-sm font-medium text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600" />
                 <div class="flex items-center gap-1.5 shrink-0">
-                  <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelPrimary">Cancel</button>
+                  <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelPrimary">Cancel</button>
                   <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? 'Saving…' : 'Save' }}</button>
                 </div>
               </div>
@@ -295,15 +295,15 @@
               </div>
               <InstructionText :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" :prose="true" :markdown="true" />
             </template>
-            <div v-else class="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-6 py-8 text-center">
-              <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mb-3">
+            <div v-else class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-800/40 px-6 py-8 text-center">
+              <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center mb-3">
                 <UIcon name="i-heroicons-document-text" class="w-5 h-5 text-blue-500" />
               </div>
-              <p class="text-sm font-medium text-gray-800">No primary instruction</p>
-              <p class="mt-1 max-w-md mx-auto text-xs text-gray-500">Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.</p>
+              <p class="text-sm font-medium text-gray-800 dark:text-gray-200">No primary instruction</p>
+              <p class="mt-1 max-w-md mx-auto text-xs text-gray-500 dark:text-gray-400">Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.</p>
               <div v-if="agentCanUpdate" class="mt-4 flex items-center justify-center gap-3">
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="startCreatePrimary"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />Add primary instruction</button>
-                <span class="text-xs text-gray-400">or</span>
+                <span class="text-xs text-gray-400 dark:text-gray-500">or</span>
                 <PrimaryInstructionPicker :agent-id="agentView.agentId" label="select existing" @select="onSelectExistingPrimary" />
               </div>
               <div v-if="agentCanStartTraining" class="mt-3">
@@ -314,16 +314,16 @@
             <!-- Conversation starters (editable) -->
             <div class="mt-6">
               <div class="flex items-center gap-2 mb-2">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Conversation starters</span>
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Conversation starters</span>
                 <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
               </div>
               <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
-                <button v-for="(cs, i) in agentDetail.conversation_starters" :key="i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-700 hover:bg-gray-900 hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, cs, i)">
+                <button v-for="(cs, i) in agentDetail.conversation_starters" :key="i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, cs, i)">
                   <Spinner v-if="startingReport && startingStarterIdx === i" class="w-3 h-3 animate-spin shrink-0" />
                   <span>{{ starterTitle(cs) }}</span>
                 </button>
               </div>
-              <p v-else class="text-[11px] text-gray-300 italic">No conversation starters.</p>
+              <p v-else class="text-[11px] text-gray-300 dark:text-gray-600 italic">No conversation starters.</p>
             </div>
             </template>
           </div>
@@ -331,17 +331,17 @@
 
         <!-- Tables / Tools editable panel -->
         <template v-else-if="panelView">
-          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
+          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100" title="Open agent" @click="openAgent(panelView.agentId)">
+              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Open agent" @click="openAgent(panelView.agentId)">
                 <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
-                <span class="text-[13px] font-medium text-gray-700 truncate hover:text-gray-900">{{ panelAgent?.name || 'Agent' }}</span>
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || 'Agent' }}</span>
               </button>
-              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 shrink-0" />
-              <span class="text-[13px] text-gray-500 shrink-0">{{ panelKindLabel }}</span>
-              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
+              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />
+              <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
+              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">read-only</span>
             </div>
-            <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
@@ -359,7 +359,7 @@
                 max-height="calc(100vh - 240px)"
               >
                 <template #reload-left>
-                  <button type="button" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Manage connections" @click="openConnModal(panelView.agentId)"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-gray-400" />Connections</button>
+                  <button type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Manage connections" @click="openConnModal(panelView.agentId)"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Connections</button>
                 </template>
               </TablesSelector>
               <ToolsSelector
@@ -379,58 +379,58 @@
 
         <!-- File preview -->
         <template v-else-if="previewFile">
-          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
+          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-2 min-w-0">
-              <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-4 h-4 text-gray-400 shrink-0" />
-              <span class="text-xs font-medium text-gray-700 truncate">{{ previewFile.filename }}</span>
-              <span class="text-[10px] text-gray-300 shrink-0">{{ previewFile.content_type }}</span>
+              <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+              <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ previewFile.filename }}</span>
+              <span class="text-[10px] text-gray-300 dark:text-gray-600 shrink-0">{{ previewFile.content_type }}</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="downloadPreview">Open</button>
-              <button v-if="previewFileAgentId && canManageAgent(previewFileAgentId)" class="h-7 px-3 rounded-md border border-gray-200 text-red-600 text-xs font-medium hover:bg-red-50" @click="deleteFile(previewFileAgentId, previewFile)">Delete</button>
-              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePreview"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+              <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="downloadPreview">Open</button>
+              <button v-if="previewFileAgentId && canManageAgent(previewFileAgentId)" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10" @click="deleteFile(previewFileAgentId, previewFile)">Delete</button>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="closePreview"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
             </div>
           </div>
           <div class="flex-1 overflow-auto p-6">
-            <div v-if="previewLoading" class="text-center text-xs text-gray-400 py-10">Loading…</div>
-            <img v-else-if="isImage(previewFile) && previewUrl" :src="previewUrl" class="max-w-full rounded-lg border border-gray-200" />
-            <iframe v-else-if="isPdf(previewFile) && previewUrl" :src="previewUrl" class="w-full h-[72vh] rounded-lg border border-gray-200"></iframe>
-            <pre v-else-if="previewText !== null" class="text-xs text-gray-800 whitespace-pre-wrap font-mono bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto">{{ previewText }}</pre>
-            <div v-else class="text-center text-sm text-gray-400 py-10">
-              <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-9 h-9 mx-auto text-gray-200" />
+            <div v-if="previewLoading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">Loading…</div>
+            <img v-else-if="isImage(previewFile) && previewUrl" :src="previewUrl" class="max-w-full rounded-lg border border-gray-200 dark:border-gray-800" />
+            <iframe v-else-if="isPdf(previewFile) && previewUrl" :src="previewUrl" class="w-full h-[72vh] rounded-lg border border-gray-200 dark:border-gray-800"></iframe>
+            <pre v-else-if="previewText !== null" class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 overflow-auto">{{ previewText }}</pre>
+            <div v-else class="text-center text-sm text-gray-400 dark:text-gray-500 py-10">
+              <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-9 h-9 mx-auto text-gray-200 dark:text-gray-700" />
               <p class="mt-2">No inline preview for this file type.</p>
-              <button v-if="previewUrl" class="mt-2 text-xs text-gray-700 underline" @click="downloadPreview">Open file</button>
+              <button v-if="previewUrl" class="mt-2 text-xs text-gray-700 dark:text-gray-300 underline" @click="downloadPreview">Open file</button>
             </div>
           </div>
         </template>
 
         <template v-else-if="detail || creating">
           <!-- Header: status + actions -->
-          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
+          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-2 min-w-0">
               <template v-if="creating">
-                <span class="text-xs font-medium text-gray-500">New instruction</span>
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">New instruction</span>
               </template>
               <template v-else>
                 <!-- Pending state is authoritative from the live-hunk review
                      (/pending-changes), not the build-status heuristic, so the
                      badge never goes stale relative to the dots. -->
                 <span class="w-1.5 h-1.5 rounded-full" :class="isPending(detail) ? 'bg-amber-400' : h.getStatusIconClass({ ...detail, current_build_status: null, current_build_id: null })"></span>
-                <span class="text-xs font-medium text-gray-500">{{ isPending(detail) ? 'Pending review' : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ isPending(detail) ? 'Pending review' : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
               </template>
             </div>
             <div class="flex items-center gap-1.5">
-              <span v-if="savingMeta" class="text-[10px] text-gray-400">Saving…</span>
-              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="toggleHistory()">
+              <span v-if="savingMeta" class="text-[10px] text-gray-400 dark:text-gray-500">Saving…</span>
+              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" title="Version history" @click="toggleHistory()">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
               <template v-if="!editing && !diff">
-                <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="startEdit">Edit</button>
+                <button class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="startEdit">Edit</button>
               </template>
               <template v-else-if="!diff">
-                <button v-if="!creating && canApprove" class="h-7 px-3 rounded-md text-red-600 text-xs font-medium hover:bg-red-50 disabled:opacity-50" :disabled="deleting || saving" title="Delete this instruction" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? 'Deleting…' : 'Delete' }}</span></button>
-                <span v-if="!creating && canApprove" class="w-px h-4 bg-gray-200 mx-0.5"></span>
-                <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelEdit">Cancel</button>
+                <button v-if="!creating && canApprove" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" title="Delete this instruction" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? 'Deleting…' : 'Delete' }}</span></button>
+                <span v-if="!creating && canApprove" class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
+                <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelEdit">Cancel</button>
                 <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
               </template>
             </div>
@@ -450,25 +450,25 @@
 
           <!-- Diff view (version compare) -->
           <div v-else-if="diff" class="flex-1 flex flex-col min-h-0">
-            <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
+            <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                <span class="text-xs font-medium text-gray-700 truncate">{{ diff.title }}</span>
-                <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 shrink-0 tabular-nums">· {{ hunkCount }} change{{ hunkCount === 1 ? '' : 's' }}</span>
+                <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ diff.title }}</span>
+                <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">· {{ hunkCount }} change{{ hunkCount === 1 ? '' : 's' }}</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <template v-if="diff.buildId && canApprove">
-                  <button class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
-                  <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 border border-gray-150 text-[11px] font-medium text-gray-700 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
+                  <button class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
+                  <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
                 </template>
-                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" title="Close" @click="closeDiff"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Close" @click="closeDiff"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
             <!-- Run this suggestion's evals (validate the candidate build) -->
-            <div v-if="diff.buildId && canManageTests" class="px-6 py-3 border-b border-gray-100 bg-gray-50/40 shrink-0">
+            <div v-if="diff.buildId && canManageTests" class="px-6 py-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40 shrink-0">
               <div v-if="evalSuiteOptions.length" class="flex items-center gap-2">
-                <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                <select v-model="selectedEvalSuiteId" class="h-7 flex-1 min-w-0 text-xs border border-gray-200 rounded-md px-2 bg-white text-gray-700 outline-none">
+                <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <select v-model="selectedEvalSuiteId" class="h-7 flex-1 min-w-0 text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 outline-none">
                   <option v-for="o in evalSuiteOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
                 </select>
                 <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1 shrink-0" :disabled="!selectedEvalSuiteId || evalRunning || !evalHasCases" @click="runSuggestionEval">
@@ -476,24 +476,24 @@
                   {{ evalRunning ? 'Running…' : 'Run eval' }}
                 </button>
               </div>
-              <p v-else class="text-[11px] text-gray-400">No test cases yet — create them in <NuxtLink to="/evals" class="text-blue-600 hover:underline">/evals</NuxtLink>.</p>
+              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">No test cases yet — create them in <NuxtLink to="/evals" class="text-blue-600 dark:text-blue-400 hover:underline">/evals</NuxtLink>.</p>
 
               <!-- Active / latest run progress -->
-              <div v-if="evalActiveRun" class="mt-2 bg-white border border-gray-200 rounded-lg p-2.5 space-y-1.5">
+              <div v-if="evalActiveRun" class="mt-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 space-y-1.5">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-1.5">
                     <UIcon :name="evalActiveRun.status === 'in_progress' ? 'i-heroicons-arrow-path' : (evalActiveRun.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle')" :class="['w-3.5 h-3.5', evalActiveRun.status === 'in_progress' ? 'text-blue-500 animate-spin' : (evalActiveRun.status === 'success' ? 'text-green-500' : 'text-red-500')]" />
-                    <span class="text-xs font-medium text-gray-700">{{ evalPrettyStatus(evalActiveRun.status) }}</span>
+                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ evalPrettyStatus(evalActiveRun.status) }}</span>
                   </div>
-                  <NuxtLink :to="`/evals/runs/${evalActiveRun.id}`" class="text-[10px] text-blue-500 hover:underline inline-flex items-center gap-0.5">View details<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
+                  <NuxtLink :to="`/evals/runs/${evalActiveRun.id}`" class="text-[10px] text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">View details<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
-                  <span class="px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">Cases: {{ evalSummary.total }}</span>
-                  <span class="px-1.5 py-0.5 rounded border bg-green-50 text-green-700 border-green-200">Pass: {{ evalSummary.passed }}</span>
-                  <span class="px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200">Fail: {{ evalSummary.failed }}</span>
-                  <span v-if="evalSummary.inProgress" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200"><UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />Running: {{ evalSummary.inProgress }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-500/30">Cases: {{ evalSummary.total }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30">Pass: {{ evalSummary.passed }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30">Fail: {{ evalSummary.failed }}</span>
+                  <span v-if="evalSummary.inProgress" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30"><UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />Running: {{ evalSummary.inProgress }}</span>
                 </div>
-                <div v-if="evalActiveRun.status === 'in_progress'" class="w-full bg-gray-100 rounded-full h-1.5">
+                <div v-if="evalActiveRun.status === 'in_progress'" class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                   <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{ width: `${evalSummary.progressPercent}%` }" />
                 </div>
               </div>
@@ -503,11 +503,11 @@
               <!-- Inline per-hunk review for suggestions. Clean tracked changes;
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
-                <div v-if="!hunkCount" class="text-center text-xs text-gray-400 py-10">No remaining changes — this suggestion is resolved.</div>
-                <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800">
+                <div v-if="!hunkCount" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">No remaining changes — this suggestion is resolved.</div>
+                <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
-                    <span v-else class="group/h relative inline align-baseline rounded-[3px] transition-colors" :class="resolving === seg.idx ? 'bg-amber-100' : 'hover:bg-amber-50'">
+                    <span v-else class="group/h relative inline align-baseline rounded-[3px] transition-colors" :class="resolving === seg.idx ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'">
                       <template v-for="(op, oi) in seg.ops" :key="oi">
                         <del v-if="op.type === -1" class="text-rose-500/70 line-through decoration-rose-300 decoration-1">{{ op.text }}</del>
                         <ins v-else class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1">{{ op.text }}</ins>
@@ -515,15 +515,15 @@
                       <!-- Floating control anchored just below the first line of
                            the change (near the hover point even for tall blocks). -->
                       <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
-                        <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
+                        <span class="block w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
                           <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                            <span class="text-[10px] text-gray-500 truncate">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
-                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ml-1 text-gray-300 hover:text-gray-600 transition-colors" title="View trace" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
+                            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
+                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ml-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" title="View trace" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
                           <span class="flex items-center gap-1.5">
-                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />Accept</button>
-                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />Accept</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject</button>
                           </span>
                         </span>
                       </span>
@@ -539,19 +539,19 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 bg-amber-50/60 text-left hover:bg-amber-50 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-left hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-              <span class="text-[12px] text-amber-800">{{ pendingViews.length === 1 ? 'A pending change is waiting for review' : `${pendingViews.length} pending changes are waiting for review` }}</span>
-              <span class="ml-auto text-[11px] font-medium text-amber-700 inline-flex items-center gap-0.5 shrink-0">Review<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" /></span>
+              <span class="text-[12px] text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? 'A pending change is waiting for review' : `${pendingViews.length} pending changes are waiting for review` }}</span>
+              <span class="ml-auto text-[11px] font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">Review<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" /></span>
             </button>
             <!-- Scrollable content: title + body -->
             <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
               <div class="max-w-3xl">
-                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-2" />
-                <h2 v-else class="text-lg font-semibold text-gray-900 mb-2">{{ displayTitle(detail) }}</h2>
+                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
+                <h2 v-else class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ displayTitle(detail) }}</h2>
                 <!-- Optional description (advertised for skills) -->
-                <input v-if="editing" v-model="draft.description" placeholder="Add a description (optional)" class="w-full text-sm text-gray-600 outline-none placeholder:text-gray-300 mb-4" />
-                <p v-else-if="detail?.description" class="text-sm text-gray-500 mb-4">{{ detail.description }}</p>
+                <input v-if="editing" v-model="draft.description" placeholder="Add a description (optional)" class="w-full text-sm text-gray-600 dark:text-gray-300 bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-4" />
+                <p v-else-if="detail?.description" class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ detail.description }}</p>
                 <div v-else class="mb-4"></div>
                 <div class="prose-instruction">
                   <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
@@ -560,10 +560,10 @@
             </div>
 
             <!-- Frozen bottom panel: Details (compact, horizontal) / Analyze tabs -->
-            <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 bg-gray-50/40">
-              <div class="px-8 flex items-stretch gap-1 border-b border-gray-100/70">
-                <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-400 hover:text-gray-700'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />Details</button>
-                <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ml-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-400 hover:text-gray-700'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />Analyze</button>
+            <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40">
+              <div class="px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
+                <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />Details</button>
+                <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ml-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />Analyze</button>
               </div>
 
               <!-- Details: compact horizontal pills (inline-editable for admins) -->
@@ -571,69 +571,69 @@
                 <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
                   <!-- Status -->
                   <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
                   <!-- Loading (skills are always 'Smart' — locked) -->
                   <template v-if="metaEditable">
                     <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
-                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-500 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />Smart</span>
+                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400 dark:text-gray-500" />Smart</span>
                   </template>
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400 dark:text-gray-500" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
                   <!-- Category -->
                   <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
                   <!-- Agents -->
                   <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
-                    <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400" />All agents</span>
-                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
+                    <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />All agents</span>
+                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
-                  <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 text-amber-700 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />Primary</span>
+                  <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />Primary</span>
                   <!-- References -->
-                  <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 pl-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono" :class="metaEditable ? 'pr-1' : 'pr-2'">
-                    <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400" />{{ r.display_text || r.object_id }}
-                    <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
+                  <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 pl-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono" :class="metaEditable ? 'pr-1' : 'pr-2'">
+                    <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ r.display_text || r.object_id }}
+                    <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
                   </span>
                   <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple placeholder="+ Reference" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
                   <!-- Labels -->
                   <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple placeholder="+ Label" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
-                  <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]">{{ l.name }}</span>
+                  <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]">{{ l.name }}</span>
                   <!-- Kind (last) -->
                   <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400 dark:text-gray-500" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
                 </div>
 
                 <!-- Advanced: run-mode + channel scoping (collapsed by default) -->
-                <div class="mt-2 border-t border-gray-100/70 pt-2">
-                  <button type="button" class="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-700" @click="showAdvanced = !showAdvanced">
+                <div class="mt-2 border-t border-gray-100/70 dark:border-gray-800 pt-2">
+                  <button type="button" class="flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="showAdvanced = !showAdvanced">
                     <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
                     Advanced
-                    <span v-if="advancedHasValues && !showAdvanced" class="ml-1 w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                    <span v-if="advancedHasValues && !showAdvanced" class="ml-1 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
                   </button>
                   <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2">
                     <!-- Modes (empty = all modes) -->
                     <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-gray-400 w-20 shrink-0">Modes</span>
+                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">Modes</span>
                       <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple placeholder="All modes" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
                       <template v-else>
-                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />All modes</span>
-                        <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400" />{{ modeLabel(m) }}</span>
+                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />All modes</span>
+                        <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
                       </template>
                     </div>
                     <!-- Channels (empty = all channels) -->
                     <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-gray-400 w-20 shrink-0">Channels</span>
+                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">Channels</span>
                       <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple placeholder="All channels" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
                       <template v-else>
-                        <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />All channels</span>
-                        <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 text-gray-600 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400" />{{ channelLabel(c) }}</span>
+                        <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />All channels</span>
+                        <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ channelLabel(c) }}</span>
                       </template>
                     </div>
                   </div>
                 </div>
                 <!-- Source + author/timestamps -->
-                <div v-if="detail" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
+                <div v-if="detail" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
                   <span class="inline-flex items-center gap-1"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3" />{{ h.getSourceTooltip(detail) }}</span>
                   <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3 h-3" />{{ detail.user.name || detail.user.email }}</span>
                   <span v-if="detail.created_at">Created {{ fmtDate(detail.created_at) }}</span>
@@ -661,14 +661,14 @@
 
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
-            <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none" />
-            <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
-              <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400" /></div>
-              <h3 class="mt-3 text-base font-medium text-gray-900">Configure your agents</h3>
-              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ agents.length ? 'Select an agent on the left to explore and edit its data, tools, skills and instructions.' : 'Connect your data to create your first agent.' }}</p>
+            <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
+            <div class="absolute inset-x-0 bottom-0 dark:top-0 flex flex-col items-center justify-center text-center px-6 pb-2">
+              <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm ring-1 ring-gray-200/70 dark:ring-gray-700 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400 dark:text-gray-500" /></div>
+              <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">Configure your agents</h3>
+              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ agents.length ? 'Select an agent on the left to explore and edit its data, tools, skills and instructions.' : 'Connect your data to create your first agent.' }}</p>
               <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
                 <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New agent</button>
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white/70 text-gray-700 text-xs font-medium hover:bg-gray-50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />Connect data</button>
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Connect data</button>
               </div>
             </div>
           </div>
@@ -676,23 +676,23 @@
       </section>
 
       <!-- ── Pane 3: version history only (hidden by default; toggle via clock) ── -->
-      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-l border-gray-200 flex flex-col bg-white">
-        <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100">
-          <span class="text-[12px] font-medium text-gray-700">History</span>
-          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100" title="Close" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-l border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+        <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
+          <span class="text-[12px] font-medium text-gray-700 dark:text-gray-300">History</span>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Close" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
         <div class="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
-          <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300">No history yet.</div>
+          <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400 dark:text-gray-500">Loading…</div>
+          <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300 dark:text-gray-600">No history yet.</div>
           <button v-for="(v, i) in versions" :key="v.id" type="button"
                   class="group/h w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
-                  :class="diff && diff.versionId === v.id ? 'bg-gray-100' : 'hover:bg-gray-50'"
+                  :class="diff && diff.versionId === v.id ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                   @click="viewVersion(v, i === 0)">
             <div class="min-w-0">
-              <div class="text-[13px] text-gray-800">v{{ v.version_number }}<span v-if="i === 0" class="ml-1.5 text-[10px] font-medium text-green-600">current</span></div>
-              <div class="text-[11px] text-gray-400">{{ fmtDate(v.created_at) }}</div>
+              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="i === 0" class="ml-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">current</span></div>
+              <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ fmtDate(v.created_at) }}</div>
             </div>
-            <span v-if="i !== 0" class="text-[11px] text-gray-400 hover:text-gray-700 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">Restore</span>
+            <span v-if="i !== 0" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">Restore</span>
           </button>
         </div>
       </aside>
@@ -708,22 +708,22 @@
       <div class="p-5">
         <div class="flex items-center justify-between mb-3">
           <div>
-            <div class="text-sm font-semibold text-gray-900">Connections</div>
-            <div class="text-xs text-gray-500">{{ connections.length }} connected source{{ connections.length === 1 ? '' : 's' }}</div>
+            <div class="text-sm font-semibold text-gray-900 dark:text-white">Connections</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ connections.length }} connected source{{ connections.length === 1 ? '' : 's' }}</div>
           </div>
-          <button v-if="canCreateDataSource" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New</button>
+          <button v-if="canCreateDataSource" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New</button>
         </div>
         <div class="max-h-[60vh] overflow-auto -mx-1 px-1 space-y-0.5">
-          <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 text-left transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
-            <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 bg-white shrink-0">
+          <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
+            <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
               <DataSourceIcon :type="c.type" class="w-4 h-4" />
-              <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+              <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </span>
             <span class="min-w-0 flex-1">
-              <span class="block text-sm font-medium text-gray-800 truncate">{{ c.name }}</span>
-              <span class="block text-xs text-gray-400 truncate">{{ c.type }}</span>
+              <span class="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ c.name }}</span>
+              <span class="block text-xs text-gray-400 dark:text-gray-500 truncate">{{ c.type }}</span>
             </span>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-300 shrink-0" />
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" />
           </button>
         </div>
       </div>
@@ -750,23 +750,23 @@
 
     <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
       <div class="p-5">
-        <div class="text-sm font-medium text-gray-900">Edit conversation starters</div>
-        <div class="text-xs text-gray-500 mt-1">Short prompts users can click to start a conversation with this agent.</div>
+        <div class="text-sm font-medium text-gray-900 dark:text-white">Edit conversation starters</div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Short prompts users can click to start a conversation with this agent.</div>
         <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
-          <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 p-2">
+          <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 dark:border-gray-800 p-2">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-[10px] uppercase tracking-wide text-gray-400">Starter {{ idx + 1 }}</span>
-              <button class="text-[11px] text-gray-500 hover:text-red-600" @click="removeStarter(idx)">Remove</button>
+              <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Starter {{ idx + 1 }}</span>
+              <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400" @click="removeStarter(idx)">Remove</button>
             </div>
             <div class="space-y-1">
-              <input v-model="item.title" type="text" placeholder="Title" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              <textarea v-model="item.prompt" rows="2" placeholder="Prompt" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+              <input v-model="item.title" type="text" placeholder="Title" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+              <textarea v-model="item.prompt" rows="2" placeholder="Prompt" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
             </div>
           </div>
-          <button class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50" @click="addStarter">Add starter</button>
+          <button class="text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="addStarter">Add starter</button>
         </div>
         <div class="flex justify-end gap-2 mt-4">
-          <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg" @click="showEditStarters = false">Cancel</button>
+          <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg" @click="showEditStarters = false">Cancel</button>
           <button class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50" :disabled="savingStarters" @click="saveStarters">{{ savingStarters ? 'Saving…' : 'Save' }}</button>
         </div>
       </div>
@@ -777,11 +777,11 @@
       <div class="p-5">
         <div class="flex items-center gap-2 mb-1">
           <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500" />
-          <div class="text-sm font-semibold text-gray-900">Self Learning</div>
+          <div class="text-sm font-semibold text-gray-900 dark:text-white">Self Learning</div>
         </div>
         <AgentAutomationSettings v-if="showSelfLearning && agentView" :agent-id="agentView.agentId" @saved="onSelfLearningSaved" />
         <div class="flex justify-end mt-4">
-          <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50" @click="showSelfLearning = false">Close</button>
+          <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showSelfLearning = false">Close</button>
         </div>
       </div>
     </UModal>

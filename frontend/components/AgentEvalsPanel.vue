@@ -2,21 +2,21 @@
     <div class="text-sm">
         <div class="px-6 py-5">
             <!-- Inline stat row -->
-            <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 mb-4">
+            <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-4">
                 <span class="inline-flex items-center gap-1.5">
                     Status:
                     <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', reliabilityBadgeClass]">
                         <UIcon :name="reliabilityIcon" class="w-3 h-3" />{{ reliabilityLabel }}
                     </span>
                 </span>
-                <span><span class="font-semibold text-gray-900">{{ agentCases.length }}</span> test cases</span>
-                <span><span class="font-semibold text-gray-900">{{ agentRuns.length }}</span> runs</span>
+                <span><span class="font-semibold text-gray-900 dark:text-white">{{ agentCases.length }}</span> test cases</span>
+                <span><span class="font-semibold text-gray-900 dark:text-white">{{ agentRuns.length }}</span> runs</span>
                 <span class="inline-flex items-center gap-1.5">
                     Last result:
                     <span v-if="lastRunStatus" :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium', statusClass(lastRunStatus)]">
                         {{ localizedStatus(lastRunStatus) }}
                     </span>
-                    <span v-else class="text-gray-400">—</span>
+                    <span v-else class="text-gray-400 dark:text-gray-500">—</span>
                 </span>
             </div>
 
@@ -27,13 +27,13 @@
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
-                    <button v-if="canManage" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
+                    <button v-if="canManage" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
                     <input
                         v-if="activeTab === 'tests'"
                         v-model="searchTerm"
                         type="text"
                         :placeholder="$t('evals.tests.search')"
-                        class="h-7 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400 w-40"
+                        class="h-7 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400 w-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
                     />
                     <template v-if="activeTab === 'tests'">
                         <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">
@@ -50,7 +50,7 @@
             <div v-if="activeTab === 'tests'">
                 <table class="min-w-full text-xs">
                     <thead>
-                        <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                        <tr class="border-b border-gray-100 dark:border-gray-800 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                             <th class="py-2 pe-2 w-8 text-start">
                                 <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
                             </th>
@@ -60,23 +60,23 @@
                             <th class="py-2 text-start">{{ $t('evals.tests.colOptions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-50">
+                    <tbody class="divide-y divide-gray-50 dark:divide-gray-800">
                         <tr v-if="loadingCases">
-                            <td colspan="5" class="text-center text-gray-400 text-xs py-8">{{ $t('common.loading') }}</td>
+                            <td colspan="5" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('common.loading') }}</td>
                         </tr>
-                        <tr v-for="c in pagedCases" :key="c.id" class="hover:bg-gray-50">
+                        <tr v-for="c in pagedCases" :key="c.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td class="py-2 pe-2 w-8 align-top">
                                 <input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleOne(c.id)" />
                             </td>
                             <td class="py-2 pe-4">
                                 <div class="flex items-center gap-1.5 max-w-[360px]">
-                                    <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-2 py-0.5 shrink-0">Draft</span>
-                                    <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
-                                    <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-[10px] font-medium px-2 py-0.5 shrink-0">Auto</span>
+                                    <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400 text-[10px] font-medium px-2 py-0.5 shrink-0">Draft</span>
+                                    <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
+                                    <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-400 text-[10px] font-medium px-2 py-0.5 shrink-0">Auto</span>
                                     <span class="truncate flex-1" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
                                 </div>
                             </td>
-                            <td class="py-2 pe-4 text-gray-700">
+                            <td class="py-2 pe-4 text-gray-700 dark:text-gray-300">
                                 <div class="flex flex-wrap gap-1 max-w-[200px]">
                                     <span
                                         v-for="cat in categoriesForCase(c)"
@@ -85,7 +85,7 @@
                                     >{{ cat.label }}</span>
                                 </div>
                             </td>
-                            <td class="py-2 pe-4 text-gray-600">{{ c.suite_name }}</td>
+                            <td class="py-2 pe-4 text-gray-600 dark:text-gray-400">{{ c.suite_name }}</td>
                             <td class="py-2">
                                 <div class="flex items-center gap-1">
                                     <UButton v-if="c.status === 'draft'" color="green" size="2xs" variant="ghost" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
@@ -96,12 +96,12 @@
                             </td>
                         </tr>
                         <tr v-if="!loadingCases && pagedCases.length === 0">
-                            <td colspan="5" class="text-center text-gray-400 text-xs py-8">{{ $t('evals.tests.empty') }}</td>
+                            <td colspan="5" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('evals.tests.empty') }}</td>
                         </tr>
                     </tbody>
                 </table>
                 <div class="flex items-center justify-between pt-3">
-                    <div class="text-xs text-gray-500">{{ $t('evals.pagination.showing', { page: casesPage, n: pagedCases.length }) }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('evals.pagination.showing', { page: casesPage, n: pagedCases.length }) }}</div>
                     <div class="flex items-center gap-1.5">
                         <UButton size="xs" variant="ghost" :disabled="casesPage <= 1" @click="casesPage--">{{ $t('evals.pagination.prev') }}</UButton>
                         <UButton size="xs" variant="ghost" :disabled="!casesHasNext" @click="casesPage++">{{ $t('evals.pagination.next') }}</UButton>
@@ -112,14 +112,14 @@
             <!-- Runs tab (manual checks + automation, one list) -->
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
-                    <div class="text-xs text-gray-500">Every eval run — manual checks and automation.</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Every eval run — manual checks and automation.</div>
                     <UButton v-if="canManage && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
                         :loading="triggering" @click="runAutomationNow">
                         Run evals now
                     </UButton>
                 </div>
-                <div v-if="canManage && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                    <div class="flex items-center gap-2 text-xs text-gray-600">
+                <div v-if="canManage && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
+                    <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                         <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500 shrink-0" />
                         Self Learning is off — auto-run evals &amp; self-heal instructions when things change.
                     </div>
@@ -127,7 +127,7 @@
                 </div>
                 <table class="min-w-full text-xs">
                     <thead>
-                        <tr class="border-b border-gray-100 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                        <tr class="border-b border-gray-100 dark:border-gray-800 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                             <th class="py-2 pe-4 text-start">{{ $t('evals.runs.colTitle') }}</th>
                             <th class="py-2 pe-4 text-start">{{ $t('evals.runs.colStarted') }}</th>
                             <th class="py-2 pe-4 text-start">{{ $t('evals.runs.colTrigger') }}</th>
@@ -136,19 +136,19 @@
                             <th class="py-2 text-start">{{ $t('evals.runs.colDuration') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-50">
+                    <tbody class="divide-y divide-gray-50 dark:divide-gray-800">
                         <tr v-if="loadingRuns">
-                            <td colspan="6" class="text-center text-gray-400 text-xs py-8">{{ $t('common.loading') }}</td>
+                            <td colspan="6" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('common.loading') }}</td>
                         </tr>
-                        <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50">
+                        <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td class="py-2 pe-4">
-                                <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
+                                <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 dark:text-blue-400 hover:underline">
                                     {{ r.title || $t('evals.runs.fallbackTitle') }}
                                 </NuxtLink>
                             </td>
-                            <td class="py-2 pe-4 text-gray-600 whitespace-nowrap">{{ formatDate(r.started_at) }}</td>
+                            <td class="py-2 pe-4 text-gray-600 dark:text-gray-400 whitespace-nowrap">{{ formatDate(r.started_at) }}</td>
                             <td class="py-2 pe-4">
-                                <span class="capitalize text-gray-600">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</span>
+                                <span class="capitalize text-gray-600 dark:text-gray-400">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</span>
                                 <span v-if="runOutcome(r.id)" class="ms-1.5 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium align-middle" :class="runOutcome(r.id).cls" :title="runOutcome(r.id).title">
                                     {{ runOutcome(r.id).label }}
                                 </span>
@@ -161,10 +161,10 @@
                             <td class="py-2 pe-4">
                                 <span :class="resultBadgeClass(r)">{{ resultSummary(r) }}</span>
                             </td>
-                            <td class="py-2 text-gray-600">{{ formatDuration(r.started_at, r.finished_at) }}</td>
+                            <td class="py-2 text-gray-600 dark:text-gray-400">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                         </tr>
                         <tr v-if="!loadingRuns && agentRuns.length === 0">
-                            <td colspan="6" class="text-center text-gray-400 text-xs py-8">{{ $t('evals.runs.empty') }}</td>
+                            <td colspan="6" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('evals.runs.empty') }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -186,11 +186,11 @@
             <div class="p-5">
                 <div class="flex items-center gap-2 mb-1">
                     <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500" />
-                    <div class="text-sm font-semibold text-gray-900">Self Learning</div>
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">Self Learning</div>
                 </div>
                 <AgentAutomationSettings v-if="showSelfLearning && agentId" :agent-id="agentId" @saved="onSelfLearningSaved" />
                 <div class="flex justify-end mt-4">
-                    <button class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50" @click="showSelfLearning = false">Close</button>
+                    <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showSelfLearning = false">Close</button>
                 </div>
             </div>
         </UModal>
@@ -289,14 +289,14 @@ function tabClass(tab: string) {
     const isActive = activeTab.value === tab
     return [
         'h-7 px-3 rounded-md text-xs font-medium transition-colors',
-        isActive ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:bg-gray-50',
+        isActive ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50',
     ]
 }
 
 function statusClass(status?: string) {
-    if (status === 'success') return 'bg-green-100 text-green-800'
-    if (status === 'fail') return 'bg-red-100 text-red-800'
-    return 'bg-gray-100 text-gray-800'
+    if (status === 'success') return 'bg-green-100 text-green-800 dark:bg-green-500/10 dark:text-green-400'
+    if (status === 'fail') return 'bg-red-100 text-red-800 dark:bg-red-500/10 dark:text-red-400'
+    return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
 }
 
 function localizedStatus(status?: string) {
@@ -323,9 +323,9 @@ function derivedRunStatus(r: RunItem) {
 
 function runStatusClass(r: RunItem) {
     const s = derivedRunStatus(r)
-    if (s === 'success') return 'bg-green-100 text-green-800'
-    if (s === 'fail') return 'bg-red-100 text-red-800'
-    return 'bg-gray-100 text-gray-800'
+    if (s === 'success') return 'bg-green-100 text-green-800 dark:bg-green-500/10 dark:text-green-400'
+    if (s === 'fail') return 'bg-red-100 text-red-800 dark:bg-red-500/10 dark:text-red-400'
+    return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
 }
 
 function resultSummary(r: RunItem) {
@@ -335,9 +335,9 @@ function resultSummary(r: RunItem) {
 
 function resultBadgeClass(r: RunItem) {
     const s = derivedRunStatus(r)
-    if (s === 'success') return 'inline-flex px-2 py-0.5 rounded-full bg-green-100 text-green-800'
-    if (s === 'fail') return 'inline-flex px-2 py-0.5 rounded-full bg-red-100 text-red-800'
-    return 'inline-flex px-2 py-0.5 rounded-full bg-gray-100 text-gray-800'
+    if (s === 'success') return 'inline-flex px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-500/10 dark:text-green-400'
+    if (s === 'fail') return 'inline-flex px-2 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-500/10 dark:text-red-400'
+    return 'inline-flex px-2 py-0.5 rounded-full bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
 }
 
 const _df = useFormatDate()
@@ -384,14 +384,14 @@ function categoriesForCase(c: TestCaseRow) {
 
 function badgeClassesFor(catKey: string) {
     const map: Record<string, string> = {
-        'tool:create_data': 'bg-blue-50 text-blue-700 border-blue-100',
-        'tool:clarify': 'bg-amber-50 text-amber-700 border-amber-100',
-        'tool:describe_table': 'bg-teal-50 text-teal-700 border-teal-100',
-        'metadata': 'bg-slate-50 text-slate-700 border-slate-100',
-        'completion': 'bg-purple-50 text-purple-700 border-purple-100',
-        'judge': 'bg-gray-100 text-gray-700 border-gray-200',
+        'tool:create_data': 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/30',
+        'tool:clarify': 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30',
+        'tool:describe_table': 'bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-500/10 dark:text-teal-400 dark:border-teal-500/30',
+        'metadata': 'bg-slate-50 text-slate-700 border-slate-100 dark:bg-slate-500/10 dark:text-slate-400 dark:border-slate-500/30',
+        'completion': 'bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-500/10 dark:text-purple-400 dark:border-purple-500/30',
+        'judge': 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700',
     }
-    return map[catKey] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
+    return map[catKey] || 'bg-zinc-50 text-zinc-700 border-zinc-100 dark:bg-zinc-500/10 dark:text-zinc-400 dark:border-zinc-500/30'
 }
 
 function toggleOne(id: string) {
@@ -594,10 +594,10 @@ const reliabilityLabel = computed(() => {
     return 'Healthy'
 })
 const reliabilityBadgeClass = computed(() => {
-    if (publishStatus.value === 'disabled') return 'bg-red-100 text-red-800'
-    if (reliabilityStatus.value === 'development') return 'bg-amber-100 text-amber-800'
-    if (reliabilityStatus.value === 'training') return 'bg-blue-100 text-blue-800'
-    return 'bg-green-100 text-green-800'
+    if (publishStatus.value === 'disabled') return 'bg-red-100 text-red-800 dark:bg-red-500/10 dark:text-red-400'
+    if (reliabilityStatus.value === 'development') return 'bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400'
+    if (reliabilityStatus.value === 'training') return 'bg-blue-100 text-blue-800 dark:bg-blue-500/10 dark:text-blue-400'
+    return 'bg-green-100 text-green-800 dark:bg-green-500/10 dark:text-green-400'
 })
 const reliabilityIcon = computed(() => {
     if (publishStatus.value === 'disabled') return 'i-heroicons-no-symbol'
@@ -615,11 +615,11 @@ function triggerLabel(t?: string) {
     } as Record<string, string>)[t || ''] || t || '—'
 }
 function autoStatusClass(s?: string) {
-    if (s === 'passed') return 'bg-green-100 text-green-800'
-    if (s === 'passed_pending') return 'bg-blue-100 text-blue-800'
-    if (s === 'gave_up' || s === 'error') return 'bg-red-100 text-red-800'
-    if (s === 'running') return 'bg-gray-100 text-gray-700'
-    return 'bg-gray-100 text-gray-600'
+    if (s === 'passed') return 'bg-green-100 text-green-800 dark:bg-green-500/10 dark:text-green-400'
+    if (s === 'passed_pending') return 'bg-blue-100 text-blue-800 dark:bg-blue-500/10 dark:text-blue-400'
+    if (s === 'gave_up' || s === 'error') return 'bg-red-100 text-red-800 dark:bg-red-500/10 dark:text-red-400'
+    if (s === 'running') return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+    return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
 }
 function autoStatusLabel(s?: string) {
     return ({

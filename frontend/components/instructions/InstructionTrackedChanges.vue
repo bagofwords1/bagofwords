@@ -7,41 +7,41 @@
 -->
 <template>
   <div class="flex flex-col min-h-0" :class="compact ? '' : 'flex-1'">
-    <div class="flex items-center justify-between border-b border-gray-100" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
+    <div class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
       <div class="flex items-center gap-2 min-w-0">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-        <span class="font-medium text-gray-700" :class="compact ? 'text-[11px]' : 'text-xs'">Pending review</span>
-        <span class="text-[11px] text-gray-400 tabular-nums shrink-0">· {{ totalHunks }} change{{ totalHunks === 1 ? '' : 's' }}</span>
-        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 hover:text-gray-700 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? 'Collapse' : 'Expand all' }}</button>
+        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-[11px]' : 'text-xs'">Pending review</span>
+        <span class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ totalHunks }} change{{ totalHunks === 1 ? '' : 's' }}</span>
+        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? 'Collapse' : 'Expand all' }}</button>
       </div>
       <div v-if="canApprove && totalHunks" class="flex items-center gap-1.5 shrink-0">
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject all</button>
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />Accept all</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject all</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />Accept all</button>
       </div>
     </div>
     <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'flex-1 px-8 py-6 max-w-3xl'">
-      <div v-if="loading" class="text-center text-xs text-gray-400 py-10">Loading…</div>
-      <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 py-6">No pending changes — all resolved.</div>
-      <div v-else class="whitespace-pre-wrap break-words text-gray-800" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
+      <div v-if="loading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">Loading…</div>
+      <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 dark:text-gray-500 py-6">No pending changes — all resolved.</div>
+      <div v-else class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
         <template v-for="(seg, si) in displaySegments" :key="si">
-          <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 hover:text-gray-600 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines }} unchanged line{{ seg.lines === 1 ? '' : 's' }} ···</span>
+          <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines }} unchanged line{{ seg.lines === 1 ? '' : 's' }} ···</span>
           <template v-else-if="seg.kind === 'context'">
             <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
           </template>
           <span v-else :id="`htc-${seg.key}`" class="group/h relative inline align-baseline rounded-[3px] transition-colors"
-                :class="resolving === seg.key ? 'bg-amber-100' : 'hover:bg-amber-50'">
+                :class="resolving === seg.key ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'">
             <del v-if="seg.before" class="text-rose-500/70 line-through decoration-rose-300 decoration-1"><template v-for="(pt, pi) in mentionParts(seg.before)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></del>
             <ins v-if="seg.after" class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1"><template v-for="(pt, pi) in mentionParts(seg.after)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></ins>
-            <span v-if="resolving === seg.key" class="absolute inset-0 rounded bg-white/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" /></span>
+            <span v-if="resolving === seg.key" class="absolute inset-0 rounded bg-white/50 dark:bg-gray-900/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" /></span>
             <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
-              <span class="block w-max max-w-xs rounded-lg bg-white shadow-md ring-1 ring-gray-200/70 p-2">
+              <span class="block w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
                 <span class="flex items-center gap-1.5 mb-1.5">
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="seg.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                  <span class="text-[10px] text-gray-500 truncate">{{ seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="seg.created_by"> · {{ seg.created_by.name }}</template></span>
+                  <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="seg.created_by"> · {{ seg.created_by.name }}</template></span>
                 </span>
                 <span class="flex items-center gap-1.5">
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="accept(seg)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-gray-200 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="reject(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400" />Reject</button>
+                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="accept(seg)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
+                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="reject(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject</button>
                 </span>
               </span>
             </span>
