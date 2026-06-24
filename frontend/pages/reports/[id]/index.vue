@@ -228,10 +228,18 @@
 
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
-								<!-- AI avatar (hidden on mobile) -->
-								<div class="w-[28px] me-2 flex-shrink-0 hidden md:block">
-									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
-									</div>
+								<!-- AI avatar (hidden on mobile): org brand image + model badge -->
+								<div class="me-2 flex-shrink-0 hidden md:block">
+									<UTooltip :text="m.model ? `Generated with ${m.model}` : 'AI Analyst'" :popper="{ placement: 'top' }">
+										<div class="relative inline-flex">
+											<!-- Company brand image (falls back to BoW logo). Height-bound, width capped. -->
+											<img :src="orgIconUrl || '/assets/logo-128.png'" alt="" class="h-7 w-auto max-w-[72px] object-contain rounded-lg" />
+											<!-- Model brand overlay -->
+											<span v-if="m.model" class="absolute -bottom-1 -end-1 h-4 w-4 rounded-full bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 flex items-center justify-center overflow-hidden">
+												<LLMProviderIcon :provider="resolveModelBrand(m.model)" :icon="true" class="h-3 w-3" />
+											</span>
+										</div>
+									</UTooltip>
 								</div>
 								<div class="w-full ms-4 max-w-2xl">
 									<!-- System message -->
@@ -828,6 +836,8 @@ interface ChatMessage {
 	id: string
 	role: ChatRole
 	status?: ChatStatus
+	// LLM model id used for this completion (e.g. "claude-sonnet-4-6"); drives the avatar brand overlay
+	model?: string | null
 	prompt?: { content: string; mentions?: Array<{ name: string; items: any[] }> }
 	completion_blocks?: CompletionBlock[]
 	tool_calls?: ToolCall[]
@@ -858,6 +868,11 @@ const report_id = (route.params.id as string) || ''
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
+
+// Organization branding: use the company-uploaded icon as the assistant avatar
+// (falls back to the BoW logo). Each assistant message overlays its model brand.
+const { settings: orgSettings } = useOrgSettings()
+const orgIconUrl = computed<string | null>(() => orgSettings.value?.config?.general?.icon_url || null)
 
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
@@ -2705,6 +2720,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				id: c.id,
 				role: c.role as ChatRole,
 				status: status,
+				model: c.model,
 				prompt: c.prompt,
 				completion: c.completion,
 				completion_blocks: blocks,
@@ -2802,6 +2818,7 @@ async function loadPreviousCompletions() {
                 id: c.id,
                 role: c.role as ChatRole,
                 status,
+                model: c.model,
                 prompt: c.prompt,
                 completion_blocks: blocks,
                 created_at: c.created_at,
@@ -3267,6 +3284,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		id: sysId,
 		role: 'system',
 		status: 'in_progress',
+		model: data.model_id || undefined,
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)
