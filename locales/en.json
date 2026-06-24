@@ -2376,8 +2376,8 @@
     },
     "instructions": {
       "title": "Custom Instructions",
-      "subtitle": "A personal note shared with the AI when it works on your behalf in this organization.",
-      "placeholder": "e.g. Always show revenue in USD and prefer concise summaries.",
+      "subtitle": "Tell the AI about yourself — your role and what you care about. It's shared with the AI when it works on your behalf in this organization.",
+      "placeholder": "e.g. I'm the CEO. I focus on revenue and growth — keep answers high-level and concise, and show figures in USD.",
       "saved": "Instructions saved",
       "saveFailed": "Failed to save instructions"
     },
