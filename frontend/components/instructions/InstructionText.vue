@@ -239,4 +239,19 @@ const renderedHtml = computed(() => {
   font-size: 0.95em;
   white-space: nowrap;
 }
+
+/* Dark mode overrides. The `.dark` class lives on <html> (Tailwind darkMode:
+   'class'), outside this component's scope, so these rules are authored as
+   :global and matched by the unique `.instruction-prose` class. */
+:global(.dark .instruction-prose) { color: #e5e7eb; }
+:global(.dark .instruction-prose h1),
+:global(.dark .instruction-prose h2),
+:global(.dark .instruction-prose h3) { color: #f9fafb; }
+:global(.dark .instruction-prose code) { background: #374151; color: #e5e7eb; }
+:global(.dark .instruction-prose pre) { background: #1f2937; }
+:global(.dark .instruction-prose blockquote) { border-left-color: #374151; color: #9ca3af; }
+:global(.dark .instruction-prose .instruction-mention) {
+  background-color: rgba(129, 140, 248, 0.18);
+  color: #c7d2fe;
+}
 </style>
