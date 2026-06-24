@@ -13,33 +13,56 @@ connection; we model capability + audience and render in the right place.
 
 ---
 
-## 1. Information architecture — three surfaces
+## 1. Information architecture — three surfaces, one usage catalog
+
+`/integrations` is the unified **"Sources & tools available to me"** catalog — a
+discovery + usage surface, NOT a "things I personally connect" surface. It lists
+**everything the user can query**: their personal tools *and* the org data sources
+they have access to, distinguished by a **badge + per-type affordance**.
 
 | Surface | What it is | Scope | Ceremony | Lives in |
 |---|---|---|---|---|
 | **Agents** (`/agents`) | Curated units: connections + tables + tools + instructions + skills + evals | Org / shared | High — reusable, governed | existing master-detail |
-| **Integrations** (`/integrations`) | Single personal tools you connect and query directly | **User-personal** | Low — connect & go | new page |
-| **Data sources / Connections** | Admin SQL servers (Postgres, Snowflake, BigQuery…), schema-synced | Org / admin | Admin-managed | Agents → Connections panel |
+| **Integrations** (`/integrations`) | Unified catalog of sources & tools available to me (personal tools + org data) | Personal **and** org (badged) | Low — discover & query | new page |
+| **Connections (admin)** | Admin CRUD for SQL servers / data sources, schema sync | Org / admin | Admin-managed | Agents → Connections panel |
 
-The dividing line is **personal tool vs org data**:
+The dividing line is no longer *what appears on the page* but the **badge +
+affordance**:
 
-- Admin's many **SQL servers are NOT integrations** — they're
-  `ui_form="data_source"`, admin-owned, schema-synced, and live in the
-  **Connections** area (the bottom-left "SQLite Chinook / +" panel on the Agents
-  page). They feed *agents*. They must **never** appear in the personal
-  Integrations catalog, even if they technically support per-user auth.
-- **Integrations** are the opposite end: personal, self-serve, no schema sync,
-  query-on-demand.
+- **Personal** items (Gmail, my Jira, personal Drive) — "Connected as you", OAuth
+  connect/manage.
+- **Org** items (Snowflake, Postgres, BigQuery) — "Org" badge, **read-only
+  surface**: no Connect button (admin owns them); "available to you"; admins get a
+  **Configure →** deep-link into the admin Connections flow.
+- **Available** items (catalog, not yet connected) — Connect.
 
-### How the three relate (the graph)
+Admin **CRUD** for data sources still lives in **one place** (the admin Connections
+flow); `/integrations` only *surfaces* org data sources read-only. A connector with
+`connect_audience="both"` (e.g. Google Drive) can show in both `/agents` and
+`/integrations`, and can carry both an Org and a Personal facet.
 
-- An **integration** = a single connected tool → query directly or `@mention`.
+### How the surfaces relate (the graph)
+
+- An **integration item** = a single connectable/usable source → query directly or
+  `@mention`.
 - An **agent** = a curated bundle that *can include* connections, integration
   tools, tables, and instructions.
-- **Promotion path:** an admin can attach a tool/connection into an agent (the
-  existing `domain_connection` link). Integrations are the lightweight entry;
-  agents are where things get organized and governed. No duplication — same
-  `Connection`, two framings.
+- **Promotion path:** an admin attaches a tool/connection into an agent (the
+  existing `domain_connection` link). Integrations are the lightweight "use it now"
+  entry; agents are the curated, governed bundles. No duplication — same
+  `Connection`, different framings.
+
+### Guardrails (so the unified catalog isn't a mush)
+1. **Different affordance per badge.** A non-admin never sees "Connect" on an org
+   data source — they can't connect it. Org items read "available," not "connect."
+2. **One source of truth for admin CRUD.** `/integrations` surfaces org sources;
+   create/edit stays in the admin Connections flow (the Org card "Configure" is a
+   deep-link).
+3. **Respect RBAC.** Show only the org sources the user can access
+   (`DataSourceMembership`, public/membership) — otherwise the page leaks the data
+   map.
+4. **Two "Add" doors.** "Add integration" (personal, self-serve) ≠ admin "Connect
+   data source." The catalog can *show* org items, but adding one is the admin flow.
 
 ---
 
@@ -77,41 +100,44 @@ the admin step; credential-based `user_required` (Snowflake) never had an app st
 
 **Mirror the `/agents` master-detail shell** (not a bare grid) for consistency.
 
-**Left panel — your integrations + catalog**
-- **Connected** (top): the user's personal connections — `Gmail •`, `Jira •`,
-  personal `Drive •` — each with a live status dot
-  (connected / token-expired / needs-reauth). Explicitly "yours."
-- **Available** (below): the self-serve catalog (Outlook, Notion, Calendar…) with
-  Connect.
-- Search + filter (All / Connected / Needs auth) at top.
+**Left panel — available sources & tools (grouped by badge)**
+- **Your connections** (personal): `Gmail •`, `Jira •`, personal `Drive •` — live
+  status dot (connected / token-expired / needs-reauth). Explicitly "yours."
+- **Workspace data** (org): `Snowflake`, `Postgres`, `BigQuery` the user can access
+  — **Org** badge, no connect affordance.
+- **Available** (catalog, not yet connected): self-serve connectors with Connect.
+- Search + filter (All / Personal / Org / Needs auth) at top.
 
-**Right panel — selected integration detail**
-- Header: icon, title, **personal badge** ("Connected as you · yochay"),
-  Connect / Disconnect.
-- **Actions** — tools list with per-user enable/disable toggles
-  (`UserConnectionTool`). (Already built in the modal; promote into the detail
-  pane.)
-- **Auth** — your sign-in / token status / reconnect.
-- **Usage** — recent calls + which reports used it (mirrors the agent header's
-  "Activity / tasks").
-- **Admin view** (admins only) — which actions are exposed org-wide + shared OAuth
-  app config.
+**Right panel — selected item detail (affordance depends on badge)**
+- Header: icon, title, **badge** — "Connected as you · yochay" (personal) or "Org ·
+  workspace" (org). Connect/Disconnect for personal; for org, **Configure →**
+  (admins only, deep-link to admin Connections).
+- **Actions / Tables** — for tool integrations: actions list with per-user toggles
+  (`UserConnectionTool`). For org data sources: the tables/catalog (read-only,
+  RBAC-scoped).
+- **Auth** — personal: your sign-in / token / reconnect. Org: "available via your
+  workspace" (no per-user auth, or per-user overlay if `user_required`).
+- **Usage** — recent calls + which reports/agents used it.
+- **Admin view** (admins only) — org-wide enabled actions + shared OAuth app /
+  connection config.
 
-**The crucial CTA — query directly.** Each detail gets a **"New report"** button
-that opens a chat already scoped to `@<integration>`. That, plus the inline
-`@integration` mention from any prompt box, is what makes integrations usable
-*without* an agent — the whole point.
+**The crucial CTA — query directly (personal AND org).** Each detail gets a **"New
+report"** button that opens a chat scoped to `@<item>` — `@Gmail` or `@Snowflake` —
+with no agent required. Org data sources get the **raw** experience (tables, no
+curation); the secondary **"Used in N agents →"** points to the curated path. This
+is the same `@mention` flow, given a home on this page.
 
-### Personal-only semantics
-Make "this is yours" unmistakable: integrations show **"Connected as you"**, use
-*your* token at query time, and another user's `/integrations` shows *their*
-connections, not yours. This is the visible contrast with agents (shared org
-units everyone sees).
+### Badges & ownership semantics
+- **Personal** items show **"Connected as you"**, use *your* token at query time;
+  another user's `/integrations` shows *their* personal connections, not yours.
+- **Org** items show **"Org"**, are shared/admin-owned, RBAC-filtered to what the
+  user can access, and are **read-only** here (admin CRUD lives elsewhere).
+This visible badge contrast is what lets one catalog hold both without confusion.
 
 ### Two doors for "Add"
-- `/integrations` **Add** → self-serve (personal) connectors only.
-- Admin **Connect data source** (SQL servers) stays in the Agents/Connections
-  admin flow. Never show Snowflake in the personal Integrations catalog.
+- `/integrations` **Add integration** → self-serve (personal) connectors only.
+- Admin **Connect data source** (SQL servers) stays in the admin Connections flow.
+  The catalog *shows* org data sources read-only, but adding one is the admin flow.
 
 ---
 
@@ -128,11 +154,14 @@ DataSource. This is the central new mechanism; everything else is reuse.
 
 ## 5. Phases
 
-### Phase 0 — Runtime: per-user tool resolution (unblocks everything)
-- Relax `resolve_file_client` (and the tool registry) to also accept connections
-  the current user has credentials/tools for — not only `report.data_sources`.
-- Inject a mentioned connection's tools into the turn's toolset with no DataSource
-  attached, capability-gated, resolved by current user.
+### Phase 0 — Runtime: resolve a connection without an agent (unblocks everything)
+- Relax `resolve_file_client` (and the tool registry) to accept a connection the
+  current user can use — **personal** (holds `UserConnectionCredentials`) **or
+  org** (an RBAC-accessible data source) — not only `report.data_sources`.
+- Inject a mentioned connection's tools/tables into the turn's toolset with no
+  DataSource attached, capability-gated, resolved by current user.
+- One mechanism, double payoff: serves both personal `@Gmail` and org `@Snowflake`
+  standalone queries.
 - **Status: not started** (the highest-value next step).
 
 ### Phase 1 — `@integration` mention + catalog backend
@@ -194,11 +223,13 @@ Integrations UI, the provider-app / DCR refactor.
 
 ## 8. Open questions / decisions to lock
 
-1. **Are integrations strictly personal, or can a workspace share one?**
-   (e.g. a Jira service account everyone uses.) Stated model = **personal only**;
-   anything shared becomes an **agent**. If we ever want shared tools, add a
-   "Shared by workspace" group to `/integrations` — but default is personal-only.
-   → *Need confirmation this stays personal-only.*
+1. **DECIDED — `/integrations` is a unified catalog, not personal-only.** It
+   surfaces both **personal** tools (badge "Connected as you") and **org** data
+   sources (badge "Org", read-only, RBAC-filtered). Org SQL servers (Snowflake,
+   etc.) appear in **both** `/agents` and `/integrations`. Admin CRUD stays in the
+   admin Connections flow. Remaining sub-question: do we also want a third
+   **"Shared tool"** class (an org-shared Jira service account, distinct from a
+   data source)? Default: no — shared tools become an agent.
 
 2. **Querying an integration with no agent — what report context?** A `@Gmail`
    chat with no DataSource: does it create a lightweight "scratch" report, or a
