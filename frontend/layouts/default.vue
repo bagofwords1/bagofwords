@@ -223,27 +223,6 @@
             </button>
           </UDropdown>
         </li>
-        <li>
-          <button
-            @click="toggleColorMode"
-            :class="[
-              'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
-              isCollapsed ? 'justify-center' : 'gap-2.5'
-            ]"
-          >
-            <UTooltip v-if="isCollapsed" :text="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'" :popper="{ placement: tooltipPlacement }">
-              <span class="flex items-center justify-center w-5 h-5 text-[16px]">
-                <UIcon :name="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
-                <UIcon :name="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'" />
-              </span>
-              <span v-if="showText">{{ colorMode.value === 'dark' ? 'Light mode' : 'Dark mode' }}</span>
-            </template>
-          </button>
-        </li>
         <li v-if="version && !isCollapsed">
           <UTooltip :text="$t('nav.version')" :popper="{ placement: tooltipPlacement }">
             <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900 dark:hover:text-white">
@@ -281,16 +260,6 @@
   import McpModal from '~/components/McpModal.vue'
   import UserProfileModal from '~/components/UserProfileModal.vue'
   import { useCan } from '~/composables/usePermissions'
-
-  const colorMode = useColorMode()
-  const toggleColorMode = () => {
-    const next = colorMode.value === 'dark' ? 'light' : 'dark'
-    if (!document.startViewTransition) {
-      colorMode.preference = next
-      return
-    }
-    document.startViewTransition(() => { colorMode.preference = next })
-  }
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)

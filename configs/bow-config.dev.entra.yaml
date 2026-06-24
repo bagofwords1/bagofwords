@@ -14,7 +14,7 @@ features:
   verify_emails: false
 
 auth:
-  mode: "hybrid"
+  mode: "sso_only"
 
 google_oauth:
   enabled: false
@@ -36,7 +36,6 @@ oidc_providers:
  # redirect_path: /api/auth/okta/callback
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
-
 - name: entra
   enabled: true
   issuer: https://login.microsoftonline.com/3871cb7e-3f16-4b81-84c5-1a5e185509f9/v2.0
@@ -50,7 +49,6 @@ oidc_providers:
   sync_groups: true
   group_claim: "groups"
   resolve_group_names: true
-
 # ldap:
 #  enabled: true
 #  url: ldaps://ad.company.com:636
