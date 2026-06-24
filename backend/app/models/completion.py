@@ -69,6 +69,13 @@ class Completion(BaseSchema):
     #    "response":     {"score": int, "reasoning": str}}
     judge_json = Column(JSON, nullable=True, default=None)
 
+    # Suggested follow-up questions generated (on the small/default LLM) at the
+    # end of a web-session agent run. Shape: ["question 1", "question 2", ...].
+    # Only populated for web completions when the org's enable_follow_ups setting
+    # is on. Persisted so the chips survive a page reload (the live render comes
+    # from the in-stream `completion.follow_ups` SSE event).
+    follow_ups = Column(JSON, nullable=True, default=None)
+
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
     feedbacks = relationship("CompletionFeedback", back_populates="completion", cascade="all, delete-orphan", lazy='select')
     

@@ -355,7 +355,8 @@
     "duration": "Длительность: {ms} мс",
     "widgetRef": "→ Виджет: {id}",
     "stepRef": "→ Шаг: {id}",
-    "viewAgentTrace": "Просмотр трассировки агента"
+    "viewAgentTrace": "Просмотр трассировки агента",
+    "followUp": "Follow up"
   },
   "tools": {
     "common": {

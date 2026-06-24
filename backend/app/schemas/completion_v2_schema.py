@@ -147,6 +147,10 @@ class CompletionV2Schema(BaseModel):
     # Suggested instructions produced during this agent execution (optional, outside blocks)
     instruction_suggestions: Optional[List[Dict[str, Any]]] = None
 
+    # Suggested follow-up questions (web sessions only). Persisted on the
+    # completion; also delivered live via the `completion.follow_ups` SSE event.
+    follow_ups: Optional[List[str]] = None
+
     # Instructions loaded into context during this completion (for UI indicator)
     loaded_instructions: Optional[List[Dict[str, Any]]] = None
 

@@ -1291,6 +1291,68 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
+    def _follow_ups_enabled(self) -> bool:
+        """True only for web sessions (platform is None) when the org's
+        enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
+        all carry a non-null platform and are excluded."""
+        if self.platform is not None:
+            return False
+        if not self.organization_settings:
+            return False
+        cfg = self.organization_settings.get_config("enable_follow_ups")
+        if not cfg:
+            return False
+        if getattr(cfg, "state", None) and cfg.state != "enabled":
+            return False
+        return bool(getattr(cfg, "value", False))
+
+    async def _generate_and_emit_follow_ups(self):
+        """Generate follow-up questions on the small model, persist them on the
+        system completion, and emit a `completion.follow_ups` SSE event so the UI
+        renders chips live (before [DONE]). Best-effort: never raises."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            messages_section = await self.context_hub.message_builder.build(max_messages=8)
+            messages_context = messages_section.render()
+        except Exception:
+            try:
+                messages_context = await self.context_hub.get_messages_context(max_messages=8)
+            except Exception:
+                messages_context = ""
+
+        if not messages_context:
+            return
+
+        questions = await self.reporter.generate_follow_ups(messages_context)
+        if not questions:
+            return
+
+        # Persist on the system completion (reassign so SQLAlchemy detects the
+        # JSON change — same pattern as judge_json).
+        try:
+            self.system_completion.follow_ups = list(questions)
+            self.db.add(self.system_completion)
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist follow_ups: {e}")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+
+        # Emit live so the chips appear without waiting for a reload.
+        if self.event_queue:
+            try:
+                await self.event_queue.put(SSEEvent(
+                    event="completion.follow_ups",
+                    completion_id=str(self.system_completion.id),
+                    data={"questions": list(questions)},
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to emit follow_ups event: {e}")
+
     def _build_slim_context_snapshot(self, view, top_k_schema: int = 10) -> dict:
         """
         Build a slim context snapshot that only includes usage tracking data.
@@ -3398,7 +3460,19 @@ class AgentV2:
                 import logging
                 _fallback_logger = logging.getLogger(__name__)
                 _fallback_logger.warning(f"Failed to start title generation: {e}")
-            
+
+            # Follow-up suggestions (web sessions only, when org setting is on).
+            # Generated INLINE here — not as a fire-and-forget task like the title
+            # — so it's reliable: self.db is alive and the SSE event is enqueued
+            # before main_execution returns (i.e. before [DONE]). Persisted on the
+            # completion so the chips also survive a page reload.
+            try:
+                if self._follow_ups_enabled() and self.system_completion:
+                    await self._generate_and_emit_follow_ups()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Follow-up suggestions failed: {e}")
+
             # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
             try:
                 final_messages_context = await self.context_hub.get_messages_context(max_messages=20)
