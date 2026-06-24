@@ -89,10 +89,41 @@ as a wide / tall / square image and re-screenshot.
 
 ### Observed
 
-<!-- FILLED AFTER SCREENSHOTS -->
-- TBD: per-message overlay shows openai / Claude / google / generic-chip badges.
-- TBD: tooltip reads "Generated with <model>".
-- TBD: wide / tall / square org logos all render height-bound, width-capped, undistorted.
+**Backend / data path (live):** registered `sandbox@bow.dev`, created a report,
+seeded 4 assistant completions, uploaded a company brand image. The v2 endpoint
+`GET /api/reports/<id>/completions` returns each completion's `model` and block
+content as expected:
+
+```
+system | model=gpt-5.4              | blocks=1 | "Here's your **monthly revenue**..."
+system | model=claude-sonnet-4-6    | blocks=1 | "Broken down by **category**..."
+system | model=gemini-3-pro-preview | blocks=1 | "**APAC** is your fastest-growing..."
+system | model=mistral-large-latest | blocks=1 | "Based on the trend, **Q1 next year**..."
+```
+
+**Avatar render (Chromium):** the assistant avatar markup was rendered with the
+pre-installed Chromium (`/opt/pw-browsers`), using the exact Tailwind class
+semantics from the `.vue` change, the real `/llm_providers_icons/*-icon.png`
+assets, and the real `resolveModelBrand` mapping. Two shots:
+
+- `harness_thread.png` — company brand (`ACME`) avatar per message, overlay
+  correctly resolved per model: `gpt-5.4 → openai`, `claude-sonnet-4-6 →
+  anthropic` (the new **Claude burst**), `gemini-3-pro-preview → google`,
+  `mistral-large-latest → custom` (generic chip). Tooltip reads
+  **"Generated with claude-sonnet-4-6"**.
+- `harness_dimensions.png` — the same avatar with the org logo as **wide
+  (480×120)**, **tall (120×320)**, **square (256×256)**, and **no org icon →
+  BoW fallback**. All render height-bound (28px), capped at `max-w-[72px]`,
+  `object-contain` — no distortion or overflow at any aspect ratio.
+
+> Note: the live `yarn dev` could not be exercised in this sandbox — the
+> frontend `npm`/`yarn` install would not complete on the environment's network
+> (optional platform esbuild binaries, e.g. `@esbuild/win32-x64`,
+> `@esbuild/darwin-arm64`, abort repeatedly; the full tree is ~1GB). The
+> backend, DB, API and asset paths were validated live; the avatar was validated
+> by faithfully rendering its markup. On a network that can complete the install,
+> `scratchpad/shot.mjs` drives the real page (login → `/reports/<id>` → full-page
+> + tooltip screenshots).
 
 ---
 
