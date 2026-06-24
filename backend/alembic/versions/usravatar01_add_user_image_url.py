@@ -5,7 +5,7 @@ Stores the public path to a user's uploaded avatar (served via
 initial-based placeholder.
 
 Revision ID: usravatar01
-Revises: judge0001
+Revises: tz1a2b3c4d5e
 Create Date: 2026-06-24
 """
 from alembic import op
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 revision = "usravatar01"
-down_revision = "judge0001"
+down_revision = "tz1a2b3c4d5e"
 branch_labels = None
 depends_on = None
 
