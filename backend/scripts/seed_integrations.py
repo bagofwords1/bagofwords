@@ -153,8 +153,29 @@ async def seed(user_email: str = "admin@bow.dev") -> None:
                 ))
                 print(f"  + user_connection_tool {name}")
 
+        # 5) An org data-source connection (Snowflake-style) so the Integrations
+        # catalog's "Workspace data" (org-badged, read-only) section is populated.
+        org_conn = (await db.execute(
+            select(Connection).where(
+                Connection.organization_id == str(org.id),
+                Connection.type == "snowflake",
+            )
+        )).scalar_one_or_none()
+        if not org_conn:
+            org_conn = Connection(
+                name="Analytics Warehouse",
+                type="snowflake",
+                config={"account": "dev", "warehouse": "WH", "database": "ANALYTICS"},
+                organization_id=str(org.id),
+                auth_policy="system_only",
+                is_active=True,
+            )
+            org_conn.encrypt_credentials({"user": "dev", "password": "dev"})
+            db.add(org_conn)
+            print("  + org data-source connection (snowflake)")
+
         await db.commit()
-        print(f"\nSeeded Gmail integration for org={org.id} user={user_email}")
+        print(f"\nSeeded Gmail + org data source for org={org.id} user={user_email}")
 
 
 if __name__ == "__main__":

@@ -139,6 +139,30 @@ async def list_integrations(
             tool_count=len([t for t in tools if t.is_enabled]),
             tools=tools,
         ))
+
+    # Workspace data: org data-source connections (Snowflake, Postgres, …) the
+    # user can use, surfaced read-only with an "org" badge. Querying is via the
+    # @mention path (Phase 0). Admin CRUD stays in the Connections flow.
+    for conn in conns:
+        try:
+            entry = get_entry(conn.type)
+        except Exception:
+            continue
+        if entry.is_integration or entry.ui_form != "data_source":
+            continue
+        items.append(IntegrationItem(
+            connection_id=str(conn.id),
+            name=conn.name,
+            type=conn.type,
+            title=entry.title,
+            description=entry.description,
+            auth_policy=conn.auth_policy,
+            kind="org",
+            connected=True,
+            needs_user_auth=False,
+            tool_count=0,
+            tools=[],
+        ))
     return items
 
 
