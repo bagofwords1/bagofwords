@@ -87,7 +87,7 @@
         </div>
 
         <div class="mt-5 flex items-center justify-between">
-          <h3 class="text-sm font-medium text-gray-800">Actions</h3>
+          <h3 class="text-sm font-medium text-gray-800">Tools</h3>
           <span class="text-xs text-gray-400">{{ detail.tools?.length || 0 }} available</span>
         </div>
 
@@ -108,7 +108,7 @@
         </div>
 
         <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 p-6 text-center">
-          <p class="text-sm text-gray-600">Connect your account to use {{ detail.title }} actions.</p>
+          <p class="text-sm text-gray-600">Connect your account to use {{ detail.title }} tools.</p>
           <UButton class="mt-3" color="primary" @click="connect(detail)">
             Connect {{ detail.title }}
           </UButton>

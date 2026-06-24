@@ -43,7 +43,7 @@
             @click="selectItem(item, category.name)"
           >
             <div class="flex items-center space-x-2 flex-1 min-w-0">
-              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables' || category.name === 'connection_tools'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
+              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables' || category.name === 'connection_tools' || category.name === 'integrations'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
@@ -51,7 +51,7 @@
 
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="text-[12px] text-gray-900 truncate">{{ item.name }}</span>
-                <span v-if="(category.name === 'tables' || category.name === 'connection_tools') && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
+                <span v-if="(category.name === 'tables' || category.name === 'connection_tools' || category.name === 'integrations') && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
               </div>
             </div>
             
@@ -223,7 +223,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'tables', 'files', 'entities', 'connection_tools']
+    default: () => ['data_sources', 'tables', 'files', 'entities', 'connection_tools', 'integrations']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -959,6 +959,7 @@ function buildMentionGroups(selected: MentionItem[]) {
   const tables: any[] = []
   const entities: any[] = []
   const connectionTools: any[] = []
+  const integrations: any[] = []
 
   for (const m of selected) {
     if (m.type === 'file') {
@@ -971,6 +972,8 @@ function buildMentionGroups(selected: MentionItem[]) {
       entities.push({ id: m.id, title: m.name, entity_type: m.entity_type })
     } else if (m.type === 'connection_tool') {
       connectionTools.push({ id: m.id, name: m.name, data_source_id: m.data_source_id })
+    } else if (m.type === 'integration') {
+      integrations.push({ id: m.id, name: m.name, connection_id: (m as any).connection_id || m.id })
     }
   }
 
@@ -979,6 +982,7 @@ function buildMentionGroups(selected: MentionItem[]) {
   if (tables.length) groups.push({ name: 'TABLES', items: tables })
   if (entities.length) groups.push({ name: 'ENTITIES', items: entities })
   if (connectionTools.length) groups.push({ name: 'CONNECTION TOOLS', items: connectionTools })
+  if (integrations.length) groups.push({ name: 'INTEGRATIONS', items: integrations })
 
   return groups
 }
@@ -1081,6 +1085,17 @@ async function fetchAvailableMentions() {
             subtitle: tool.description || tool.connection_name,
             data_source_id: tool.data_source_id,
             icon_type: tool.connection_type,
+          }))
+        },
+        {
+          name: 'integrations',
+          label: 'Integrations',
+          items: (apiData.integrations || []).map((it: any) => ({
+            ...it,
+            name: it.name,
+            subtitle: it.subtitle || it.integration_title,
+            connection_id: it.connection_id,
+            icon_type: it.connection_type,
           }))
         }
       ]

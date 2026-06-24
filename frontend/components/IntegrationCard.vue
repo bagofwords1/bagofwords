@@ -29,7 +29,7 @@
 
     <div v-if="card.connected" class="mt-3 pt-3 border-t border-gray-50 flex items-center gap-1 text-[11px] text-gray-400">
       <UIcon name="heroicons-wrench-screwdriver" class="w-3 h-3" />
-      {{ card.tool_count }} {{ card.tool_count === 1 ? 'action' : 'actions' }}
+      {{ card.tool_count }} {{ card.tool_count === 1 ? 'tool' : 'tools' }}
     </div>
   </div>
 </template>
