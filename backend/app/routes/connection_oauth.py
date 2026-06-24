@@ -195,6 +195,13 @@ async def oauth_authorize(
         "code_challenge_method": "S256",
         "access_type": "offline",  # Google-specific, ignored by others
     }
+    # Phase 3: incremental authorization. When several integrations share one
+    # provider app (Gmail + Drive + Calendar on the same Google app), each
+    # connect adds its scope to the same grant instead of re-consenting to the
+    # union every time. Google honors `include_granted_scopes`; ignored elsewhere.
+    if oauth_params.get("provider_name") == "google":
+        params["include_granted_scopes"] = "true"
+        params["prompt"] = "consent"
     authorization_url = f"{oauth_params['authorize_url']}?{urlencode(params)}"
 
     response = JSONResponse({"authorization_url": authorization_url})

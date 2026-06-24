@@ -48,6 +48,7 @@ class IntegrationItem(BaseModel):
     title: str
     description: str
     auth_policy: str
+    kind: str = "personal"    # "personal" (you connected) | "org" (shared/system)
     connected: bool           # current user usable (system cred or own user cred)
     needs_user_auth: bool     # user_required and the user hasn't connected yet
     tool_count: int
@@ -122,6 +123,9 @@ async def list_integrations(
             )
             for t in tool_rows
         ]
+        # Badge: system_only connections are workspace-shared ("org"); a
+        # user_required one the user personally connected is "personal".
+        kind = "org" if conn.auth_policy == "system_only" else "personal"
         items.append(IntegrationItem(
             connection_id=str(conn.id),
             name=conn.name,
@@ -129,6 +133,7 @@ async def list_integrations(
             title=entry.title,
             description=entry.description,
             auth_policy=conn.auth_policy,
+            kind=kind,
             connected=connected,
             needs_user_auth=needs_user_auth,
             tool_count=len([t for t in tools if t.is_enabled]),
