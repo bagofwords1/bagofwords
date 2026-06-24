@@ -71,6 +71,8 @@ from app.schemas.data_sources.configs import (
     GoogleDriveCredentials,
     GmailConfig,
     GmailCredentials,
+    GoogleCalendarConfig,
+    GoogleCalendarCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -780,6 +782,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.gmail_client.GmailClient",
         # Integration (tools, no schema catalog). Per-user OAuth: admin-first
         # (Google app) then user-required (each user signs in). Self-serve.
+        is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="integration",
+        connect_audience="user",
+        requires_license="enterprise",
+    ),
+    "google_calendar": DataSourceRegistryEntry(
+        type="google_calendar",
+        title="Google Calendar",
+        description="View calendars and events, find meeting times, and check availability.",
+        config_schema=GoogleCalendarConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(title="Google OAuth Client", schema=GoogleCalendarCredentials, scopes=["system"]),
+                "oauth": AuthVariant(title="Sign in with Google", schema=OAuthDelegatedCredentials, scopes=["user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.google_calendar_client.GoogleCalendarClient",
         is_connection=False,
         data_shape="tools",
         catalog_ownership="none",

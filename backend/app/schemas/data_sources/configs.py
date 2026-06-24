@@ -962,6 +962,25 @@ class GmailConfig(BaseModel):
     pass
 
 
+# Google Calendar — integration (per-provider tools, per-user OAuth).
+class GoogleCalendarCredentials(BaseModel):
+    oauth_client_id: str = Field(
+        ..., title="OAuth Client ID",
+        description="Google Cloud OAuth 2.0 Client ID (Web application type)",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: str = Field(
+        ..., title="OAuth Client Secret",
+        description="Google Cloud OAuth 2.0 Client Secret",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class GoogleCalendarConfig(BaseModel):
+    """No admin-side config — the user's OAuth token scopes calendar access."""
+    pass
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""

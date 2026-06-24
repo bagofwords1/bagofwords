@@ -129,6 +129,26 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "google",
         }
 
+    if conn_type == "google_calendar":
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Google Calendar."
+            )
+        scopes = (
+            "openid email profile "
+            "https://www.googleapis.com/auth/calendar.readonly"
+        )
+        return {
+            "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": scopes,
+            "provider_name": "google",
+        }
+
     if conn_type == "google_drive":
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")
