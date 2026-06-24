@@ -241,6 +241,8 @@
 
   <McpModal v-if="showMcpModal" v-model="showMcpModal" />
 
+  <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
+
   <!-- Global ⌘K / Ctrl+K command palette -->
   <CommandPalette />
   </div>
@@ -254,10 +256,12 @@
   import AgentIcon from '~/components/icons/AgentIcon.vue'
   import SidebarIcon from '~/components/icons/SidebarIcon.vue'
   import McpModal from '~/components/McpModal.vue'
+  import UserProfileModal from '~/components/UserProfileModal.vue'
   import { useCan } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
+  const showProfileModal = ref(false)
 
   const route = useRoute()
   const isRouteActive = (path: string) => {
@@ -266,6 +270,7 @@
   }
   watch(() => route.fullPath, () => {
     showMcpModal.value = false
+    showProfileModal.value = false
   })
 
   interface NavItem {
@@ -448,6 +453,11 @@
 
   const userDropdownItems = computed(() => {
     const groups: any[] = []
+    groups.push([{
+      label: t('profile.menuItem'),
+      icon: 'heroicons-user-circle',
+      click: () => { showProfileModal.value = true }
+    }])
     const orgs = userOrganizations.value
     if (orgs.length > 1) {
       groups.push(

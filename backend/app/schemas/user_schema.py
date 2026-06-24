@@ -24,7 +24,9 @@ class UserCreate(schemas.BaseUserCreate):
         return d
 
 class UserUpdate(schemas.BaseUserUpdate):
-    pass
+    # Allow users to edit their display name from the profile modal. fastapi-users
+    # applies this through the standard PATCH /users/me self-update flow.
+    name: Optional[str] = Field(None, min_length=1, max_length=50)
     #password: Optional[str] = Field(None, min_length=6)
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
