@@ -17,11 +17,11 @@
         @mouseleave="$emit('mouseleave')"
       >
         <div
-          class="w-max min-w-[400px] max-w-[min(520px,calc(100vw-24px))] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+          class="w-max min-w-[400px] max-w-[min(520px,calc(100vw-24px))] bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col"
           :style="panelStyle"
         >
           <!-- Header with connection info -->
-          <div class="px-4 py-3 border-b border-gray-100 flex-shrink-0">
+          <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
             <!-- Title row -->
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0 flex-1">
@@ -33,10 +33,10 @@
                 ></span>
                 <span
                   v-else-if="agentDetails?.connections?.length"
-                  class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"
+                  class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 flex-shrink-0"
                   :title="$t('agentFlyout.notConnected')"
                 ></span>
-                <span v-else class="w-2 h-2 rounded-full bg-gray-200 flex-shrink-0"></span>
+                <span v-else class="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0"></span>
 
                 <!-- Connection icons -->
                 <div v-if="agentDetails?.connections?.length" class="flex -space-x-1 flex-shrink-0">
@@ -44,12 +44,12 @@
                     v-for="conn in (agentDetails.connections || []).slice(0, 3)"
                     :key="conn.id"
                     :type="conn.type"
-                    class="h-4 flex-shrink-0 ring-1 ring-white rounded"
+                    class="h-4 flex-shrink-0 ring-1 ring-white dark:ring-gray-900 rounded"
                   />
                 </div>
 
                 <!-- Title -->
-                <div class="text-sm font-semibold text-gray-900 truncate">
+                <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">
                   {{ agentDetails?.name || $t('agentFlyout.loading') }}
                 </div>
               </div>
@@ -65,7 +65,7 @@
             </div>
 
             <!-- Description — full width below -->
-            <div v-if="agentDetails?.description" class="text-xs text-gray-500 mt-1.5 leading-snug line-clamp-2">
+            <div v-if="agentDetails?.description" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5 leading-snug line-clamp-2">
               {{ agentDetails.description }}
             </div>
           </div>
@@ -78,7 +78,7 @@
                status), so this correctly stays hidden for the service-account
                fallback. -->
           <div v-if="locked" class="px-4 py-4 flex-shrink-0">
-            <p class="text-xs text-gray-500 mb-3">{{ $t('agentFlyout.connectToPreview') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ $t('agentFlyout.connectToPreview') }}</p>
             <button
               @click.stop="emit('connect', agentDetails)"
               class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -89,14 +89,14 @@
           </div>
 
           <!-- Tabs (underline / border-bottom style like Settings) -->
-          <div v-else class="border-b border-gray-200 px-4 flex-shrink-0">
+          <div v-else class="border-b border-gray-200 dark:border-gray-800 px-4 flex-shrink-0">
             <nav class="-mb-px flex space-x-4">
               <button
                 @click="flyoutTab = 'overview'"
                 :class="[
                   flyoutTab === 'overview'
                     ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300',
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
@@ -107,43 +107,43 @@
                 :class="[
                   flyoutTab === 'tables'
                     ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300',
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
                 {{ $t('agentFlyout.tables') }}
-                <span v-if="tablesCount > 0" class="ms-1 text-[10px] text-gray-400">({{ tablesCount }})</span>
+                <span v-if="tablesCount > 0" class="ms-1 text-[10px] text-gray-400 dark:text-gray-500">({{ tablesCount }})</span>
               </button>
               <button
                 @click="flyoutTab = 'instructions'"
                 :class="[
                   flyoutTab === 'instructions'
                     ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300',
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
                 {{ $t('agentFlyout.instructions') }}
-                <span v-if="instructionsCount > 0" class="ms-1 text-[10px] text-gray-400">({{ instructionsCount }})</span>
+                <span v-if="instructionsCount > 0" class="ms-1 text-[10px] text-gray-400 dark:text-gray-500">({{ instructionsCount }})</span>
               </button>
               <button
                 @click="flyoutTab = 'queries'"
                 :class="[
                   flyoutTab === 'queries'
                     ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300',
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
                 {{ $t('agentFlyout.queries') }}
-                <span v-if="queriesCount > 0" class="ms-1 text-[10px] text-gray-400">({{ queriesCount }})</span>
+                <span v-if="queriesCount > 0" class="ms-1 text-[10px] text-gray-400 dark:text-gray-500">({{ queriesCount }})</span>
               </button>
             </nav>
           </div>
 
           <div v-if="!locked" class="p-4 flex-1 min-h-0 overflow-y-auto">
             <div v-if="loadingDetails" class="flex items-center justify-center py-8">
-              <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+              <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
             </div>
 
             <template v-else>
@@ -161,14 +161,14 @@
                 <!-- Description rendered as Markdown -->
                 <div
                   v-if="agentDetails?.description"
-                  class="agent-flyout-markdown hidden text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pe-1"
+                  class="agent-flyout-markdown hidden text-xs text-gray-600 dark:text-gray-400 leading-relaxed max-h-[320px] overflow-auto pe-1"
                 >
                   <MDC :value="agentDetails.description" class="markdown-content" />
                 </div>
 
                 <!-- Sample Questions -->
                 <div v-if="agentDetails?.conversation_starters?.length">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2">{{ $t('agentFlyout.sampleQuestions') }}</div>
+                  <div class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-2">{{ $t('agentFlyout.sampleQuestions') }}</div>
                   <div class="space-y-1.5">
                     <button
                       v-for="(starter, idx) in agentDetails.conversation_starters.slice(0, 6)"
@@ -179,7 +179,7 @@
                         'w-full text-start text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
                         creatingReport && creatingQuestionIdx === idx
                           ? 'bg-indigo-100 border border-indigo-300 text-indigo-700'
-                          : 'bg-gray-50 border border-gray-100 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 cursor-pointer',
+                          : 'bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 cursor-pointer',
                         creatingReport && creatingQuestionIdx !== idx ? 'opacity-50 cursor-not-allowed' : ''
                       ]"
                     >
@@ -188,7 +188,7 @@
                     </button>
                     <div
                       v-if="agentDetails.conversation_starters.length > 6"
-                      class="text-[11px] text-gray-400"
+                      class="text-[11px] text-gray-400 dark:text-gray-500"
                     >
                       {{ $t('agentFlyout.moreCount', { n: agentDetails.conversation_starters.length - 6 }) }}
                     </div>
@@ -197,7 +197,7 @@
 
                 <div
                   v-if="!agentDetails?.primary_instruction && !agentDetails?.description && !agentDetails?.conversation_starters?.length"
-                  class="text-xs text-gray-400 italic py-6 text-center"
+                  class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center"
                 >
                   {{ $t('agentFlyout.noDetails') }}
                 </div>
@@ -206,34 +206,34 @@
               <!-- Tables tab -->
               <div v-else-if="flyoutTab === 'tables'">
                 <div v-if="tablesLoading" class="flex items-center justify-center py-10">
-                  <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+                  <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
                 </div>
 
-                <div v-else-if="tablesError" class="text-xs text-gray-500">
+                <div v-else-if="tablesError" class="text-xs text-gray-500 dark:text-gray-400">
                   {{ tablesError }}
                 </div>
 
                 <div v-else>
-                  <div v-if="tablesCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
+                  <div v-if="tablesCount === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">
                     {{ $t('agentFlyout.noTables') }}
                   </div>
 
                   <div v-else>
                     <!-- List view (like MentionInput) -->
-                    <div v-if="!selectedTable" class="border border-gray-200 rounded-lg overflow-hidden">
+                    <div v-if="!selectedTable" class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
                       <div class="max-h-[320px] overflow-auto">
                         <button
                           v-for="t in tablesResources"
                           :key="t.id || t.name"
                           @click="selectTable(t)"
-                          class="w-full px-3 py-2 text-start text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                          class="w-full px-3 py-2 text-start text-xs flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0"
                         >
                           <DataSourceIcon v-if="hasMultipleConnections" :type="t.connection_type" class="h-3.5 flex-shrink-0" />
-                          <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
-                          <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ $t('agentFlyout.colsAbbr', { n: t.columns.length }) }}</span>
+                          <span class="truncate flex-1 text-gray-800 dark:text-gray-200 font-medium">{{ t.name }}</span>
+                          <span v-if="t.columns?.length" class="text-[11px] text-gray-400 dark:text-gray-500 flex-shrink-0">{{ $t('agentFlyout.colsAbbr', { n: t.columns.length }) }}</span>
                         </button>
                       </div>
-                      <div v-if="tablesResources.length === 0" class="px-3 py-3 text-xs text-gray-400">{{ $t('agentFlyout.noTablesShort') }}</div>
+                      <div v-if="tablesResources.length === 0" class="px-3 py-3 text-xs text-gray-400 dark:text-gray-500">{{ $t('agentFlyout.noTablesShort') }}</div>
                     </div>
 
                     <!-- Detail view (columns) -->
@@ -241,25 +241,25 @@
                       <div class="flex items-center justify-between">
                         <button
                           @click="selectedTable = null"
-                          class="text-[11px] text-gray-500 hover:text-gray-700"
+                          class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                         >
                           {{ $t('agentFlyout.back') }}
                         </button>
-                        <div class="text-[11px] text-gray-400">{{ $t('agentFlyout.columns') }}</div>
+                        <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentFlyout.columns') }}</div>
                       </div>
 
-                      <div class="text-sm font-semibold text-gray-900 truncate">{{ selectedTable.name }}</div>
+                      <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ selectedTable.name }}</div>
 
-                      <div class="flex flex-wrap gap-1 max-h-[240px] overflow-auto border border-gray-200 rounded-lg p-2">
+                      <div class="flex flex-wrap gap-1 max-h-[240px] overflow-auto border border-gray-200 dark:border-gray-800 rounded-lg p-2">
                         <span
                           v-for="(col, idx) in (selectedTable.columns || [])"
                           :key="idx"
-                          class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
+                          class="px-1.5 py-0.5 bg-white dark:bg-gray-800 rounded border dark:border-gray-700 text-[11px] text-gray-700 dark:text-gray-300"
                         >
                           {{ typeof col === 'string' ? col : (col as any).name }}
-                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
+                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 dark:text-gray-500 ms-1">({{ (col as any).dtype }})</span>
                         </span>
-                        <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400">{{ $t('agentFlyout.noColumns') }}</span>
+                        <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400 dark:text-gray-500">{{ $t('agentFlyout.noColumns') }}</span>
                       </div>
                     </div>
                   </div>
@@ -269,29 +269,29 @@
               <!-- Instructions tab -->
               <div v-else-if="flyoutTab === 'instructions'">
                 <div v-if="instructionsLoading" class="flex items-center justify-center py-10">
-                  <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+                  <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
                 </div>
 
-                <div v-else-if="instructionsError" class="text-xs text-gray-500">
+                <div v-else-if="instructionsError" class="text-xs text-gray-500 dark:text-gray-400">
                   {{ instructionsError }}
                 </div>
 
                 <div v-else>
-                  <div v-if="instructionsCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
+                  <div v-if="instructionsCount === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">
                     {{ $t('agentFlyout.noInstructions') }}
                   </div>
 
-                  <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
+                  <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
                     <div class="max-h-[320px] overflow-auto">
                       <NuxtLink
                         v-for="inst in instructionsResources"
                         :key="inst.id"
                         :to="`/agents?search=${encodeURIComponent(inst.title || '')}`"
-                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-1.5">
-                            <span class="truncate text-gray-800 font-medium">{{ inst.title || $t('agentFlyout.untitled') }}</span>
+                            <span class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ inst.title || $t('agentFlyout.untitled') }}</span>
                             <span
                               v-if="!inst.data_sources?.length"
                               class="px-1 py-0.5 text-[9px] rounded bg-purple-50 text-purple-600 flex-shrink-0"
@@ -299,7 +299,7 @@
                               {{ $t('agentFlyout.global') }}
                             </span>
                           </div>
-                          <div class="text-[11px] text-gray-400 truncate mt-0.5">
+                          <div class="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-0.5">
                             {{ inst.category || 'general' }} · {{ inst.source_type || 'user' }}
                           </div>
                         </div>
@@ -312,25 +312,25 @@
               <!-- Queries tab -->
               <div v-else-if="flyoutTab === 'queries'">
                 <div v-if="queriesLoading" class="flex items-center justify-center py-10">
-                  <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+                  <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
                 </div>
 
-                <div v-else-if="queriesError" class="text-xs text-gray-500">
+                <div v-else-if="queriesError" class="text-xs text-gray-500 dark:text-gray-400">
                   {{ queriesError }}
                 </div>
 
                 <div v-else>
-                  <div v-if="queriesCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
+                  <div v-if="queriesCount === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">
                     {{ $t('agentFlyout.noQueries') }}
                   </div>
 
-                  <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
+                  <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
                     <div class="max-h-[320px] overflow-auto">
                       <NuxtLink
                         v-for="entity in queriesResources"
                         :key="entity.id"
                         :to="`/queries/${entity.id}`"
-                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-1.5">
@@ -338,9 +338,9 @@
                               class="px-1 py-0.5 text-[9px] rounded border flex-shrink-0"
                               :class="entity.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
                             >{{ (entity.type || 'entity').toUpperCase() }}</span>
-                            <span class="truncate text-gray-800 font-medium">{{ entity.title || entity.slug }}</span>
+                            <span class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ entity.title || entity.slug }}</span>
                           </div>
-                          <div v-if="entity.description" class="text-[11px] text-gray-400 truncate mt-0.5">
+                          <div v-if="entity.description" class="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-0.5">
                             {{ entity.description }}
                           </div>
                         </div>
@@ -670,12 +670,12 @@ watch(flyoutTab, async (tab) => {
   ol { @apply list-decimal; }
   li { @apply mb-1; }
 
-  pre { @apply bg-gray-50 p-2 rounded-lg mb-2 overflow-x-auto text-[11px]; }
-  code { @apply bg-gray-50 px-1 py-0.5 rounded text-[11px] font-mono; }
+  pre { @apply bg-gray-50 dark:bg-gray-800 p-2 rounded-lg mb-2 overflow-x-auto text-[11px]; }
+  code { @apply bg-gray-50 dark:bg-gray-800 px-1 py-0.5 rounded text-[11px] font-mono; }
   a { @apply text-blue-600 hover:text-blue-800 underline; }
-  blockquote { @apply border-l-4 border-gray-200 pl-3 italic my-2; }
+  blockquote { @apply border-l-4 border-gray-200 dark:border-gray-800 pl-3 italic my-2; }
   table { @apply w-full border-collapse mb-2; }
-  table th, table td { @apply border border-gray-200 p-1 text-[11px] bg-white; }
+  table th, table td { @apply border border-gray-200 dark:border-gray-800 p-1 text-[11px] bg-white dark:bg-gray-900; }
   p { @apply mb-2; }
 }
 </style>

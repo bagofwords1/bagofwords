@@ -4,7 +4,7 @@
             <div class="w-full max-w-7xl px-4 ps-0 py-4">
 
                 <!-- Back link -->
-                <NuxtLink to="/old_agents" class="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                <NuxtLink to="/old_agents" class="inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
                     <UIcon name="heroicons-chevron-left" class="w-3.5 h-3.5" />
                     All agents
                 </NuxtLink>
@@ -15,17 +15,17 @@
 
                         <!-- Skeleton while loading -->
                         <template v-if="isLoading">
-                            <div class="h-8 w-40 bg-gray-100 rounded-md animate-pulse" />
-                            <div class="h-4 w-72 bg-gray-100 rounded mt-3 animate-pulse" />
+                            <div class="h-8 w-40 bg-gray-100 dark:bg-gray-800 rounded-md animate-pulse" />
+                            <div class="h-4 w-72 bg-gray-100 dark:bg-gray-800 rounded mt-3 animate-pulse" />
                             <div class="flex items-center gap-2 mt-4">
-                                <div class="h-3.5 w-3.5 rounded-full bg-gray-100 animate-pulse" />
-                                <div class="h-3.5 w-24 bg-gray-100 rounded animate-pulse" />
+                                <div class="h-3.5 w-3.5 rounded-full bg-gray-100 dark:bg-gray-800 animate-pulse" />
+                                <div class="h-3.5 w-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
                             </div>
                         </template>
 
                         <template v-else-if="!fetchError">
                             <!-- Agent name -->
-                            <h1 class="text-2xl font-bold text-gray-900 leading-tight tracking-tight truncate">
+                            <h1 class="text-2xl font-bold text-gray-900 dark:text-white leading-tight tracking-tight truncate">
                                 {{ integration?.name || 'Agent' }}
                             </h1>
 
@@ -36,7 +36,7 @@
                                         ref="descInputRef"
                                         v-model="descForm"
                                         type="text"
-                                        class="flex-1 text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5"
+                                        class="flex-1 text-sm text-gray-600 dark:text-gray-300 border-b border-blue-400 bg-transparent outline-none py-0.5"
                                         @keydown.enter="saveDesc"
                                         @keydown.escape="cancelDesc"
                                         @blur="saveDesc"
@@ -44,8 +44,8 @@
                                 </template>
                                 <template v-else>
                                     <p
-                                        class="text-sm text-gray-500 truncate rounded px-1 -mx-1 transition-colors"
-                                        :class="useCan('update_data_source') ? 'cursor-pointer hover:bg-gray-100' : ''"
+                                        class="text-sm text-gray-500 dark:text-gray-400 truncate rounded px-1 -mx-1 transition-colors"
+                                        :class="useCan('update_data_source') ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/70' : ''"
                                         @click="useCan('update_data_source') && startEditDesc()"
                                     >{{ integration?.description || '' }}</p>
                                     <button
@@ -68,29 +68,29 @@
                                         <UTooltip :text="conn.name + (getEffectiveStatus(conn) === 'indexing' ? ' · ' + indexingSummary(conn.indexing) : '')">
                                             <div class="flex items-center gap-1">
                                                 <DataSourceIcon :type="conn.type" class="h-3.5 opacity-70" />
-                                                <span class="text-xs text-gray-500">{{ conn.name }}</span>
+                                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ conn.name }}</span>
                                             </div>
                                         </UTooltip>
                                     </div>
-                                    <span v-if="(integration.connections || []).length > 4" class="text-xs text-gray-400">
+                                    <span v-if="(integration.connections || []).length > 4" class="text-xs text-gray-400 dark:text-gray-500">
                                         +{{ integration.connections.length - 4 }}
                                     </span>
                                 </template>
-                                <span v-else class="text-xs text-gray-400 italic">No connections</span>
+                                <span v-else class="text-xs text-gray-400 dark:text-gray-500 italic">No connections</span>
 
                                 <template v-if="(catalog.shouldShow && catalog.count > 0) || connectionCount > 0">
                                     <template v-if="catalog.shouldShow">
-                                        <span class="text-gray-300 select-none">·</span>
-                                        <span class="text-xs text-gray-400">{{ catalog.label }}</span>
+                                        <span class="text-gray-300 dark:text-gray-600 select-none">·</span>
+                                        <span class="text-xs text-gray-400 dark:text-gray-500">{{ catalog.label }}</span>
                                     </template>
-                                    <span class="text-gray-300 select-none">·</span>
-                                    <span class="text-xs text-gray-400">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
+                                    <span class="text-gray-300 dark:text-gray-600 select-none">·</span>
+                                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
                                 </template>
                             </div>
                         </template>
 
                         <template v-else>
-                            <h1 class="text-2xl font-bold text-gray-900">Agent</h1>
+                            <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Agent</h1>
                         </template>
                     </div>
 
@@ -116,10 +116,10 @@
 
                 <!-- Error states -->
                 <div v-if="!isLoading && fetchError === 403" class="mt-8">
-                    <div class="bg-white border border-gray-200 rounded-xl p-10 text-center">
-                        <Icon name="i-heroicons-lock-closed" class="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                        <h2 class="text-base font-medium text-gray-900">Access Restricted</h2>
-                        <p class="mt-1.5 text-sm text-gray-500 max-w-sm mx-auto">
+                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-10 text-center">
+                        <Icon name="i-heroicons-lock-closed" class="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                        <h2 class="text-base font-medium text-gray-900 dark:text-white">Access Restricted</h2>
+                        <p class="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
                             This agent is private. Contact the owner or an admin to request access.
                         </p>
                         <NuxtLink to="/old_agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
@@ -129,10 +129,10 @@
                 </div>
 
                 <div v-else-if="!isLoading && fetchError === 404" class="mt-8">
-                    <div class="bg-white border border-gray-200 rounded-xl p-10 text-center">
-                        <Icon name="i-heroicons-exclamation-circle" class="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                        <h2 class="text-base font-medium text-gray-900">Agent Not Found</h2>
-                        <p class="mt-1.5 text-sm text-gray-500 max-w-sm mx-auto">
+                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-10 text-center">
+                        <Icon name="i-heroicons-exclamation-circle" class="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                        <h2 class="text-base font-medium text-gray-900 dark:text-white">Agent Not Found</h2>
+                        <p class="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
                             The agent you're looking for doesn't exist or has been removed.
                         </p>
                         <NuxtLink to="/old_agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
@@ -151,8 +151,8 @@
                                 :to="tabTo(tab.name)"
                                 :class="[
                                     isTabActive(tab.name)
-                                        ? 'bg-gray-100 text-gray-900 font-medium'
-                                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800',
+                                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white font-medium'
+                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-800 dark:hover:text-gray-200',
                                     'whitespace-nowrap rounded-full px-4 py-1.5 text-sm transition-all'
                                 ]"
                             >

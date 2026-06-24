@@ -1,33 +1,33 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden">
     <!-- Agent selector dropdown -->
-    <div class="px-4 pt-4 pb-2 flex-shrink-0 bg-gradient-to-b from-indigo-50/40 to-transparent">
-      <div v-if="agents.length === 0" class="text-xs text-gray-400 italic text-center py-4">
+    <div class="px-4 pt-4 pb-2 flex-shrink-0 bg-gradient-to-b from-indigo-50/40 to-transparent dark:from-gray-900 dark:to-transparent">
+      <div v-if="agents.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
         {{ $t('reportAgent.noAgents') }}
       </div>
       <div v-else-if="agents.length === 1" class="flex items-center gap-2">
-        <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
-          <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+        <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-800/70 p-1 rounded">
+          <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
-        <Icon v-if="(agents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 flex-shrink-0" />
+        <Icon v-if="(agents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
         <DataSourceIcon v-else :type="agents[0].type || agents[0].connections?.[0]?.type" class="h-5 flex-shrink-0" />
-        <span class="text-sm font-semibold text-gray-900 truncate">{{ agents[0].name }}</span>
+        <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ agents[0].name }}</span>
       </div>
       <div v-else class="flex items-center gap-2">
-        <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded flex-shrink-0">
-          <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+        <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-800/70 p-1 rounded flex-shrink-0">
+          <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
         <div class="relative flex-1" ref="dropdownRef">
         <button
           @click="dropdownOpen = !dropdownOpen"
-          class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors bg-white/80"
+          class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors bg-white/80 dark:bg-gray-900/80"
         >
-          <Icon v-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 flex-shrink-0" />
+          <Icon v-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
           <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" class="h-5 flex-shrink-0" />
-          <span class="truncate flex-1 text-start font-medium text-gray-900">
+          <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
             {{ selectedAgent?.name || $t('reportAgent.selectAgent') }}
           </span>
-          <Icon name="heroicons:chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0 transition-transform" :class="{ 'rotate-180': dropdownOpen }" />
+          <Icon name="heroicons:chevron-down" class="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0 transition-transform" :class="{ 'rotate-180': dropdownOpen }" />
         </button>
         <Transition
           enter-active-class="transition duration-100 ease-out"
@@ -37,15 +37,15 @@
           leave-from-class="opacity-100 scale-100"
           leave-to-class="opacity-0 scale-95"
         >
-          <div v-if="dropdownOpen" class="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+          <div v-if="dropdownOpen" class="absolute z-10 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden">
             <button
               v-for="agent in agents"
               :key="agent.id"
               @click="selectAgent(agent.id)"
-              class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
-              :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
+              class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+              :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 dark:text-gray-300'"
             >
-              <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
               <DataSourceIcon v-else :type="agent.type || agent.connections?.[0]?.type" class="h-4 flex-shrink-0" />
               <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
@@ -76,7 +76,7 @@
     </div>
 
     <!-- Tabs -->
-    <div v-if="selectedAgent" class="border-b border-gray-200 px-4 flex-shrink-0">
+    <div v-if="selectedAgent" class="border-b border-gray-200 dark:border-gray-800 px-4 flex-shrink-0">
       <nav class="-mb-px flex space-x-4">
         <button
           v-for="tab in tabs"
@@ -85,28 +85,28 @@
           :class="[
             activeTab === tab.key
               ? 'border-indigo-500 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-700 hover:text-gray-700 dark:hover:text-gray-300',
             'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
           ]"
         >
           {{ tab.label }}
-          <span v-if="tab.count > 0" class="ms-1 text-[10px] text-gray-400">({{ tab.count }})</span>
+          <span v-if="tab.count > 0" class="ms-1 text-[10px] text-gray-400 dark:text-gray-500">({{ tab.count }})</span>
         </button>
       </nav>
     </div>
 
     <!-- Tab content -->
-    <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4 bg-white">
+    <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4 bg-white dark:bg-gray-900">
       <!-- Overview tab -->
       <div v-if="activeTab === 'overview'" class="space-y-5">
         <div v-if="!selectedAgentDetails" class="flex items-center justify-center py-10">
-          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+          <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
         </div>
         <template v-else>
           <!-- Primary Instruction -->
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{{ $t('reportAgent.primaryInstruction') }}</div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">{{ $t('reportAgent.primaryInstruction') }}</div>
               <button
                 v-if="canCreateInstructions && selectedAgentDetails.primary_instruction"
                 @click="openInstruction(selectedAgentDetails.primary_instruction)"
@@ -125,13 +125,13 @@
                 :prose="true"
               />
             </div>
-            <div v-else class="text-xs text-gray-400 italic">{{ $t('reportAgent.noInstruction') }}</div>
+            <div v-else class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('reportAgent.noInstruction') }}</div>
           </div>
 
           <!-- Conversation Starters -->
           <div v-if="selectedAgentDetails.conversation_starters?.length || canUpdateDataSource">
             <div class="flex items-center gap-2 mb-2">
-              <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{{ $t('dataSource.conversationStarters') }}</div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">{{ $t('dataSource.conversationStarters') }}</div>
               <button v-if="canUpdateDataSource" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
             </div>
             <div v-if="selectedAgentDetails.conversation_starters?.length" class="space-y-1.5">
@@ -139,12 +139,12 @@
                 v-for="(starter, idx) in selectedAgentDetails.conversation_starters"
                 :key="idx"
                 @click="$emit('starter-click', starter)"
-                class="w-full text-start text-xs px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
+                class="w-full text-start text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
               >
                 {{ starter.split('\n')[0] }}
               </button>
             </div>
-            <div v-else class="text-xs text-gray-400 italic">{{ $t('reportAgent.noStarters') }}</div>
+            <div v-else class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('reportAgent.noStarters') }}</div>
           </div>
         </template>
       </div>
@@ -152,19 +152,19 @@
       <!-- Instructions tab -->
       <div v-else-if="activeTab === 'instructions'">
         <div v-if="loading" class="flex items-center justify-center py-10">
-          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+          <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
         </div>
         <template v-else>
           <!-- Loading instruction from external click -->
           <div v-if="instructionLoading" class="flex items-center justify-center py-10">
-            <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+            <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
           </div>
 
           <!-- Instruction form view (edit or create) -->
           <div v-else-if="selectedInstruction || creatingInstruction" class="flex flex-col h-full -m-4">
             <button
               @click="closeInstructionForm"
-              class="flex items-center gap-1 px-4 pt-3 pb-2 text-xs text-gray-500 hover:text-gray-700 flex-shrink-0"
+              class="flex items-center gap-1 px-4 pt-3 pb-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
             >
               <Icon name="heroicons:chevron-left" class="w-3 h-3 rtl-flip" />
               {{ $t('reportAgent.allInstructions') }}
@@ -174,7 +174,7 @@
                  the Knowledge Explorer. A toggle drops into the editor. -->
             <template v-if="showInstructionReview">
               <div class="px-4 pb-1 flex items-center justify-end shrink-0">
-                <button class="text-[11px] text-gray-500 hover:text-gray-800 inline-flex items-center gap-1" @click="forceInstructionEdit = true">
+                <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 inline-flex items-center gap-1" @click="forceInstructionEdit = true">
                   <Icon name="heroicons:pencil-square" class="w-3 h-3" />Edit instead
                 </button>
               </div>
@@ -222,17 +222,17 @@
 
           <!-- Instructions list -->
           <template v-else>
-            <div v-if="instructionsError" class="text-xs text-gray-500">{{ instructionsError }}</div>
+            <div v-if="instructionsError" class="text-xs text-gray-500 dark:text-gray-400">{{ instructionsError }}</div>
             <template v-else>
               <!-- Filters -->
               <div class="flex flex-col gap-2 mb-3">
                 <div class="relative">
-                  <Icon name="heroicons:magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                  <Icon name="heroicons:magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-gray-500" />
                   <input
                     v-model="instructionSearch"
                     type="text"
                     :placeholder="$t('reportAgent.searchPlaceholder')"
-                    class="w-full ps-7 pe-2 py-1.5 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
+                    class="w-full ps-7 pe-2 py-1.5 text-[11px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
                   />
                 </div>
                 <div class="flex items-center gap-2">
@@ -240,31 +240,31 @@
                   <div class="relative" ref="statusDropdownRef">
                     <button
                       @click.stop="statusDropdownOpen = !statusDropdownOpen"
-                      class="flex items-center gap-1 text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 hover:bg-gray-50 bg-white"
+                      class="flex items-center gap-1 text-[11px] border border-gray-200 dark:border-gray-800 rounded-md py-1 px-2 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 bg-white dark:bg-gray-900"
                     >
                       <span v-if="instructionStatusFilter.length === 0">{{ $t('reportAgent.allStatuses') }}</span>
                       <span v-else class="truncate max-w-[100px]">{{ instructionStatusFilter.map(s => helpers.formatStatus(s)).join(', ') }}</span>
-                      <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': statusDropdownOpen }" />
+                      <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 dark:text-gray-500 transition-transform" :class="{ 'rotate-180': statusDropdownOpen }" />
                     </button>
-                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
+                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
                       <button
                         v-for="s in instructionStatuses"
                         :key="s"
                         @click.stop="toggleStatusFilter(s)"
-                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start"
                       >
                         <span
                           class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
-                          :class="instructionStatusFilter.includes(s) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'"
+                          :class="instructionStatusFilter.includes(s) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300 dark:border-gray-700'"
                         >
                           <Icon v-if="instructionStatusFilter.includes(s)" name="heroicons:check" class="w-2.5 h-2.5 text-white" />
                         </span>
-                        <span class="text-gray-700">{{ helpers.formatStatus(s) }}</span>
+                        <span class="text-gray-700 dark:text-gray-300">{{ helpers.formatStatus(s) }}</span>
                       </button>
                       <button
                         v-if="instructionStatusFilter.length > 0"
                         @click.stop="instructionStatusFilter = []"
-                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-start font-medium"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 dark:border-gray-800 text-start font-medium"
                       >
                         {{ $t('reportAgent.clearAll') }}
                       </button>
@@ -274,31 +274,31 @@
                   <div class="relative" ref="categoryDropdownRef">
                     <button
                       @click.stop="categoryDropdownOpen = !categoryDropdownOpen"
-                      class="flex items-center gap-1 text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 hover:bg-gray-50 bg-white"
+                      class="flex items-center gap-1 text-[11px] border border-gray-200 dark:border-gray-800 rounded-md py-1 px-2 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 bg-white dark:bg-gray-900"
                     >
                       <span v-if="instructionCategoryFilter.length === 0">{{ $t('reportAgent.allCategories') }}</span>
                       <span v-else class="truncate max-w-[100px]">{{ instructionCategoryFilter.map(c => helpers.formatCategory(c)).join(', ') }}</span>
-                      <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': categoryDropdownOpen }" />
+                      <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 dark:text-gray-500 transition-transform" :class="{ 'rotate-180': categoryDropdownOpen }" />
                     </button>
-                    <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
+                    <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
                       <button
                         v-for="cat in instructionCategories"
                         :key="cat"
                         @click.stop="toggleCategoryFilter(cat)"
-                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start"
                       >
                         <span
                           class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
-                          :class="instructionCategoryFilter.includes(cat) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'"
+                          :class="instructionCategoryFilter.includes(cat) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300 dark:border-gray-700'"
                         >
                           <Icon v-if="instructionCategoryFilter.includes(cat)" name="heroicons:check" class="w-2.5 h-2.5 text-white" />
                         </span>
-                        <span class="text-gray-700">{{ helpers.formatCategory(cat) }}</span>
+                        <span class="text-gray-700 dark:text-gray-300">{{ helpers.formatCategory(cat) }}</span>
                       </button>
                       <button
                         v-if="instructionCategoryFilter.length > 0"
                         @click.stop="instructionCategoryFilter = []"
-                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-start font-medium"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 dark:border-gray-800 text-start font-medium"
                       >
                         {{ $t('reportAgent.clearAll') }}
                       </button>
@@ -318,29 +318,29 @@
               </div>
 
               <!-- List -->
-              <div v-if="instructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noInstructions') }}</div>
-              <div v-else-if="filteredInstructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noMatching') }}</div>
-              <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
+              <div v-if="instructions.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">{{ $t('reportAgent.noInstructions') }}</div>
+              <div v-else-if="filteredInstructions.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">{{ $t('reportAgent.noMatching') }}</div>
+              <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
                 <button
                   v-for="inst in filteredInstructions"
                   :key="inst.id"
                   @click="openInstruction(inst)"
-                  class="w-full px-3 py-2.5 text-start text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                  class="w-full px-3 py-2.5 text-start text-xs flex items-start gap-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 transition-colors"
                 >
                   <div class="flex-1 min-w-0">
                     <!-- Title or text preview -->
                     <div class="flex items-center gap-1.5">
-                      <span class="truncate text-gray-800 font-medium text-xs">{{ inst.title || inst.text?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
+                      <span class="truncate text-gray-800 dark:text-gray-200 font-medium text-xs">{{ inst.title || inst.text?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
                     </div>
                     <!-- Text preview if title exists -->
-                    <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 truncate mt-0.5 leading-snug">
+                    <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 leading-snug">
                       <InstructionText :text="inst.text.slice(0, 80)" :references="inst.references?.map((r: any) => ({ id: r.object_id, type: r.object_type, name: r.display_text || r.object?.name, data_source_type: r.object?.data_source_type || r.object?.connection_type }))" />
                     </p>
                     <!-- Badges row -->
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
                       <!-- Data source indicator -->
                       <template v-if="inst.data_sources?.length">
-                        <span v-for="ds in inst.data_sources" :key="ds.id" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-gray-50 text-[9px] text-gray-600 font-medium border border-gray-100">
+                        <span v-for="ds in inst.data_sources" :key="ds.id" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-gray-50 dark:bg-gray-800 text-[9px] text-gray-600 dark:text-gray-400 font-medium border border-gray-100 dark:border-gray-800">
                           <DataSourceIcon :type="getInstructionDsType(ds)" class="h-2.5 flex-shrink-0" />
                           <span class="truncate max-w-[80px]">{{ ds.name }}</span>
                         </span>
@@ -362,7 +362,7 @@
                         class="text-[9px] px-1 py-0.5 rounded font-medium"
                       >{{ helpers.getLoadModeLabel(inst.load_mode) }}</span>
                       <!-- User & date -->
-                      <span v-if="inst.user" class="inline-flex items-center gap-0.5 text-[9px] text-gray-400">
+                      <span v-if="inst.user" class="inline-flex items-center gap-0.5 text-[9px] text-gray-400 dark:text-gray-500">
                         <Icon name="heroicons:user" class="w-2.5 h-2.5 flex-shrink-0" />
                         <span class="truncate max-w-[60px]">{{ inst.user.name || inst.user.email }}</span>
                         <span>· {{ formatDate(inst.created_at) }}</span>
@@ -370,7 +370,7 @@
                     </div>
                     <!-- References -->
                     <div v-if="inst.references?.length" class="flex items-center gap-1 mt-1 flex-wrap">
-                      <Icon name="heroicons:link" class="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
+                      <Icon name="heroicons:link" class="w-2.5 h-2.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
                       <span
                         v-for="ref in inst.references"
                         :key="ref.id"
@@ -417,17 +417,17 @@
       <!-- Queries tab -->
       <div v-else-if="activeTab === 'queries'">
         <div v-if="loading" class="flex items-center justify-center py-10">
-          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+          <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
         </div>
         <template v-else>
-          <div v-if="queriesError" class="text-xs text-gray-500">{{ queriesError }}</div>
-          <div v-else-if="queries.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noQueries') }}</div>
-          <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
+          <div v-if="queriesError" class="text-xs text-gray-500 dark:text-gray-400">{{ queriesError }}</div>
+          <div v-else-if="queries.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">{{ $t('reportAgent.noQueries') }}</div>
+          <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
             <NuxtLink
               v-for="entity in queries"
               :key="entity.id"
               :to="`/queries/${entity.id}`"
-              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
@@ -435,9 +435,9 @@
                     class="px-1 py-0.5 text-[9px] rounded border flex-shrink-0"
                     :class="entity.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
                   >{{ (entity.type || 'entity').toUpperCase() }}</span>
-                  <span class="truncate text-gray-800 font-medium">{{ entity.title || entity.slug }}</span>
+                  <span class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ entity.title || entity.slug }}</span>
                 </div>
-                <div v-if="entity.description" class="text-[11px] text-gray-400 truncate mt-0.5">
+                <div v-if="entity.description" class="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-0.5">
                   {{ entity.description }}
                 </div>
               </div>
@@ -449,26 +449,26 @@
       <!-- Evals tab -->
       <div v-else-if="activeTab === 'evals'">
         <div v-if="loading" class="flex items-center justify-center py-10">
-          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+          <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
         </div>
         <template v-else>
-          <div v-if="evalsError" class="text-xs text-gray-500">{{ evalsError }}</div>
-          <div v-else-if="evals.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noEvals') }}</div>
-          <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
+          <div v-if="evalsError" class="text-xs text-gray-500 dark:text-gray-400">{{ evalsError }}</div>
+          <div v-else-if="evals.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center">{{ $t('reportAgent.noEvals') }}</div>
+          <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
             <NuxtLink
               v-for="tc in evals"
               :key="tc.id"
               to="/evals"
-              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
                   <span class="px-1 py-0.5 text-[9px] rounded border flex-shrink-0 text-amber-700 border-amber-200 bg-amber-50">
                     {{ tc.suite_name || $t('reportAgent.evalBadge') }}
                   </span>
-                  <span class="truncate text-gray-800 font-medium">{{ tc.name || promptPreview(tc.prompt_json) }}</span>
+                  <span class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ tc.name || promptPreview(tc.prompt_json) }}</span>
                 </div>
-                <div v-if="tc.expectations_json?.length" class="text-[11px] text-gray-400 truncate mt-0.5">
+                <div v-if="tc.expectations_json?.length" class="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-0.5">
                   {{ tc.expectations_json.length === 1 ? $t('reportAgent.expectationOne', { n: 1 }) : $t('reportAgent.expectationMany', { n: tc.expectations_json.length }) }}
                 </div>
               </div>
@@ -481,29 +481,29 @@
     <!-- Edit Conversation Starters Modal -->
     <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
       <div class="p-5">
-        <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editStartersTitle') }}</div>
-        <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editStartersHint') }}</div>
+        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dataSource.editStartersTitle') }}</div>
+        <div class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ $t('dataSource.editStartersHint') }}</div>
         <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
-          <div v-for="(item, idx) in editStartersForm" :key="idx" class="rounded-md border border-gray-100 p-2">
+          <div v-for="(item, idx) in editStartersForm" :key="idx" class="rounded-md border border-gray-100 dark:border-gray-800 p-2">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
-              <button @click="removeStarter(idx)" class="text-[11px] text-gray-500 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
+              <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
+              <button @click="removeStarter(idx)" class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
             </div>
             <div class="space-y-1">
               <div>
-                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
-                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
+                <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
+                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
               </div>
               <div>
-                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
-                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
+                <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
+                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
               </div>
             </div>
           </div>
-          <button @click="addStarter" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50">{{ $t('dataSource.addStarter') }}</button>
+          <button @click="addStarter" class="text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800/50">{{ $t('dataSource.addStarter') }}</button>
         </div>
         <div class="flex justify-end gap-2 mt-4">
-          <button @click="showEditStarters = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
+          <button @click="showEditStarters = false" class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">{{ $t('dataSource.cancel') }}</button>
           <button @click="saveStarters" :disabled="savingStarters" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingStarters ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
         </div>
       </div>
