@@ -105,13 +105,18 @@ async def resolve_file_client(
                 break
 
     if resolved_conn is None:
-        if report and attached_conns:
+        # Phase 0: a file source the user has *personally connected* is usable
+        # without being attached to the agent. Check that before refusing.
+        from app.ai.tools.implementations._integration_access import user_personal_connection_ids
+        personal_ids = await user_personal_connection_ids(
+            db, organization, current_user, types=list(FILE_SOURCE_TYPES)
+        )
+        if sid not in personal_ids and report and attached_conns:
             return None, (
-                f"'{connection_id}' is not a file source attached to this agent. "
-                f"Attached file connections: {sorted(attached_conn_ids)}."
+                f"'{connection_id}' is not a file source attached to this agent "
+                f"or connected by you. Attached: {sorted(attached_conn_ids)}."
             )
-        # No report scope — fall through to direct DB lookup (used by
-        # standalone tool calls / tests).
+        # Direct DB lookup (personal connection, standalone tool call, or test).
         from app.models.connection import Connection
         result = await db.execute(
             select(Connection).where(

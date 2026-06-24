@@ -126,6 +126,24 @@ class GmailClient(DataSourceClient):
     def list_labels(self) -> List[dict]:
         return self._get("/users/me/labels").get("labels", []) or []
 
+    # Generic dispatch so native integrations invoke through the same agent path
+    # (search_mcps / execute_mcp) as MCP/custom_api connections. Returns the
+    # {success, content_type, data} envelope execute_mcp expects.
+    async def acall_tool(self, tool_name: str, arguments: Optional[dict] = None) -> dict:
+        arguments = arguments or {}
+        allowed = {t["name"] for t in TOOLS}
+        if tool_name not in allowed:
+            return {"success": False, "error": f"Unknown Gmail tool '{tool_name}'."}
+        method = getattr(self, tool_name, None)
+        if not callable(method):
+            return {"success": False, "error": f"Gmail tool '{tool_name}' not implemented."}
+        try:
+            import asyncio
+            data = await asyncio.to_thread(lambda: method(**arguments))
+            return {"success": True, "content_type": "json", "data": data}
+        except Exception as e:  # pragma: no cover - network/auth path
+            return {"success": False, "error": str(e)}
+
     # ----------------------------------------- DataSourceClient compatibility
 
     def test_connection(self) -> dict:

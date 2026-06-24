@@ -104,15 +104,25 @@ Do not use when:
         from app.models.connection_tool import ConnectionTool
         from app.services.connection_service import ConnectionService
 
-        # Resolve connection — only allow MCP/API connections linked to this report's data sources
+        # Resolve connection — allow MCP/API connections linked to this report's
+        # data sources (agent path) OR personally connected by the current user
+        # (Phase 0: agent-less integrations).
         from sqlalchemy import or_
+        from app.ai.tools.implementations._integration_access import user_personal_connection_ids
+        from app.schemas.data_source_registry import tool_provider_types
+        tool_types = list(tool_provider_types())  # mcp, custom_api, gmail, ...
         report = runtime_ctx.get("report")
+        current_user = runtime_ctx.get("user")
         allowed_conn_ids = set()
         if report:
             for ds in (report.data_sources or []):
                 for conn in (ds.connections or []):
-                    if conn.type in ("mcp", "custom_api"):
+                    if conn.type in tool_types:
                         allowed_conn_ids.add(str(conn.id))
+        # The user's own connected integrations are usable without an agent.
+        allowed_conn_ids |= await user_personal_connection_ids(
+            db, organization, current_user, types=tool_types
+        )
 
         conn_result = await db.execute(
             select(Connection).where(
@@ -121,7 +131,7 @@ Do not use when:
                     Connection.name == data.connection_id,
                 ),
                 Connection.organization_id == str(organization.id),
-                Connection.type.in_(["mcp", "custom_api"]),
+                Connection.type.in_(tool_types),
             )
         )
         connection = conn_result.scalars().first()
@@ -175,9 +185,11 @@ Do not use when:
             )
 
             if result is None:
-                # Not an internal tool — call via MCP protocol over HTTP
+                # Not an internal tool — call via MCP protocol over HTTP.
+                # Pass current_user so personally-connected integrations use the
+                # caller's own credentials (per-user OAuth), not system creds.
                 service = ConnectionService()
-                client = await service.construct_client(db, connection)
+                client = await service.construct_client(db, connection, current_user)
                 logger.info(f"execute_mcp: Calling remote MCP: {getattr(client, 'server_url', '?')}")
                 result = await client.acall_tool(data.tool_name, data.arguments)
                 logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")

@@ -95,6 +95,8 @@ Use when:
         from app.models.connection import Connection
         from app.models.domain_connection import domain_connection
         from app.models.report_data_source_association import report_data_source_association
+        from app.schemas.data_source_registry import tool_provider_types
+        _TOOL_TYPES = list(tool_provider_types())  # mcp, custom_api, gmail, ...
 
         # Query MCP/API connections linked to this report's data sources directly
         # (avoids lazy-loading report.data_sources → ds.connections which silently returns empty in async context)
@@ -107,7 +109,7 @@ Use when:
             )
             .where(
                 report_data_source_association.c.report_id == str(report.id),
-                Connection.type.in_(["mcp", "custom_api"]),
+                Connection.type.in_(_TOOL_TYPES),
             )
         )
         mcp_connections = conn_result.scalars().all()
@@ -118,6 +120,18 @@ Use when:
             cid = str(conn.id)
             mcp_connection_ids.add(cid)
             conn_info[cid] = {"name": conn.name, "type": conn.type}
+
+        # Phase 0: also surface the current user's personally-connected
+        # integrations (usable without an agent), independent of report.data_sources.
+        from app.ai.tools.implementations._integration_access import user_personal_connection_info
+        from app.schemas.data_source_registry import tool_provider_types
+        personal = await user_personal_connection_info(
+            db, runtime_ctx.get("organization"), runtime_ctx.get("user"),
+            types=list(tool_provider_types()),
+        )
+        for cid, info in personal.items():
+            mcp_connection_ids.add(cid)
+            conn_info[cid] = info
 
         if data.connection_ids:
             mcp_connection_ids = mcp_connection_ids.intersection(set(data.connection_ids))
