@@ -327,6 +327,17 @@ class GraphDriveClient(DataSourceClient):
           2. Path-based lookup under the connection's scoped root.
           3. Drive-wide search by name; take first non-folder hit.
         """
+        # Attach-by-link: a pasted SharePoint/OneDrive share URL resolves via the
+        # Graph /shares API (encode url → u!<base64url-no-pad>).
+        if file_id_or_name and file_id_or_name.startswith("http"):
+            try:
+                import base64
+                enc = base64.urlsafe_b64encode(file_id_or_name.encode("utf-8")).decode("ascii").rstrip("=")
+                meta = self._get(f"/shares/u!{enc}/driveItem")
+                if meta and meta.get("id"):
+                    return meta["id"]
+            except Exception:
+                pass
         if not self._looks_like_filename(file_id_or_name):
             return file_id_or_name
         # Path lookup: relative to the connection's root (folder_path).

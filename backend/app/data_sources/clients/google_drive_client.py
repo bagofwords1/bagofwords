@@ -35,6 +35,32 @@ def _ext(name: str) -> str:
     return name.rsplit(".", 1)[-1].lower()
 
 
+import re as _re
+
+# Drive/Docs/Sheets/Slides share URLs embed the file id as `/d/<id>` or `?id=<id>`.
+_DRIVE_ID_PATTERNS = (
+    _re.compile(r"/d/([a-zA-Z0-9_-]{20,})"),          # /file/d/<id>/view, /document/d/<id>
+    _re.compile(r"[?&]id=([a-zA-Z0-9_-]{20,})"),      # open?id=<id>, uc?id=<id>
+    _re.compile(r"/folders/([a-zA-Z0-9_-]{20,})"),    # /drive/folders/<id>
+)
+
+
+def extract_drive_id_from_url(value: str) -> Optional[str]:
+    """Pull a Drive file/folder id out of a Google URL; None if not a Drive URL.
+
+    Lets users paste a share link instead of the opaque id (Phase 4 attach-by-link).
+    """
+    if not value or "http" not in value:
+        return None
+    if "google.com" not in value and "googleusercontent.com" not in value:
+        return None
+    for pat in _DRIVE_ID_PATTERNS:
+        m = pat.search(value)
+        if m:
+            return m.group(1)
+    return None
+
+
 class GoogleDriveClient(DataSourceClient):
     capabilities = {Capability.LIST_FILES, Capability.READ_FILE, Capability.SEARCH_FILES}
 
@@ -199,12 +225,16 @@ class GoogleDriveClient(DataSourceClient):
         return ("." in value) or ("/" in value) or (" " in value)
 
     def _resolve_file_id(self, file_id_or_name: str) -> str:
-        """Accept either a Drive file id or a filename; return the id.
+        """Accept a Drive file id, a share URL, or a filename; return the id.
 
-        The LLM often passes the readable name. Drive doesn't have a direct
-        path lookup like Graph does, so we fall back to a name search and
-        take the first non-trashed match.
+        The LLM (or the attach-by-link UI) often passes a readable name or a
+        pasted share URL. Drive has no direct path lookup like Graph, so for
+        names we fall back to a search and take the first non-trashed match.
         """
+        # Attach-by-link: a pasted Drive/Docs/Sheets URL → extract the id.
+        url_id = extract_drive_id_from_url(file_id_or_name)
+        if url_id:
+            return url_id
         if not self._looks_like_filename(file_id_or_name):
             return file_id_or_name
         try:
