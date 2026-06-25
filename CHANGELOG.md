@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.425 (June 25, 2026)
+- **Apache Druid — API token (bearer) authentication** — the Druid connector now offers an **API Token** auth method alongside Username / Password, for endpoints that authenticate with a bearer token (e.g. Imply Polaris API tokens). The token is sent as `Authorization: Bearer <token>` via the driver's `jwt` path and is mutually exclusive with Basic auth (a token suppresses any user/password). Pick it from the connection's auth-method selector; the token is encrypted at rest like any other credential.
+
 ## Version 0.0.424 (June 25, 2026)
 - **Fix — single-value cards show the asked-for value over melted KPI tables (#446)** — when `create_data` produces a melted/long KPI result (`Metric | Value | Format`, one row per metric), a single-value `count` / `metric_card` no longer renders the wrong row (the date, or the sum of every metric). The row-selecting default filter is now carried through `create_data` and `agent_v2` (previously dropped), derived deterministically when the viz model omits it (`derive_kpi_row_filter`), and applied in `ToolWidgetPreview` via the view's own `defaultFilters`.
 - **Monitoring — surface origin platform in diagnosis/trace (#447)** — the monitoring diagnosis table and trace modal now show where each agent run originated (Slack / Teams / WhatsApp / MCP / Email vs. the web UI). An origin platform icon sits next to each run's message and an origin badge in the trace header (web-UI runs show none); `external_platform` is plumbed through `AgentExecutionSummaryItem`, `ConversationTraceResponse`, and `console_service`. The diagnosis **User** column moved next to the prompt, and **Date** now shows date and time in the org timezone.

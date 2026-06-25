@@ -495,6 +495,15 @@ class DruidConfig(BaseModel):
     )
 
 
+class DruidTokenCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="API Token",
+        description="Bearer token sent as 'Authorization: Bearer <token>' (e.g. an Imply Polaris API token).",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
 # MongoDB
 class MongoDBCredentials(BaseModel):
     user: Optional[str] = Field(
