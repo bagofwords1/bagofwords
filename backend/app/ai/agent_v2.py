@@ -141,6 +141,7 @@ from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
+from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
 
@@ -1835,6 +1836,26 @@ class AgentV2:
         # back to opening fresh short-lived sessions.
         if self._use_single_write_session():
             self._writes = self.db
+        # Stamp ambient attribution for every LLM call made during this run so
+        # the Cost console can break spend down by user / report / data source.
+        # data_source_id is stamped only when the report has exactly one source
+        # (unambiguous); multi-source reports are split across their sources at
+        # query time via the report join. Snapshotting happens at record time
+        # (see app.ai.llm.usage_attribution), so this also covers tool LLM calls
+        # and the worker-thread judge (asyncio.to_thread copies the context).
+        _attr_org = str(getattr(self.organization, "id", "") or "") or None
+        _attr_user = str(getattr(self.head_completion, "user_id", "") or "") or None
+        _attr_report = str(self.report.id) if self.report else None
+        _single_ds = self.data_sources[0] if len(self.data_sources) == 1 else None
+        _attr_ds = str(getattr(_single_ds, "id", "")) if _single_ds is not None else None
+        _attribution_token = set_usage_attribution(
+            {
+                "organization_id": _attr_org,
+                "user_id": _attr_user,
+                "report_id": _attr_report,
+                "data_source_id": _attr_ds,
+            }
+        )
         try:
             import time as _time
             _t0 = _time.monotonic()
@@ -3622,6 +3643,8 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Drop the ambient LLM usage attribution set at run start.
+            reset_usage_attribution(_attribution_token)
             # Single-writer mode: drop the self._writes alias. self.db's
             # lifecycle is owned by the caller (FastAPI dependency); we
             # only ever aliased to it, never opened/owned a separate

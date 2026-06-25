@@ -20,6 +20,7 @@ from .types import (
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.models.llm_model import LLMModel
+from app.ai.llm.usage_attribution import get_usage_attribution
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
@@ -679,6 +680,11 @@ class LLM:
         if session_maker is None:
             return
 
+        # Snapshot attribution NOW, synchronously, while we're still in the LLM
+        # call's own context. The actual DB write runs on a background task /
+        # worker thread where the contextvar may not have propagated.
+        attribution = get_usage_attribution()
+
         async def _record_usage():
             try:
                 async with session_maker() as session:
@@ -691,6 +697,10 @@ class LLM:
                         completion_tokens=completion_tokens or 0,
                         cache_read_tokens=cache_read_tokens or 0,
                         cache_creation_tokens=cache_creation_tokens or 0,
+                        organization_id=attribution.get("organization_id"),
+                        user_id=attribution.get("user_id"),
+                        report_id=attribution.get("report_id"),
+                        data_source_id=attribution.get("data_source_id"),
                     )
                     await session.commit()
             except Exception as exc:
