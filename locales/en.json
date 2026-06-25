@@ -2391,6 +2391,7 @@
       "general": "General",
       "instructions": "Custom Instructions",
       "usage": "Usage",
+      "apiKeys": "API Keys",
       "appearance": "Appearance"
     },
     "general": {
@@ -2437,6 +2438,26 @@
       "system": "System",
       "language": "Language",
       "languageDescription": "Overrides the organization's default language for your account only."
+    },
+    "apiKeys": {
+      "title": "API Keys",
+      "subtitle": "Personal API keys for the MCP server and programmatic access. Keys are tied to your account.",
+      "generate": "Generate new key",
+      "empty": "You don't have any API keys yet.",
+      "created": "Created {date}",
+      "lastUsed": "Last used {date}",
+      "neverUsed": "Never used",
+      "newKeyTitle": "Your new API key",
+      "newKeyWarning": "Copy this key now — it won't be shown again.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "done": "Done",
+      "deleteTitle": "Delete API key",
+      "confirmDelete": "Delete this API key? Any client using it will stop working.",
+      "toastGenerated": "API key generated",
+      "toastGenerateFailed": "Failed to generate API key",
+      "toastDeleted": "API key deleted",
+      "toastDeleteFailed": "Failed to delete API key"
     }
   },
   "agentPage": {

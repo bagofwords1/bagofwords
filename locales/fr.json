@@ -2105,6 +2105,7 @@
       "general": "Général",
       "instructions": "Instructions personnalisées",
       "usage": "Utilisation",
+      "apiKeys": "Clés API",
       "appearance": "Apparence"
     },
     "general": {
@@ -2151,6 +2152,26 @@
       "system": "Système",
       "language": "Langue",
       "languageDescription": "Remplace la langue par défaut de l'organisation pour votre compte uniquement."
+    },
+    "apiKeys": {
+      "title": "Clés API",
+      "subtitle": "Clés API personnelles pour le serveur MCP et l'accès programmatique. Les clés sont liées à votre compte.",
+      "generate": "Générer une nouvelle clé",
+      "empty": "Vous n'avez pas encore de clé API.",
+      "created": "Créée le {date}",
+      "lastUsed": "Dernière utilisation {date}",
+      "neverUsed": "Jamais utilisée",
+      "newKeyTitle": "Votre nouvelle clé API",
+      "newKeyWarning": "Copiez cette clé maintenant — elle ne sera plus affichée.",
+      "copy": "Copier",
+      "copied": "Copié",
+      "done": "Terminé",
+      "deleteTitle": "Supprimer la clé API",
+      "confirmDelete": "Supprimer cette clé API ? Tout client qui l'utilise cessera de fonctionner.",
+      "toastGenerated": "Clé API générée",
+      "toastGenerateFailed": "Échec de la génération de la clé API",
+      "toastDeleted": "Clé API supprimée",
+      "toastDeleteFailed": "Échec de la suppression de la clé API"
     }
   }
 }

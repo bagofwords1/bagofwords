@@ -2198,6 +2198,7 @@
       "general": "כללי",
       "instructions": "הוראות מותאמות אישית",
       "usage": "שימוש",
+      "apiKeys": "מפתחות API",
       "appearance": "מראה"
     },
     "general": {
@@ -2244,6 +2245,26 @@
       "system": "מערכת",
       "language": "שפה",
       "languageDescription": "עוקף את שפת ברירת המחדל של הארגון עבור החשבון שלך בלבד."
+    },
+    "apiKeys": {
+      "title": "מפתחות API",
+      "subtitle": "מפתחות API אישיים לשרת ה-MCP ולגישה תכנותית. המפתחות משויכים לחשבון שלך.",
+      "generate": "צור מפתח חדש",
+      "empty": "אין לך עדיין מפתחות API.",
+      "created": "נוצר ב-{date}",
+      "lastUsed": "שימוש אחרון {date}",
+      "neverUsed": "מעולם לא היה בשימוש",
+      "newKeyTitle": "מפתח ה-API החדש שלך",
+      "newKeyWarning": "העתק את המפתח עכשיו — הוא לא יוצג שוב.",
+      "copy": "העתק",
+      "copied": "הועתק",
+      "done": "סיום",
+      "deleteTitle": "מחק מפתח API",
+      "confirmDelete": "למחוק את מפתח ה-API הזה? כל לקוח שמשתמש בו יפסיק לעבוד.",
+      "toastGenerated": "מפתח API נוצר",
+      "toastGenerateFailed": "יצירת מפתח ה-API נכשלה",
+      "toastDeleted": "מפתח API נמחק",
+      "toastDeleteFailed": "מחיקת מפתח ה-API נכשלה"
     }
   }
 }
