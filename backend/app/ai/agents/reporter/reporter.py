@@ -78,7 +78,9 @@ class Reporter:
         parsing/LLM error so a failure can't break the run.
         """
         if mode == "training":
-            text = self._training_follow_ups_prompt(messages_context, max_suggestions)
+            text = self._training_follow_ups_prompt(
+                messages_context, schemas_context, instructions_context, max_suggestions
+            )
         else:
             text = self._chat_follow_ups_prompt(
                 messages_context, schemas_context, instructions_context, max_suggestions
@@ -126,20 +128,31 @@ class Reporter:
         Example: ["How did revenue trend last quarter?", "Which region grew fastest?"]
         """
 
-    def _training_follow_ups_prompt(self, messages_context, max_suggestions):
+    def _training_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions):
+        context_blocks = ""
+        if instructions_context:
+            context_blocks += f"\n        Current agent instructions:\n        {instructions_context}\n"
+        if schemas_context:
+            context_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {schemas_context}\n"
+
         return f"""
         You are helping an admin improve this AI analytics system in TRAINING MODE.
-        In training mode the admin reviews the agent's past performance and writes
-        instructions to make it better — they are NOT exploring business data.
-
-        Given the recent conversation, propose up to {max_suggestions} follow-up
-        actions the admin might take next, each phrased as a short clickable prompt.
-        Good training follow-ups do things like:
+        In training mode the admin reviews the agent's performance and curates the
+        instruction set that steers it — they are NOT exploring business data.
+        {context_blocks}
+        Given the recent conversation and the context above, propose up to
+        {max_suggestions} follow-up actions the admin might take next, each phrased
+        as a short clickable prompt. Good training follow-ups do things like:
+        - Audit the instruction set for problems: conflicting rules, overlapping or
+          redundant instructions, or duplicates that should be merged.
+        - Surface coverage gaps — schema areas, metrics, or business terms with NO
+          instruction, or definitions that are ambiguous.
         - Review past agent runs that need attention (low-confidence answers, failed
           queries, negative feedback, low instruction coverage).
-        - Surface gaps where instructions are missing, ambiguous, or conflicting.
-        - Create or refine an instruction based on what was just discussed.
-        - Drill into a specific metric/term the agent handles inconsistently.
+        - Create, merge, refine, or remove a specific instruction based on the above.
+
+        Reference concrete instruction topics / table / metric names from the context
+        when you can, so each action is specific and clickable.
 
         Conversation so far:
         {messages_context}
@@ -150,7 +163,7 @@ class Reporter:
         - Do not repeat actions already taken. Do not number them.
         {build_language_directive(self.organization_settings)}
         Return ONLY a JSON array of strings, nothing else.
-        Example: ["Show low-confidence answers from this week", "Draft an instruction for \\"active user\\""]
+        Example: ["Find conflicting instructions about revenue", "Which tables have no instructions?"]
         """
 
     @staticmethod
