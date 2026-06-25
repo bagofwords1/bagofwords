@@ -1,7 +1,7 @@
 <template>
   <div v-if="items.length > 0" class="mt-4 max-w-2xl">
     <!-- Header -->
-    <div class="px-1 pb-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
+    <div class="px-1 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
       {{ $t('reportView.followUp') }}
     </div>
 
