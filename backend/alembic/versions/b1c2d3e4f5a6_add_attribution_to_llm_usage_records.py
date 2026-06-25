@@ -1,7 +1,7 @@
 """add attribution columns to llm_usage_records
 
 Revision ID: b1c2d3e4f5a6
-Revises: a1c2m0de9f01
+Revises: followups01
 Create Date: 2026-06-24 00:00:00.000000
 
 Adds organization_id / user_id / report_id / data_source_id to llm_usage_records
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'b1c2d3e4f5a6'
-down_revision: Union[str, None] = 'a1c2m0de9f01'
+down_revision: Union[str, None] = 'followups01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
