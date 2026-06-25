@@ -115,12 +115,12 @@
                     <thead class="bg-gray-50 dark:bg-gray-900">
                         <tr>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[320px] w-[320px]">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
                         </tr>
                     </thead>
@@ -135,6 +135,9 @@
                                         </div>
                                     </div>
                                 </div>
+                            </td>
+                            <td class="px-2 py-1">
+                                <div class="text-xs text-gray-900 dark:text-white">{{ item.user_name || '—' }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="relative inline-block group">
@@ -187,9 +190,6 @@
                                     {{ item.report_name || item.report_id }}
                                 </NuxtLink>
                                 <span v-else>{{ item.report_name || item.report_id }}</span>
-                            </td>
-                            <td class="px-2 py-1">
-                                <div class="text-xs text-gray-900 dark:text-white">{{ item.user_name || '—' }}</div>
                             </td>
                             <td class="px-3 py-1">
                                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(item.created_at as any) }}</span>
