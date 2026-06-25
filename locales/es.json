@@ -726,7 +726,7 @@
     "fullAdminBypass": "Omite todas las comprobaciones",
     "allResources": "Todos los recursos",
     "orgWidePermissions": "Permisos a nivel de organización",
-    "ds": "DS",
+    "ds": "Agente",
     "addDataSource": "+ Añadir fuente de datos...",
     "cancel": "Cancelar",
     "save": "Guardar",
@@ -742,7 +742,7 @@
     "failedToDelete": "No se pudo eliminar el rol",
     "permissions": {
       "manage_files": "Gestionar archivos",
-      "create_data_source": "Crear fuente de datos",
+      "create_data_source": "Crear agente",
       "manage_connections": "Gestionar conexiones",
       "manage_instructions": "Gestionar instrucciones",
       "manage_entities": "Gestionar entidades",
@@ -757,7 +757,11 @@
       "view_schema": "Ver esquema",
       "create_entities": "Crear entidades",
       "manage": "Gestionar ajustes"
-    }
+    },
+    "addAgent": "+ Añadir agente...",
+    "modelAccess": "Acceso a modelos",
+    "modelAccessHint": "Modelos restringidos",
+    "noRestrictedModels": "No hay modelos restringidos"
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",

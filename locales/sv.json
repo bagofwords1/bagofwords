@@ -716,7 +716,7 @@
     "fullAdminBypass": "Förbigår alla kontroller",
     "allResources": "Alla resurser",
     "orgWidePermissions": "Organisationsövergripande behörigheter",
-    "ds": "DK",
+    "ds": "Agent",
     "addDataSource": "+ Lägg till datakälla...",
     "cancel": "Avbryt",
     "save": "Spara",
@@ -732,7 +732,7 @@
     "failedToDelete": "Det gick inte att radera rollen",
     "permissions": {
       "manage_files": "Hantera filer",
-      "create_data_source": "Skapa datakälla",
+      "create_data_source": "Skapa agent",
       "manage_connections": "Hantera anslutningar",
       "manage_instructions": "Hantera instruktioner",
       "manage_entities": "Hantera entiteter",
@@ -747,7 +747,11 @@
       "view_schema": "Visa schema",
       "create_entities": "Skapa entiteter",
       "manage": "Hantera inställningar"
-    }
+    },
+    "addAgent": "+ Lägg till agent...",
+    "modelAccess": "Modellåtkomst",
+    "modelAccessHint": "Begränsade modeller",
+    "noRestrictedModels": "Inga begränsade modeller"
   },
   "groupsManager": {
     "searchPlaceholder": "Sök grupper...",

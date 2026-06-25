@@ -726,7 +726,7 @@
     "fullAdminBypass": "עוקף את כל הבדיקות",
     "allResources": "כל המשאבים",
     "orgWidePermissions": "הרשאות כלל-ארגוניות",
-    "ds": "DS",
+    "ds": "סוכן",
     "addDataSource": "+ הוסף מקור נתונים...",
     "cancel": "ביטול",
     "save": "שמירה",
@@ -742,7 +742,7 @@
     "failedToDelete": "מחיקת התפקיד נכשלה",
     "permissions": {
       "manage_files": "ניהול קבצים",
-      "create_data_source": "יצירת מקור נתונים",
+      "create_data_source": "יצירת סוכן",
       "manage_connections": "ניהול חיבורים",
       "manage_instructions": "ניהול הוראות",
       "manage_entities": "ניהול ישויות",
@@ -757,7 +757,11 @@
       "view_schema": "צפייה בסכמה",
       "create_entities": "יצירת ישויות",
       "manage": "ניהול הגדרות"
-    }
+    },
+    "addAgent": "+ הוסף סוכן...",
+    "modelAccess": "גישה למודלים",
+    "modelAccessHint": "מודלים מוגבלים",
+    "noRestrictedModels": "אין מודלים מוגבלים"
   },
   "groupsManager": {
     "searchPlaceholder": "חיפוש קבוצות...",

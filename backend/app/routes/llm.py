@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
+from pydantic import BaseModel
 
 from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
+from app.ee.license import require_enterprise
 from app.services.llm_service import LLMService
 from app.schemas.llm_schema import (
     LLMProviderSchema,
@@ -183,3 +185,87 @@ async def set_default_model(
 ):
     """Set a model as the default model for the organization. Use small=true for small default."""
     return await llm_service.set_default_model(db, current_user, organization, model_id, small=small)
+
+
+# ── Per-model access control (Enterprise) ────────────────────────────────
+
+class ModelAccessAdd(BaseModel):
+    principal_type: str  # "user" | "group" | "role"
+    principal_id: str
+
+
+class ModelRestrictionUpdate(BaseModel):
+    is_restricted: bool
+
+
+@router.get("/llm/model-access/by-principal")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def list_models_for_principal(
+    principal_type: str,
+    principal_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """List restricted models with whether a principal (role/group/user) can use each."""
+    return await llm_service.list_models_for_principal(
+        db, organization, current_user, principal_type, principal_id
+    )
+
+
+@router.get("/llm/models/{model_id}/access")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def get_model_access(
+    model_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get the restriction state and granted principals for a model."""
+    return await llm_service.get_model_access(db, organization, current_user, model_id)
+
+
+@router.put("/llm/models/{model_id}/restricted")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def set_model_restricted(
+    model_id: str,
+    payload: ModelRestrictionUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Mark a model as access-restricted (or open it back up)."""
+    return await llm_service.set_model_restricted(db, organization, current_user, model_id, payload.is_restricted)
+
+
+@router.post("/llm/models/{model_id}/access")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def add_model_access(
+    model_id: str,
+    payload: ModelAccessAdd,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Grant a user/group/role access to a restricted model."""
+    return await llm_service.add_model_access(
+        db, organization, current_user, model_id, payload.principal_type, payload.principal_id
+    )
+
+
+@router.delete("/llm/models/{model_id}/access/{grant_id}")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def remove_model_access(
+    model_id: str,
+    grant_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Revoke a model access grant."""
+    return await llm_service.remove_model_access(db, organization, current_user, model_id, grant_id)

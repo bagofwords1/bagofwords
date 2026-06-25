@@ -716,7 +716,7 @@
     "fullAdminBypass": "يتجاوز جميع عمليات التحقق",
     "allResources": "جميع الموارد",
     "orgWidePermissions": "صلاحيات على مستوى المؤسسة",
-    "ds": "مص.ب",
+    "ds": "وكيل",
     "addDataSource": "+ إضافة مصدر بيانات...",
     "cancel": "إلغاء",
     "save": "حفظ",
@@ -732,7 +732,7 @@
     "failedToDelete": "تعذّر حذف الدور",
     "permissions": {
       "manage_files": "إدارة الملفات",
-      "create_data_source": "إنشاء مصدر بيانات",
+      "create_data_source": "إنشاء وكيل",
       "manage_connections": "إدارة الاتصالات",
       "manage_instructions": "إدارة التعليمات",
       "manage_entities": "إدارة الكيانات",
@@ -747,7 +747,11 @@
       "view_schema": "عرض المخطط",
       "create_entities": "إنشاء كيانات",
       "manage": "إدارة الإعدادات"
-    }
+    },
+    "addAgent": "+ إضافة وكيل...",
+    "modelAccess": "الوصول إلى النماذج",
+    "modelAccessHint": "النماذج المقيدة",
+    "noRestrictedModels": "لا توجد نماذج مقيدة"
   },
   "groupsManager": {
     "searchPlaceholder": "ابحث في المجموعات...",

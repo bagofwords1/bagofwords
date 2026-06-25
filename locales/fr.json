@@ -716,7 +716,7 @@
     "fullAdminBypass": "Contourne toutes les vérifications",
     "allResources": "Toutes les ressources",
     "orgWidePermissions": "Autorisations à l'échelle de l'organisation",
-    "ds": "SD",
+    "ds": "Agent",
     "addDataSource": "+ Ajouter une source de données...",
     "cancel": "Annuler",
     "save": "Enregistrer",
@@ -732,7 +732,7 @@
     "failedToDelete": "Échec de la suppression du rôle",
     "permissions": {
       "manage_files": "Gérer les fichiers",
-      "create_data_source": "Créer une source de données",
+      "create_data_source": "Créer un agent",
       "manage_connections": "Gérer les connexions",
       "manage_instructions": "Gérer les instructions",
       "manage_entities": "Gérer les entités",
@@ -747,7 +747,11 @@
       "view_schema": "Voir le schéma",
       "create_entities": "Créer des entités",
       "manage": "Gérer les paramètres"
-    }
+    },
+    "addAgent": "+ Ajouter un agent...",
+    "modelAccess": "Accès aux modèles",
+    "modelAccessHint": "Modèles restreints",
+    "noRestrictedModels": "Aucun modèle restreint"
   },
   "groupsManager": {
     "searchPlaceholder": "Rechercher des groupes...",
