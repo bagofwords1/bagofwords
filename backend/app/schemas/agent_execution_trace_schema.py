@@ -83,6 +83,7 @@ class ConversationTraceResponse(BaseModel):
     report_title: Optional[str] = None
     user_name: Optional[str] = None
     user_email: Optional[str] = None
+    external_platform: Optional[str] = None  # 'slack', 'teams', 'email'; null = web UI
     total_turns: int = 0
     failed_turns: int = 0
     negative_feedback_turns: int = 0

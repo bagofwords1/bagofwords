@@ -331,6 +331,7 @@ class AgentExecutionSummaryItem(BaseModel):
     tool_names: List[str] = []
     user_name: Optional[str] = None
     user_email: Optional[str] = None
+    external_platform: Optional[str] = None  # 'slack', 'teams', 'email'; null = web UI
     report_id: str
     report_name: Optional[str] = None
     report_link: Optional[str] = None
