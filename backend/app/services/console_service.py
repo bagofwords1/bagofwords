@@ -2060,6 +2060,7 @@ class ConsoleService:
                 UserCompletion.id.label('user_completion_id'),
                 UserCompletion.prompt.label('user_prompt'),
                 UserCompletion.role.label('user_role'),
+                UserCompletion.external_platform.label('external_platform'),
                 UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
                 UserCompletion.context_effectiveness.label('context_effectiveness'),
                 UserCompletion.response_score.label('response_score'),
@@ -2227,6 +2228,10 @@ class ConsoleService:
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
             ))
 
+        # Conversation-level origin platform = first turn that carries one
+        # (rows are ordered ascending by created_at). null = web UI.
+        external_platform = next((r.external_platform for r in rows if r.external_platform), None)
+
         # Header user = the report owner.
         owner_name = None
         owner_email = None
@@ -2241,6 +2246,7 @@ class ConsoleService:
             report_title=report.title or '',
             user_name=owner_name,
             user_email=owner_email,
+            external_platform=external_platform,
             total_turns=len(turns),
             failed_turns=failed_turns,
             negative_feedback_turns=negative_feedback_turns,

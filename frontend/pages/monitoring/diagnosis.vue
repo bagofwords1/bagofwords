@@ -192,7 +192,7 @@
                                 <span v-else>{{ item.report_name || item.report_id }}</span>
                             </td>
                             <td class="px-3 py-1">
-                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(item.created_at as any) }}</span>
+                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(item.created_at as any) }}</span>
                             </td>
                         </tr>
                     </tbody>
@@ -519,6 +519,10 @@ const _df = useFormatDate()
 const formatDate = (dateString: string) => {
     if (!dateString) return ''
     return _df.formatDate(dateString)
+}
+const formatDateTime = (dateString: string) => {
+    if (!dateString) return ''
+    return _df.formatDateTime(dateString)
 }
 
 // Add these methods to the existing script section
