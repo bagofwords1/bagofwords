@@ -14,6 +14,11 @@
                                 {{ conversation.user_name }}
                             </span>
                             <span v-if="conversation?.user_email" class="text-gray-400 dark:text-gray-500">{{ conversation.user_email }}</span>
+                            <span v-if="platformBadge" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                                <img v-if="platformBadge.img" :src="platformBadge.img" class="h-3 w-3 inline" :alt="platformBadge.label" />
+                                <UIcon v-else-if="platformBadge.icon" :name="platformBadge.icon" class="w-3 h-3" />
+                                {{ platformBadge.label }}
+                            </span>
                         </div>
                     </div>
                     <div class="flex items-center gap-3 flex-shrink-0">
@@ -668,6 +673,7 @@ interface ConversationTraceResponse {
     report_title?: string
     user_name?: string
     user_email?: string
+    external_platform?: string | null
     total_turns: number
     failed_turns: number
     negative_feedback_turns: number
@@ -731,6 +737,26 @@ const selectedItemDataSources = computed(() => {
 const isOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
+})
+
+// Origin platform badge for the header. null/unknown = web UI (no badge —
+// the UI is the default and adding a chip for it just adds noise). Icons reuse
+// the same /icons/<platform>.png assets as the Members table; platforms with
+// no PNG (email) fall back to a heroicons glyph.
+const PLATFORM_LABELS: Record<string, string> = {
+    slack: 'Slack', teams: 'Teams', whatsapp: 'WhatsApp', mcp: 'MCP', email: 'Email',
+}
+const PLATFORM_FALLBACK_ICON: Record<string, string> = {
+    email: 'i-heroicons-envelope',
+}
+const platformBadge = computed(() => {
+    const p = (conversation.value?.external_platform || '').toLowerCase()
+    if (!p || !(p in PLATFORM_LABELS)) return null
+    return {
+        label: PLATFORM_LABELS[p],
+        img: p in PLATFORM_FALLBACK_ICON ? null : `/icons/${p}.png`,
+        icon: PLATFORM_FALLBACK_ICON[p] || null,
+    }
 })
 
 const systemCompletions = computed(() => [])
