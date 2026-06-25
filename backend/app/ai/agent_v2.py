@@ -141,6 +141,7 @@ from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
+from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
 
@@ -1291,6 +1292,101 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
+    def _follow_ups_enabled(self) -> bool:
+        """True only for web sessions (platform is None) when the org's
+        enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
+        all carry a non-null platform and are excluded."""
+        if self.platform is not None:
+            return False
+        if not self.organization_settings:
+            return False
+        cfg = self.organization_settings.get_config("enable_follow_ups")
+        if not cfg:
+            return False
+        if getattr(cfg, "state", None) and cfg.state != "enabled":
+            return False
+        return bool(getattr(cfg, "value", False))
+
+    async def _generate_and_emit_follow_ups(self):
+        """Generate follow-up questions on the small model, persist them on the
+        system completion, and emit a `completion.follow_ups` SSE event so the UI
+        renders chips live (before [DONE]). Best-effort: never raises."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            messages_section = await self.context_hub.message_builder.build(max_messages=8)
+            messages_context = messages_section.render()
+        except Exception:
+            try:
+                messages_context = await self.context_hub.get_messages_context(max_messages=8)
+            except Exception:
+                messages_context = ""
+
+        if not messages_context:
+            return
+
+        # Gather grounding context for both modes. Chat/deep suggestions reference
+        # real schema dimensions; training suggestions reason about what the
+        # instruction set covers vs. the schema (gaps/conflicts/overlap), so both
+        # need schema + instructions. The per-mode framing happens in the Reporter.
+        mode = self.mode or "chat"
+        schemas_context = ""
+        instructions_context = ""
+        try:
+            schemas_ctx = await self.context_hub.schema_builder.build(with_stats=False)
+            schemas_context = schemas_ctx.render_combined(
+                top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT
+            )
+        except Exception:
+            try:
+                view = self.context_hub.get_view()
+                schemas_context = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+            except Exception:
+                schemas_context = ""
+        try:
+            instr_section = await self.context_hub.instruction_builder.build()
+            instructions_context = instr_section.render()
+        except Exception:
+            instructions_context = ""
+        # Keep the small-model call cheap — cap the grounding context. Training
+        # mode is about curating instructions, so give it more instruction budget.
+        schemas_context = (schemas_context or "")[:6000]
+        instructions_context = (instructions_context or "")[: (6000 if mode == "training" else 3000)]
+
+        questions = await self.reporter.generate_follow_ups(
+            messages_context,
+            mode=mode,
+            schemas_context=schemas_context,
+            instructions_context=instructions_context,
+        )
+        if not questions:
+            return
+
+        # Persist on the system completion (reassign so SQLAlchemy detects the
+        # JSON change — same pattern as judge_json).
+        try:
+            self.system_completion.follow_ups = list(questions)
+            self.db.add(self.system_completion)
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist follow_ups: {e}")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+
+        # Emit live so the chips appear without waiting for a reload.
+        if self.event_queue:
+            try:
+                await self.event_queue.put(SSEEvent(
+                    event="completion.follow_ups",
+                    completion_id=str(self.system_completion.id),
+                    data={"questions": list(questions)},
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to emit follow_ups event: {e}")
+
     def _build_slim_context_snapshot(self, view, top_k_schema: int = 10) -> dict:
         """
         Build a slim context snapshot that only includes usage tracking data.
@@ -1740,6 +1836,26 @@ class AgentV2:
         # back to opening fresh short-lived sessions.
         if self._use_single_write_session():
             self._writes = self.db
+        # Stamp ambient attribution for every LLM call made during this run so
+        # the Cost console can break spend down by user / report / data source.
+        # data_source_id is stamped only when the report has exactly one source
+        # (unambiguous); multi-source reports are split across their sources at
+        # query time via the report join. Snapshotting happens at record time
+        # (see app.ai.llm.usage_attribution), so this also covers tool LLM calls
+        # and the worker-thread judge (asyncio.to_thread copies the context).
+        _attr_org = str(getattr(self.organization, "id", "") or "") or None
+        _attr_user = str(getattr(self.head_completion, "user_id", "") or "") or None
+        _attr_report = str(self.report.id) if self.report else None
+        _single_ds = self.data_sources[0] if len(self.data_sources) == 1 else None
+        _attr_ds = str(getattr(_single_ds, "id", "")) if _single_ds is not None else None
+        _attribution_token = set_usage_attribution(
+            {
+                "organization_id": _attr_org,
+                "user_id": _attr_user,
+                "report_id": _attr_report,
+                "data_source_id": _attr_ds,
+            }
+        )
         try:
             import time as _time
             _t0 = _time.monotonic()
@@ -3398,7 +3514,19 @@ class AgentV2:
                 import logging
                 _fallback_logger = logging.getLogger(__name__)
                 _fallback_logger.warning(f"Failed to start title generation: {e}")
-            
+
+            # Follow-up suggestions (web sessions only, when org setting is on).
+            # Generated INLINE here — not as a fire-and-forget task like the title
+            # — so it's reliable: self.db is alive and the SSE event is enqueued
+            # before main_execution returns (i.e. before [DONE]). Persisted on the
+            # completion so the chips also survive a page reload.
+            try:
+                if self._follow_ups_enabled() and self.system_completion:
+                    await self._generate_and_emit_follow_ups()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Follow-up suggestions failed: {e}")
+
             # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
             try:
                 final_messages_context = await self.context_hub.get_messages_context(max_messages=20)
@@ -3515,6 +3643,8 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Drop the ambient LLM usage attribution set at run start.
+            reset_usage_attribution(_attribution_token)
             # Single-writer mode: drop the self._writes alias. self.db's
             # lifecycle is owned by the caller (FastAPI dependency); we
             # only ever aliased to it, never opened/owned a separate

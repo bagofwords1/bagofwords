@@ -228,10 +228,18 @@
 
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
-								<!-- AI avatar (hidden on mobile) -->
-								<div class="w-[28px] me-2 flex-shrink-0 hidden md:block">
-									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
-									</div>
+								<!-- AI avatar (hidden on mobile): org brand image + model badge -->
+								<div class="me-2 flex-shrink-0 hidden md:block">
+									<UTooltip :text="m.model ? `Generated with ${m.model}` : 'AI Analyst'" :popper="{ placement: 'top' }">
+										<div class="relative inline-flex">
+											<!-- Company brand image (falls back to BoW logo). Height-bound, width capped. -->
+											<img :src="orgIconUrl || '/assets/logo-128.png'" alt="" class="h-7 w-auto max-w-[72px] object-contain rounded-lg" />
+											<!-- Model brand overlay -->
+											<span v-if="m.model" class="absolute -bottom-1 -end-1 h-4 w-4 rounded-full bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 flex items-center justify-center overflow-hidden">
+												<LLMProviderIcon :provider="resolveModelBrand(m.model)" :icon="true" class="h-3 w-3" />
+											</span>
+										</div>
+									</UTooltip>
 								</div>
 								<div class="w-full ms-4 max-w-2xl">
 									<!-- System message -->
@@ -408,6 +416,13 @@
 											}"
 										/>
 									</div>
+									<!-- Follow-up suggestions (below thumbs, latest message only) -->
+									<FollowUpSuggestions
+										v-if="isFollowUpsEnabled && m.id === lastMessageId && ((m as any).follow_ups?.length)"
+										:suggestions="(m as any).follow_ups"
+										:disabled="isStreaming || isCompletionInProgress"
+										@select="handleFollowUpClick"
+									/>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -773,6 +788,7 @@ import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
+import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
@@ -828,6 +844,8 @@ interface ChatMessage {
 	id: string
 	role: ChatRole
 	status?: ChatStatus
+	// LLM model id used for this completion (e.g. "claude-sonnet-4-6"); drives the avatar brand overlay
+	model?: string | null
 	prompt?: { content: string; mentions?: Array<{ name: string; items: any[] }> }
 	completion_blocks?: CompletionBlock[]
 	tool_calls?: ToolCall[]
@@ -859,10 +877,21 @@ const report_id = (route.params.id as string) || ''
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
 
+// Organization branding: use the company-uploaded icon as the assistant avatar
+// (falls back to the BoW logo). Each assistant message overlays its model brand.
+const { settings: orgSettings } = useOrgSettings()
+const orgIconUrl = computed<string | null>(() => orgSettings.value?.config?.general?.icon_url || null)
+
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
 
+// Org settings (follow-up suggestions toggle)
+const { isFollowUpsEnabled } = useOrgSettings()
+
 const messages = ref<ChatMessage[]>([])
+
+// Follow-up chips render only under the latest message, to match the chat flow.
+const lastMessageId = computed(() => messages.value.length ? messages.value[messages.value.length - 1].id : null)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
 // List of queries for the summary pills — derived from created_steps in completions
@@ -1926,6 +1955,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'completion.follow_ups':
+			// Suggested follow-up questions (web sessions, org setting on).
+			// Delivered live in-stream; also persisted on the completion so a
+			// reload rehydrates them via loadCompletions.
+			if (payload && Array.isArray(payload.questions)) {
+				;(sysMessage as any).follow_ups = payload.questions
+			}
+			break
+
 		case 'instructions.suggest.started':
 			// Flip a flag so <KnowledgeGroup> renders immediately in a loading
 			// state, even before the first harness block arrives.
@@ -2705,6 +2743,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				id: c.id,
 				role: c.role as ChatRole,
 				status: status,
+				model: c.model,
 				prompt: c.prompt,
 				completion: c.completion,
 				completion_blocks: blocks,
@@ -2712,6 +2751,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				follow_ups: c.follow_ups || null,
 				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
@@ -2802,12 +2842,14 @@ async function loadPreviousCompletions() {
                 id: c.id,
                 role: c.role as ChatRole,
                 status,
+                model: c.model,
                 prompt: c.prompt,
                 completion_blocks: blocks,
                 created_at: c.created_at,
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
+                follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
             }
@@ -3197,6 +3239,13 @@ function handleExampleClick(starter: string) {
 	}
 }
 
+function handleFollowUpClick(question: string) {
+	if (isStreaming.value || isCompletionInProgress.value) return
+	if (question) {
+		onSubmitCompletion({ text: question, mentions: [], mode: currentPromptMode.value });
+	}
+}
+
 // Handlers for feedback-triggered instruction suggestions
 function handleSuggestionsLoading(message: ChatMessage) {
 	message.instruction_suggestions_loading = true
@@ -3267,6 +3316,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		id: sysId,
 		role: 'system',
 		status: 'in_progress',
+		model: data.model_id || undefined,
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)

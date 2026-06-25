@@ -365,7 +365,8 @@
     "duration": "משך: {ms} מילישניות",
     "widgetRef": "← ווידג'ט: {id}",
     "stepRef": "← שלב: {id}",
-    "viewAgentTrace": "הצג מעקב סוכן"
+    "viewAgentTrace": "הצג מעקב סוכן",
+    "followUp": "Follow up"
   },
   "tools": {
     "common": {
