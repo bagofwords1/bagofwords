@@ -2109,6 +2109,7 @@
       "general": "Allmänt",
       "instructions": "Anpassade instruktioner",
       "usage": "Användning",
+      "apiKeys": "API-nycklar",
       "appearance": "Utseende"
     },
     "general": {
@@ -2155,6 +2156,26 @@
       "system": "System",
       "language": "Språk",
       "languageDescription": "Åsidosätter organisationens standardspråk endast för ditt konto."
+    },
+    "apiKeys": {
+      "title": "API-nycklar",
+      "subtitle": "Personliga API-nycklar för MCP-servern och programmatisk åtkomst. Nycklarna är kopplade till ditt konto.",
+      "generate": "Generera ny nyckel",
+      "empty": "Du har inga API-nycklar än.",
+      "created": "Skapad {date}",
+      "lastUsed": "Senast använd {date}",
+      "neverUsed": "Aldrig använd",
+      "newKeyTitle": "Din nya API-nyckel",
+      "newKeyWarning": "Kopiera nyckeln nu — den visas inte igen.",
+      "copy": "Kopiera",
+      "copied": "Kopierad",
+      "done": "Klar",
+      "deleteTitle": "Ta bort API-nyckel",
+      "confirmDelete": "Ta bort den här API-nyckeln? Alla klienter som använder den slutar fungera.",
+      "toastGenerated": "API-nyckel genererad",
+      "toastGenerateFailed": "Det gick inte att generera API-nyckeln",
+      "toastDeleted": "API-nyckel borttagen",
+      "toastDeleteFailed": "Det gick inte att ta bort API-nyckeln"
     }
   }
 }

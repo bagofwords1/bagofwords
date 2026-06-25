@@ -2109,6 +2109,7 @@
       "general": "عام",
       "instructions": "تعليمات مخصصة",
       "usage": "الاستخدام",
+      "apiKeys": "مفاتيح API",
       "appearance": "المظهر"
     },
     "general": {
@@ -2155,6 +2156,26 @@
       "system": "النظام",
       "language": "اللغة",
       "languageDescription": "يتجاوز اللغة الافتراضية للمؤسسة لحسابك فقط."
+    },
+    "apiKeys": {
+      "title": "مفاتيح API",
+      "subtitle": "مفاتيح API شخصية لخادم MCP والوصول البرمجي. المفاتيح مرتبطة بحسابك.",
+      "generate": "إنشاء مفتاح جديد",
+      "empty": "ليس لديك أي مفاتيح API بعد.",
+      "created": "أُنشئ في {date}",
+      "lastUsed": "آخر استخدام {date}",
+      "neverUsed": "لم يُستخدم قط",
+      "newKeyTitle": "مفتاح API الجديد الخاص بك",
+      "newKeyWarning": "انسخ هذا المفتاح الآن — لن يُعرض مرة أخرى.",
+      "copy": "نسخ",
+      "copied": "تم النسخ",
+      "done": "تم",
+      "deleteTitle": "حذف مفتاح API",
+      "confirmDelete": "حذف مفتاح API هذا؟ سيتوقف أي عميل يستخدمه عن العمل.",
+      "toastGenerated": "تم إنشاء مفتاح API",
+      "toastGenerateFailed": "فشل إنشاء مفتاح API",
+      "toastDeleted": "تم حذف مفتاح API",
+      "toastDeleteFailed": "فشل حذف مفتاح API"
     }
   }
 }

@@ -2109,6 +2109,7 @@
       "general": "Allgemein",
       "instructions": "Benutzerdefinierte Anweisungen",
       "usage": "Nutzung",
+      "apiKeys": "API-Schlüssel",
       "appearance": "Darstellung"
     },
     "general": {
@@ -2155,6 +2156,26 @@
       "system": "System",
       "language": "Sprache",
       "languageDescription": "Überschreibt die Standardsprache der Organisation nur für Ihr Konto."
+    },
+    "apiKeys": {
+      "title": "API-Schlüssel",
+      "subtitle": "Persönliche API-Schlüssel für den MCP-Server und den programmatischen Zugriff. Die Schlüssel sind mit deinem Konto verknüpft.",
+      "generate": "Neuen Schlüssel erstellen",
+      "empty": "Du hast noch keine API-Schlüssel.",
+      "created": "Erstellt am {date}",
+      "lastUsed": "Zuletzt verwendet {date}",
+      "neverUsed": "Nie verwendet",
+      "newKeyTitle": "Dein neuer API-Schlüssel",
+      "newKeyWarning": "Kopiere diesen Schlüssel jetzt — er wird nicht erneut angezeigt.",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "done": "Fertig",
+      "deleteTitle": "API-Schlüssel löschen",
+      "confirmDelete": "Diesen API-Schlüssel löschen? Jeder Client, der ihn verwendet, funktioniert nicht mehr.",
+      "toastGenerated": "API-Schlüssel erstellt",
+      "toastGenerateFailed": "API-Schlüssel konnte nicht erstellt werden",
+      "toastDeleted": "API-Schlüssel gelöscht",
+      "toastDeleteFailed": "API-Schlüssel konnte nicht gelöscht werden"
     }
   }
 }

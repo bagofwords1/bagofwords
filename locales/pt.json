@@ -2109,6 +2109,7 @@
       "general": "Geral",
       "instructions": "Instruções personalizadas",
       "usage": "Uso",
+      "apiKeys": "Chaves de API",
       "appearance": "Aparência"
     },
     "general": {
@@ -2155,6 +2156,26 @@
       "system": "Sistema",
       "language": "Idioma",
       "languageDescription": "Substitui o idioma padrão da organização apenas para sua conta."
+    },
+    "apiKeys": {
+      "title": "Chaves de API",
+      "subtitle": "Chaves de API pessoais para o servidor MCP e acesso programático. As chaves estão vinculadas à sua conta.",
+      "generate": "Gerar nova chave",
+      "empty": "Você ainda não tem nenhuma chave de API.",
+      "created": "Criada em {date}",
+      "lastUsed": "Último uso {date}",
+      "neverUsed": "Nunca usada",
+      "newKeyTitle": "Sua nova chave de API",
+      "newKeyWarning": "Copie esta chave agora — ela não será exibida novamente.",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "done": "Concluído",
+      "deleteTitle": "Excluir chave de API",
+      "confirmDelete": "Excluir esta chave de API? Qualquer cliente que a utilize deixará de funcionar.",
+      "toastGenerated": "Chave de API gerada",
+      "toastGenerateFailed": "Falha ao gerar a chave de API",
+      "toastDeleted": "Chave de API excluída",
+      "toastDeleteFailed": "Falha ao excluir a chave de API"
     }
   }
 }

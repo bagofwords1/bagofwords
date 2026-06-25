@@ -289,6 +289,13 @@ async function loadSettings() {
     }
 }
 
+// Load data when the modal opens. In the global layout the modal is mounted
+// with `v-if="showMcpModal"` (default.vue), so it mounts already-open and
+// `isOpen` is true on the very first render. A non-immediate watch never sees a
+// false->true transition in that case, so loadApiKeys()/loadSettings() would
+// never run and the modal would always show "0 tokens" (existing keys hidden).
+// `immediate: true` makes the initial already-open mount load too. (Same fix as
+// UserProfileModal.)
 watch(isOpen, async (open) => {
     if (open) {
         loading.value = true
@@ -300,5 +307,5 @@ watch(isOpen, async (open) => {
         ])
         loading.value = false
     }
-})
+}, { immediate: true })
 </script>
