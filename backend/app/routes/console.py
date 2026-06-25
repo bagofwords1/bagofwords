@@ -127,10 +127,10 @@ async def get_llm_usage(
     """Get aggregated LLM token/cost usage per model."""
     return await console_service.get_llm_usage_metrics(db, organization, params)
 
-@router.get("/console/metrics/cost", response_model=CostMetrics)
-@require_enterprise(feature="cost_dashboard")
+@router.get("/console/metrics/usage", response_model=CostMetrics)
+@require_enterprise(feature="usage_dashboard")
 @requires_permission("manage_settings")
-async def get_cost_metrics(
+async def get_usage_metrics(
     group_by: str = "model",
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),

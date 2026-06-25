@@ -1,11 +1,11 @@
 <template>
     <!-- Enterprise-gated: direct navigation without the license shows a notice
          instead of a broken page (the API returns 402). -->
-    <div v-if="!costLicensed" class="mt-6">
+    <div v-if="!usageLicensed" class="mt-6">
         <div class="bg-white border border-gray-200 rounded-xl p-12 text-center max-w-xl mx-auto">
             <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-gray-400 mx-auto mb-3" />
-            <h3 class="text-base font-semibold text-gray-900">{{ $t('monitoring.cost.lockedTitle') }}</h3>
-            <p class="text-sm text-gray-500 mt-1.5">{{ $t('monitoring.cost.lockedBody') }}</p>
+            <h3 class="text-base font-semibold text-gray-900">{{ $t('monitoring.usage.lockedTitle') }}</h3>
+            <p class="text-sm text-gray-500 mt-1.5">{{ $t('monitoring.usage.lockedBody') }}</p>
         </div>
     </div>
 
@@ -24,28 +24,28 @@
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">${{ formatNum(data?.total_cost_usd || 0, 2) }}</div>
                 <div class="text-sm font-medium text-gray-600 mt-1">
-                    {{ $t('monitoring.cost.kpiTotalCost') }}
-                    <span v-if="hasEstimated" class="text-gray-400 font-normal">· {{ $t('monitoring.cost.estimated') }}</span>
+                    {{ $t('monitoring.usage.kpiTotalCost') }}
+                    <span v-if="hasEstimated" class="text-gray-400 font-normal">· {{ $t('monitoring.usage.estimated') }}</span>
                 </div>
             </div>
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">{{ compactNum(data?.total_tokens || 0) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiTotalTokens') }}</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.usage.kpiTotalTokens') }}</div>
             </div>
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">{{ compactNum(data?.total_calls || 0) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiTotalCalls') }}</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.usage.kpiTotalCalls') }}</div>
             </div>
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">${{ formatNum(avgCostPerCall, 4) }}</div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiAvgCostPerCall') }}</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.usage.kpiAvgCostPerCall') }}</div>
             </div>
         </div>
 
         <!-- Trend chart -->
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
             <div class="p-6 border-b border-gray-50 flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.trendTitle') }}</h3>
+                <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.usage.trendTitle') }}</h3>
                 <div class="inline-flex rounded-md border border-gray-200 overflow-hidden">
                     <button
                         v-for="opt in metricOptions"
@@ -63,12 +63,12 @@
                     <div v-if="isLoading" class="flex items-center justify-center h-full">
                         <div class="flex items-center space-x-2">
                             <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                            <span class="text-gray-600">{{ $t('monitoring.cost.loading') }}</span>
+                            <span class="text-gray-600">{{ $t('monitoring.usage.loading') }}</span>
                         </div>
                     </div>
                     <VChart v-else-if="trendOptions" class="chart" :option="trendOptions" autoresize />
                     <div v-else class="flex items-center justify-center h-full text-gray-500">
-                        {{ $t('monitoring.cost.noData') }}
+                        {{ $t('monitoring.usage.noData') }}
                     </div>
                 </div>
             </div>
@@ -78,10 +78,10 @@
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div class="p-6 border-b border-gray-50 flex items-center justify-between flex-wrap gap-3">
                 <div>
-                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.breakdownTitle') }}</h3>
+                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.usage.breakdownTitle') }}</h3>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium text-gray-700">{{ $t('monitoring.cost.groupBy') }}:</span>
+                    <span class="text-sm font-medium text-gray-700">{{ $t('monitoring.usage.groupBy') }}:</span>
                     <USelectMenu
                         :model-value="selectedGroupBy"
                         :options="groupByOptions"
@@ -97,7 +97,7 @@
                         :disabled="!items.length"
                         @click="exportCsv"
                     >
-                        {{ $t('monitoring.cost.exportCsv') }}
+                        {{ $t('monitoring.usage.exportCsv') }}
                     </UButton>
                 </div>
             </div>
@@ -106,13 +106,13 @@
                 <table class="min-w-full">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colName') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colCalls') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colTokens') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colInputCost') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colOutputCost') }}</th>
-                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colTotalCost') }}</th>
-                            <th class="px-6 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colShare') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colName') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colCalls') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colTokens') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colInputCost') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colOutputCost') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colTotalCost') }}</th>
+                            <th class="px-6 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.usage.colShare') }}</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-sm">
@@ -129,7 +129,7 @@
                             <td class="px-6 py-4 text-end text-gray-500 tabular-nums">{{ sharePct(item) }}%</td>
                         </tr>
                         <tr v-if="!isLoading && items.length === 0">
-                            <td colspan="7" class="px-6 py-12 text-center text-gray-500">{{ $t('monitoring.cost.noData') }}</td>
+                            <td colspan="7" class="px-6 py-12 text-center text-gray-500">{{ $t('monitoring.usage.noData') }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -137,7 +137,7 @@
 
             <div v-if="selectedGroupBy.value === 'data_source' || selectedGroupBy.value === 'group'"
                  class="px-6 py-3 text-xs text-gray-400 border-t border-gray-50">
-                {{ $t('monitoring.cost.fanoutNote') }}
+                {{ $t('monitoring.usage.fanoutNote') }}
             </div>
         </div>
     </div>
@@ -158,8 +158,8 @@ const { t } = useI18n()
 const { selectedAgents } = useAgent()
 const { hasFeature } = useEnterprise()
 
-// Cost is an enterprise feature; gate matches the backend `cost_dashboard` check.
-const costLicensed = computed(() => hasFeature('cost_dashboard'))
+// Usage is an enterprise feature; gate matches the backend `usage_dashboard` check.
+const usageLicensed = computed(() => hasFeature('usage_dashboard'))
 
 definePageMeta({
     auth: true,
@@ -205,18 +205,18 @@ const selectedPeriod = ref({ label: t('monitoring.overview.last30d'), value: '30
 const dateRange = ref<DateRange>({ start: '', end: '' })
 
 const groupByOptions = computed(() => [
-    { label: t('monitoring.cost.groupByModel'), value: 'model' },
-    { label: t('monitoring.cost.groupByProvider'), value: 'provider' },
-    { label: t('monitoring.cost.groupByUser'), value: 'user' },
-    { label: t('monitoring.cost.groupByDataSource'), value: 'data_source' },
-    { label: t('monitoring.cost.groupByGroup'), value: 'group' },
-    { label: t('monitoring.cost.groupByScope'), value: 'scope' },
+    { label: t('monitoring.usage.groupByModel'), value: 'model' },
+    { label: t('monitoring.usage.groupByProvider'), value: 'provider' },
+    { label: t('monitoring.usage.groupByUser'), value: 'user' },
+    { label: t('monitoring.usage.groupByDataSource'), value: 'data_source' },
+    { label: t('monitoring.usage.groupByGroup'), value: 'group' },
+    { label: t('monitoring.usage.groupByScope'), value: 'scope' },
 ])
 const selectedGroupBy = ref(groupByOptions.value[0])
 
 const metricOptions = computed(() => [
-    { label: t('monitoring.cost.metricCost'), value: 'cost' as const },
-    { label: t('monitoring.cost.metricTokens'), value: 'tokens' as const },
+    { label: t('monitoring.usage.metricCost'), value: 'cost' as const },
+    { label: t('monitoring.usage.metricTokens'), value: 'tokens' as const },
 ])
 const selectedMetric = ref<'cost' | 'tokens'>('cost')
 
@@ -258,7 +258,7 @@ const exportCsv = () => {
     const csv = [header, ...rows].map(r => r.map(csvCell).join(',')).join('\n')
 
     const range = data.value.date_range
-    const fname = `cost_${selectedGroupBy.value.value}_${(range.start || '').slice(0, 10)}_${(range.end || '').slice(0, 10)}.csv`
+    const fname = `usage_${selectedGroupBy.value.value}_${(range.start || '').slice(0, 10)}_${(range.end || '').slice(0, 10)}.csv`
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -313,7 +313,7 @@ const appendDateParams = (params: URLSearchParams) => {
 }
 
 const fetchCost = async () => {
-    if (!costLicensed.value) return  // enterprise-gated; nothing to fetch
+    if (!usageLicensed.value) return  // enterprise-gated; nothing to fetch
     isLoading.value = true
     try {
         const params = new URLSearchParams()
@@ -322,7 +322,7 @@ const fetchCost = async () => {
         if (selectedAgents.value.length > 0) {
             params.append('data_source_ids', selectedAgents.value.join(','))
         }
-        const res = await useMyFetch<CostMetrics>(`/api/console/metrics/cost?${params}`)
+        const res = await useMyFetch<CostMetrics>(`/api/console/metrics/usage?${params}`)
         data.value = res.data.value || null
     } catch (e) {
         console.error('Failed to fetch cost metrics:', e)

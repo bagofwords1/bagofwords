@@ -46,8 +46,8 @@ const currentPath = computed(() => route.path)
 const allTabs = [
     { name: '', label: 'monitoring.tabExplore', icon: 'i-heroicons-chart-bar' },
     { name: 'diagnosis', label: 'monitoring.tabDiagnosis', icon: 'i-heroicons-wrench' },
-    // Cost is an enterprise feature (license-gated, see `cost_dashboard`).
-    { name: 'cost', label: 'monitoring.tabCost', icon: 'i-heroicons-banknotes', feature: 'cost_dashboard' },
+    // Usage is an enterprise feature (license-gated, see `usage_dashboard`).
+    { name: 'usage', label: 'monitoring.tabUsage', icon: 'i-heroicons-banknotes', feature: 'usage_dashboard' },
 ]
 
 const { hasFeature } = useEnterprise()

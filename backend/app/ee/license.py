@@ -29,7 +29,7 @@ TIER_FEATURES = {
         "domain_signup",
         "usage_limits",
         "scheduled_reindex",
-        "cost_dashboard",
+        "usage_dashboard",
     ],
 }
 
