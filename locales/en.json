@@ -1993,6 +1993,7 @@
       "kpiTotalTokens": "Total tokens",
       "kpiTotalCalls": "LLM calls",
       "kpiAvgCostPerCall": "Avg cost / call",
+      "estimated": "estimated",
       "estimatedNote": "Some spend is estimated (custom / Azure / Bedrock providers have no first-party price feed).",
       "trendTitle": "Spend over time",
       "breakdownTitle": "Breakdown",

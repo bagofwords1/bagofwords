@@ -2,12 +2,10 @@
     <!-- Enterprise-gated: direct navigation without the license shows a notice
          instead of a broken page (the API returns 402). -->
     <div v-if="!costLicensed" class="mt-6">
-        <div class="bg-white border border-gray-200 rounded-2xl shadow-sm p-12 text-center max-w-2xl mx-auto">
-            <div class="mx-auto w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
-                <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-indigo-500" />
-            </div>
-            <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.lockedTitle') }}</h3>
-            <p class="text-sm text-gray-500 mt-2">{{ $t('monitoring.cost.lockedBody') }}</p>
+        <div class="bg-white border border-gray-200 rounded-xl p-12 text-center max-w-xl mx-auto">
+            <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-gray-400 mx-auto mb-3" />
+            <h3 class="text-base font-semibold text-gray-900">{{ $t('monitoring.cost.lockedTitle') }}</h3>
+            <p class="text-sm text-gray-500 mt-1.5">{{ $t('monitoring.cost.lockedBody') }}</p>
         </div>
     </div>
 
@@ -24,10 +22,11 @@
         <!-- KPI cards -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900">
-                    {{ hasEstimated ? '~' : '' }}${{ formatNum(data?.total_cost_usd || 0, 2) }}
+                <div class="text-2xl font-bold text-gray-900">${{ formatNum(data?.total_cost_usd || 0, 2) }}</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">
+                    {{ $t('monitoring.cost.kpiTotalCost') }}
+                    <span v-if="hasEstimated" class="text-gray-400 font-normal">· {{ $t('monitoring.cost.estimated') }}</span>
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cost.kpiTotalCost') }}</div>
             </div>
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">{{ compactNum(data?.total_tokens || 0) }}</div>
@@ -43,24 +42,16 @@
             </div>
         </div>
 
-        <div v-if="hasEstimated" class="mb-6 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center">
-            <UIcon name="i-heroicons-information-circle" class="w-4 h-4 me-1.5 shrink-0" />
-            {{ $t('monitoring.cost.estimatedNote') }}
-        </div>
-
         <!-- Trend chart -->
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
             <div class="p-6 border-b border-gray-50 flex items-center justify-between">
-                <div>
-                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.trendTitle') }}</h3>
-                    <p class="text-sm text-gray-500 mt-1">{{ $t('monitoring.cost.subtitle') }}</p>
-                </div>
-                <div class="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5 gap-1">
+                <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.trendTitle') }}</h3>
+                <div class="inline-flex rounded-md border border-gray-200 overflow-hidden">
                     <button
                         v-for="opt in metricOptions"
                         :key="opt.value"
-                        class="px-2.5 py-0.5 text-xs font-medium rounded-full transition"
-                        :class="selectedMetric === opt.value ? 'bg-white shadow text-gray-900' : 'text-gray-500'"
+                        class="px-3 py-1 text-xs font-medium transition border-l first:border-l-0 border-gray-200"
+                        :class="selectedMetric === opt.value ? 'bg-gray-100 text-gray-900' : 'bg-white text-gray-500 hover:text-gray-700'"
                         @click="selectedMetric = opt.value"
                     >
                         {{ opt.label }}
@@ -112,37 +103,30 @@
             </div>
 
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-100 text-sm">
+                <table class="min-w-full">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left font-medium text-gray-500">{{ $t('monitoring.cost.colName') }}</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500">{{ $t('monitoring.cost.colCalls') }}</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500">{{ $t('monitoring.cost.colTokens') }}</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500">{{ $t('monitoring.cost.colInputCost') }}</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500">{{ $t('monitoring.cost.colOutputCost') }}</th>
-                            <th class="px-4 py-3 text-right font-medium text-gray-500">{{ $t('monitoring.cost.colTotalCost') }}</th>
-                            <th class="px-6 py-3 text-left font-medium text-gray-500 w-40">{{ $t('monitoring.cost.colShare') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colName') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colCalls') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colTokens') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colInputCost') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colOutputCost') }}</th>
+                            <th class="px-4 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colTotalCost') }}</th>
+                            <th class="px-6 py-3 text-end text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.cost.colShare') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-50">
+                    <tbody class="bg-white divide-y divide-gray-200 text-sm">
                         <tr v-for="item in items" :key="item.key" class="hover:bg-gray-50">
-                            <td class="px-6 py-3">
+                            <td class="px-6 py-4">
                                 <div class="font-medium text-gray-900">{{ item.label }}</div>
-                                <div v-if="item.sublabel" class="text-xs text-gray-400">{{ item.sublabel }}</div>
+                                <div v-if="item.sublabel" class="text-xs text-gray-500">{{ item.sublabel }}</div>
                             </td>
-                            <td class="px-4 py-3 text-right text-gray-700">{{ compactNum(item.total_calls) }}</td>
-                            <td class="px-4 py-3 text-right text-gray-700">{{ compactNum(item.total_tokens) }}</td>
-                            <td class="px-4 py-3 text-right text-gray-700">${{ formatNum(item.input_cost_usd, 4) }}</td>
-                            <td class="px-4 py-3 text-right text-gray-700">${{ formatNum(item.output_cost_usd, 4) }}</td>
-                            <td class="px-4 py-3 text-right font-semibold text-gray-900">${{ formatNum(item.total_cost_usd, 4) }}</td>
-                            <td class="px-6 py-3">
-                                <div class="flex items-center gap-2">
-                                    <div class="flex-1 bg-gray-100 rounded-full h-1.5">
-                                        <div class="bg-indigo-500 h-1.5 rounded-full" :style="{ width: sharePct(item) + '%' }"></div>
-                                    </div>
-                                    <span class="text-xs text-gray-500 w-9 text-right">{{ sharePct(item) }}%</span>
-                                </div>
-                            </td>
+                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">{{ compactNum(item.total_calls) }}</td>
+                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">{{ compactNum(item.total_tokens) }}</td>
+                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">${{ formatNum(item.input_cost_usd, 4) }}</td>
+                            <td class="px-4 py-4 text-end text-gray-600 tabular-nums">${{ formatNum(item.output_cost_usd, 4) }}</td>
+                            <td class="px-4 py-4 text-end font-semibold text-gray-900 tabular-nums">${{ formatNum(item.total_cost_usd, 4) }}</td>
+                            <td class="px-6 py-4 text-end text-gray-500 tabular-nums">{{ sharePct(item) }}%</td>
                         </tr>
                         <tr v-if="!isLoading && items.length === 0">
                             <td colspan="7" class="px-6 py-12 text-center text-gray-500">{{ $t('monitoring.cost.noData') }}</td>
@@ -316,9 +300,9 @@ const trendOptions = computed((): EChartsOption | null => {
         series: [{
             name: isCost ? 'Cost' : 'Tokens',
             type: 'line', smooth: true, showSymbol: false, data: values,
-            lineStyle: { color: '#4f46e5', width: 2 },
-            areaStyle: { color: 'rgba(79,70,229,0.10)' },
-            itemStyle: { color: '#4f46e5' }
+            lineStyle: { color: '#3b82f6', width: 2 },
+            areaStyle: { color: 'rgba(59,130,246,0.06)' },
+            itemStyle: { color: '#3b82f6' }
         }]
     }
 })
