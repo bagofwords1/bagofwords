@@ -355,7 +355,8 @@
     "duration": "Varaktighet: {ms} ms",
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Steg: {id}",
-    "viewAgentTrace": "Visa agentspår"
+    "viewAgentTrace": "Visa agentspår",
+    "followUp": "Follow up"
   },
   "tools": {
     "common": {

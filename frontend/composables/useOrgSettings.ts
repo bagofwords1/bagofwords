@@ -87,6 +87,7 @@ export const useOrgSettings = () => {
   const isMcpToolsEnabled = computed(() => featureEnabled(getFeature('enable_mcp_tools')))
   const allowLlmSeeData = computed(() => featureEnabled(getFeature('allow_llm_see_data')))
   const isTrainingModeEnabled = computed(() => featureEnabled(getFeature('enable_training_mode')))
+  const isFollowUpsEnabled = computed(() => featureEnabled(getFeature('enable_follow_ups')))
 
   return {
     settings,
@@ -101,6 +102,7 @@ export const useOrgSettings = () => {
     isMcpToolsEnabled,
     allowLlmSeeData,
     isTrainingModeEnabled,
+    isFollowUpsEnabled,
     // raw accessor
     getFeature,
   }

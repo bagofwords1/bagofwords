@@ -416,6 +416,13 @@
 											}"
 										/>
 									</div>
+									<!-- Follow-up suggestions (below thumbs, latest message only) -->
+									<FollowUpSuggestions
+										v-if="isFollowUpsEnabled && m.id === lastMessageId && ((m as any).follow_ups?.length)"
+										:suggestions="(m as any).follow_ups"
+										:disabled="isStreaming || isCompletionInProgress"
+										@select="handleFollowUpClick"
+									/>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -781,6 +788,7 @@ import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
+import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
@@ -877,7 +885,13 @@ const orgIconUrl = computed<string | null>(() => orgSettings.value?.config?.gene
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
 
+// Org settings (follow-up suggestions toggle)
+const { isFollowUpsEnabled } = useOrgSettings()
+
 const messages = ref<ChatMessage[]>([])
+
+// Follow-up chips render only under the latest message, to match the chat flow.
+const lastMessageId = computed(() => messages.value.length ? messages.value[messages.value.length - 1].id : null)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
 // List of queries for the summary pills — derived from created_steps in completions
@@ -1941,6 +1955,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'completion.follow_ups':
+			// Suggested follow-up questions (web sessions, org setting on).
+			// Delivered live in-stream; also persisted on the completion so a
+			// reload rehydrates them via loadCompletions.
+			if (payload && Array.isArray(payload.questions)) {
+				;(sysMessage as any).follow_ups = payload.questions
+			}
+			break
+
 		case 'instructions.suggest.started':
 			// Flip a flag so <KnowledgeGroup> renders immediately in a loading
 			// state, even before the first harness block arrives.
@@ -2728,6 +2751,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				follow_ups: c.follow_ups || null,
 				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
@@ -2825,6 +2849,7 @@ async function loadPreviousCompletions() {
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
+                follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
             }
@@ -3211,6 +3236,13 @@ function openTraceModal(completionId: string) {
 function handleExampleClick(starter: string) {
 	if (starter) {
 		onSubmitCompletion({ text: starter, mentions: [], mode: currentPromptMode.value });
+	}
+}
+
+function handleFollowUpClick(question: string) {
+	if (isStreaming.value || isCompletionInProgress.value) return
+	if (question) {
+		onSubmitCompletion({ text: question, mentions: [], mode: currentPromptMode.value });
 	}
 }
 
