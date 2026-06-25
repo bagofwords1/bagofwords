@@ -83,6 +83,14 @@ def _get_access(test_client, token, org_id, model_id):
     )
 
 
+def _list_by_principal(test_client, token, org_id, principal_type, principal_id):
+    return test_client.get(
+        f"/api/llm/model-access/by-principal",
+        params={"principal_type": principal_type, "principal_id": principal_id},
+        headers=_headers(token, org_id),
+    )
+
+
 @pytest.fixture
 def cast(test_client, bootstrap_admin, invite_user_to_org):
     """Admin + a regular member in the same org, plus a provider w/ 3 models."""
@@ -185,6 +193,40 @@ def test_role_grant(enterprise_license, test_client, cast, get_system_role):
     # The member holds the system 'member' role → gains access.
     member_ids = {m["id"] for m in _list_models(test_client, cast["member"]["token"], org)}
     assert mid in member_ids
+
+
+@pytest.mark.e2e
+def test_list_models_for_principal_role(enterprise_license, test_client, cast, get_system_role):
+    """The role-centric editor lists restricted models with a granted flag."""
+    mid = cast["restrictable_id"]
+    admin_t, org = cast["admin"]["token"], cast["org_id"]
+    member_role = get_system_role("member", user_token=admin_t, org_id=org)
+
+    # Nothing restricted yet → empty list (open models aren't grantable).
+    r = _list_by_principal(test_client, admin_t, org, "role", member_role["id"])
+    assert r.status_code == 200, r.json()
+    assert all(m["model_id"] != mid for m in r.json())
+
+    # Restrict it → now listed, not yet granted to the role.
+    _restrict(test_client, admin_t, org, mid, True)
+    r = _list_by_principal(test_client, admin_t, org, "role", member_role["id"])
+    row = next(m for m in r.json() if m["model_id"] == mid)
+    assert row["granted"] is False and row["grant_id"] is None
+
+    # Grant via the model endpoint → role-centric view reflects it.
+    _add_access(test_client, admin_t, org, mid, "role", member_role["id"])
+    r = _list_by_principal(test_client, admin_t, org, "role", member_role["id"])
+    row = next(m for m in r.json() if m["model_id"] == mid)
+    assert row["granted"] is True and row["grant_id"]
+
+
+@pytest.mark.e2e
+def test_list_by_principal_member_denied(enterprise_license, test_client, cast, get_system_role):
+    """by-principal is manage_llm-gated — members get 403."""
+    admin_t, org = cast["admin"]["token"], cast["org_id"]
+    member_role = get_system_role("member", user_token=admin_t, org_id=org)
+    r = _list_by_principal(test_client, cast["member"]["token"], org, "role", member_role["id"])
+    assert r.status_code == 403
 
 
 # ── guardrails ───────────────────────────────────────────────────────────

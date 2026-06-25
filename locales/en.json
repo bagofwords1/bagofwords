@@ -807,7 +807,7 @@
     "fullAdminBypass": "Bypasses all checks",
     "allResources": "All resources",
     "orgWidePermissions": "Org-wide permissions",
-    "ds": "DS",
+    "ds": "Agent",
     "addDataSource": "+ Add data source...",
     "cancel": "Cancel",
     "save": "Save",
@@ -823,7 +823,7 @@
     "failedToDelete": "Failed to delete role",
     "permissions": {
       "manage_files": "Manage files",
-      "create_data_source": "Create data source",
+      "create_data_source": "Create agent",
       "manage_connections": "Manage connections",
       "manage_instructions": "Manage instructions",
       "manage_entities": "Manage entities",
@@ -838,7 +838,11 @@
       "view_schema": "View schema",
       "create_entities": "Create entities",
       "manage": "Manage settings"
-    }
+    },
+    "addAgent": "+ Add agent...",
+    "modelAccess": "Model access",
+    "modelAccessHint": "Restricted models",
+    "noRestrictedModels": "No restricted models"
   },
   "groupsManager": {
     "searchPlaceholder": "Search groups...",

@@ -716,7 +716,7 @@
     "fullAdminBypass": "Bypassa tutti i controlli",
     "allResources": "Tutte le risorse",
     "orgWidePermissions": "Autorizzazioni a livello di organizzazione",
-    "ds": "OD",
+    "ds": "Agente",
     "addDataSource": "+ Aggiungi origine dati...",
     "cancel": "Annulla",
     "save": "Salva",
@@ -732,7 +732,7 @@
     "failedToDelete": "Impossibile eliminare il ruolo",
     "permissions": {
       "manage_files": "Gestione dei file",
-      "create_data_source": "Crea origine dati",
+      "create_data_source": "Crea agente",
       "manage_connections": "Gestione delle connessioni",
       "manage_instructions": "Gestione delle istruzioni",
       "manage_entities": "Gestione delle entità",
@@ -747,7 +747,11 @@
       "view_schema": "Visualizza schema",
       "create_entities": "Crea entità",
       "manage": "Gestione delle impostazioni"
-    }
+    },
+    "addAgent": "+ Aggiungi agente...",
+    "modelAccess": "Accesso ai modelli",
+    "modelAccessHint": "Modelli con restrizioni",
+    "noRestrictedModels": "Nessun modello con restrizioni"
   },
   "groupsManager": {
     "searchPlaceholder": "Cerca gruppi...",

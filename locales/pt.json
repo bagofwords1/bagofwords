@@ -716,7 +716,7 @@
     "fullAdminBypass": "Ignora todas as verificações",
     "allResources": "Todos os recursos",
     "orgWidePermissions": "Permissões em toda a organização",
-    "ds": "FD",
+    "ds": "Agente",
     "addDataSource": "+ Adicionar fonte de dados...",
     "cancel": "Cancelar",
     "save": "Salvar",
@@ -732,7 +732,7 @@
     "failedToDelete": "Falha ao excluir função",
     "permissions": {
       "manage_files": "Gerenciar arquivos",
-      "create_data_source": "Criar fonte de dados",
+      "create_data_source": "Criar agente",
       "manage_connections": "Gerenciar conexões",
       "manage_instructions": "Gerenciar instruções",
       "manage_entities": "Gerenciar entidades",
@@ -747,7 +747,11 @@
       "view_schema": "Ver esquema",
       "create_entities": "Criar entidades",
       "manage": "Gerenciar configurações"
-    }
+    },
+    "addAgent": "+ Adicionar agente...",
+    "modelAccess": "Acesso a modelos",
+    "modelAccessHint": "Modelos restritos",
+    "noRestrictedModels": "Nenhum modelo restrito"
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",

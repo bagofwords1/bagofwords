@@ -198,6 +198,22 @@ class ModelRestrictionUpdate(BaseModel):
     is_restricted: bool
 
 
+@router.get("/llm/model-access/by-principal")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def list_models_for_principal(
+    principal_type: str,
+    principal_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """List restricted models with whether a principal (role/group/user) can use each."""
+    return await llm_service.list_models_for_principal(
+        db, organization, current_user, principal_type, principal_id
+    )
+
+
 @router.get("/llm/models/{model_id}/access")
 @require_enterprise(feature="llm_access_control")
 @requires_permission('manage_llm')

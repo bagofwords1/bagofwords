@@ -716,7 +716,7 @@
     "fullAdminBypass": "Umgeht alle Prüfungen",
     "allResources": "Alle Ressourcen",
     "orgWidePermissions": "Organisationsweite Berechtigungen",
-    "ds": "DQ",
+    "ds": "Agent",
     "addDataSource": "+ Datenquelle hinzufügen ...",
     "cancel": "Abbrechen",
     "save": "Speichern",
@@ -732,7 +732,7 @@
     "failedToDelete": "Rolle konnte nicht gelöscht werden",
     "permissions": {
       "manage_files": "Dateien verwalten",
-      "create_data_source": "Datenquelle erstellen",
+      "create_data_source": "Agent erstellen",
       "manage_connections": "Verbindungen verwalten",
       "manage_instructions": "Anweisungen verwalten",
       "manage_entities": "Entitäten verwalten",
@@ -747,7 +747,11 @@
       "view_schema": "Schema anzeigen",
       "create_entities": "Entitäten erstellen",
       "manage": "Einstellungen verwalten"
-    }
+    },
+    "addAgent": "+ Agent hinzufügen ...",
+    "modelAccess": "Modellzugriff",
+    "modelAccessHint": "Eingeschränkte Modelle",
+    "noRestrictedModels": "Keine eingeschränkten Modelle"
   },
   "groupsManager": {
     "searchPlaceholder": "Gruppen suchen ...",

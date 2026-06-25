@@ -431,6 +431,64 @@ class LLMService:
             pass
         return {"success": True}
 
+    async def list_models_for_principal(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        principal_type: str,
+        principal_id: str,
+    ):
+        """List restricted models with whether `principal` is granted use of each.
+
+        Powers the role-centric access editor (a role's modal lists the
+        restricted models it may use). Only restricted models are returned —
+        open models are usable by everyone, so there is nothing to grant.
+        """
+        from app.models.resource_grant import ResourceGrant
+
+        if principal_type not in ("user", "group", "role"):
+            raise HTTPException(status_code=400, detail="Invalid principal_type")
+
+        # All restricted models in the org (admin path — no access filtering).
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMProvider.organization_id == organization.id)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMModel.is_restricted == True)
+        )
+        models = result.unique().scalars().all()
+
+        # Existing grants for this principal across those models.
+        model_ids = [str(m.id) for m in models]
+        grant_ids: dict = {}
+        if model_ids:
+            gr = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "llm_model",
+                    ResourceGrant.resource_id.in_(model_ids),
+                    ResourceGrant.principal_type == principal_type,
+                    ResourceGrant.principal_id == principal_id,
+                    ResourceGrant.organization_id == str(organization.id),
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            for g in gr.scalars().all():
+                grant_ids[g.resource_id] = g.id
+
+        return [
+            {
+                "model_id": str(m.id),
+                "name": m.name or m.model_id,
+                "provider_name": getattr(getattr(m, "provider", None), "name", "") or "",
+                "granted": str(m.id) in grant_ids,
+                "grant_id": grant_ids.get(str(m.id)),
+            }
+            for m in models
+        ]
+
     async def delete_provider(
         self,
         db: AsyncSession,

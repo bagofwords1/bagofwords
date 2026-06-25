@@ -716,7 +716,7 @@
     "fullAdminBypass": "Обходит все проверки",
     "allResources": "Все ресурсы",
     "orgWidePermissions": "Разрешения уровня организации",
-    "ds": "ИД",
+    "ds": "Агент",
     "addDataSource": "+ Добавить источник данных...",
     "cancel": "Отмена",
     "save": "Сохранить",
@@ -732,7 +732,7 @@
     "failedToDelete": "Не удалось удалить роль",
     "permissions": {
       "manage_files": "Управление файлами",
-      "create_data_source": "Создание источника данных",
+      "create_data_source": "Создание агента",
       "manage_connections": "Управление подключениями",
       "manage_instructions": "Управление инструкциями",
       "manage_entities": "Управление сущностями",
@@ -747,7 +747,11 @@
       "view_schema": "Просмотр схемы",
       "create_entities": "Создание сущностей",
       "manage": "Управление настройками"
-    }
+    },
+    "addAgent": "+ Добавить агента...",
+    "modelAccess": "Доступ к моделям",
+    "modelAccessHint": "Ограниченные модели",
+    "noRestrictedModels": "Нет ограниченных моделей"
   },
   "groupsManager": {
     "searchPlaceholder": "Поиск групп...",
