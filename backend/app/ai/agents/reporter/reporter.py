@@ -123,7 +123,7 @@ class Reporter:
         {grounding_rule}
         - Prefer drilling into dimensions, time trends, comparisons, or segments present in the data.
         - Do not repeat questions already asked. Do not number them.
-        {build_language_directive(self.organization_settings)}
+        - Write the suggestions in the SAME language the conversation above is in. Keep column names, identifiers, and metric names as-is.
         Return ONLY a JSON array of strings, nothing else.
         Example: ["How did revenue trend last quarter?", "Which region grew fastest?"]
         """
@@ -161,7 +161,7 @@ class Reporter:
         - Each suggestion is a single, self-contained training action phrased as a prompt.
         - Keep them short (max ~12 words), specific, and actionable.
         - Do not repeat actions already taken. Do not number them.
-        {build_language_directive(self.organization_settings)}
+        - Write the suggestions in the SAME language the conversation above is in. Keep instruction text, table names, and identifiers as-is.
         Return ONLY a JSON array of strings, nothing else.
         Example: ["Find conflicting instructions about revenue", "Which tables have no instructions?"]
         """
