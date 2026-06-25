@@ -65,9 +65,10 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             data_source_id = all_args.get('data_source_id')  # For routes with object_id parameter
             widget_id = all_args.get('widget_id')  # For routes with object_id parameter
             memory_id = all_args.get('memory_id')  # For routes with object_id parameter
-            instruction_id = all_args.get('instruction_id') 
+            instruction_id = all_args.get('instruction_id')
+            query_id = all_args.get('query_id')  # For routes with object_id parameter
 
-            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id
+            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id
         
 
             if not all([user, organization, db]):
