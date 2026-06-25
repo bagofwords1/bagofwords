@@ -4426,8 +4426,12 @@ class AgentV2:
                                 # Preserve existing type; only set if missing
                                 if not merged.get("type") and data_model_from_tool.get("type"):
                                     merged["type"] = data_model_from_tool.get("type")
-                                # Merge series/grouping fields
-                                for key in ("series", "group_by", "sort", "limit"):
+                                # Merge series/grouping fields. `filters` MUST be
+                                # included: it carries the default filter that
+                                # narrows a melted/long KPI table to the asked-for
+                                # row for single-value cards — dropping it makes
+                                # count/metric_card render row 0 (the date/label).
+                                for key in ("series", "group_by", "sort", "limit", "filters"):
                                     if data_model_from_tool.get(key) is not None:
                                         merged[key] = data_model_from_tool.get(key)
                                 await self.project_manager.update_step_with_data_model(fresh_db, step_obj, merged)
