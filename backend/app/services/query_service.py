@@ -81,8 +81,21 @@ class QueryService:
         await db.refresh(q)
         return q
 
-    async def get_query(self, db: AsyncSession, query_id: str) -> Optional[Query]:
+    async def get_query(
+        self,
+        db: AsyncSession,
+        query_id: str,
+        organization_id: Optional[str] = None,
+    ) -> Optional[Query]:
+        """Fetch a Query by id, scoped to the caller's organization.
+
+        When ``organization_id`` is provided the read is constrained to that
+        org so a query owned by a different organization is never returned
+        (defense in depth — the route decorator also enforces this binding).
+        """
         stmt = select(Query).where(Query.id == str(query_id))
+        if organization_id:
+            stmt = stmt.where(Query.organization_id == str(organization_id))
         return (await db.execute(stmt)).scalar_one_or_none()
 
     async def list_queries(
@@ -134,11 +147,30 @@ class QueryService:
         res = await db.execute(stmt)
         return res.scalars().all()
 
-    async def run_existing_step(self, db: AsyncSession, step_id: str, current_user: Optional[User] = None) -> dict:
-        """Execute code for an existing step and persist result, mirroring StepService.rerun_step."""
+    async def run_existing_step(
+        self,
+        db: AsyncSession,
+        step_id: str,
+        current_user: Optional[User] = None,
+        organization_id: Optional[str] = None,
+    ) -> dict:
+        """Execute code for an existing step and persist result, mirroring StepService.rerun_step.
+
+        The step is bound to the caller's organization (via its widget's
+        report) before any execution so a step owned by a different
+        organization cannot be rerun. Raises ValueError on a cross-org or
+        missing step, which the route surfaces as 404.
+        """
         # Lazy import to avoid circular dependency at module load time
         from app.services.step_service import StepService
         step_service = StepService()
+        if organization_id:
+            step = await step_service.get_step_by_id(db, step_id)
+            if step is None:
+                raise ValueError("Step not found")
+            report = step.widget.report if step.widget else None
+            if report is None or str(report.organization_id) != str(organization_id):
+                raise ValueError("Step not found")
         step_schema = await step_service.rerun_step(db, step_id, current_user=current_user)
         return step_schema.model_dump()
 
@@ -154,8 +186,8 @@ class QueryService:
 
         This mirrors a lightweight fork-run flow: new step (draft) -> execute -> persist data.
         """
-        # Load query & widget
-        q = await self.get_query(db, query_id)
+        # Load query & widget (scoped to the caller's org)
+        q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
             raise ValueError("Query not found")
 
@@ -287,15 +319,23 @@ class QueryService:
         step_schema = _enrich_step_schema(step, StepSchema.from_orm(step))
         return (QuerySchema.model_validate(q).model_dump(), step_schema.model_dump() if hasattr(step_schema, 'model_dump') else step_schema.dict())
 
-    async def get_default_step_for_query(self, db: AsyncSession, query_id: str) -> Optional[StepSchema]:
+    async def get_default_step_for_query(
+        self,
+        db: AsyncSession,
+        query_id: str,
+        organization_id: Optional[str] = None,
+    ) -> Optional[StepSchema]:
         """Return the default step for a query, or a reasonable fallback.
 
         Priority:
         1) Query.default_step_id
         2) Latest successful step by widget
         3) Latest step by widget
+
+        Scoped to the caller's organization: a query owned by a different
+        org returns None (and the route decorator returns 404 first).
         """
-        q = await self.get_query(db, query_id)
+        q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
             return None
 
@@ -338,8 +378,8 @@ class QueryService:
         user_id: Optional[str] = None,
     ) -> dict:
         """Execute provided code in the context of the query's widget/report without persisting a step."""
-        # Load query & widget
-        q = await self.get_query(db, query_id)
+        # Load query & widget (scoped to the caller's org)
+        q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
             raise ValueError("Query not found")
 
