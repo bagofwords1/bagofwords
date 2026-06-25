@@ -1988,6 +1988,7 @@
       "groupByScope": "Feature (scope)",
       "metricCost": "Cost",
       "metricTokens": "Tokens",
+      "exportCsv": "Export CSV",
       "kpiTotalCost": "Total cost",
       "kpiTotalTokens": "Total tokens",
       "kpiTotalCalls": "LLM calls",

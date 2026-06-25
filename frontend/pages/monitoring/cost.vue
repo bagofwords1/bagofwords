@@ -86,6 +86,16 @@
                         size="sm"
                         class="min-w-[180px]"
                     />
+                    <UButton
+                        icon="i-heroicons-arrow-down-tray"
+                        color="gray"
+                        variant="solid"
+                        size="sm"
+                        :disabled="!items.length"
+                        @click="exportCsv"
+                    >
+                        {{ $t('monitoring.cost.exportCsv') }}
+                    </UButton>
                 </div>
             </div>
 
@@ -222,6 +232,41 @@ const sharePct = (item: CostBreakdownItem) => {
     const total = data.value?.total_cost_usd || 0
     if (total <= 0) return 0
     return Math.round((item.total_cost_usd / total) * 1000) / 10
+}
+
+const csvCell = (v: any) => {
+    const s = String(v ?? '')
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+const exportCsv = () => {
+    if (!data.value || !items.value.length) return
+    const dim = selectedGroupBy.value.label
+    const header = [dim, 'Detail', 'Provider', 'Calls', 'Prompt tokens', 'Completion tokens',
+        'Cache read tokens', 'Cache creation tokens', 'Total tokens',
+        'Input cost (USD)', 'Output cost (USD)', 'Total cost (USD)', 'Share %']
+    const rows = items.value.map(i => [
+        i.label, i.sublabel || '', i.provider_type || '', i.total_calls,
+        i.prompt_tokens, i.completion_tokens, i.cache_read_tokens, i.cache_creation_tokens,
+        i.total_tokens, i.input_cost_usd, i.output_cost_usd, i.total_cost_usd, sharePct(i),
+    ])
+    // Trailing total row so the export is self-checking.
+    rows.push(['TOTAL', '', '', data.value.total_calls, data.value.total_prompt_tokens,
+        data.value.total_completion_tokens, '', '', data.value.total_tokens,
+        '', '', data.value.total_cost_usd, 100])
+    const csv = [header, ...rows].map(r => r.map(csvCell).join(',')).join('\n')
+
+    const range = data.value.date_range
+    const fname = `cost_${selectedGroupBy.value.value}_${(range.start || '').slice(0, 10)}_${(range.end || '').slice(0, 10)}.csv`
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fname
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
 }
 
 const trendOptions = computed((): EChartsOption | null => {
