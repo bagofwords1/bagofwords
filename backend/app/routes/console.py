@@ -18,7 +18,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 import json
-from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, TraceData, CompactIssuesResponse, AgentExecutionSummariesResponse
+from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, TraceData, CompactIssuesResponse, AgentExecutionSummariesResponse, AgentExecutionUsersResponse
 from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
 
 logger = logging.getLogger(__name__)
@@ -184,6 +184,17 @@ async def get_agent_execution_summaries(
     return await console_service.get_agent_execution_summaries(
         db, organization, params, page, page_size, filter, tool_name, prompt_search
     )
+
+@router.get("/console/agent_executions/users", response_model=AgentExecutionUsersResponse)
+@requires_permission("manage_settings")
+async def get_agent_execution_users(
+    params: MetricsQueryParams = Depends(),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Distinct users who triggered agent executions, for the monitoring user filter."""
+    return await console_service.get_agent_execution_users(db, organization, params)
 
 @router.get("/console/diagnosis/metrics")
 @requires_permission("manage_settings")

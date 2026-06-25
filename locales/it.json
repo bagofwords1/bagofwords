@@ -1764,7 +1764,10 @@
       "paginationRange": "Visualizzati da {start} a {end} di {total} risultati",
       "previous": "Precedente",
       "next": "Successivo",
-      "periodAllTime": "Sempre"
+      "periodAllTime": "Sempre",
+      "filterUserLabel": "Utente",
+      "filterUserAll": "Tutti gli utenti",
+      "unknownUser": "Utente sconosciuto"
     },
     "title": "Monitoraggio",
     "tabExplore": "Esplora",
@@ -1797,7 +1800,9 @@
       "last7d": "Ultimi 7 giorni",
       "last30d": "Ultimi 30 giorni",
       "last90d": "Ultimi 90 giorni",
-      "customRange": "Intervallo personalizzato"
+      "customRange": "Intervallo personalizzato",
+      "startDate": "Data di inizio",
+      "endDate": "Data di fine"
     }
   },
   "mcp": {

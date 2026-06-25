@@ -1764,7 +1764,10 @@
       "paginationRange": "Показано с {start} по {end} из {total} результатов",
       "previous": "Предыдущая",
       "next": "Следующая",
-      "periodAllTime": "Всё время"
+      "periodAllTime": "Всё время",
+      "filterUserLabel": "Пользователь",
+      "filterUserAll": "Все пользователи",
+      "unknownUser": "Неизвестный пользователь"
     },
     "title": "Мониторинг",
     "tabExplore": "Исследовать",
@@ -1797,7 +1800,9 @@
       "last7d": "Последние 7 дней",
       "last30d": "Последние 30 дней",
       "last90d": "Последние 90 дней",
-      "customRange": "Свой диапазон"
+      "customRange": "Свой диапазон",
+      "startDate": "Дата начала",
+      "endDate": "Дата окончания"
     }
   },
   "mcp": {

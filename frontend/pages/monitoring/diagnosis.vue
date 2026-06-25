@@ -4,9 +4,12 @@
         <DateRangePicker
             :selected-period="selectedPeriod"
             :date-range="dateRange"
+            :allow-custom="true"
             @period-change="handlePeriodChange"
+            @custom-range-change="handleCustomRange"
         >
             <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
+            <MonitoringUserFilter v-model="selectedUserId" />
         </DateRangePicker>
 
         <!-- Activity Chart (observability-style daily bars) -->
@@ -270,6 +273,7 @@
 import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import AgentSelector from '~/components/AgentSelector.vue'
+import MonitoringUserFilter from '~/components/console/MonitoringUserFilter.vue'
 import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.vue'
 const { isJudgeEnabled } = useOrgSettings()
 const { selectedAgents, initAgent } = useAgent()
@@ -363,6 +367,9 @@ const dateRange = ref<DateRange>({
     end: ''
 })
 
+// User filter state ('' = all users who ran agent executions)
+const selectedUserId = ref<string>('')
+
 // Computed
 const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
 
@@ -397,12 +404,36 @@ const initializeDateRange = () => {
     }
 }
 
+// Refresh all date/user-dependent data after a filter change.
+const refreshAll = () => Promise.all([
+    fetchOverallMetrics(),
+    fetchTimeseries(),
+    fetchDiagnosisData()
+])
+
 const handlePeriodChange = (period: { label: string, value: string }) => {
     selectedPeriod.value = period
-    
+
+    // Custom range: keep the user's explicit dates (seed a sensible default the
+    // first time) and let the date inputs drive subsequent refreshes.
+    if (period.value === 'custom') {
+        if (!dateRange.value.start) {
+            const start = new Date()
+            start.setDate(start.getDate() - 30)
+            dateRange.value = {
+                start: start.toISOString().split('T')[0],
+                end: new Date().toISOString().split('T')[0]
+            }
+        }
+        currentPage.value = 1
+        selectedDay.value = null
+        refreshAll()
+        return
+    }
+
     const end = new Date()
     let start: Date | null = null
-    
+
     switch (period.value) {
         case '30_days':
             start = new Date()
@@ -417,20 +448,26 @@ const handlePeriodChange = (period: { label: string, value: string }) => {
             start = null
             break
     }
-    
+
     dateRange.value = {
         start: start ? start.toISOString().split('T')[0] : '',
         end: end.toISOString().split('T')[0]
     }
-    
+
     currentPage.value = 1
     selectedDay.value = null
     // Refresh overall metrics, timeseries, and diagnosis data when date range changes
-    Promise.all([
-        fetchOverallMetrics(),
-        fetchTimeseries(),
-        fetchDiagnosisData()
-    ])
+    refreshAll()
+}
+
+// User edited the custom start/end date inputs.
+const handleCustomRange = (range: DateRange) => {
+    dateRange.value = { start: range.start, end: range.end }
+    // Only refetch once both ends are set, to avoid querying a half-open range.
+    if (!range.start || !range.end) return
+    currentPage.value = 1
+    selectedDay.value = null
+    refreshAll()
 }
 
 
@@ -444,6 +481,7 @@ const fetchDiagnosisData = async () => {
         })
 
         appendDateParams(params)
+        appendUserParam(params)
 
         // Add filter parameter
         if (selectedFilter.value.value !== 'all') {
@@ -539,10 +577,18 @@ const appendDateParams = (params: URLSearchParams) => {
     }
 }
 
+// Append the selected user filter (if any) to a request's query params.
+const appendUserParam = (params: URLSearchParams) => {
+    if (selectedUserId.value) {
+        params.append('user_id', selectedUserId.value)
+    }
+}
+
 const fetchOverallMetrics = async () => {
     try {
         const params = new URLSearchParams()
         appendDateParams(params)
+        appendUserParam(params)
 
         // Add data source filter
         if (selectedAgents.value.length > 0) {
@@ -586,6 +632,7 @@ const fetchTimeseries = async () => {
         if (dateRange.value.end) {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
+        appendUserParam(params)
         if (selectedAgents.value.length > 0) {
             params.append('data_source_ids', selectedAgents.value.join(','))
         }
@@ -693,12 +740,15 @@ watch(currentPage, () => {
 watch(selectedAgents, () => {
     currentPage.value = 1
     selectedDay.value = null
-    Promise.all([
-        fetchOverallMetrics(),
-        fetchTimeseries(),
-        fetchDiagnosisData()
-    ])
+    refreshAll()
 }, { deep: true })
+
+// Watch for user filter changes
+watch(selectedUserId, () => {
+    currentPage.value = 1
+    selectedDay.value = null
+    refreshAll()
+})
 
 // Initialize
 onMounted(async () => {

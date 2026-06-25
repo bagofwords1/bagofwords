@@ -1764,7 +1764,10 @@
       "paginationRange": "عرض {start} إلى {end} من إجمالي {total} نتيجة",
       "previous": "السابق",
       "next": "التالي",
-      "periodAllTime": "كل الوقت"
+      "periodAllTime": "كل الوقت",
+      "filterUserLabel": "المستخدم",
+      "filterUserAll": "كل المستخدمين",
+      "unknownUser": "مستخدم غير معروف"
     },
     "title": "المراقبة",
     "tabExplore": "استكشاف",
@@ -1797,7 +1800,9 @@
       "last7d": "آخر 7 أيام",
       "last30d": "آخر 30 يومًا",
       "last90d": "آخر 90 يومًا",
-      "customRange": "نطاق مخصص"
+      "customRange": "نطاق مخصص",
+      "startDate": "تاريخ البدء",
+      "endDate": "تاريخ الانتهاء"
     }
   },
   "mcp": {

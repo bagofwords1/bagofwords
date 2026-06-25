@@ -1764,7 +1764,10 @@
       "paginationRange": "Affichage de {start} à {end} sur {total} résultats",
       "previous": "Précédent",
       "next": "Suivant",
-      "periodAllTime": "Tout le temps"
+      "periodAllTime": "Tout le temps",
+      "filterUserLabel": "Utilisateur",
+      "filterUserAll": "Tous les utilisateurs",
+      "unknownUser": "Utilisateur inconnu"
     },
     "title": "Supervision",
     "tabExplore": "Explorer",
@@ -1797,7 +1800,9 @@
       "last7d": "7 derniers jours",
       "last30d": "30 derniers jours",
       "last90d": "90 derniers jours",
-      "customRange": "Plage personnalisée"
+      "customRange": "Plage personnalisée",
+      "startDate": "Date de début",
+      "endDate": "Date de fin"
     }
   },
   "mcp": {

@@ -1764,7 +1764,10 @@
       "paginationRange": "Visar {start} till {end} av {total} resultat",
       "previous": "Föregående",
       "next": "Nästa",
-      "periodAllTime": "All tid"
+      "periodAllTime": "All tid",
+      "filterUserLabel": "Användare",
+      "filterUserAll": "Alla användare",
+      "unknownUser": "Okänd användare"
     },
     "title": "Övervakning",
     "tabExplore": "Utforska",
@@ -1797,7 +1800,9 @@
       "last7d": "Senaste 7 dagarna",
       "last30d": "Senaste 30 dagarna",
       "last90d": "Senaste 90 dagarna",
-      "customRange": "Anpassat intervall"
+      "customRange": "Anpassat intervall",
+      "startDate": "Startdatum",
+      "endDate": "Slutdatum"
     }
   },
   "mcp": {

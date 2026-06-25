@@ -17,6 +17,7 @@ from app.schemas.console_schema import (
     TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData,
     CompactIssuesResponse, CompactIssueItem,
     AgentExecutionSummaryItem, AgentExecutionSummariesResponse,
+    AgentExecutionUserItem, AgentExecutionUsersResponse,
     LLMUsageMetrics, LLMUsageItem,
     DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics
 )
@@ -2008,6 +2009,10 @@ class ConsoleService:
             )
             base_query = base_query.where(AgentExecution.report_id.in_(ds_subquery))
 
+        # Filter to a single user who triggered the executions
+        if params.user_id:
+            base_query = base_query.where(AgentExecution.user_id == params.user_id)
+
         # Security boundary: scope to data sources the caller manages
         if security_data_source_ids is not None:
             effective_ids = (
@@ -2306,6 +2311,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             failed_queries_query = failed_queries_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            failed_queries_query = failed_queries_query.where(AgentExecution.user_id == params.user_id)
         failed_queries_result = await db.execute(failed_queries_query)
         failed_queries = int(failed_queries_result.scalar() or 0)
 
@@ -2322,6 +2329,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             negative_feedback_query = negative_feedback_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            negative_feedback_query = negative_feedback_query.where(AgentExecution.user_id == params.user_id)
         negative_feedback_result = await db.execute(negative_feedback_query)
         negative_feedback = int(negative_feedback_result.scalar() or 0)
 
@@ -2336,6 +2345,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             total_query = total_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            total_query = total_query.where(AgentExecution.user_id == params.user_id)
         total_result = await db.execute(total_query)
         total_items = int(total_result.scalar() or 0)
 
@@ -2359,6 +2370,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             low_confidence_query = low_confidence_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            low_confidence_query = low_confidence_query.where(AgentExecution.user_id == params.user_id)
         low_confidence_result = await db.execute(low_confidence_query)
         low_confidence = int(low_confidence_result.scalar() or 0)
 
@@ -2380,6 +2393,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             low_instruction_coverage_query = low_instruction_coverage_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            low_instruction_coverage_query = low_instruction_coverage_query.where(AgentExecution.user_id == params.user_id)
         low_instruction_coverage_result = await db.execute(low_instruction_coverage_query)
         low_instruction_coverage = int(low_instruction_coverage_result.scalar() or 0)
 
@@ -2425,6 +2440,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             ae_query = ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            ae_query = ae_query.where(AgentExecution.user_id == params.user_id)
         ae_result = await db.execute(ae_query)
         ae_rows = ae_result.all()
 
@@ -2441,6 +2458,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             failed_ae_query = failed_ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            failed_ae_query = failed_ae_query.where(AgentExecution.user_id == params.user_id)
         failed_ae_result = await db.execute(failed_ae_query)
         failed_ae_ids = {str(r[0]) for r in failed_ae_result.all()}
 
@@ -2471,3 +2490,51 @@ class ConsoleService:
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
             points=points
         )
+
+    async def get_agent_execution_users(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: Optional[MetricsQueryParams] = None
+    ) -> AgentExecutionUsersResponse:
+        """Distinct users who have triggered agent executions in the organization.
+
+        Powers the monitoring user filter. Ordered by execution count (most active
+        first) so the dropdown surfaces the relevant users at the top. Optionally
+        scoped to the selected data sources; not scoped by date so the option list
+        stays stable as the period changes.
+        """
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids) if params else []
+
+        q = (
+            select(
+                User.id,
+                User.name,
+                User.email,
+                func.count(AgentExecution.id).label('execution_count')
+            )
+            .select_from(AgentExecution)
+            .join(User, User.id == AgentExecution.user_id)
+            .where(AgentExecution.organization_id == organization.id)
+            .group_by(User.id, User.name, User.email)
+            .order_by(func.count(AgentExecution.id).desc(), User.name.asc())
+        )
+
+        if parsed_data_source_ids:
+            ds_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
+            q = q.where(AgentExecution.report_id.in_(ds_subquery))
+
+        res = await db.execute(q)
+        items = [
+            AgentExecutionUserItem(
+                id=str(uid),
+                name=name or 'Unknown User',
+                email=email or '',
+                execution_count=int(cnt or 0)
+            )
+            for uid, name, email, cnt in res.all()
+        ]
+        return AgentExecutionUsersResponse(items=items)

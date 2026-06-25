@@ -6,6 +6,7 @@ class MetricsQueryParams(BaseModel):
     start_date: Optional[datetime] = Field(None, description="Start date for metrics query")
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
     data_source_ids: Optional[str] = Field(None, description="Comma-separated data source IDs to filter by")
+    user_id: Optional[str] = Field(None, description="Filter to a single user who triggered the agent execution")
 
 class SimpleMetrics(BaseModel):
     total_messages: int
@@ -304,3 +305,13 @@ class AgentExecutionSummariesResponse(BaseModel):
     items: List[AgentExecutionSummaryItem]
     total_items: int
     date_range: DateRange
+
+# Distinct users who triggered agent executions (for the monitoring user filter)
+class AgentExecutionUserItem(BaseModel):
+    id: str
+    name: str
+    email: Optional[str] = None
+    execution_count: int
+
+class AgentExecutionUsersResponse(BaseModel):
+    items: List[AgentExecutionUserItem]
