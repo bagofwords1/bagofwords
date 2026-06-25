@@ -230,13 +230,13 @@
 							<template v-else>
 								<!-- AI avatar (hidden on mobile): org brand image + model badge -->
 								<div class="me-2 flex-shrink-0 hidden md:block">
-									<UTooltip :text="m.model ? `Generated with ${m.model}` : 'AI Analyst'" :popper="{ placement: 'top' }">
+									<UTooltip :text="m.model ? `Generated with ${modelDisplayName(m.model)}` : 'AI Analyst'" :popper="{ placement: 'top' }">
 										<div class="relative inline-flex">
 											<!-- Company brand image (falls back to BoW logo). Height-bound, width capped. -->
 											<img :src="orgIconUrl || '/assets/logo-128.png'" alt="" class="h-7 w-auto max-w-[72px] object-contain rounded-lg" />
 											<!-- Model brand overlay -->
 											<span v-if="m.model" class="absolute -bottom-1 -end-1 h-4 w-4 rounded-full bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 flex items-center justify-center overflow-hidden">
-												<LLMProviderIcon :provider="resolveModelBrand(m.model)" :icon="true" class="h-3 w-3" />
+												<LLMProviderIcon :provider="modelBrandFor(m.model)" :icon="true" class="h-3 w-3" />
 											</span>
 										</div>
 									</UTooltip>
@@ -882,6 +882,37 @@ const { isExcel, excelSelection } = useExcel()
 const { settings: orgSettings } = useOrgSettings()
 const orgIconUrl = computed<string | null>(() => orgSettings.value?.config?.general?.icon_url || null)
 
+// LLM models for resolving a completion's `model` field to a friendly name + brand.
+// `completion.model` may be a model UUID (live/optimistic message, from the picker)
+// or a model_id string (persisted) — so index the map by both.
+const llmModels = ref<any[]>([])
+const llmModelMap = computed(() => {
+	const map: Record<string, any> = {}
+	for (const m of llmModels.value) {
+		if (m.id) map[m.id] = m
+		if (m.model_id) map[m.model_id] = m
+	}
+	return map
+})
+async function loadLlmModels() {
+	try {
+		const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
+		if (Array.isArray(data.value)) llmModels.value = data.value as any[]
+	} catch { /* non-fatal: avatar falls back to name-based resolution */ }
+}
+// Friendly label for the model tooltip (e.g. "Claude 4.6 Sonnet").
+function modelDisplayName(model?: string | null): string {
+	if (!model) return ''
+	const m = llmModelMap.value[model]
+	return m?.name || model
+}
+// Provider brand for the overlay icon: prefer the resolved model's id/type,
+// falling back to name-based resolution (handles Bedrock/custom-hosted models).
+function modelBrandFor(model?: string | null) {
+	const m = model ? llmModelMap.value[model] : null
+	return resolveModelBrand(m?.model_id || model, m?.provider?.provider_type)
+}
+
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
 
@@ -1094,6 +1125,7 @@ function onInstructionResolved(_e: Event) {
     loadReportInstructions().catch(() => {})
 }
 onMounted(() => {
+    loadLlmModels()
     if (typeof window !== 'undefined') {
         window.addEventListener('instruction:resolved', onInstructionResolved)
     }
