@@ -688,6 +688,16 @@ def test_pending_status_consistent_between_list_and_detail(
     """
     import os, sqlite3, uuid, datetime
 
+    # This regression check injects a covered/no-op leftover build straight into
+    # the test DB via a raw sqlite3 connection (sqlite-specific: `?` params,
+    # `is_main = 1`). On the postgres matrix leg TEST_DATABASE_URL is a postgres
+    # DSN that sqlite3 can't open, so skip there — the sqlite leg provides the
+    # coverage.
+    _db_url = os.environ.get("TEST_DATABASE_URL", "")
+    if "sqlite" not in _db_url:
+        import pytest as _pytest
+        _pytest.skip("raw-sqlite injection test; runs on the sqlite DB leg only")
+
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
