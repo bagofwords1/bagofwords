@@ -41,8 +41,8 @@ const route = useRoute()
 // Make route path reactive
 const currentPath = computed(() => route.path)
 
-// All available tabs. Visibility mirrors the page-level gate: anyone with
-// `manage` on at least one data source can see the monitoring tabs.
+// All available tabs. Visibility mirrors the page-level gate: only admins
+// (users with `manage_settings`) can see the monitoring tabs.
 const allTabs = [
     { name: '', label: 'monitoring.tabExplore', icon: 'i-heroicons-chart-bar' },
     { name: 'diagnosis', label: 'monitoring.tabDiagnosis', icon: 'i-heroicons-wrench' },
@@ -50,7 +50,9 @@ const allTabs = [
 ]
 
 const visibleTabs = computed(() => {
-    if (!useCanAny('manage', 'data_source')) return []
+    // Admin-only: the monitoring tabs all call `manage_settings`-gated
+    // /console/* endpoints, so only show them to users who can actually use them.
+    if (!useCan('manage_settings')) return []
     return allTabs
 })
 

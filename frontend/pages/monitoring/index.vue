@@ -9,9 +9,9 @@
 definePageMeta({
     auth: true,
     layout: 'monitoring',
-    // Visible to anyone with `manage` on at least one data source. The page's
-    // data is filtered to those data sources on the backend.
-    resourcePermissionAny: { permission: 'manage', resourceType: 'data_source' }
+    // Admin-only: matches the `manage_settings` gate on the /console/* endpoints
+    // this page calls.
+    permissions: ['manage_settings']
 })
 </script>
 
