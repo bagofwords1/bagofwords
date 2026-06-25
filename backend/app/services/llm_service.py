@@ -198,12 +198,238 @@ class LLMService:
         current_user: User,
         model_id: str
     ):
-        """Get a model by id"""
+        """Get a model by id.
+
+        Enforces per-model access control: a restricted model the current user
+        has no grant for is rejected with 403 (the security boundary — callers
+        select models by id straight from the request).
+        """
         model = await db.execute(
             select(LLMModel).filter(LLMModel.id == model_id).filter(LLMModel.organization_id == organization.id)
         )
         model = model.scalar_one_or_none()
+        if model is not None and current_user is not None:
+            from app.core.permission_resolver import user_can_use_model
+            if not await user_can_use_model(db, current_user.id, organization.id, model):
+                raise HTTPException(status_code=403, detail="You do not have access to this model")
         return model
+
+    async def _get_owned_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        model_id: str,
+    ) -> LLMModel:
+        """Load a model scoped to the org without access enforcement (admin path)."""
+        result = await db.execute(
+            select(LLMModel).filter(
+                LLMModel.id == model_id,
+                LLMModel.organization_id == organization.id,
+            )
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        return model
+
+    async def get_model_access(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+    ):
+        """Return restriction state + the principals granted `use` on a model."""
+        from app.models.resource_grant import ResourceGrant
+        from app.models.user import User as UserModel
+        from app.models.group import Group
+        from app.models.role import Role
+
+        model = await self._get_owned_model(db, organization, model_id)
+
+        result = await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.resource_type == "llm_model",
+                ResourceGrant.resource_id == str(model.id),
+                ResourceGrant.organization_id == str(organization.id),
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )
+        grants = result.scalars().all()
+
+        user_ids = [g.principal_id for g in grants if g.principal_type == "user"]
+        group_ids = [g.principal_id for g in grants if g.principal_type == "group"]
+        role_ids = [g.principal_id for g in grants if g.principal_type == "role"]
+
+        user_names: dict = {}
+        if user_ids:
+            r = await db.execute(select(UserModel.id, UserModel.name, UserModel.email).where(UserModel.id.in_(user_ids)))
+            for uid, name, email in r.all():
+                user_names[uid] = name or email or uid
+        group_names: dict = {}
+        if group_ids:
+            r = await db.execute(select(Group.id, Group.name).where(Group.id.in_(group_ids)))
+            for gid, name in r.all():
+                group_names[gid] = name
+        role_names: dict = {}
+        if role_ids:
+            r = await db.execute(select(Role.id, Role.name).where(Role.id.in_(role_ids)))
+            for rid, name in r.all():
+                role_names[rid] = name
+
+        def _name(g):
+            if g.principal_type == "group":
+                return group_names.get(g.principal_id)
+            if g.principal_type == "role":
+                return role_names.get(g.principal_id)
+            return user_names.get(g.principal_id)
+
+        return {
+            "model_id": str(model.id),
+            "is_restricted": bool(getattr(model, "is_restricted", False)),
+            "is_default": bool(model.is_default),
+            "is_small_default": bool(model.is_small_default),
+            "members": [
+                {
+                    "grant_id": g.id,
+                    "principal_type": g.principal_type,
+                    "principal_id": g.principal_id,
+                    "principal_name": _name(g),
+                }
+                for g in grants
+            ],
+        }
+
+    async def set_model_restricted(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        is_restricted: bool,
+    ):
+        """Toggle whether a model is access-restricted."""
+        model = await self._get_owned_model(db, organization, model_id)
+        if is_restricted and (model.is_default or model.is_small_default):
+            raise HTTPException(
+                status_code=400,
+                detail="Default models are available to all members and cannot be restricted.",
+            )
+        model.is_restricted = is_restricted
+        db.add(model)
+        await db.commit()
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.restriction_changed",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "is_restricted": is_restricted},
+            )
+        except Exception:
+            pass
+        return {"success": True, "is_restricted": is_restricted}
+
+    async def add_model_access(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        principal_type: str,
+        principal_id: str,
+    ):
+        """Grant a user/group/role `use` access to a restricted model."""
+        from app.models.resource_grant import ResourceGrant
+
+        if principal_type not in ("user", "group", "role"):
+            raise HTTPException(status_code=400, detail="Invalid principal_type")
+
+        model = await self._get_owned_model(db, organization, model_id)
+
+        existing = await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.resource_type == "llm_model",
+                ResourceGrant.resource_id == str(model.id),
+                ResourceGrant.principal_type == principal_type,
+                ResourceGrant.principal_id == principal_id,
+                ResourceGrant.organization_id == str(organization.id),
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Access grant already exists")
+
+        grant = ResourceGrant(
+            organization_id=str(organization.id),
+            resource_type="llm_model",
+            resource_id=str(model.id),
+            principal_type=principal_type,
+            principal_id=principal_id,
+            permissions=["use"],
+        )
+        db.add(grant)
+        await db.commit()
+        await db.refresh(grant)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.access_granted",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"principal_type": principal_type, "principal_id": principal_id},
+            )
+        except Exception:
+            pass
+        return {"grant_id": grant.id, "principal_type": principal_type, "principal_id": principal_id}
+
+    async def remove_model_access(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        grant_id: str,
+    ):
+        """Revoke a `use` grant from a model."""
+        from app.models.resource_grant import ResourceGrant
+
+        model = await self._get_owned_model(db, organization, model_id)
+        result = await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.id == grant_id,
+                ResourceGrant.resource_type == "llm_model",
+                ResourceGrant.resource_id == str(model.id),
+                ResourceGrant.organization_id == str(organization.id),
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )
+        grant = result.scalar_one_or_none()
+        if not grant:
+            raise HTTPException(status_code=404, detail="Access grant not found")
+
+        await db.delete(grant)
+        await db.commit()
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.access_revoked",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"principal_type": grant.principal_type, "principal_id": grant.principal_id},
+            )
+        except Exception:
+            pass
+        return {"success": True}
 
     async def delete_provider(
         self,
@@ -300,6 +526,22 @@ class LLMService:
         
         result = await db.execute(query)
         models = result.unique().scalars().all()
+
+        # Per-model access control: hide restricted models the user can't use.
+        # No-op when the feature is unlicensed (fail open) or nothing is restricted.
+        from app.core.permission_resolver import llm_access_control_active, get_accessible_model_ids
+        if current_user is not None and llm_access_control_active() and any(getattr(m, "is_restricted", False) for m in models):
+            is_admin, granted = await get_accessible_model_ids(db, current_user.id, organization.id)
+            if not is_admin:
+                granted_set = set(granted)
+                models = [
+                    m for m in models
+                    if not getattr(m, "is_restricted", False)
+                    or getattr(m, "is_default", False)
+                    or getattr(m, "is_small_default", False)
+                    or str(m.id) in granted_set
+                ]
+
         # Prefer small default models first, then regular default, then by provider/name
         def _sort_key(m):
             try:
