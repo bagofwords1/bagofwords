@@ -129,7 +129,13 @@
                             <td class="px-6 py-4">
                                 <div class="text-xs text-gray-900 dark:text-white">
                                     <div class="relative group max-w-[320px] w-[320px]">
-                                        <p class="truncate">{{ truncate(item.prompt || '', 40) }}</p>
+                                        <p class="truncate flex items-center gap-1.5">
+                                            <UTooltip v-if="platformOf(item)" :text="platformOf(item).label">
+                                                <img v-if="platformOf(item).img" :src="platformOf(item).img" class="h-3.5 w-3.5 inline flex-shrink-0" :alt="platformOf(item).label" />
+                                                <UIcon v-else-if="platformOf(item).icon" :name="platformOf(item).icon" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
+                                            </UTooltip>
+                                            <span class="truncate">{{ truncate(item.prompt || '', 40) }}</span>
+                                        </p>
                                         <div class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                             {{ item.prompt || '—' }}
                                         </div>
@@ -523,6 +529,25 @@ const formatDate = (dateString: string) => {
 const formatDateTime = (dateString: string) => {
     if (!dateString) return ''
     return _df.formatDateTime(dateString)
+}
+
+// Origin platform icon for a run. null/unknown = web UI (no icon — the default).
+// Icons reuse the /icons/<platform>.png assets from the Members table; platforms
+// with no PNG (email) fall back to a heroicons glyph.
+const PLATFORM_LABELS: Record<string, string> = {
+    slack: 'Slack', teams: 'Teams', whatsapp: 'WhatsApp', mcp: 'MCP', email: 'Email',
+}
+const PLATFORM_FALLBACK_ICON: Record<string, string> = {
+    email: 'i-heroicons-envelope',
+}
+const platformOf = (item: any) => {
+    const p = (item?.external_platform || '').toLowerCase()
+    if (!p || !(p in PLATFORM_LABELS)) return null
+    return {
+        label: PLATFORM_LABELS[p],
+        img: p in PLATFORM_FALLBACK_ICON ? null : `/icons/${p}.png`,
+        icon: PLATFORM_FALLBACK_ICON[p] || null,
+    }
 }
 
 // Add these methods to the existing script section

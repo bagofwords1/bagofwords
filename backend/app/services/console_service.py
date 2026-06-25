@@ -2408,22 +2408,28 @@ class ConsoleService:
 
         # Prompts for completions - get from parent user completion, not system completion
         prompts: dict[str, str] = {}
+        # Origin platform per completion, also from the parent user completion.
+        platforms: dict[str, str] = {}
         if completion_ids:
             # Get system completions and their parent_ids
             system_completions_q = select(Completion.id, Completion.parent_id).where(Completion.id.in_(completion_ids))
             system_completions_res = await db.execute(system_completions_q)
             system_completions = system_completions_res.all()
-            
+
             # Collect parent completion IDs
             parent_ids = [sc.parent_id for sc in system_completions if sc.parent_id]
-            
-            # Get prompts from parent user completions
+
+            # Get prompts + origin platform from parent user completions
             if parent_ids:
-                prompt_q = select(Completion.id, Completion.prompt).where(Completion.id.in_(parent_ids))
+                prompt_q = select(Completion.id, Completion.prompt, Completion.external_platform).where(Completion.id.in_(parent_ids))
                 pres = await db.execute(prompt_q)
-                parent_prompts = {str(cid): prompt for cid, prompt in pres.all()}
-                
-                # Map system completion IDs to their parent's prompts
+                parent_prompts = {}
+                parent_platforms = {}
+                for cid, prompt, plat in pres.all():
+                    parent_prompts[str(cid)] = prompt
+                    parent_platforms[str(cid)] = plat
+
+                # Map system completion IDs to their parent's prompts + platform
                 for sc in system_completions:
                     if sc.parent_id and str(sc.parent_id) in parent_prompts:
                         prompt = parent_prompts[str(sc.parent_id)]
@@ -2434,6 +2440,9 @@ class ConsoleService:
                                 prompts[str(sc.id)] = str(prompt or '')
                         except Exception:
                             prompts[str(sc.id)] = ''
+                        plat = parent_platforms.get(str(sc.parent_id))
+                        if plat:
+                            platforms[str(sc.id)] = plat
 
         # Tool execution counts per AE + distinct tool names (ordered by first invocation)
         te_counts = {str(ae_id): {'total': 0, 'success': 0, 'failed': 0} for ae_id in ae_ids}
@@ -2557,6 +2566,7 @@ class ConsoleService:
                 tool_names=ae_tool_names.get(str(r.ae_id), [])[:5],
                 user_name=r.user_name,
                 user_email=r.user_email,
+                external_platform=platforms.get(str(r.completion_id)),
                 report_id=str(r.report_id) if r.report_id else '',
                 report_name=r.report_title or '',
                 report_link=report_link
