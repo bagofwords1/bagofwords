@@ -1325,7 +1325,40 @@ class AgentV2:
         if not messages_context:
             return
 
-        questions = await self.reporter.generate_follow_ups(messages_context)
+        # Gather mode-appropriate context. Chat/deep suggestions are grounded in
+        # the available schema (which includes data-source descriptions) and the
+        # org instructions so they reference dimensions that actually exist.
+        # Training mode needs none of that — its prompt is about improving the AI.
+        mode = self.mode or "chat"
+        schemas_context = ""
+        instructions_context = ""
+        if mode != "training":
+            try:
+                schemas_ctx = await self.context_hub.schema_builder.build(with_stats=False)
+                schemas_context = schemas_ctx.render_combined(
+                    top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT
+                )
+            except Exception:
+                try:
+                    view = self.context_hub.get_view()
+                    schemas_context = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+                except Exception:
+                    schemas_context = ""
+            try:
+                instr_section = await self.context_hub.instruction_builder.build()
+                instructions_context = instr_section.render()
+            except Exception:
+                instructions_context = ""
+            # Keep the small-model call cheap — cap the grounding context.
+            schemas_context = (schemas_context or "")[:6000]
+            instructions_context = (instructions_context or "")[:3000]
+
+        questions = await self.reporter.generate_follow_ups(
+            messages_context,
+            mode=mode,
+            schemas_context=schemas_context,
+            instructions_context=instructions_context,
+        )
         if not questions:
             return
 

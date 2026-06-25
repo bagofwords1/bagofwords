@@ -55,29 +55,34 @@ class Reporter:
             self.llm.inference, text, usage_scope="report.title"
         )
 
-    async def generate_follow_ups(self, messages_context, max_suggestions: int = 5):
-        """Suggest a few natural follow-up questions for the user to ask next.
+    async def generate_follow_ups(
+        self,
+        messages_context,
+        *,
+        mode: str = "chat",
+        schemas_context: str = "",
+        instructions_context: str = "",
+        max_suggestions: int = 5,
+    ):
+        """Suggest a few follow-up prompts for the user to click next.
 
-        Runs on the small/default model (the LLM this Reporter was constructed
-        with). Returns a list of short question strings (never raises — returns
-        [] on any parsing/LLM error so a failure can never break the run).
+        The prompt is tailored to the agent mode:
+          - ``training``: suggestions are next *training* actions (review weak
+            runs, find instruction gaps, draft/refine instructions) — no data
+            schema involved, matching how training mode operates.
+          - ``chat`` / ``deep`` (default): data-exploration questions, grounded
+            in the available schema + data-source descriptions + instructions so
+            suggestions reference dimensions/metrics that actually exist.
+
+        Runs on the small/default model. Never raises — returns [] on any
+        parsing/LLM error so a failure can't break the run.
         """
-        text = f"""
-        You are helping a user explore their data. Given the recent conversation
-        with an analytics assistant, propose up to {max_suggestions} natural
-        follow-up questions the user might ask next.
-
-        Conversation so far:
-        {messages_context}
-
-        Rules:
-        - Each suggestion is a single, self-contained question the user could click to ask next.
-        - Keep them short (max ~12 words), specific, and genuinely useful given the conversation.
-        - Do not repeat questions already asked. Do not number them.
-        {build_language_directive(self.organization_settings)}
-        Return ONLY a JSON array of strings, nothing else.
-        Example: ["How did revenue trend last quarter?", "Which region grew fastest?"]
-        """
+        if mode == "training":
+            text = self._training_follow_ups_prompt(messages_context, max_suggestions)
+        else:
+            text = self._chat_follow_ups_prompt(
+                messages_context, schemas_context, instructions_context, max_suggestions
+            )
 
         try:
             raw = await asyncio.to_thread(
@@ -87,6 +92,66 @@ class Reporter:
             return []
 
         return self._parse_follow_ups(raw, max_suggestions)
+
+    def _chat_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions):
+        data_blocks = ""
+        if schemas_context:
+            data_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {schemas_context}\n"
+        if instructions_context:
+            data_blocks += f"\n        Business context / instructions:\n        {instructions_context}\n"
+
+        grounding_rule = (
+            "- Only suggest questions answerable from the available data above — reference dimensions, "
+            "metrics, segments, or time columns that actually exist. Never invent metrics the data can't support."
+            if schemas_context else
+            "- Keep suggestions answerable from the kind of data discussed; do not invent specifics."
+        )
+
+        return f"""
+        You are helping a user explore their data with an analytics assistant.
+        Given the recent conversation and the available data context, propose up
+        to {max_suggestions} natural follow-up questions the user might ask next.
+        {data_blocks}
+        Conversation so far:
+        {messages_context}
+
+        Rules:
+        - Each suggestion is a single, self-contained question the user could click to ask next.
+        - Keep them short (max ~12 words), specific, and genuinely useful given the conversation.
+        {grounding_rule}
+        - Prefer drilling into dimensions, time trends, comparisons, or segments present in the data.
+        - Do not repeat questions already asked. Do not number them.
+        {build_language_directive(self.organization_settings)}
+        Return ONLY a JSON array of strings, nothing else.
+        Example: ["How did revenue trend last quarter?", "Which region grew fastest?"]
+        """
+
+    def _training_follow_ups_prompt(self, messages_context, max_suggestions):
+        return f"""
+        You are helping an admin improve this AI analytics system in TRAINING MODE.
+        In training mode the admin reviews the agent's past performance and writes
+        instructions to make it better — they are NOT exploring business data.
+
+        Given the recent conversation, propose up to {max_suggestions} follow-up
+        actions the admin might take next, each phrased as a short clickable prompt.
+        Good training follow-ups do things like:
+        - Review past agent runs that need attention (low-confidence answers, failed
+          queries, negative feedback, low instruction coverage).
+        - Surface gaps where instructions are missing, ambiguous, or conflicting.
+        - Create or refine an instruction based on what was just discussed.
+        - Drill into a specific metric/term the agent handles inconsistently.
+
+        Conversation so far:
+        {messages_context}
+
+        Rules:
+        - Each suggestion is a single, self-contained training action phrased as a prompt.
+        - Keep them short (max ~12 words), specific, and actionable.
+        - Do not repeat actions already taken. Do not number them.
+        {build_language_directive(self.organization_settings)}
+        Return ONLY a JSON array of strings, nothing else.
+        Example: ["Show low-confidence answers from this week", "Draft an instruction for \\"active user\\""]
+        """
 
     @staticmethod
     def _parse_follow_ups(raw, max_suggestions: int = 5):
