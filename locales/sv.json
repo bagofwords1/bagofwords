@@ -1804,6 +1804,11 @@
       "customRange": "Anpassat intervall",
       "startDate": "Startdatum",
       "endDate": "Slutdatum"
+    },
+    "filters": {
+      "title": "Filter",
+      "agent": "Agent",
+      "reset": "Återställ"
     }
   },
   "mcp": {

@@ -1882,6 +1882,11 @@
       "customRange": "טווח מותאם",
       "startDate": "תאריך התחלה",
       "endDate": "תאריך סיום"
+    },
+    "filters": {
+      "title": "מסננים",
+      "agent": "סוכן",
+      "reset": "איפוס"
     }
   },
   "mcp": {

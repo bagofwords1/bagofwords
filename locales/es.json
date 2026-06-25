@@ -1882,6 +1882,11 @@
       "customRange": "Rango personalizado",
       "startDate": "Fecha de inicio",
       "endDate": "Fecha de fin"
+    },
+    "filters": {
+      "title": "Filtros",
+      "agent": "Agente",
+      "reset": "Restablecer"
     }
   },
   "mcp": {

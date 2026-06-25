@@ -2060,6 +2060,11 @@
       "customRange": "Custom range",
       "startDate": "Start date",
       "endDate": "End date"
+    },
+    "filters": {
+      "title": "Filters",
+      "agent": "Agent",
+      "reset": "Reset"
     }
   },
   "mcp": {

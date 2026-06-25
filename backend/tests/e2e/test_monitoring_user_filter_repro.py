@@ -169,6 +169,28 @@ def test_user_filter_plus_custom_date_range():
 
 
 @pytest.mark.e2e
+def test_explore_overview_metrics_respect_user_filter():
+    """Explore tab (overview metrics) must honor the same user filter."""
+    org, alice_id, bob_id = _run(_seed())
+    wide_start = datetime.utcnow() - timedelta(days=365)
+
+    all_metrics = _run(_call("get_organization_metrics", org, start_date=wide_start))
+    alice_metrics = _run(_call("get_organization_metrics", org, start_date=wide_start, user_id=alice_id))
+
+    # Seed makes one completion per execution: 4 total, 2 for Alice.
+    assert all_metrics.total_messages == 4, all_metrics.total_messages
+    assert alice_metrics.total_messages == 2, alice_metrics.total_messages
+    assert all_metrics.active_users == 2
+    assert alice_metrics.active_users == 1
+
+    # Comparison endpoint (powers the MetricsCards) must propagate user_id too.
+    cmp_alice = _run(_call("get_metrics_with_comparison", org, start_date=wide_start, user_id=alice_id))
+    assert cmp_alice.current.total_messages == 2, cmp_alice.current.total_messages
+
+    print(f"[explore] all_msgs={all_metrics.total_messages} alice_msgs={alice_metrics.total_messages} cmp_alice={cmp_alice.current.total_messages}")
+
+
+@pytest.mark.e2e
 def test_dashboard_and_timeseries_respect_user_filter():
     org, alice_id, bob_id = _run(_seed())
     wide_start = datetime.utcnow() - timedelta(days=365)

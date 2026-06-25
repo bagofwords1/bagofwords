@@ -1,13 +1,13 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker with Agent Selector -->
-        <DateRangePicker
+        <!-- Consolidated filter popover: date range + agent + user -->
+        <MonitoringFilters
             :selected-period="selectedPeriod"
             :date-range="dateRange"
+            v-model:user-id="selectedUserId"
             @period-change="handlePeriodChange"
-        >
-            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
-        </DateRangePicker>
+            @custom-range-change="handleCustomRange"
+        />
 
         <!-- Metrics Cards -->
         <MetricsCards :metrics-comparison="metricsComparison" :org-settings="orgSettings" />
@@ -69,7 +69,7 @@
 
 <script setup lang="ts">
 // Import components
-import DateRangePicker from '~/components/console/DateRangePicker.vue'
+import MonitoringFilters from '~/components/console/MonitoringFilters.vue'
 import MetricsCards from '~/components/console/MetricsCards.vue'
 import ActivityChart from '~/components/console/ActivityChart.vue'
 import PerformanceChart from '~/components/console/PerformanceChart.vue'
@@ -81,7 +81,6 @@ import TopUsersTable from '~/components/console/TopUsersTable.vue'
 import RecentInstructions from '~/components/console/RecentInstructions.vue'
 import RecentQueries from '~/components/console/RecentQueries.vue'
 import LlmUsageChart from '~/components/console/LlmUsageChart.vue'
-import AgentSelector from '~/components/AgentSelector.vue'
 
 // Agent selection
 const { selectedAgents, initAgent } = useAgent()
@@ -233,11 +232,13 @@ const timeSeriesData = ref<TimeSeriesMetrics | null>(null)
 
 const { t } = useI18n()
 
-// Store period as (value, label) — the label is the localized string at
-// the moment of selection. The child DateRangePicker re-derives the
-// current label from its own locale-reactive options, so a late locale
-// flip still shows the right text.
+// Store period as (value, label). MonitoringFilters re-derives the current
+// label from its own locale-reactive options, so a late locale flip still
+// shows the right text.
 const selectedPeriod = ref({ label: t('monitoring.overview.allTime'), value: 'all_time' })
+
+// User filter ('' = all users who ran agent executions)
+const selectedUserId = ref<string>('')
 
 const orgSettings = useOrgSettings()
 
@@ -334,10 +335,23 @@ const initializeDateRange = () => {
 
 const handlePeriodChange = (period: { label: string, value: string }) => {
     selectedPeriod.value = period
-    
+
+    // Custom range: keep the user's explicit dates (seed a sensible default the
+    // first time) and let the date inputs drive subsequent refreshes.
+    if (period.value === 'custom') {
+        if (!dateRange.value.start) {
+            const s = new Date()
+            s.setDate(s.getDate() - 30)
+            dateRange.value = { start: s.toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] }
+        }
+        refreshData()
+        fetchMetricsComparison()
+        return
+    }
+
     const end = new Date()
     let start: Date | null = null
-    
+
     switch (period.value) {
         case '30_days':
             start = new Date()
@@ -352,12 +366,20 @@ const handlePeriodChange = (period: { label: string, value: string }) => {
             start = null
             break
     }
-    
+
     dateRange.value = {
         start: start ? start.toISOString().split('T')[0] : '',
         end: end.toISOString().split('T')[0]
     }
 
+    refreshData()
+    fetchMetricsComparison()
+}
+
+// User edited the custom start/end date inputs.
+const handleCustomRange = (range: { start: string, end: string }) => {
+    dateRange.value = { start: range.start, end: range.end }
+    if (!range.start || !range.end) return
     refreshData()
     fetchMetricsComparison()
 }
@@ -373,6 +395,9 @@ const buildQueryParams = () => {
     }
     if (selectedAgents.value.length > 0) {
         params.append('data_source_ids', selectedAgents.value.join(','))
+    }
+    if (selectedUserId.value) {
+        params.append('user_id', selectedUserId.value)
     }
     return params
 }
@@ -515,6 +540,12 @@ watch(selectedAgents, () => {
     // Also refresh metrics comparison
     fetchMetricsComparison()
 }, { deep: true })
+
+// Watch for user filter changes
+watch(selectedUserId, () => {
+    refreshData()
+    fetchMetricsComparison()
+})
 
 const fetchMetricsComparison = async () => {
     try {

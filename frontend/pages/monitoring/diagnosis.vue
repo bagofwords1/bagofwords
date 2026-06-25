@@ -1,16 +1,13 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker with Agent Selector -->
-        <DateRangePicker
+        <!-- Consolidated filter popover: date range + agent + user -->
+        <MonitoringFilters
             :selected-period="selectedPeriod"
             :date-range="dateRange"
-            :allow-custom="true"
+            v-model:user-id="selectedUserId"
             @period-change="handlePeriodChange"
             @custom-range-change="handleCustomRange"
-        >
-            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
-            <MonitoringUserFilter v-model="selectedUserId" />
-        </DateRangePicker>
+        />
 
         <!-- Activity Chart (observability-style daily bars) -->
         <DiagnosisActivityChart
@@ -270,10 +267,8 @@
 </template>
 
 <script setup lang="ts">
-import DateRangePicker from '~/components/console/DateRangePicker.vue'
+import MonitoringFilters from '~/components/console/MonitoringFilters.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
-import AgentSelector from '~/components/AgentSelector.vue'
-import MonitoringUserFilter from '~/components/console/MonitoringUserFilter.vue'
 import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.vue'
 const { isJudgeEnabled } = useOrgSettings()
 const { selectedAgents, initAgent } = useAgent()

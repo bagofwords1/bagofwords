@@ -1804,6 +1804,11 @@
       "customRange": "Benutzerdefinierter Bereich",
       "startDate": "Startdatum",
       "endDate": "Enddatum"
+    },
+    "filters": {
+      "title": "Filter",
+      "agent": "Agent",
+      "reset": "Zurücksetzen"
     }
   },
   "mcp": {

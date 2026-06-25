@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal, Integer
+from sqlalchemy import select, func, text, literal, Integer, and_
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -117,8 +117,11 @@ class ConsoleService:
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
-        # Base filters
+        # Base filters. The user filter attributes activity to the report owner
+        # (Report.user_id); every sub-query below joins Report and reuses this.
         report_filter = Report.organization_id == organization.id
+        if params.user_id:
+            report_filter = and_(report_filter, Report.user_id == params.user_id)
 
         # Build data source filter subquery if needed
         ds_filter_subquery = None
@@ -277,8 +280,8 @@ class ConsoleService:
         prev_start_date = start_date - period_length
         
         # Get current and previous period metrics (preserve data_source_ids filter)
-        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date, data_source_ids=params.data_source_ids)
-        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date, data_source_ids=params.data_source_ids)
+        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date, data_source_ids=params.data_source_ids, user_id=params.user_id)
+        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date, data_source_ids=params.data_source_ids, user_id=params.user_id)
 
         current_metrics = await self.get_organization_metrics(db, organization, current_params)
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)
@@ -345,6 +348,10 @@ class ConsoleService:
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
 
+        # Optional user filter (attributes activity to the report owner). Applied
+        # to each per-day sub-query below alongside the data-source filter.
+        user_filter = (Report.user_id == params.user_id) if params.user_id else None
+
         # Generate daily intervals
         intervals = []
         current = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -381,6 +388,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 messages_query = messages_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                messages_query = messages_query.where(user_filter)
             messages_result = await db.execute(messages_query)
             messages_count = messages_result.scalar() or 0
 
@@ -396,6 +405,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 queries_query = queries_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                queries_query = queries_query.where(user_filter)
             queries_result = await db.execute(queries_query)
             queries_count = queries_result.scalar() or 0
 
@@ -412,6 +423,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 total_completions_query = total_completions_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                total_completions_query = total_completions_query.where(user_filter)
             total_completions_result = await db.execute(total_completions_query)
             total_completions = total_completions_result.scalar() or 0
 
@@ -428,6 +441,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 response_score_query = response_score_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                response_score_query = response_score_query.where(user_filter)
             response_score_result = await db.execute(response_score_query)
             response_score_sum = response_score_result.scalar() or 0
 
@@ -447,6 +462,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 total_feedbacks_query = total_feedbacks_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                total_feedbacks_query = total_feedbacks_query.where(user_filter)
             total_feedbacks_result = await db.execute(total_feedbacks_query)
             total_feedbacks = total_feedbacks_result.scalar() or 0
 
@@ -463,6 +480,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 positive_feedbacks_query = positive_feedbacks_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                positive_feedbacks_query = positive_feedbacks_query.where(user_filter)
             positive_feedbacks_result = await db.execute(positive_feedbacks_query)
             positive_feedbacks = positive_feedbacks_result.scalar() or 0
             positive_rate = (positive_feedbacks / total_feedbacks * 100) if total_feedbacks > 0 else 0
@@ -484,6 +503,8 @@ class ConsoleService:
             )
             if ds_filter_subquery is not None:
                 judge_metrics_query = judge_metrics_query.where(Report.id.in_(ds_filter_subquery))
+            if user_filter is not None:
+                judge_metrics_query = judge_metrics_query.where(user_filter)
             judge_metrics_result = await db.execute(judge_metrics_query)
             judge_data = judge_metrics_result.first()
             
@@ -813,7 +834,9 @@ class ConsoleService:
                 Step.data_model.isnot(None)
             )
         )
-        
+        if params.user_id:
+            steps_query = steps_query.where(Report.user_id == params.user_id)
+
         result = await db.execute(steps_query)
         steps = result.scalars().all()
         
@@ -911,6 +934,8 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             q = q.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if params.user_id:
+            q = q.where(AgentExecution.user_id == params.user_id)
         res = await db.execute(q)
         rows = res.all()
 
@@ -1344,7 +1369,7 @@ class ConsoleService:
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Get current period user metrics (simplified without trend calculation)
-        current_users = await self._get_user_metrics_for_period(db, organization, start_date, end_date, parsed_data_source_ids)
+        current_users = await self._get_user_metrics_for_period(db, organization, start_date, end_date, parsed_data_source_ids, params.user_id)
         
         top_users_data = []
         for user in current_users[:10]:  # Top 10 users
@@ -1373,7 +1398,8 @@ class ConsoleService:
         organization: Organization,
         start_date: datetime,
         end_date: datetime,
-        data_source_ids: Optional[List[str]] = None
+        data_source_ids: Optional[List[str]] = None,
+        user_id: Optional[str] = None
     ) -> List[Dict]:
         """Get user metrics for a specific period"""
 
@@ -1412,8 +1438,10 @@ class ConsoleService:
         )
         if ds_filter_subquery is not None:
             q = q.where(Report.id.in_(ds_filter_subquery))
+        if user_id:
+            q = q.where(User.id == user_id)
         result = await db.execute(q)
-        
+
         users = result.all()
         return [
             {

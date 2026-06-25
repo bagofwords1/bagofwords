@@ -1804,6 +1804,11 @@
       "customRange": "Intervallo personalizzato",
       "startDate": "Data di inizio",
       "endDate": "Data di fine"
+    },
+    "filters": {
+      "title": "Filtri",
+      "agent": "Agente",
+      "reset": "Reimposta"
     }
   },
   "mcp": {
