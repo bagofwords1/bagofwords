@@ -30,6 +30,7 @@ TIER_FEATURES = {
         "usage_limits",
         "scheduled_reindex",
         "cost_dashboard",
+        "llm_access_control",
     ],
 }
 

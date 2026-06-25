@@ -28,6 +28,7 @@ from app.schemas.data_sources.configs import (
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
+    DruidTokenCredentials,
     MongoDBConfig,
     PostHogConfig,
     # DuckDB
@@ -408,7 +409,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Real-time analytics database queried via the Broker/Router SQL API.",
         config_schema=DruidConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"]),
+            "token": AuthVariant(title="API Token", schema=DruidTokenCredentials, scopes=["system","user"]),
         }),
         client_path=None,
         version="beta",

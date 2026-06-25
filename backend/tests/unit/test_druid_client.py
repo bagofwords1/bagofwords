@@ -94,6 +94,20 @@ class TestConnectKwargs:
         assert kw["user"] == "u" and kw["password"] == "p"
         assert kw["port"] == 8888
 
+    def test_token_maps_to_jwt(self):
+        c = DruidClient(host="h", token="secret-tok", secure=True)
+        kw = c._connect_kwargs
+        assert kw["jwt"] == "secret-tok"
+        # Bearer is mutually exclusive with Basic — no user/password leak through.
+        assert "user" not in kw and "password" not in kw
+
+    def test_token_takes_precedence_over_userpass(self):
+        # pydruid prefers Basic when ``user`` is set, so a token must suppress it.
+        c = DruidClient(host="h", user="u", password="p", token="tok")
+        kw = c._connect_kwargs
+        assert kw["jwt"] == "tok"
+        assert "user" not in kw and "password" not in kw
+
 
 class TestSchemaParsing:
     def test_comma_separated_dedup_and_order(self):
@@ -216,6 +230,26 @@ class TestRegistryWiring:
         assert entry is REGISTRY["druid"]
         assert entry.config_schema is DruidConfig
         assert "userpass" in entry.credentials_auth.by_auth
+
+    def test_token_auth_variant_registered(self):
+        from app.schemas.data_source_registry import (
+            credentials_schema_for,
+            get_entry,
+        )
+        from app.schemas.data_sources.configs import DruidTokenCredentials
+
+        entry = get_entry("druid")
+        assert "token" in entry.credentials_auth.by_auth
+        # The variant resolver returns the token schema for auth_type="token".
+        assert credentials_schema_for("druid", "token") is DruidTokenCredentials
+
+    def test_token_credentials_validate(self):
+        from app.schemas.data_sources.configs import DruidTokenCredentials
+
+        creds = DruidTokenCredentials(token="abc123")
+        assert creds.token == "abc123"
+        with pytest.raises(Exception):
+            DruidTokenCredentials()  # token is required
 
     def test_dynamic_resolution_returns_druid_client(self):
         from app.schemas.data_source_registry import resolve_client_class

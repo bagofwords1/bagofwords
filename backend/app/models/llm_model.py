@@ -164,6 +164,7 @@ class LLMModel(BaseSchema):
     is_enabled = Column(Boolean, default=True, nullable=False)  # Can be disabled but not deleted
     is_default = Column(Boolean, default=False, nullable=False)  # If True, this is the default model for the organization
     is_small_default = Column(Boolean, default=False, nullable=False)  # Optional small default model per organization
+    is_restricted = Column(Boolean, default=False, nullable=False)  # If True, usable only by granted principals (plus admins/org defaults). EE feature.
     supports_vision = Column(Boolean, default=False, nullable=False)  # Whether model accepts image inputs
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
