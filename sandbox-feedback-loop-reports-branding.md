@@ -87,43 +87,33 @@ screenshots the full thread, then hovers an assistant avatar to capture the
 model tooltip. To validate the "any aspect ratio" claim, re-upload the org icon
 as a wide / tall / square image and re-screenshot.
 
-### Observed
+### Observed (live app)
 
-**Backend / data path (live):** registered `sandbox@bow.dev`, created a report,
-seeded 4 assistant completions, uploaded a company brand image. The v2 endpoint
-`GET /api/reports/<id>/completions` returns each completion's `model` and block
-content as expected:
+Registered `sandbox@bow.dev`, created a report, seeded 4 assistant completions,
+uploaded a company brand image, dismissed onboarding, then drove the **running
+Nuxt app** with Playwright/Chromium (`scratchpad/shot_real.mjs`). Results:
 
-```
-system | model=gpt-5.4              | blocks=1 | "Here's your **monthly revenue**..."
-system | model=claude-sonnet-4-6    | blocks=1 | "Broken down by **category**..."
-system | model=gemini-3-pro-preview | blocks=1 | "**APAC** is your fastest-growing..."
-system | model=mistral-large-latest | blocks=1 | "Based on the trend, **Q1 next year**..."
-```
+- **Report page** — every assistant message renders the company brand image
+  (`ACME`) as the avatar with a model badge bottom-right, resolved name-first:
+  `gpt-5.4 → OpenAI`, `claude-sonnet-4-6 → the new Claude burst`,
+  `gemini-3-pro-preview → Google`, `mistral-large-latest → generic chip`.
+- **Tooltip** — hovering an avatar shows **"Generated with <model>"**.
+- **Aspect ratios** — re-uploading the org logo as wide (480×120) / tall
+  (120×320) / square (256×256) and reloading: all render height-bound (28px),
+  capped at `max-w-[72px]`, `object-contain` — no distortion or overflow.
+- **Settings → General** shows the org icon uploader; **Settings → Integrate
+  Models** shows the Anthropic provider card now branded **"Claude"** (burst +
+  wordmark).
 
-**Avatar render (Chromium):** the assistant avatar markup was rendered with the
-pre-installed Chromium (`/opt/pw-browsers`), using the exact Tailwind class
-semantics from the `.vue` change, the real `/llm_providers_icons/*-icon.png`
-assets, and the real `resolveModelBrand` mapping. Two shots:
-
-- `harness_thread.png` — company brand (`ACME`) avatar per message, overlay
-  correctly resolved per model: `gpt-5.4 → openai`, `claude-sonnet-4-6 →
-  anthropic` (the new **Claude burst**), `gemini-3-pro-preview → google`,
-  `mistral-large-latest → custom` (generic chip). Tooltip reads
-  **"Generated with claude-sonnet-4-6"**.
-- `harness_dimensions.png` — the same avatar with the org logo as **wide
-  (480×120)**, **tall (120×320)**, **square (256×256)**, and **no org icon →
-  BoW fallback**. All render height-bound (28px), capped at `max-w-[72px]`,
-  `object-contain` — no distortion or overflow at any aspect ratio.
-
-> Note: the live `yarn dev` could not be exercised in this sandbox — the
-> frontend `npm`/`yarn` install would not complete on the environment's network
-> (optional platform esbuild binaries, e.g. `@esbuild/win32-x64`,
-> `@esbuild/darwin-arm64`, abort repeatedly; the full tree is ~1GB). The
-> backend, DB, API and asset paths were validated live; the avatar was validated
-> by faithfully rendering its markup. On a network that can complete the install,
-> `scratchpad/shot.mjs` drives the real page (login → `/reports/<id>` → full-page
-> + tooltip screenshots).
+> Getting the frontend to install was the one hurdle: `yarn` (classic) fetches
+> **every** platform's native binaries (esbuild/oxc/rollup win32/darwin/etc.),
+> and on this environment's proxied network those large transfers abort
+> endlessly. Two fixes: (1) repoint `yarn.lock` from `registry.yarnpkg.com`
+> (proxied) to `registry.npmjs.org` (in the proxy no-proxy list, direct); and/or
+> (2) use **`npm install --legacy-peer-deps`**, which filters optional deps by
+> platform so it only pulls `linux-x64` binaries. npm completed in ~60s with 0
+> errors. Both lockfile/`package-lock.json` changes are sandbox-only and not
+> committed.
 
 ---
 
