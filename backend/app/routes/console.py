@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
+from app.ee.license import require_enterprise
 from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, CostMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
@@ -127,6 +128,7 @@ async def get_llm_usage(
     return await console_service.get_llm_usage_metrics(db, organization, params)
 
 @router.get("/console/metrics/cost", response_model=CostMetrics)
+@require_enterprise(feature="cost_dashboard")
 @requires_permission("manage_settings")
 async def get_cost_metrics(
     group_by: str = "model",

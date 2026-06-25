@@ -46,14 +46,18 @@ const currentPath = computed(() => route.path)
 const allTabs = [
     { name: '', label: 'monitoring.tabExplore', icon: 'i-heroicons-chart-bar' },
     { name: 'diagnosis', label: 'monitoring.tabDiagnosis', icon: 'i-heroicons-wrench' },
-    { name: 'cost', label: 'monitoring.tabCost', icon: 'i-heroicons-banknotes' },
+    // Cost is an enterprise feature (license-gated, see `cost_dashboard`).
+    { name: 'cost', label: 'monitoring.tabCost', icon: 'i-heroicons-banknotes', feature: 'cost_dashboard' },
 ]
+
+const { hasFeature } = useEnterprise()
 
 const visibleTabs = computed(() => {
     // Admin-only: the monitoring tabs all call `manage_settings`-gated
     // /console/* endpoints, so only show them to users who can actually use them.
     if (!useCan('manage_settings')) return []
-    return allTabs
+    // Drop tabs whose enterprise feature isn't licensed.
+    return allTabs.filter(tab => !tab.feature || hasFeature(tab.feature))
 })
 
 // Helper function to check if tab is active

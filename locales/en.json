@@ -2006,6 +2006,8 @@
       "unattributed": "Unattributed",
       "noData": "No LLM usage in this period",
       "loading": "Loading cost data...",
+      "lockedTitle": "Cost is an enterprise feature",
+      "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
       "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total."
     },
     "cards": {

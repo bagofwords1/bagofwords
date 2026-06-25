@@ -1,5 +1,17 @@
 <template>
-    <div class="mt-6">
+    <!-- Enterprise-gated: direct navigation without the license shows a notice
+         instead of a broken page (the API returns 402). -->
+    <div v-if="!costLicensed" class="mt-6">
+        <div class="bg-white border border-gray-200 rounded-2xl shadow-sm p-12 text-center max-w-2xl mx-auto">
+            <div class="mx-auto w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+                <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-indigo-500" />
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.cost.lockedTitle') }}</h3>
+            <p class="text-sm text-gray-500 mt-2">{{ $t('monitoring.cost.lockedBody') }}</p>
+        </div>
+    </div>
+
+    <div v-else class="mt-6">
         <!-- Date range + agent (data source) filter -->
         <DateRangePicker
             :selected-period="selectedPeriod"
@@ -160,6 +172,10 @@ use([CanvasRenderer, LineChart, TooltipComponent, GridComponent])
 
 const { t } = useI18n()
 const { selectedAgents } = useAgent()
+const { hasFeature } = useEnterprise()
+
+// Cost is an enterprise feature; gate matches the backend `cost_dashboard` check.
+const costLicensed = computed(() => hasFeature('cost_dashboard'))
 
 definePageMeta({
     auth: true,
@@ -313,6 +329,7 @@ const appendDateParams = (params: URLSearchParams) => {
 }
 
 const fetchCost = async () => {
+    if (!costLicensed.value) return  // enterprise-gated; nothing to fetch
     isLoading.value = true
     try {
         const params = new URLSearchParams()
