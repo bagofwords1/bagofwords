@@ -457,14 +457,55 @@ const activeFilterCount = computed(() => {
 
 // Apply shared filters to get filtered rows
 const filteredRows = computed(() => {
-  const rows = effectiveStep.value?.data?.rows
+  let rows = effectiveStep.value?.data?.rows
   if (!Array.isArray(rows)) return []
+
+  // Apply the view's own defaultFilters directly. The standalone preview has no
+  // dashboard shared-filter pipeline guaranteed to be ready on first paint, so
+  // relying solely on the seeded shared filters races: a single-value card over
+  // a melted/long KPI table (Metric | Value | Format) would otherwise render
+  // row 0 / a sum of every metric instead of the asked-for row. Dashboards do
+  // not use this component (they filter rows upstream), so this is safe and does
+  // not interfere with user-overridable shared filters there.
+  const v = normalizedView.value as any
+  const viewInner = v?.view || v
+  const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+  if (defaults.length) {
+    rows = rows.filter((row: any) => defaults.every((f: any) => matchDefaultFilter(row, f)))
+  }
+
   if (sharedFilters.value.length === 0 || !visualizationId.value) return rows
 
   return rows.filter((row: any) =>
     sharedEvaluateFilters(row, sharedFilters.value, visualizationId.value)
   )
 })
+
+// Lightweight evaluator for a view's plain-column defaultFilters (no vizId
+// prefix). Mirrors the operators in DefaultFilterCondition.
+function matchDefaultFilter(row: any, f: any): boolean {
+  if (!row || !f || !f.column) return true
+  const key = Object.keys(row).find(k => k.toLowerCase() === String(f.column).toLowerCase())
+  if (key === undefined) return true
+  const cell = row[key]
+  const s = (x: any) => (x === null || x === undefined) ? '' : String(x)
+  const op = String(f.operator || 'equals')
+  switch (op) {
+    case 'equals': return s(cell) === s(f.value)
+    case 'not_equals': return s(cell) !== s(f.value)
+    case 'contains': return s(cell).includes(s(f.value))
+    case 'not_contains': return !s(cell).includes(s(f.value))
+    case 'starts_with': return s(cell).startsWith(s(f.value))
+    case 'ends_with': return s(cell).endsWith(s(f.value))
+    case 'greater_than': return Number(cell) > Number(f.value)
+    case 'less_than': return Number(cell) < Number(f.value)
+    case 'gte': return Number(cell) >= Number(f.value)
+    case 'lte': return Number(cell) <= Number(f.value)
+    case 'is_empty': return s(cell) === ''
+    case 'is_not_empty': return s(cell) !== ''
+    default: return true
+  }
+}
 
 // Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
 const normalizedView = computed(() => {

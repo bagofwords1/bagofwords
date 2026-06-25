@@ -119,9 +119,13 @@
                     Open
                   </button>
                 </div>
-                <!-- Pending: inline per-hunk accept/reject, collapsed to changed regions -->
+                <!-- Pending EDIT: inline per-hunk accept/reject, collapsed to changed regions.
+                     Creates are excluded: a brand-new instruction has no main text to diff
+                     against, so review-hunks yields zero hunks ("No pending changes"). They
+                     fall through to the static full-insertion diff below, which shows the
+                     whole new instruction body. -->
                 <div
-                  v-if="ch.instructionId && canCreateInstructions && resolutionFor(ch) === null"
+                  v-if="ch.type === 'edit' && ch.instructionId && canCreateInstructions && resolutionFor(ch) === null"
                   class="px-3 py-2 bg-white dark:bg-gray-900"
                 >
                   <InstructionTrackedChanges
@@ -133,7 +137,7 @@
                     @empty="refreshChangeResolution(ch)"
                   />
                 </div>
-                <!-- Resolved / read-only: static diff -->
+                <!-- Create, or resolved / read-only: static diff (full insertion for a create) -->
                 <div
                   v-else
                   class="px-3 py-2 bg-white dark:bg-gray-900 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
