@@ -20,6 +20,10 @@ class LLMUsageRecorderService:
         completion_tokens: int = 0,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        organization_id: str | None = None,
+        user_id: str | None = None,
+        report_id: str | None = None,
+        data_source_id: str | None = None,
     ) -> LLMUsageRecord:
 
         provider_type = llm_model.provider.provider_type if llm_model.provider else ""
@@ -28,9 +32,20 @@ class LLMUsageRecorderService:
         )
         output_cost = self._calc_output_cost(llm_model, completion_tokens)
 
+        # Org is always knowable from the model itself; fall back to it when the
+        # caller didn't supply explicit attribution. The other dimensions stay
+        # NULL when unknown (e.g. background jobs not tied to a user/report).
+        org_id = organization_id or (
+            str(llm_model.organization_id) if getattr(llm_model, "organization_id", None) else None
+        )
+
         record = LLMUsageRecord(
             scope=scope,
             scope_ref_id=scope_ref_id,
+            organization_id=org_id,
+            user_id=user_id,
+            report_id=report_id,
+            data_source_id=data_source_id,
             llm_model_id=str(llm_model.id),
             model_id=llm_model.model_id,
             provider_type=provider_type,

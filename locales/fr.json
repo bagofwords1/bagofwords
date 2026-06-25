@@ -355,7 +355,8 @@
     "duration": "Durée : {ms} ms",
     "widgetRef": "→ Widget : {id}",
     "stepRef": "→ Étape : {id}",
-    "viewAgentTrace": "Voir la trace de l'agent"
+    "viewAgentTrace": "Voir la trace de l'agent",
+    "followUp": "Follow up"
   },
   "tools": {
     "common": {

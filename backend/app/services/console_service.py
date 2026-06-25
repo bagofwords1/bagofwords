@@ -54,6 +54,10 @@ from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
 from app.models.instruction_build import InstructionBuild
 from app.models.report_data_source_association import report_data_source_association
+from app.models.data_source import DataSource
+from app.models.group import Group
+from app.models.group_membership import GroupMembership
+from app.schemas.console_schema import CostMetrics, CostBreakdownItem, CostTimeSeriesPoint
 
 logger = get_logger(__name__)
 
@@ -1043,6 +1047,290 @@ class ConsoleService:
             total_cost_usd=total_cost_usd,
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )
+
+    # Providers whose pricing we can only estimate (no first-party price feed):
+    # custom/self-hosted, Azure (customer-negotiated), and Bedrock.
+    _ESTIMATED_PROVIDERS = ("custom", "azure", "bedrock")
+
+    def _is_estimated_provider(self, provider_type: Optional[str]) -> bool:
+        pt = (provider_type or "").lower()
+        return pt in self._ESTIMATED_PROVIDERS or pt.startswith("bedrock")
+
+    def _row_total_tokens(self, provider_type: Optional[str], prompt: int, completion: int,
+                          cache_read: int, cache_creation: int) -> int:
+        """Token total that doesn't double-count cache. Mirrors get_llm_usage_metrics:
+        Anthropic reports cache tokens separately (add them in); OpenAI/Azure fold
+        cache_read into prompt_tokens already (don't re-add)."""
+        if (provider_type or "") == "anthropic":
+            return prompt + completion + cache_read + cache_creation
+        return prompt + completion
+
+    async def get_cost_metrics(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams,
+        group_by: str = "model",
+    ) -> CostMetrics:
+        """LLM token/cost spend for the org, broken down by a chosen dimension
+        and bucketed daily over the selected range.
+
+        group_by ∈ {model, provider, user, data_source, group, scope}.
+
+        KPI totals and the timeseries are computed from the un-expanded records
+        so they're always exact. The breakdown for ``data_source`` and ``group``
+        expands each record across every data source of its report / every group
+        of its user, so a record tied to a multi-source report (or a user in
+        several groups) contributes its full cost to each — the per-row sums can
+        therefore exceed the headline total by design. Records with no
+        report/data-source/user/group resolve to an "Unattributed" bucket.
+        """
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        group_by = (group_by or "model").lower()
+        if group_by not in ("model", "provider", "user", "data_source", "group", "scope"):
+            group_by = "model"
+
+        # Base filter: all of the org's usage records in range. We scope via the
+        # model's org (a join) so pre-attribution rows — whose organization_id
+        # column is NULL — are still counted.
+        base_where = [
+            LLMModel.organization_id == organization.id,
+            LLMUsageRecord.created_at >= start_date,
+            LLMUsageRecord.created_at <= end_date,
+        ]
+        if parsed_data_source_ids:
+            ds_report_ids = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
+            base_where.append(LLMUsageRecord.report_id.in_(ds_report_ids))
+
+        # --- KPI totals + timeseries (from un-expanded records) ---
+        rows_query = (
+            select(
+                LLMUsageRecord.created_at.label("created_at"),
+                LLMUsageRecord.provider_type.label("provider_type"),
+                LLMUsageRecord.prompt_tokens.label("prompt_tokens"),
+                LLMUsageRecord.completion_tokens.label("completion_tokens"),
+                LLMUsageRecord.cache_read_tokens.label("cache_read_tokens"),
+                LLMUsageRecord.cache_creation_tokens.label("cache_creation_tokens"),
+                LLMUsageRecord.total_cost_usd.label("total_cost"),
+            )
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(*base_where)
+        )
+        rows = (await db.execute(rows_query)).all()
+
+        total_calls = len(rows)
+        total_prompt = total_completion = total_cache_read = total_cache_creation = 0
+        total_tokens = 0
+        total_cost_usd = 0.0
+        has_estimated = False
+        daily: Dict[str, Dict[str, float]] = defaultdict(lambda: {"cost": 0.0, "tokens": 0})
+        for r in rows:
+            p = int(r.prompt_tokens or 0)
+            c = int(r.completion_tokens or 0)
+            cr = int(r.cache_read_tokens or 0)
+            cc = int(r.cache_creation_tokens or 0)
+            rt = self._row_total_tokens(r.provider_type, p, c, cr, cc)
+            cost = float(r.total_cost or 0)
+            total_prompt += p
+            total_completion += c
+            total_cache_read += cr
+            total_cache_creation += cc
+            total_tokens += rt
+            total_cost_usd += cost
+            if self._is_estimated_provider(r.provider_type):
+                has_estimated = True
+            day = r.created_at.date().isoformat() if r.created_at else end_date.date().isoformat()
+            daily[day]["cost"] += cost
+            daily[day]["tokens"] += rt
+
+        # Dense daily series so the chart has no gaps.
+        timeseries: List[CostTimeSeriesPoint] = []
+        cursor = start_date.date()
+        last = end_date.date()
+        while cursor <= last:
+            key = cursor.isoformat()
+            bucket = daily.get(key, {"cost": 0.0, "tokens": 0})
+            timeseries.append(CostTimeSeriesPoint(
+                date=key, cost_usd=round(float(bucket["cost"]), 6), tokens=int(bucket["tokens"]),
+            ))
+            cursor = cursor + timedelta(days=1)
+            if len(timeseries) > 400:  # safety cap for absurd ranges
+                break
+
+        items = await self._cost_breakdown(db, organization, group_by, base_where)
+
+        return CostMetrics(
+            group_by=group_by,
+            items=items,
+            timeseries=timeseries,
+            total_calls=total_calls,
+            total_prompt_tokens=total_prompt,
+            total_completion_tokens=total_completion,
+            total_cache_read_tokens=total_cache_read,
+            total_cache_creation_tokens=total_cache_creation,
+            total_tokens=total_tokens,
+            total_cost_usd=round(total_cost_usd, 6),
+            has_estimated_provider=has_estimated,
+            date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
+        )
+
+    async def _cost_breakdown(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        group_by: str,
+        base_where: list,
+    ) -> List[CostBreakdownItem]:
+        """Build the per-dimension breakdown rows for the cost console."""
+        UNATTRIBUTED = "__unattributed__"
+
+        sum_calls = func.count(LLMUsageRecord.id)
+        sum_prompt = func.coalesce(func.sum(LLMUsageRecord.prompt_tokens), 0)
+        sum_completion = func.coalesce(func.sum(LLMUsageRecord.completion_tokens), 0)
+        sum_cache_read = func.coalesce(func.sum(LLMUsageRecord.cache_read_tokens), 0)
+        sum_cache_creation = func.coalesce(func.sum(LLMUsageRecord.cache_creation_tokens), 0)
+        sum_input = func.coalesce(func.sum(LLMUsageRecord.input_cost_usd), 0)
+        sum_output = func.coalesce(func.sum(LLMUsageRecord.output_cost_usd), 0)
+        sum_total = func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0)
+
+        # Every branch additionally groups by provider_type so token totals can
+        # be computed cache-correctly per provider (Anthropic counts cache
+        # tokens, OpenAI folds them in) and then merged per display key — this
+        # keeps the breakdown's token sum equal to the headline KPI.
+        base = (
+            select(
+                sum_calls.label("total_calls"),
+                sum_prompt.label("prompt_tokens"),
+                sum_completion.label("completion_tokens"),
+                sum_cache_read.label("cache_read_tokens"),
+                sum_cache_creation.label("cache_creation_tokens"),
+                sum_input.label("input_cost"),
+                sum_output.label("output_cost"),
+                sum_total.label("total_cost"),
+                LLMUsageRecord.provider_type.label("provider_type"),
+            )
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(*base_where)
+        )
+        prov = LLMUsageRecord.provider_type
+
+        if group_by == "model":
+            query = base.add_columns(
+                LLMUsageRecord.llm_model_id.label("key"),
+                LLMModel.name.label("label"),
+                LLMUsageRecord.model_id.label("sublabel"),
+            ).group_by(LLMUsageRecord.llm_model_id, LLMModel.name, LLMUsageRecord.model_id, prov)
+
+        elif group_by == "provider":
+            key_col = func.coalesce(prov, "unknown")
+            query = base.add_columns(key_col.label("key")).group_by(key_col, prov)
+
+        elif group_by == "scope":
+            key_col = func.coalesce(LLMUsageRecord.scope, "unscoped")
+            query = base.add_columns(key_col.label("key")).group_by(key_col, prov)
+
+        elif group_by == "user":
+            key_col = func.coalesce(LLMUsageRecord.user_id, UNATTRIBUTED)
+            query = (
+                base.add_columns(key_col.label("key"), User.name.label("user_name"), User.email.label("user_email"))
+                .outerjoin(User, User.id == LLMUsageRecord.user_id)
+                .group_by(key_col, User.name, User.email, prov)
+            )
+
+        elif group_by == "data_source":
+            # Expand each record across the data sources of its report.
+            assoc = report_data_source_association
+            key_col = func.coalesce(assoc.c.data_source_id, UNATTRIBUTED)
+            query = (
+                base.add_columns(key_col.label("key"), DataSource.name.label("ds_name"))
+                .outerjoin(assoc, assoc.c.report_id == LLMUsageRecord.report_id)
+                .outerjoin(DataSource, DataSource.id == assoc.c.data_source_id)
+                .group_by(key_col, DataSource.name, prov)
+            )
+
+        else:  # group — expand each record across the groups of its user
+            key_col = func.coalesce(Group.id, UNATTRIBUTED)
+            query = (
+                base.add_columns(key_col.label("key"), Group.name.label("group_name"))
+                .outerjoin(GroupMembership, GroupMembership.user_id == LLMUsageRecord.user_id)
+                .outerjoin(Group, Group.id == GroupMembership.group_id)
+                .group_by(key_col, Group.name, prov)
+            )
+
+        rows = (await db.execute(query)).all()
+
+        # Merge the per-(key, provider) sub-rows into one item per display key.
+        merged: Dict[str, CostBreakdownItem] = {}
+        provider_seen: Dict[str, set] = defaultdict(set)
+        for row in rows:
+            key = str(row.key) if row.key is not None else UNATTRIBUTED
+            provider_type = getattr(row, "provider_type", None)
+
+            if group_by == "model":
+                label = row.label or row.sublabel or "Unknown model"
+                sublabel = row.sublabel
+            elif group_by == "provider":
+                label = (key or "unknown").title()
+                sublabel = None
+            elif group_by == "scope":
+                label = key or "unscoped"
+                sublabel = None
+            elif group_by == "user":
+                label = row.user_name or ("Unattributed" if key == UNATTRIBUTED else "Unknown user")
+                sublabel = getattr(row, "user_email", None)
+            elif group_by == "data_source":
+                label = row.ds_name or "Unattributed"
+                sublabel = None
+            else:  # group
+                label = row.group_name or "Unattributed"
+                sublabel = None
+
+            prompt = int(row.prompt_tokens or 0)
+            completion = int(row.completion_tokens or 0)
+            cache_read = int(row.cache_read_tokens or 0)
+            cache_creation = int(row.cache_creation_tokens or 0)
+            row_tokens = self._row_total_tokens(provider_type, prompt, completion, cache_read, cache_creation)
+
+            existing = merged.get(key)
+            if existing is None:
+                merged[key] = CostBreakdownItem(
+                    key=key, label=label, sublabel=sublabel, provider_type=provider_type,
+                    total_calls=int(row.total_calls or 0),
+                    prompt_tokens=prompt, completion_tokens=completion,
+                    cache_read_tokens=cache_read, cache_creation_tokens=cache_creation,
+                    total_tokens=row_tokens,
+                    input_cost_usd=float(row.input_cost or 0),
+                    output_cost_usd=float(row.output_cost or 0),
+                    total_cost_usd=float(row.total_cost or 0),
+                )
+            else:
+                existing.total_calls += int(row.total_calls or 0)
+                existing.prompt_tokens += prompt
+                existing.completion_tokens += completion
+                existing.cache_read_tokens += cache_read
+                existing.cache_creation_tokens += cache_creation
+                existing.total_tokens += row_tokens
+                existing.input_cost_usd += float(row.input_cost or 0)
+                existing.output_cost_usd += float(row.output_cost or 0)
+                existing.total_cost_usd += float(row.total_cost or 0)
+            # A merged item spanning multiple providers has no single provider.
+            if provider_type:
+                provider_seen[key].add(provider_type)
+
+        items = list(merged.values())
+        for it in items:
+            if len(provider_seen.get(it.key, set())) > 1:
+                it.provider_type = None
+            it.total_cost_usd = round(it.total_cost_usd, 6)
+            it.input_cost_usd = round(it.input_cost_usd, 6)
+            it.output_cost_usd = round(it.output_cost_usd, 6)
+
+        items.sort(key=lambda i: i.total_cost_usd, reverse=True)
+        return items
 
     async def get_top_users_metrics(
         self,

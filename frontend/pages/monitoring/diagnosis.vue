@@ -282,7 +282,8 @@ const { t } = useI18n()
 definePageMeta({
     auth: true,
     layout: 'monitoring',
-    resourcePermissionAny: { permission: 'manage', resourceType: 'data_source' }
+    // Admin-only: matches the `manage_settings` gate on the /console/* endpoints.
+    permissions: ['manage_settings']
 })
 
 // Types for compact issues

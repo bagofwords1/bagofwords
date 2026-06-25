@@ -355,7 +355,8 @@
     "duration": "المدة: {ms} مللي ثانية",
     "widgetRef": "← عنصر: {id}",
     "stepRef": "← خطوة: {id}",
-    "viewAgentTrace": "عرض أثر الوكيل"
+    "viewAgentTrace": "عرض أثر الوكيل",
+    "followUp": "Follow up"
   },
   "tools": {
     "common": {
