@@ -22,9 +22,12 @@ export const useOrganization = () => {
     } catch {}
   }
 
-  // Fetch organization from session data
-  const fetchOrganizationFromSession = async () => {
-    const session = await getSession({ force: true })
+  // Fetch organization from session data.
+  // Accepts an already-fetched session to avoid firing a redundant /whoami
+  // request (several racing whoami calls during login can make nuxt-auth clear
+  // the freshly-set token on a single transient 401).
+  const fetchOrganizationFromSession = async (sessionOverride?: any) => {
+    const session = sessionOverride ?? await getSession({ force: true })
     const orgs = session?.organizations || []
     if (orgs.length > 0) {
       const persistedId = readPersistedOrgId()

@@ -112,7 +112,7 @@
 
   const { t } = useI18n()
   const { rawToken } = useAuthState()
-  const { fetchOrganization } = useOrganization()
+  const { fetchOrganizationFromSession } = useOrganization()
   const route = useRoute()
   const config = useRuntimeConfig();
   const googleSignIn = ref(config.public.googleSignIn);
@@ -188,18 +188,19 @@
     const userEmail = route.query.email as string
     if (access_token) {
       rawToken.value = access_token
-      await getSession({ force: true })
-      // Check if the user has an organization (same as credentials login)
-      const org = await fetchOrganization()
+      // Reuse a single session fetch for the org check (same rationale as the
+      // credentials path) to avoid racing /whoami calls clearing the token.
+      const session = await getSession({ force: true })
+      const org = await fetchOrganizationFromSession(session)
       if (!org || !org.id) {
-        navigateTo('/organizations/new')
+        await navigateTo('/organizations/new')
       } else {
         let pendingRedirect: string | null = null
         try {
           pendingRedirect = safeRedirectTarget(sessionStorage.getItem(OAUTH_REDIRECT_STORAGE_NAME))
           sessionStorage.removeItem(OAUTH_REDIRECT_STORAGE_NAME)
         } catch (_) {}
-        navigateTo(pendingRedirect || '/')
+        await navigateTo(pendingRedirect || '/')
       }
       return
     }
@@ -221,7 +222,6 @@
   async function signInWithCredentials() {
     isSubmitting.value = true
     error_message.value = ''
-    const route = useRoute();
     const redirectedFrom = safeRedirectTarget(route.query.redirect)
 
     const credentials = {
@@ -238,29 +238,27 @@
         body: qs.stringify(credentials),
       });
 
-
-      if (response) {
-        rawToken.value = response.access_token
-        await getSession({ force: true })
-
-        // Check if the user has an organization
-        const org = await fetchOrganization();
-        if (!org || !org.id) {
-          navigateTo('/organizations/new');
-        } else {
-          if (redirectedFrom) {
-            navigateTo(redirectedFrom);
-          } else {
-            navigateTo('/');
-          }
-        }
-      }
-      else {
+      if (!response) {
         error_message.value = t('auth.invalidCredentials')
-        isSubmitting.value = false
+        return
+      }
+
+      rawToken.value = response.access_token
+      // Fetch the session once and reuse it for the organization check so we
+      // don't fire several racing /whoami calls right after login. A transient
+      // 401 on any of them makes nuxt-auth clear the just-set token and bounce
+      // the user back to sign-in (or leaves the spinner stuck).
+      const session = await getSession({ force: true })
+      const org = await fetchOrganizationFromSession(session)
+
+      if (!org || !org.id) {
+        await navigateTo('/organizations/new');
+      } else {
+        await navigateTo(redirectedFrom || '/');
       }
     } catch (error: any) {
       error_message.value = extractErrorMessage(error, t('auth.invalidCredentials'))
+    } finally {
       isSubmitting.value = false
     }
   }
