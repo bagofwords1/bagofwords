@@ -30,7 +30,11 @@ _CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / 
 # caches are treated as missing and reconverted instead of served stale.
 #   v2: temporal columns ($date/$timestamp/$time) emitted as DATE/TIMESTAMP/TIME
 #       instead of raw Excel-style serial numbers.
-_PARQUET_SCHEMA_VERSION = 2
+#   v3: date/timestamp detection also honors the NumberFormat display pattern
+#       (e.g. "YYYY-MM-DD") and numeric Type codes, so Qlik date fields that
+#       carry no $date tag are typed as DATE/TIMESTAMP (castable) instead of
+#       leaking through as raw serial numbers.
+_PARQUET_SCHEMA_VERSION = 3
 _HEADER_END_TAG = b"</QvdTableHeader>"
 _HEADER_SCAN_LIMIT = 4 * 1024 * 1024
 
@@ -119,13 +123,53 @@ class QVDClient(DataSourceClient):
         return name
 
     @staticmethod
-    def _infer_duckdb_type(tags: List[str]) -> str:
-        """Map QVD <Tags> to the DuckDB type the Parquet cache will expose."""
-        s = set(tags)
-        if "$timestamp" in s:
+    def _fmt_temporal_type(fmt: str) -> Optional[str]:
+        """Infer a DuckDB temporal type from a Qlik display-format pattern.
+
+        Mirrors the qvd2parquet converter: Qlik date/time patterns are letter
+        tokens (YYYY, MM, DD, hh, mm, ss); any ASCII digit marks a numeric or
+        currency format (``#,##0.00``, ``###0``) and bails. ``M``/``m`` alone is
+        ambiguous (month vs minute), so the date half keys off Y/D/W and the time
+        half off h/s.
+        """
+        if not fmt or any(ch.isdigit() for ch in fmt):
+            return None
+        date_part = any(ch in fmt for ch in "YyDdWw")
+        time_part = any(ch in fmt for ch in "hHsS")
+        if date_part and time_part:
             return "TIMESTAMP"
-        if "$date" in s:
+        if time_part:
+            return "TIME"
+        if date_part:
             return "DATE"
+        return None
+
+    @classmethod
+    def _infer_duckdb_type(cls, tags: List[str], format_type: str = "", fmt: str = "") -> str:
+        """Map a QVD field's <Tags>/<NumberFormat> to the DuckDB type the Parquet
+        cache will expose. Kept in sync with qvd2parquet's ``classify`` so this
+        pre-warmup schema hint matches the types the converter actually emits:
+        tags first, then the NumberFormat Type (word form or the numeric codes
+        1=date / 3=timestamp), then the display-format pattern."""
+        s = set(tags)
+        ft = (format_type or "").strip().upper()
+        # Mirror the converter's "all symbols numeric" guard with the header's
+        # closest proxy: a $text/$ascii column (with no numeric tag) stays text
+        # even if its Type/Fmt looks date-ish, so a date-named string isn't
+        # mis-typed. Explicit temporal tags remain authoritative.
+        is_text = ("$text" in s or "$ascii" in s) and not (
+            "$numeric" in s or "$integer" in s
+        )
+        if "$timestamp" in s or (not is_text and ft in ("TIMESTAMP", "3")):
+            return "TIMESTAMP"
+        if "$time" in s or (not is_text and ft == "TIME"):
+            return "TIME"
+        if "$date" in s or (not is_text and ft in ("DATE", "1")):
+            return "DATE"
+        if not is_text:
+            from_fmt = cls._fmt_temporal_type(fmt)
+            if from_fmt is not None:
+                return from_fmt
         if "$integer" in s:
             return "BIGINT"
         if "$numeric" in s:
@@ -146,8 +190,10 @@ class QVDClient(DataSourceClient):
         for fd in root.findall("./Fields/QvdFieldHeader"):
             name = (fd.findtext("FieldName") or "").strip()
             tags = [t.text for t in fd.findall("./Tags/String") if t.text]
+            fmt_type = (fd.findtext("./NumberFormat/Type") or "").strip()
+            fmt = (fd.findtext("./NumberFormat/Fmt") or "").strip()
             if name:
-                fields.append((name, cls._infer_duckdb_type(tags)))
+                fields.append((name, cls._infer_duckdb_type(tags, fmt_type, fmt)))
         return fields
 
     @classmethod
