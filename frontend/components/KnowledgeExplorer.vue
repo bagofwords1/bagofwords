@@ -1122,7 +1122,23 @@ const saveStarters = async () => {
   savingStarters.value = true
   const id = agentView.value?.agentId
   const conversation_starters = editStarters.value.map(s => `${(s.title || '').trim()}${s.prompt?.trim() ? '\n' + s.prompt.trim() : ''}`).filter(s => s.trim().length > 0)
-  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { conversation_starters } }); await refreshAgentDetail(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' }) }
+  try {
+    // Back the starters with the Prompt model (agent-scoped starter Prompts).
+    // Replace-all: drop this agent's existing starter prompts, recreate from the editor.
+    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}&starters_only=true`)
+    for (const p of ((existing.value as any)?.prompts || [])) {
+      await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
+    }
+    for (const text of conversation_starters) {
+      await useMyFetch(`/prompts`, { method: 'POST', body: {
+        text, title: (text.split('\n')[0] || '').slice(0, 60),
+        scope: 'agent', is_starter: true, data_source_ids: [id],
+      } })
+    }
+    // Mirror to the legacy JSON field so the display + home/flyout stay in sync for now.
+    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { conversation_starters } })
+    await refreshAgentDetail(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' })
+  }
   catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
 }
 // reload tables / tools from the tree
