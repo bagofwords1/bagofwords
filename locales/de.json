@@ -686,7 +686,8 @@
       "dataSources": "Agenten",
       "queries": "Abfragen",
       "files": "Dateien",
-      "tables": "Tabellen"
+      "tables": "Tabellen",
+      "prompts": "Prompts"
     },
     "time": {
       "justNow": "gerade eben",
@@ -2414,5 +2415,17 @@
       "toastDeleted": "API-Schlüssel gelöscht",
       "toastDeleteFailed": "API-Schlüssel konnte nicht gelöscht werden"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Fill in parameters — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Select…",
+    "to": "to",
+    "noParams": "This prompt has no parameters.",
+    "cancel": "Cancel",
+    "confirm": "Use prompt"
   }
 }

@@ -686,7 +686,8 @@
       "dataSources": "الوكلاء",
       "queries": "الاستعلامات",
       "files": "الملفات",
-      "tables": "الجداول"
+      "tables": "الجداول",
+      "prompts": "Prompts"
     },
     "time": {
       "justNow": "الآن",
@@ -2414,5 +2415,17 @@
       "toastDeleted": "تم حذف مفتاح API",
       "toastDeleteFailed": "فشل حذف مفتاح API"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Fill in parameters — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Select…",
+    "to": "to",
+    "noParams": "This prompt has no parameters.",
+    "cancel": "Cancel",
+    "confirm": "Use prompt"
   }
 }

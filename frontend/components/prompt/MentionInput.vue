@@ -48,6 +48,7 @@
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'connection_tools'" name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
+              <Icon v-else-if="category.name === 'prompts'" name="heroicons-command-line" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ item.name }}</span>
@@ -171,6 +172,15 @@
         </div>
       </div>
     </div>
+
+    <!-- Parameter fill for a selected prompt (only when it has parameters). -->
+    <PromptParametersModal
+      v-if="showPromptParams"
+      v-model="showPromptParams"
+      :prompt="promptForParams"
+      @confirm="onPromptParamsConfirm"
+      @cancel="cancelPromptParams"
+    />
   </div>
 </template>
 
@@ -179,13 +189,15 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import PromptParametersModal from '~/components/prompt/PromptParametersModal.vue'
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
+import { usePromptFill } from '~/composables/usePromptFill'
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
 interface MentionItem {
   id: string
-  type: 'data_source' | 'datasource_table' | 'file' | 'entity' | 'connection_tool'
+  type: 'data_source' | 'datasource_table' | 'file' | 'entity' | 'connection_tool' | 'prompt'
   name: string
   subtitle?: string
   icon_type?: string
@@ -196,6 +208,10 @@ interface MentionItem {
   data_source_id?: string
   data_source_name?: string
   connection_name?: string
+  // Prompt-only fields (carried for "consume into text" behavior).
+  text?: string
+  parameters?: any[]
+  mentions?: { name: string, items: any[] }[]
 }
 
 interface MentionCategory {
@@ -223,7 +239,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'tables', 'files', 'entities', 'connection_tools']
+    default: () => ['data_sources', 'tables', 'files', 'entities', 'connection_tools', 'prompts']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -258,6 +274,14 @@ const allCategories = ref<MentionCategory[]>([])
 const isLoadingMentions = ref(false)
 const orgPermsState = usePermissions()
 const resourcePermsState = useResourcePermissions()
+
+// Prompt "consume into text" state. A consumed prompt's mentions are kept in
+// `promptMentions` (flat MentionItem list) and merged into the emitted mentions
+// — they have no DOM span, so updateMentionsList() would otherwise drop them.
+const { substitute, mergeMentions } = usePromptFill()
+const showPromptParams = ref(false)
+const promptForParams = ref<MentionItem | null>(null)
+const promptMentions = ref<MentionItem[]>([])
 
 // While the field is empty, `dir="auto"` has no strong character to scan and
 // falls back to LTR — which left-aligns an RTL placeholder (e.g. Hebrew). Fall
@@ -771,6 +795,19 @@ function closeItemCard() {
 }
 
 function selectItem(item: MentionItem, category: string) {
+  // Prompts are not inserted as a chip — they are consumed into plain text.
+  if (item.type === 'prompt') {
+    if (item.parameters && item.parameters.length) {
+      promptForParams.value = item
+      showPromptParams.value = true
+      // Keep the dropdown closed while the modal is up; @query is replaced on confirm.
+      showDropdown.value = false
+      return
+    }
+    insertPromptText(item, item.text || '')
+    return
+  }
+
   if (currentMentionStartIndex.value !== -1 && inputRef.value) {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return
@@ -862,6 +899,129 @@ function selectItem(item: MentionItem, category: string) {
   }
 }
 
+// Replace the active "@query" with the prompt's (substituted) plain text and
+// merge the prompt's mentions into the box state. No mention span is created.
+function insertPromptText(item: MentionItem, plainText: string) {
+  if (!inputRef.value) return
+
+  if (currentMentionStartIndex.value !== -1) {
+    const selection = window.getSelection()
+    if (selection && selection.rangeCount > 0) {
+      // Find the text node holding the @ and the offset of the @ within it.
+      const walker = document.createTreeWalker(inputRef.value, NodeFilter.SHOW_TEXT, null)
+      let currentPos = 0
+      let targetNode: Text | null = null
+      let offsetInNode = 0
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text
+        const nodeLength = node.textContent?.length || 0
+        if (currentPos + nodeLength > currentMentionStartIndex.value) {
+          targetNode = node
+          offsetInNode = currentMentionStartIndex.value - currentPos
+          break
+        }
+        currentPos += nodeLength
+      }
+
+      if (targetNode) {
+        const cursorPos = getCaretPosition(inputRef.value)
+        const lengthToDelete = cursorPos - currentMentionStartIndex.value
+        const before = targetNode.textContent?.slice(0, offsetInNode) || ''
+        const after = targetNode.textContent?.slice(offsetInNode + lengthToDelete) || ''
+
+        const textNode = document.createTextNode(plainText)
+        const fragment = document.createDocumentFragment()
+        if (before) fragment.appendChild(document.createTextNode(before))
+        fragment.appendChild(textNode)
+        if (after) fragment.appendChild(document.createTextNode(after))
+        targetNode.parentNode?.replaceChild(fragment, targetNode)
+
+        const range = document.createRange()
+        range.setStartAfter(textNode)
+        range.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+    }
+  } else {
+    // No active @ (e.g. inserted programmatically) — append at the end.
+    inputRef.value.appendChild(document.createTextNode(plainText))
+  }
+
+  // Merge the prompt's mentions; existing (user) mentions win on id collision.
+  mergePromptMentionsIntoState(item.mentions || [])
+
+  textContent.value = inputRef.value.innerText
+  emit('update:modelValue', textContent.value)
+
+  currentMentionStartIndex.value = -1
+  showDropdown.value = false
+  expandedItem.value = null
+  selectedIndex.value = 0
+
+  updateMentionsList()
+}
+
+// Flatten a prompt's PromptSchema mention groups into MentionItems and merge
+// them (deduped by id) into promptMentions, never overriding existing mentions.
+function mergePromptMentionsIntoState(groups: { name: string, items: any[] }[]) {
+  const existingIds = new Set([
+    ...currentDomMentions().map(m => String(m.id)),
+    ...promptMentions.value.map(m => String(m.id)),
+  ])
+  const GROUP_TO_TYPE: Record<string, MentionItem['type']> = {
+    'DATA SOURCES': 'data_source',
+    'TABLES': 'datasource_table',
+    'FILES': 'file',
+    'ENTITIES': 'entity',
+    'CONNECTION TOOLS': 'connection_tool',
+  }
+  for (const g of groups || []) {
+    const type = GROUP_TO_TYPE[g.name]
+    if (!type) continue
+    for (const it of g.items || []) {
+      const id = String(it?.id)
+      if (!id || existingIds.has(id)) continue
+      existingIds.add(id)
+      promptMentions.value.push({
+        id,
+        type,
+        name: it.name || it.title || it.filename || id,
+        data_source_id: it.datasource_id || it.data_source_id,
+        data_source_name: it.data_source_name,
+        entity_type: it.entity_type,
+      })
+    }
+  }
+}
+
+function currentDomMentions(): MentionItem[] {
+  if (!inputRef.value) return []
+  const out: MentionItem[] = []
+  inputRef.value.querySelectorAll('.mention').forEach(node => {
+    const id = node.getAttribute('data-mention-id')
+    if (!id) return
+    for (const category of allCategories.value) {
+      const found = category.items.find(i => i.id === id)
+      if (found) { out.push(found); break }
+    }
+  })
+  return out
+}
+
+function onPromptParamsConfirm(values: Record<string, any>) {
+  const item = promptForParams.value
+  showPromptParams.value = false
+  if (!item) return
+  insertPromptText(item, substitute(item.text || '', values))
+  promptForParams.value = null
+}
+
+function cancelPromptParams() {
+  showPromptParams.value = false
+  promptForParams.value = null
+}
+
 const tablesForExpandedDataSource = computed(() => {
   if (!expandedItem.value || expandedCategory.value !== 'data_sources') return [] as any[]
   const dsId = String(expandedItem.value.id)
@@ -946,6 +1106,13 @@ function updateMentionsList() {
       }
     }
   })
+
+  // Fold in mentions carried by consumed prompts (no DOM span). DOM mentions
+  // win on id collision, matching the "current wins" merge contract.
+  const domIds = new Set(newMentions.map(m => String(m.id)))
+  for (const pm of promptMentions.value) {
+    if (!domIds.has(String(pm.id))) newMentions.push(pm)
+  }
 
   mentions.value = newMentions
   emit('update:mentions', newMentions)
@@ -1084,11 +1251,52 @@ async function fetchAvailableMentions() {
           }))
         }
       ]
+      // Prompts are fetched separately; keep their category in sync.
+      syncPromptCategory()
     }
   } catch (err) {
     console.error('Error fetching mentions:', err)
   } finally {
     isLoadingMentions.value = false
+  }
+}
+
+// Saved prompts are a separate API (GET /prompts) and are mapped into a
+// 'prompts' mention category. Selecting one substitutes its text into the box.
+const promptCategoryItems = ref<MentionItem[]>([])
+async function fetchPromptMentions() {
+  try {
+    const { data, error } = await useMyFetch('/prompts?limit=50', { method: 'GET' })
+    if (error.value) { promptCategoryItems.value = []; return }
+    const list = (data.value as any)?.prompts || []
+    promptCategoryItems.value = list.map((p: any) => ({
+      id: String(p.id),
+      type: 'prompt' as const,
+      name: p.title || (p.text || '').slice(0, 60),
+      subtitle: (p.parameters && p.parameters.length) ? t('mentionInput.categories.prompts') : undefined,
+      text: p.text || '',
+      parameters: p.parameters || [],
+      mentions: p.mentions || [],
+    } as MentionItem))
+    syncPromptCategory()
+  } catch {
+    promptCategoryItems.value = []
+  }
+}
+
+// Ensure the 'prompts' category exists in allCategories and carries the latest
+// items. Prompts come from a separate API, so they must render even if the
+// /mentions/available fetch is unavailable.
+function syncPromptCategory() {
+  const cat = allCategories.value.find(c => c.name === 'prompts')
+  if (cat) {
+    cat.items = promptCategoryItems.value
+  } else {
+    allCategories.value.push({
+      name: 'prompts',
+      label: t('mentionInput.categories.prompts'),
+      items: promptCategoryItems.value,
+    })
   }
 }
 
@@ -1101,6 +1309,7 @@ onMounted(() => {
   }
 
   fetchAvailableMentions()
+  fetchPromptMentions()
 })
 
 watch(() => props.selectedDataSourceIds, () => {

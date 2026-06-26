@@ -13,7 +13,8 @@
     "agents": "Agents",
     "instructions": "Instructions",
     "emptyLabel": "Start typing to search",
-    "emptyQueryLabel": "No results found"
+    "emptyQueryLabel": "No results found",
+    "prompts": "Prompts"
   },
   "smoke": {
     "hello": "Hello",
@@ -777,7 +778,8 @@
       "queries": "Queries",
       "files": "Files",
       "tables": "Tables",
-      "tools": "Tools"
+      "tools": "Tools",
+      "prompts": "Prompts"
     },
     "time": {
       "justNow": "just now",
@@ -2703,5 +2705,14 @@
       "fileUploadFailed": "Failed to upload file",
       "fileRemoveFailed": "Failed to remove file"
     }
+  },
+  "promptParams": {
+    "title": "Fill in parameters — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Select…",
+    "to": "to",
+    "noParams": "This prompt has no parameters.",
+    "cancel": "Cancel",
+    "confirm": "Use prompt"
   }
 }

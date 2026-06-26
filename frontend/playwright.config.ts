@@ -66,14 +66,6 @@ export default defineConfig({
       dependencies: ['members'],
       fullyParallel: false,  // Run sequentially to avoid shared context issues
     },
-
-    // Standalone: agent conversation starters sourced from the Prompt API.
-    // Self-contained — signs in with a pre-seeded admin user, so it has no
-    // dependency on the setup/onboarding chain or a shared storageState.
-    {
-      name: 'agent-starters',
-      testMatch: '**/agent-starters/**/*.spec.ts',
-    },
   ],
 
   use: {

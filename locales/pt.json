@@ -686,7 +686,8 @@
       "dataSources": "Agentes",
       "queries": "Consultas",
       "files": "Arquivos",
-      "tables": "Tabelas"
+      "tables": "Tabelas",
+      "prompts": "Prompts"
     },
     "time": {
       "justNow": "agora mesmo",
@@ -2414,5 +2415,17 @@
       "toastDeleted": "Chave de API excluída",
       "toastDeleteFailed": "Falha ao excluir a chave de API"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Fill in parameters — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Select…",
+    "to": "to",
+    "noParams": "This prompt has no parameters.",
+    "cancel": "Cancel",
+    "confirm": "Use prompt"
   }
 }

@@ -696,7 +696,8 @@
       "dataSources": "סוכנים",
       "queries": "שאילתות",
       "files": "קבצים",
-      "tables": "טבלאות"
+      "tables": "טבלאות",
+      "prompts": "Prompts"
     },
     "time": {
       "justNow": "זה עתה",
@@ -2507,5 +2508,17 @@
       "toastDeleted": "מפתח API נמחק",
       "toastDeleteFailed": "מחיקת מפתח ה-API נכשלה"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Fill in parameters — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Select…",
+    "to": "to",
+    "noParams": "This prompt has no parameters.",
+    "cancel": "Cancel",
+    "confirm": "Use prompt"
   }
 }
