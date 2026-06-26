@@ -197,6 +197,7 @@ class ReviewService:
                 # open/in_progress one just ticks up.
                 await db.commit()
                 await db.refresh(existing)
+                await self._fanout_notification(db, existing)
                 return existing
 
         item = ReviewItem(
@@ -219,7 +220,43 @@ class ReviewService:
         db.add(item)
         await db.commit()
         await db.refresh(item)
+        await self._fanout_notification(db, item)
         return item
+
+    async def _fanout_notification(self, db, item) -> None:
+        """Deliver a per-user notification for a freshly created/bumped item.
+
+        ``ReviewItem`` is the internal dedup/state ledger; the *surface* is the
+        per-user inbox. Recipients are the item's agent managers (or full admins
+        for a global item) — the same audience the review feed used. Non-fatal:
+        a delivery failure must never break emission.
+        """
+        if item is None or item.disposition != DISPOSITION_NOTIFY:
+            return
+        try:
+            from app.services.inbox_service import inbox_service
+            ds_id = str(item.data_source_id) if item.data_source_id else None
+            await inbox_service.notify_agent_managers(
+                db,
+                organization_id=str(item.organization_id),
+                data_source_id=ds_id,
+                type=item.type,
+                title=item.title,
+                body=item.why,
+                severity=item.severity,
+                link=(f"/agents/{ds_id}" if ds_id else None),
+                subject={
+                    "kind": "review_item",
+                    "review_item_id": str(item.id),
+                    "review_type": item.type,
+                    "data_source_id": ds_id,
+                },
+                group_key=item.group_key,
+                source_id=str(item.id),
+                resurface_after_hours=24 * 7,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("review: notification fan-out failed: %s", e)
 
     async def resolve_open_for(
         self, db: AsyncSession, *, organization_id: str, type: str,

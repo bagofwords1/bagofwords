@@ -33,19 +33,38 @@ References:
 
 ---
 
-## 2. Decision: fan-out (keep ReviewItem as source of truth)
+## 2. Decision: notifications are the only surface; ReviewItem becomes an internal ledger
 
-Two options were considered:
+The review feed is **dropped as a UI** for now. The per-user inbox is the only
+surface. The producers that detected conditions (low confidence, schema change,
+slow query, query error, instruction suggestion) now deliver **per-user
+notifications** to the same audience the feed used (the agent's managers).
 
-- **(A) Generalize `ReviewItem`** — add per-user read state + make shares/tool
-  events into review items. Rejected: widens an agent-scoped, shared-state model
-  into a user-scoped one, fighting its permission design.
-- **(B) Fan-out (chosen)** — `ReviewItem` stays the team queue. A new per-user
-  `Notification` row is created for each recipient. Share + in-report-tool paths
-  write `Notification`s directly. Review feed and inbox can coexist; the inbox is
-  the per-user union.
+To do this without rewriting five producers and their dedup/dismissal logic, the
+fan-out hooks the single choke point they all call — `review_service.emit()`:
 
-This keeps all existing review producers, dedup, and actions intact.
+- `ReviewItem` stays as an **internal dedup / state ledger** (one ACTIVE per
+  (org, agent, type, group_key); `respect_dismissal` / resurface still apply). It
+  is no longer surfaced in any UI.
+- On every create/bump, `emit()` calls `inbox_service.notify_agent_managers(...)`,
+  delivering a per-user `Notification` (`source="review"`) to the agent managers.
+- Share + in-report-tool paths call `inbox_service.notify_users(...)` directly.
+
+Rejected alternatives: **generalize `ReviewItem`** into a user-scoped model
+(fights its shared-state permission design); **repoint each producer** off
+`emit()` (5+ call sites incl. `instruction_service`, loses the tested
+dedup/resurface logic). Hooking `emit()` is one integration point and fully
+reversible.
+
+> **Inline actions** (the old *Run training* / *Run eval* buttons) are **not**
+> carried onto notifications for now — they are informational + a deep-link to
+> the agent. Admins still trigger training/eval from the agent page. The
+> `/review` action routes remain but unsurfaced; porting actions onto
+> notifications is a later, optional step.
+
+> **Fully removing `ReviewItem`** (table + producers + `/review` routes) is a
+> deliberate later cleanup, once the inbox proves out. Keeping it dormant now
+> avoids a destructive change and preserves the dedup/auto-resolve machinery.
 
 ---
 
@@ -64,47 +83,46 @@ caused it), `source` (`review|share|report_tool|schedule`), `type`, `severity`,
 
 ---
 
-## 4. Backend wiring still to build
+## 4. Backend wiring
 
-### 4.1 `NotificationService` (new — `app/services/notification_inbox_service.py`)
+### 4.1 `InboxService` — ✅ implemented (`app/services/inbox_service.py`)
 
-> Note: there's already a `notification_service.py` for *email dispatch*. Name
-> this one distinctly (e.g. `notification_inbox_service` / `InboxService`) to
-> avoid collision.
+> Named `inbox_service` to avoid collision with the existing email-dispatch
+> `notification_service.py`.
 
-```python
-async def notify_users(db, *, organization_id, user_ids, source, type, title,
-                       body=None, severity="info", link=None, subject=None,
-                       actor_user_id=None, source_id=None, group_key=None,
-                       dedup=True) -> list[Notification]:
-    # For each user_id: if dedup and an ACTIVE (dismissed_at IS NULL) row exists
-    # for (user, source, group_key), refresh it (title/body/severity-escalate,
-    # bump updated_at, optionally re-open read_at=None); else insert.
-```
+- `notify_users(db, *, organization_id, user_ids, source, type, title, …, group_key, resurface_after_hours)`
+  — deliver one row per user, deduped per (user, source, group_key); an active row
+  is refreshed (re-surfaced unread, severity-escalated), a recently *dismissed*
+  one is suppressed until `resurface_after_hours`. Never notifies the actor about
+  their own action.
+- `notify_agent_managers(db, *, data_source_id, …)` — resolves recipients (agent
+  managers, or full admins when `data_source_id is None`) and fans out with
+  `source="review"`.
+- Reads: `list_for_user`, `count_unread`, `mark_read`, `mark_all_read`, `dismiss`
+  — all scoped by `user_id == current_user`.
 
-Plus reads: `list_for_user(...)`, `count_unread(user)`, `mark_read(id, user)`,
-`mark_all_read(user)`, `dismiss(id, user)`. All scoped by `user_id == current_user`
-— no agent-permission resolution needed (delivery already decided the audience).
+### 4.2 Fan-out from producers — ✅ implemented (hooked into `review_service.emit()`)
 
-### 4.2 Fan-out from review items
+`emit()` (`review_service.py`) is the one choke point every producer already calls
+(slow_query, low_confidence, schema_changed, instruction_suggestion, query_error,
+incl. `instruction_service`). After it creates/bumps a `ReviewItem` with
+`disposition == "notify"`, `_fanout_notification()` calls
+`inbox_service.notify_agent_managers(...)` with `source="review"`,
+`source_id=item.id`, `group_key=item.group_key`, `link=/agents/{ds}`,
+`subject={"kind":"review_item", …}`. Wrapped in try/except — a delivery failure
+never breaks emission.
 
-`review_service.emit()` (`review_service.py:124`) is the one choke point. After it
-creates/bumps a `ReviewItem` with `disposition == "notify"`, resolve recipients
-and call `notify_users(...)` with `source="review"`, `source_id=item.id`,
-`group_key=f"review:{item.id}"`, `link` to the agent + item.
+**Reverse resolver — ✅ implemented:** `get_user_ids_with_permission(db, org_id,
+"manage", data_source_id)` in `permission_resolver.py` (inverse of
+`get_ds_ids_with_permission`). Enumerates org members and reuses the forward
+resolver — O(members), fine for event-fired fan-out; revisit if it ever runs hot.
+Global (`data_source_id=None`) → full admins only.
 
-**Recipients = users with `manage` on the item's agent (or full admins).** A
-reverse resolver is needed — `permission_resolver.py` currently only has the
-per-user `get_ds_ids_with_permission` (`:368`); add the inverse
-`get_user_ids_with_permission(db, org_id, data_source_id, "manage")`. For
-**global** items (`data_source_id is None`), recipients = full admins.
+*Not done:* on review-item auto-resolve (`resolve_open_for`,
+`resolve_for_instruction`) the fanned-out notifications are left as-is (low stakes
+for informational rows). Could mark them read via `source_id` later — see §8.
 
-Keep fan-out side-effecty but non-fatal (wrap in try/except like the existing
-audit-log calls) so a notification failure never breaks emission. When a review
-item resolves/dismisses (`resolve_open_for`, `dismiss`), optionally mark the
-fanned-out notifications read via `source_id`.
-
-### 4.3 Share path
+### 4.3 Share path *(to build)*
 
 In `POST /reports/{id}/notify` (`report.py:254`) and `ReportService.set_visibility`
 (`report_service.py:104`): for every recipient that is a **known user**
@@ -114,7 +132,7 @@ actor_user_id=current_user.id, link=share_url, subject={"kind":"report",
 "report_id":...})`. Email stays as-is for external addresses; the inbox row is
 *additive*. This makes "shared with you" show up in-app, not just in an inbox.
 
-### 4.4 In-report tool notification (the future piece)
+### 4.4 In-report tool notification (the future piece) *(to build)*
 
 Once 4.1 exists this is thin. A report run already resolves
 `report → org + data_source + agents` (`review_producers._org_and_data_sources_for_report`).
@@ -127,7 +145,7 @@ have access to that report (no arbitrary targeting), and dedup by
 
 ---
 
-## 5. API (new — `app/routes/notification.py`, mounted in `main.py` near `review.router`)
+## 5. API — ✅ implemented (`app/routes/notification.py`, mounted in `main.py` after `review.router`)
 
 Mirrors `/review*` so the frontend reuse is trivial:
 
@@ -144,31 +162,35 @@ permission gymnastics — ownership is the recipient.
 
 ---
 
-## 6. Frontend
+## 6. Frontend *(to build)*
 
-- **Generalize `ReviewFeed.vue` → `InboxFeed.vue`**: it's ~90% of the list UI
-  already (rows, severity colors, read/dismiss, filters). Drive it off
-  `/api/notifications`; keep a `source` filter so the Agents page can still show
-  a review-only view by passing `source=review`.
+- **`InboxFeed.vue`** adapted from `ReviewFeed.vue` (~90% of the list UI: rows,
+  severity colors, read/dismiss). Drive it off `/api/notifications`; the `source`
+  filter narrows to `review` / `share` / `report_tool`.
 - **New `/inbox` page** + a **bell with unread count** in `layouts/default.vue`
   (poll `/api/notifications/count`, same pattern KnowledgeExplorer uses for
   `/api/review/count`).
 - Clicking a row navigates to `notification.link` and marks it read.
-- The existing Agents Review panel stays (it's the team queue); the inbox is the
-  personal union across agents + shares + report tools.
+- **Remove the Agents "Review" panel** (`ReviewFeed.vue` in `KnowledgeExplorer.vue`)
+  — the inbox replaces it. The `/review` API stays mounted but unsurfaced.
 
 ---
 
 ## 7. Build order
 
-1. ✅ `Notification` model + migration + env.py registration *(this branch)*
-2. `InboxService` (`notify_users` + reads) + unit tests
-3. `get_user_ids_with_permission` reverse resolver
-4. Fan-out hook in `review_service.emit()`
-5. `/api/notifications` routes + mount
-6. Share-path `notify_users` calls (additive to email)
-7. Frontend: `InboxFeed`, `/inbox`, nav bell
-8. In-report tool notification (depends on 2)
+1. ✅ `Notification` model + migration + env.py registration
+2. ✅ `InboxService` (`notify_users`, `notify_agent_managers` + reads)
+3. ✅ `get_user_ids_with_permission` reverse resolver
+4. ✅ Fan-out hook in `review_service.emit()`
+5. ✅ `/api/notifications` routes + mount
+6. ⬜ Share-path `notify_users` calls (additive to email)
+7. ⬜ Frontend: `InboxFeed`, `/inbox`, nav bell
+8. ⬜ In-report tool notification (depends on 2)
+9. ⬜ Unit tests for `InboxService` (dedup / resurface / per-user read) + an
+   integration test that `emit()` fans out to agent managers
+
+**Remaining critical path:** 6 + 7 give an end-to-end visible inbox (shares +
+review signals). 8 layers on the in-report tool. 9 hardens.
 
 ---
 
