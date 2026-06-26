@@ -681,6 +681,12 @@ class DataSourceService:
                 data_source.conversation_starters = starters.get("conversation_starters")
                 await db.commit()
                 await db.refresh(data_source)
+                # Also materialize the generated starters as agent-scoped Prompts.
+                try:
+                    from app.services.prompt_service import prompt_service
+                    await prompt_service.materialize_starters_for_data_source(db, data_source)
+                except Exception:
+                    logger.warning("Failed to materialize starter prompts for %s", data_source_id, exc_info=True)
         except Exception:
             pass
 

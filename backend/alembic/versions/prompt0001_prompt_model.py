@@ -9,6 +9,9 @@ Revises: c3f1a9b2d4e7
 Create Date: 2026-06-26
 """
 from typing import Sequence, Union
+import json
+import uuid
+from datetime import datetime
 
 from alembic import op
 import sqlalchemy as sa
@@ -49,6 +52,60 @@ def upgrade() -> None:
             sa.Column('prompt_id', sa.String(length=36), sa.ForeignKey('prompts.id'), nullable=True),
             sa.Column('data_source_id', sa.String(length=36), sa.ForeignKey('data_sources.id'), nullable=True),
         )
+
+    _backfill_starters(bind)
+
+
+def _backfill_starters(bind) -> None:
+    """Migrate existing data_source.conversation_starters JSON into agent-scoped
+    starter Prompts (idempotent). Lets old deployments carry their starters over."""
+    rows = bind.execute(sa.text(
+        "SELECT id, organization_id, owner_user_id, conversation_starters "
+        "FROM data_sources WHERE conversation_starters IS NOT NULL AND deleted_at IS NULL"
+    )).fetchall()
+
+    # Already-materialized (ds_id, text) pairs — guard against double-runs.
+    existing = set()
+    try:
+        link_rows = bind.execute(sa.text(
+            "SELECT a.data_source_id, p.text FROM prompt_data_source_association a "
+            "JOIN prompts p ON p.id = a.prompt_id WHERE p.is_starter = :tru"
+        ), {"tru": True}).fetchall()
+        existing = {(r[0], r[1]) for r in link_rows}
+    except Exception:
+        existing = set()
+
+    now = datetime.utcnow()
+    for ds_id, org_id, owner_id, starters in rows:
+        if isinstance(starters, (str, bytes)):
+            try:
+                starters = json.loads(starters)
+            except Exception:
+                continue
+        if not isinstance(starters, list):
+            continue
+        for raw in starters:
+            text = raw if isinstance(raw, str) else (raw.get('value') if isinstance(raw, dict) else None)
+            if not text or (ds_id, text) in existing:
+                continue
+            pid = str(uuid.uuid4())
+            bind.execute(
+                sa.text(
+                    "INSERT INTO prompts (id, title, text, user_id, organization_id, mode, "
+                    "scope, is_starter, created_at, updated_at) VALUES "
+                    "(:id, :title, :text, :uid, :oid, 'chat', 'agent', :starter, :now, :now)"
+                ),
+                {"id": pid, "title": text[:60], "text": text, "uid": owner_id, "oid": org_id,
+                 "starter": True, "now": now},
+            )
+            bind.execute(
+                sa.text(
+                    "INSERT INTO prompt_data_source_association (prompt_id, data_source_id) "
+                    "VALUES (:pid, :ds)"
+                ),
+                {"pid": pid, "ds": ds_id},
+            )
+            existing.add((ds_id, text))
 
 
 def downgrade() -> None:

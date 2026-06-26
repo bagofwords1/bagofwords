@@ -135,3 +135,30 @@ async def test_prompt_model_access_and_parameters():
         resp2 = await prompt_service.get_prompt_response(db, pp.id, admin, org)
         assert [p["name"] for p in resp2["parameters"]] == ["only"]
         print("[params] parameters + mentions round-trip OK")
+
+
+@pytest.mark.asyncio
+async def test_materialize_starters_idempotent():
+    """The agent-creation path: a data source's conversation_starters become
+    agent-scoped starter Prompts (idempotent), visible via starters_only."""
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        org = Organization(name=f"Starter Org {suffix}")
+        db.add(org); await db.flush()
+        owner = _u(suffix, "Owner"); db.add(owner); await db.flush()
+        ds = DataSource(name=f"Agent {suffix}", organization_id=org.id, is_active=True,
+                        owner_user_id=owner.id,
+                        conversation_starters=["What changed?", "Top customers"])
+        db.add(ds); await db.flush()
+        await _grant(db, org.id, ds.id, owner.id, ["view"]); await db.commit()
+
+        created = await prompt_service.materialize_starters_for_data_source(db, ds)
+        assert created == 2
+        again = await prompt_service.materialize_starters_for_data_source(db, ds)
+        assert again == 0, "idempotent"
+
+        lst = (await prompt_service.list_prompts(db, owner, org, starters_only=True))["prompts"]
+        texts = {p["text"] for p in lst}
+        assert {"What changed?", "Top customers"} <= texts
+        assert all(p["is_starter"] for p in lst)
+        print(f"[materialize] created=2, idempotent, visible={len(texts)}")
