@@ -65,6 +65,7 @@ class PromptCatalogService:
     async def list_prompts(
         self, db: AsyncSession, current_user: User, organization: Organization,
         sort: str = 'recent', category: Optional[str] = None, starters_only: bool = False,
+        data_source_id: Optional[str] = None,
     ) -> dict:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
 
@@ -77,6 +78,8 @@ class PromptCatalogService:
             q = q.filter(Prompt.category == category)
         if starters_only:
             q = q.filter(Prompt.is_starter == True)
+        if data_source_id:
+            q = q.join(Prompt.data_sources).filter(DataSource.id == data_source_id)
         result = await db.execute(q)
         prompts = list(result.scalars().unique().all())
 

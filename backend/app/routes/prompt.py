@@ -21,12 +21,14 @@ async def list_prompts(
     sort: str = Query('recent', description="'recent' | 'top'"),
     category: Optional[str] = None,
     starters_only: bool = False,
+    data_source_id: Optional[str] = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     return await prompt_catalog_service.list_prompts(
-        db, current_user, organization, sort=sort, category=category, starters_only=starters_only,
+        db, current_user, organization, sort=sort, category=category,
+        starters_only=starters_only, data_source_id=data_source_id,
     )
 
 
