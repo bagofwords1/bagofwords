@@ -49,7 +49,11 @@ class PostgresqlClient(DataSourceClient):
             conn = engine.connect()
             # Set search_path if schemas are provided
             if self._schemas:
-                search_path = ", ".join(self._schemas)
+                # Quote each schema as an identifier to prevent SQL injection.
+                # Use SQLAlchemy's dialect preparer so this stays driver-agnostic
+                # (handles embedded quotes, reserved words, and casing correctly).
+                preparer = conn.dialect.identifier_preparer
+                search_path = ", ".join(preparer.quote(s) for s in self._schemas)
                 try:
                     conn.execute(text(f"SET search_path TO {search_path}"))
                 except Exception:
