@@ -26,12 +26,34 @@ const emit = defineEmits(['update-content'])
 
 type Suggestion = { key: string, label: string, value: string }
 
-// Build a flat pool of suggestions from all selected data sources
+// Starter Prompts fetched per selected data source. Keyed by data source id so
+// re-selecting an already-loaded source is cheap.
+const starterTextsByDs = ref<Record<string, string[]>>({})
+
+const fetchStartersForDs = async (dsId: string) => {
+    if (!dsId || starterTextsByDs.value[dsId]) return
+    try {
+        const { data } = await useMyFetch(`/prompts?data_source_id=${dsId}&starters_only=true`)
+        const prompts = (data?.value as any)?.prompts || []
+        starterTextsByDs.value = {
+            ...starterTextsByDs.value,
+            [dsId]: prompts.map((p: any) => String(p?.text ?? '')).filter((t: string) => t.trim().length > 0),
+        }
+    } catch {
+        starterTextsByDs.value = { ...starterTextsByDs.value, [dsId]: [] }
+    }
+}
+
+watch(() => (props.data_sources || []).map((ds: any) => ds?.id).filter(Boolean).join(','), (ids) => {
+    for (const id of (ids ? ids.split(',') : [])) fetchStartersForDs(id)
+}, { immediate: true })
+
+// Build a flat pool of suggestions from the selected data sources' starter Prompts
 const pool = computed<Suggestion[]>(() => {
     if (!props.data_sources || !Array.isArray(props.data_sources)) return []
     const uniqueByLabel = new Map<string, Suggestion>()
     for (const ds of props.data_sources) {
-        const starters = Array.isArray(ds?.conversation_starters) ? ds.conversation_starters : []
+        const starters = starterTextsByDs.value[ds?.id] || []
         for (const raw of starters) {
             const normalized = String(raw ?? '').replace(/\\n/g, '\n')
             const label = normalized.split('\n')[0].trim()

@@ -317,10 +317,10 @@
                 <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Conversation starters</span>
                 <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
               </div>
-              <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
-                <button v-for="(cs, i) in agentDetail.conversation_starters" :key="i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, cs, i)">
+              <div v-if="starterPrompts.length" class="flex flex-wrap gap-2">
+                <button v-for="(p, i) in starterPrompts" :key="p.id || i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, p.text, i)">
                   <Spinner v-if="startingReport && startingStarterIdx === i" class="w-3 h-3 animate-spin shrink-0" />
-                  <span>{{ starterTitle(cs) }}</span>
+                  <span>{{ starterTitle(p.text) }}</span>
                 </button>
               </div>
               <p v-else class="text-[11px] text-gray-300 dark:text-gray-600 italic">No conversation starters.</p>
@@ -982,10 +982,22 @@ const creatingPrimary = ref(false); const editingPrimary = ref(false)
 const showEditStarters = ref(false); const editStarters = ref<{ title: string; prompt: string }[]>([]); const savingStarters = ref(false)
 
 const agentDetailLoading = ref(false)
-const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false }
+// Conversation starters are sourced from agent-scoped starter Prompts (not the
+// legacy data_source.conversation_starters JSON). Each prompt's `text` is the
+// "title\nprompt" string.
+const starterPrompts = ref<any[]>([])
+const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false; starterPrompts.value = [] }
+const refreshStarterPrompts = async () => {
+  const id = agentView.value?.agentId; if (!id) { starterPrompts.value = []; return }
+  try {
+    const { data } = await useMyFetch<any>(`/prompts?data_source_id=${id}&starters_only=true`)
+    if (agentView.value?.agentId === id) starterPrompts.value = (data.value as any)?.prompts || []
+  } catch { if (agentView.value?.agentId === id) starterPrompts.value = [] }
+}
 const refreshAgentDetail = async () => {
   const id = agentView.value?.agentId; if (!id) return
   try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {} finally { if (agentView.value?.agentId === id) agentDetailLoading.value = false }
+  refreshStarterPrompts()
 }
 const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
@@ -1007,7 +1019,7 @@ const setAgentPublic = async (val: boolean) => {
 }
 const openAgent = async (id: string) => {
   clearRightPane()
-  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
+  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true; starterPrompts.value = []
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
 }
@@ -1108,10 +1120,11 @@ const startReportWithStarter = async (agentId: string, cs: any, idx: number) => 
   } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { startingReport.value = false; startingStarterIdx.value = null }
 }
 const openEditStarters = () => {
-  const arr = agentDetail.value?.conversation_starters || []
-  editStarters.value = arr.map((s: any) => typeof s === 'string'
-    ? { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
-    : { title: s.title || '', prompt: s.prompt || '' })
+  // Build the editor from the agent's starter Prompts (text = "title\nprompt").
+  editStarters.value = starterPrompts.value.map((p: any) => {
+    const s = String(p?.text ?? '')
+    return { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
+  })
   if (!editStarters.value.length) editStarters.value = [{ title: '', prompt: '' }]
   showEditStarters.value = true
 }
@@ -1135,9 +1148,7 @@ const saveStarters = async () => {
         scope: 'agent', is_starter: true, data_source_ids: [id],
       } })
     }
-    // Mirror to the legacy JSON field so the display + home/flyout stay in sync for now.
-    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { conversation_starters } })
-    await refreshAgentDetail(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' })
+    await refreshStarterPrompts(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' })
   }
   catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
 }
@@ -1839,7 +1850,7 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, publish_status: d.publish_status, description: d.description, conversation_starters: d.conversation_starters || [], auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
