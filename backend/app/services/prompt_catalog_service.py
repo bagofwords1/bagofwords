@@ -48,17 +48,36 @@ class PromptCatalogService:
             return False  # no agents → only full admin may manage/assign
         return all(resolved.has_resource_permission('data_source', ds, perm) for ds in ds_ids)
 
-    def _is_visible(self, resolved: ResolvedPermissions, prompt: Prompt, user_id: str, ds_ids: List[str]) -> bool:
+    def _is_visible(self, resolved: ResolvedPermissions, prompt: Prompt, user_id: str, active_ds_ids: List[str]) -> bool:
+        """Access rules:
+        - global → every org member sees it
+        - private → owner only
+        - agent → user must have access to ALL of the prompt's ACTIVE agents
+                  (a prompt with no active agents is owner/admin-only)
+        """
         if FULL_ADMIN in resolved.org_permissions:
+            return True
+        if prompt.scope == 'global':
             return True
         if prompt.scope == 'private':
             return str(prompt.user_id) == str(user_id)
         # scope == 'agent'
-        return self._can_access_all_agents(resolved, ds_ids)
+        if not active_ds_ids:
+            return str(prompt.user_id) == str(user_id)
+        return self._can_access_all_agents(resolved, active_ds_ids)
 
     @staticmethod
     def _ds_ids(prompt: Prompt) -> List[str]:
+        """All associated agent ids (incl. inactive)."""
         return [str(ds.id) for ds in (prompt.data_sources or [])]
+
+    @staticmethod
+    def _active_ds_ids(prompt: Prompt) -> List[str]:
+        """Only ACTIVE, non-deleted associated agents — used for access checks."""
+        return [
+            str(ds.id) for ds in (prompt.data_sources or [])
+            if getattr(ds, 'is_active', False) and getattr(ds, 'deleted_at', None) is None
+        ]
 
     # ───────────────────────── catalog reads ─────────────────────────
 
@@ -88,10 +107,10 @@ class PromptCatalogService:
 
         visible = []
         for p in prompts:
-            ds_ids = self._ds_ids(p)
-            if not self._is_visible(resolved, p, str(current_user.id), ds_ids):
+            active_ds_ids = self._active_ds_ids(p)
+            if not self._is_visible(resolved, p, str(current_user.id), active_ds_ids):
                 continue
-            visible.append(self._to_response(p, ds_ids, resolved, counts.get(p.id, 0)))
+            visible.append(self._to_response(p, resolved, counts.get(p.id, 0)))
 
         if sort == 'top':
             visible.sort(key=lambda r: r['subscriber_count'], reverse=True)
@@ -112,11 +131,12 @@ class PromptCatalogService:
         )
         return {pid: cnt for pid, cnt in rows.all()}
 
-    def _to_response(self, p: Prompt, ds_ids: List[str], resolved: ResolvedPermissions, sub_count: int) -> dict:
+    def _to_response(self, p: Prompt, resolved: ResolvedPermissions, sub_count: int) -> dict:
+        ds_ids = self._ds_ids(p)
         return {
             "id": p.id, "title": p.title, "text": p.text, "mode": p.mode,
-            "model_id": p.model_id, "mentions": p.mentions, "scope": p.scope,
-            "is_starter": p.is_starter, "status": p.status,
+            "model_id": p.model_id, "mentions": p.mentions, "parameters": p.parameters,
+            "scope": p.scope, "is_starter": p.is_starter, "status": p.status,
             "default_cron": p.default_cron, "default_channel": p.default_channel,
             "category": p.category, "tags": p.tags, "data_source_ids": ds_ids,
             "user_id": p.user_id, "created_at": p.created_at,
@@ -140,37 +160,52 @@ class PromptCatalogService:
     async def get_prompt_response(self, db, prompt_id, current_user, organization) -> dict:
         p = await self.get_prompt_or_404(db, prompt_id, organization)
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        ds_ids = self._ds_ids(p)
-        if not self._is_visible(resolved, p, str(current_user.id), ds_ids):
+        if not self._is_visible(resolved, p, str(current_user.id), self._active_ds_ids(p)):
             raise HTTPException(status_code=403, detail="Access denied to this prompt")
         counts = await self._subscriber_counts(db, [p.id])
-        return self._to_response(p, ds_ids, resolved, counts.get(p.id, 0))
+        return self._to_response(p, resolved, counts.get(p.id, 0))
 
     # ───────────────────────── catalog writes ─────────────────────────
 
     async def _load_data_sources(self, db, ds_ids: List[str], organization: Organization) -> List[DataSource]:
+        """Load active, non-deleted data sources in this org. Agents must be active
+        to be associated with a prompt."""
         if not ds_ids:
             return []
         rows = await db.execute(
             select(DataSource)
             .filter(DataSource.id.in_(ds_ids))
             .filter(DataSource.organization_id == organization.id)
+            .filter(DataSource.is_active == True)
             .filter(DataSource.deleted_at == None)
         )
         found = list(rows.scalars().unique().all())
         if len(found) != len(set(ds_ids)):
-            raise HTTPException(status_code=404, detail="One or more data sources not found")
+            raise HTTPException(status_code=404, detail="One or more data sources not found or inactive")
         return found
+
+    @staticmethod
+    def _params_to_json(parameters) -> Optional[list]:
+        if not parameters:
+            return None
+        return [p.dict() if hasattr(p, 'dict') else dict(p) for p in parameters]
 
     async def create_prompt(self, db, data: PromptCatalogCreate, current_user, organization) -> Prompt:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        # Authoring an agent-scoped prompt requires `manage` on all its agents.
-        if data.scope == 'agent' and not self._holds_on_all_agents(resolved, data.data_source_ids, 'manage'):
-            raise HTTPException(status_code=403, detail="manage permission required on all agents")
+        if data.scope == 'global':
+            # Org-wide prompts are admin-managed.
+            if FULL_ADMIN not in resolved.org_permissions:
+                raise HTTPException(status_code=403, detail="admin required to create a global prompt")
+        elif data.scope == 'agent':
+            if not data.data_source_ids:
+                raise HTTPException(status_code=400, detail="an agent prompt must reference at least one agent")
+            if not self._holds_on_all_agents(resolved, data.data_source_ids, 'manage'):
+                raise HTTPException(status_code=403, detail="manage permission required on all agents")
         data_sources = await self._load_data_sources(db, data.data_source_ids, organization)
         p = Prompt(
             title=data.title, text=data.text, mode=data.mode, model_id=data.model_id,
-            mentions=data.mentions, scope=data.scope, is_starter=data.is_starter,
+            mentions=data.mentions, parameters=self._params_to_json(data.parameters),
+            scope=data.scope, is_starter=data.is_starter,
             status=data.status, default_cron=data.default_cron, default_channel=data.default_channel,
             category=data.category, tags=data.tags,
             user_id=current_user.id, organization_id=organization.id,
@@ -184,11 +219,21 @@ class PromptCatalogService:
     async def update_prompt(self, db, prompt_id, data: PromptCatalogUpdate, current_user, organization) -> Prompt:
         p = await self.get_prompt_or_404(db, prompt_id, organization)
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        ds_ids = self._ds_ids(p)
-        if not self._holds_on_all_agents(resolved, ds_ids, 'manage') and str(p.user_id) != str(current_user.id):
+        is_admin = FULL_ADMIN in resolved.org_permissions
+        can_edit = (
+            is_admin
+            or str(p.user_id) == str(current_user.id)
+            or (p.scope == 'agent' and self._holds_on_all_agents(resolved, self._ds_ids(p), 'manage'))
+        )
+        if not can_edit:
             raise HTTPException(status_code=403, detail="manage permission required")
         fields = data.dict(exclude_unset=True)
+        # Promoting a prompt to global is admin-only.
+        if fields.get('scope') == 'global' and not is_admin:
+            raise HTTPException(status_code=403, detail="admin required to make a prompt global")
         new_ds_ids = fields.pop('data_source_ids', None)
+        if 'parameters' in fields:
+            fields['parameters'] = self._params_to_json(data.parameters)
         for k, v in fields.items():
             setattr(p, k, v)
         if new_ds_ids is not None:

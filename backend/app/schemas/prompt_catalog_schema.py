@@ -3,13 +3,23 @@ from typing import Optional, List, Any
 from datetime import datetime
 
 
+class PromptParameter(BaseModel):
+    name: str                          # placeholder key, e.g. "region" -> {{region}}
+    label: Optional[str] = None
+    type: str = 'text'                 # 'text' | 'number' | 'enum' | 'date' | 'date_range'
+    required: bool = False
+    default: Optional[Any] = None
+    options: Optional[List[str]] = None  # for type == 'enum'
+
+
 class PromptCatalogBase(BaseModel):
     title: Optional[str] = None
     text: str
     mode: str = 'chat'
     model_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
-    scope: str = 'private'              # 'private' | 'agent'
+    parameters: Optional[List[PromptParameter]] = None
+    scope: str = 'agent'               # 'agent' | 'global' | 'private'
     is_starter: bool = False
     status: str = 'draft'              # 'draft' | 'published'
     default_cron: Optional[str] = None
@@ -29,6 +39,7 @@ class PromptCatalogUpdate(BaseModel):
     mode: Optional[str] = None
     model_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
+    parameters: Optional[List[PromptParameter]] = None
     scope: Optional[str] = None
     is_starter: Optional[bool] = None
     status: Optional[str] = None
@@ -46,6 +57,7 @@ class PromptCatalogResponse(BaseModel):
     mode: str
     model_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
+    parameters: Optional[List[PromptParameter]] = None
     scope: str
     is_starter: bool
     status: str

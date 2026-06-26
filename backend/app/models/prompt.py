@@ -24,10 +24,11 @@ class Prompt(BaseSchema):
     # ── Execution spec (materialized into PromptSchema at run time) ──
     mode = Column(String, nullable=False, default='chat')   # 'chat' | 'deep' | 'training'
     model_id = Column(String(36), nullable=True)            # LLM override; null = org default
-    mentions = Column(JSON, nullable=True)                   # pinned context references
+    mentions = Column(JSON, nullable=True)                   # pinned context references (PromptSchema.mentions)
+    parameters = Column(JSON, nullable=True)                 # [{name,label,type,required,default,options}] template params
 
     # ── Catalog / discovery ──
-    scope = Column(String, nullable=False, default='private')   # 'private' | 'agent'
+    scope = Column(String, nullable=False, default='agent')    # 'agent' | 'global' | 'private'
     is_starter = Column(Boolean, nullable=False, default=False) # surface as a home conversation starter
     status = Column(String, nullable=False, default='draft')    # 'draft' | 'published'
     default_cron = Column(String, nullable=True)
