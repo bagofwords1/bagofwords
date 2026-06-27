@@ -44,6 +44,9 @@ class StarResponse(BaseModel):
     is_starred: bool
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
 layout_service = DashboardLayoutService()
@@ -282,6 +285,30 @@ async def notify_report(
 
     # Build share_url for schedule type if not provided
     share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
+
+    # Notify-first: for share notifications, create/refresh the durable in-app
+    # notification for recipients who are users in this org *before* dispatching
+    # email (email is the downstream channel). External addresses get email only;
+    # the shared group_key dedups against the auto-notification from set_visibility.
+    if payload.type in (NotificationType.SHARE_DASHBOARD, NotificationType.SHARE_CONVERSATION):
+        try:
+            from app.services.inbox_service import inbox_service
+            from app.models.membership import Membership
+            rows = (await db.execute(
+                select(User.id).join(Membership, Membership.user_id == User.id).where(
+                    Membership.organization_id == str(organization.id),
+                    User.email.in_(payload.recipients),
+                )
+            )).all()
+            user_ids = list({str(r[0]) for r in rows})
+            if user_ids:
+                share_type = 'conversation' if payload.type == NotificationType.SHARE_CONVERSATION else 'artifact'
+                await inbox_service.notify_share(
+                    db, report=report, share_type=share_type,
+                    user_ids=user_ids, actor_user=current_user,
+                )
+        except Exception:
+            logger.warning("notify_report in-app notification failed", exc_info=True)
 
     from app.dependencies import _locale_from_org
     response = await notification_service.dispatch(

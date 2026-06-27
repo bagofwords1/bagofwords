@@ -139,7 +139,17 @@ class ReportService:
                 report.conversation_share_enabled = False
 
         # Update shares list
+        newly_added_user_ids: list[str] = []
         if visibility == 'shared' and shared_user_ids is not None:
+            # Snapshot who already had this share so we only notify *new* recipients.
+            existing_rows = (await db.execute(
+                select(ReportShare.user_id).where(
+                    ReportShare.report_id == report_id,
+                    ReportShare.share_type == share_type,
+                    ReportShare.deleted_at.is_(None),
+                )
+            )).all()
+            existing_uids = {str(r[0]) for r in existing_rows}
             # Remove existing shares for this type
             await db.execute(
                 delete(ReportShare).where(
@@ -155,6 +165,7 @@ class ReportService:
                     share_type=share_type,
                 )
                 db.add(share)
+            newly_added_user_ids = [str(u) for u in shared_user_ids if str(u) not in existing_uids]
         elif visibility != 'shared':
             # Clear shares if moving away from shared mode
             await db.execute(
@@ -166,6 +177,19 @@ class ReportService:
 
         await db.commit()
         await db.refresh(report)
+
+        # Notify-first: the durable in-app notification is the canonical record of
+        # "shared with you" — created here on the share grant itself (email stays
+        # the explicit opt-in action). Non-fatal: sharing must not depend on it.
+        if newly_added_user_ids:
+            try:
+                from app.services.inbox_service import inbox_service
+                await inbox_service.notify_share(
+                    db, report=report, share_type=share_type,
+                    user_ids=newly_added_user_ids, actor_user=current_user,
+                )
+            except Exception:
+                logger.warning("share in-app notification failed", exc_info=True)
 
         # Telemetry
         try:

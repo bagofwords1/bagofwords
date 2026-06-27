@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.notification import (
     Notification,
     SEVERITY_INFO, SEVERITY_RANK,
-    SOURCE_REVIEW,
+    SOURCE_REVIEW, SOURCE_SHARE,
 )
 from app.core.permission_resolver import get_user_ids_with_permission
 
@@ -177,6 +177,44 @@ class InboxService:
             severity=severity, link=link, subject=subject,
             group_key=group_key, source_id=source_id,
             resurface_after_hours=resurface_after_hours,
+        )
+
+    async def notify_share(
+        self, db: AsyncSession, *, report, share_type: str,
+        user_ids: List[str], actor_user,
+    ) -> List[Notification]:
+        """Notify-first share delivery: create the durable in-app notification
+        for the users a report was shared with. Email (when sent) is a downstream
+        channel layered on top — it does not create this record.
+
+        Centralises the share copy so both the share-grant path
+        (``set_visibility``) and the explicit notify action call it; the shared
+        ``group_key`` dedups across the two so a user is notified once per
+        (report, share_type)."""
+        if not user_ids:
+            return []
+        is_conv = share_type == "conversation"
+        ntype = "share_conversation" if is_conv else "share_artifact"
+        sender = getattr(actor_user, "name", None) or getattr(actor_user, "email", None) or "Someone"
+        rtitle = getattr(report, "title", None) or "Untitled"
+        if is_conv:
+            title = f"{sender} shared a conversation with you"
+            body = f'{sender} shared "{rtitle}" with you.'
+        else:
+            title = f"{sender} shared a dashboard with you"
+            body = f'{sender} shared the dashboard "{rtitle}" with you.'
+        return await self.notify_users(
+            db,
+            organization_id=str(report.organization_id),
+            user_ids=user_ids,
+            source=SOURCE_SHARE,
+            type=ntype,
+            title=title,
+            body=body,
+            actor_user_id=str(actor_user.id),
+            link=f"/reports/{report.id}",
+            subject={"kind": "report", "report_id": str(report.id), "share_type": share_type},
+            group_key=f"share:{share_type}:{report.id}",
         )
 
     # ---- read --------------------------------------------------------------

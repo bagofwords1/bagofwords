@@ -122,7 +122,28 @@ Global (`data_source_id=None`) → full admins only.
 `resolve_for_instruction`) the fanned-out notifications are left as-is (low stakes
 for informational rows). Could mark them read via `source_id` later — see §8.
 
-### 4.3 Share path *(to build)*
+### 4.3 Share path — ✅ implemented (notify-first)
+
+**Direction: notify → email, not email → notify.** The durable in-app
+`Notification` is the canonical record of "shared with you"; email is a downstream
+channel layered on top (this also completes the `notification_service` design,
+whose `NotificationChannel` enum already stubbed `IN_APP`).
+
+- `inbox_service.notify_share(report, share_type, user_ids, actor)` centralises the
+  share copy and dedups per (user, `share:{share_type}:{report_id}`).
+- `report_service.set_visibility` (`report_service.py`) — on a share **grant**,
+  snapshots existing share recipients, then notifies only the *newly added* users.
+  This is automatic: in-app awareness without forcing an email.
+- `report.py notify_report` — the explicit "Notify" action resolves recipient
+  emails → org users and creates/refreshes their in-app notification **before**
+  dispatching email; external addresses get email only. Shared `group_key` dedups
+  against the grant-path notification.
+
+Verified end-to-end in the sandbox: sharing a conversation/artifact creates the
+right `share_conversation`/`share_artifact` row with the canonical copy + deep
+link; re-sharing does not duplicate.
+
+### 4.3b Other emit sites *(to build)*
 
 In `POST /reports/{id}/notify` (`report.py:254`) and `ReportService.set_visibility`
 (`report_service.py:104`): for every recipient that is a **known user**
@@ -183,7 +204,7 @@ permission gymnastics — ownership is the recipient.
 3. ✅ `get_user_ids_with_permission` reverse resolver
 4. ✅ Fan-out hook in `review_service.emit()`
 5. ✅ `/api/notifications` routes + mount
-6. ⬜ Share-path `notify_users` calls (additive to email)
+6. ✅ Share-path notify-first (conversation + artifact; `set_visibility` + `notify_report`)
 7. ⬜ Frontend: `InboxFeed`, `/inbox`, nav bell
 8. ⬜ In-report tool notification (depends on 2)
 9. ⬜ Unit tests for `InboxService` (dedup / resurface / per-user read) + an
