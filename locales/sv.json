@@ -687,7 +687,9 @@
       "queries": "Frågor",
       "files": "Filer",
       "tables": "Tabeller",
-      "prompts": "Prompts"
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Skills"
     },
     "time": {
       "justNow": "just nu",

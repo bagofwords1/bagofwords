@@ -687,7 +687,9 @@
       "queries": "Abfragen",
       "files": "Dateien",
       "tables": "Tabellen",
-      "prompts": "Prompts"
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Skills"
     },
     "time": {
       "justNow": "gerade eben",

@@ -697,7 +697,9 @@
       "queries": "Consultas",
       "files": "Archivos",
       "tables": "Tablas",
-      "prompts": "Prompts"
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Skills"
     },
     "time": {
       "justNow": "ahora mismo",

@@ -697,7 +697,9 @@
       "queries": "שאילתות",
       "files": "קבצים",
       "tables": "טבלאות",
-      "prompts": "Prompts"
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Skills"
     },
     "time": {
       "justNow": "זה עתה",

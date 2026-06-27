@@ -687,7 +687,9 @@
       "queries": "Query",
       "files": "File",
       "tables": "Tabelle",
-      "prompts": "Prompts"
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Skills"
     },
     "time": {
       "justNow": "proprio ora",

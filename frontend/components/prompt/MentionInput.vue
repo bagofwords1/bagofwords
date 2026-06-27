@@ -36,28 +36,42 @@
             v-for="(item, itemIndex) in category.items"
             :key="item.id"
             :class="[
-              'group px-2 py-1 cursor-pointer flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800',
+              'group px-2 py-1 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800',
+              item.needs_connect ? 'cursor-default' : 'cursor-pointer',
               { 'bg-blue-50 dark:bg-blue-950': selectedIndex === getCumulativeIndex(categoryIndex, itemIndex) }
             ]"
             :data-idx="getCumulativeIndex(categoryIndex, itemIndex)"
-            @click="selectItem(item, category.name)"
+            @click="item.needs_connect ? connectAgent(item) : selectItem(item, category.name)"
           >
-            <div class="flex items-center space-x-2 flex-1 min-w-0">
-              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables' || category.name === 'connection_tools'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
+            <div :class="['flex items-center space-x-2 flex-1 min-w-0', { 'opacity-50': item.needs_connect }]">
+              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-              <Icon v-else-if="category.name === 'connection_tools'" name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
+              <Icon v-else-if="category.name === 'instructions'" name="heroicons-book-open" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'skills'" name="heroicons-sparkles" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'prompts'" name="heroicons-command-line" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ item.name }}</span>
-                <span v-if="(category.name === 'tables' || category.name === 'connection_tools') && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
+                <span v-if="category.name === 'tables' && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
               </div>
             </div>
 
+            <!-- Per-agent Connect (sign-in) affordance — mirrors DataSourceSelector. -->
             <button
-              v-if="['data_sources', 'tables', 'entities'].includes(category.name)"
+              v-if="item.needs_connect"
+              type="button"
+              :disabled="connectingId === item.id"
+              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              @click.stop="connectAgent(item)"
+            >
+              <Spinner v-if="connectingId === item.id" class="w-3 h-3" />
+              <Icon v-else name="heroicons-key" class="w-3 h-3" />
+              {{ $t('data.connect') }}
+            </button>
+            <button
+              v-else-if="['data_sources', 'tables', 'entities'].includes(category.name)"
               @click.stop="expandItem(item, category.name)"
               class="text-gray-400 hover:text-gray-600 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             >
@@ -91,36 +105,21 @@
           <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 dark:text-gray-400 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
           <div>
             <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tables') }}</div>
-            <div class="max-h-40 overflow-auto border rounded">
+            <div v-if="isLoadingTables" class="px-2 py-2 text-[12px] text-gray-400 flex items-center gap-1">
+              <Spinner class="w-3 h-3" />
+            </div>
+            <div v-else class="max-h-40 overflow-auto border rounded">
               <div
                 v-for="t in tablesForExpandedDataSource"
                 :key="t.id"
-                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2 py-1 text-[12px] flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                @click="selectItem(t, 'tables')"
               >
                 <DataSourceIcon :type="t.icon_type" class="h-3" />
-                <span class="truncate">{{ t.name }}</span>
+                <span class="truncate flex-1">{{ t.name }}</span>
+                <Icon name="heroicons-plus" class="w-3 h-3 flex-shrink-0 text-gray-400" />
               </div>
               <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTables') }}</div>
-            </div>
-          </div>
-          <div>
-            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tools') }}</div>
-            <div v-if="isLoadingTools" class="px-2 py-2 text-[12px] text-gray-400 flex items-center gap-1">
-              <Spinner class="w-3 h-3" />
-            </div>
-            <div v-else class="max-h-32 overflow-auto border rounded">
-              <div
-                v-for="tool in toolsForExpandedDataSource"
-                :key="tool.id"
-                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
-                <div class="min-w-0">
-                  <span class="truncate block text-gray-900 dark:text-white">{{ tool.name }}</span>
-                  <span v-if="tool.description" class="truncate block text-[11px] text-gray-400">{{ tool.description }}</span>
-                </div>
-              </div>
-              <div v-if="toolsForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTools') }}</div>
             </div>
           </div>
         </div>
@@ -181,6 +180,13 @@
       @confirm="onPromptParamsConfirm"
       @cancel="cancelPromptParams"
     />
+
+    <!-- Per-agent user credentials / OAuth modal for connecting user_required agents -->
+    <UserDataSourceCredentialsModal
+      v-model="showCredsModal"
+      :data-source="selectedConnectDs"
+      @saved="onAgentCredentialsSaved"
+    />
   </div>
 </template>
 
@@ -190,14 +196,16 @@ import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import PromptParametersModal from '~/components/prompt/PromptParametersModal.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 import { usePromptFill } from '~/composables/usePromptFill'
+import { useDataSourceConnect } from '~/composables/useDataSourceConnect'
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
 interface MentionItem {
   id: string
-  type: 'data_source' | 'datasource_table' | 'file' | 'entity' | 'connection_tool' | 'prompt'
+  type: 'data_source' | 'datasource_table' | 'file' | 'entity' | 'prompt' | 'instruction'
   name: string
   subtitle?: string
   icon_type?: string
@@ -208,10 +216,14 @@ interface MentionItem {
   data_source_id?: string
   data_source_name?: string
   connection_name?: string
-  // Prompt-only fields (carried for "consume into text" behavior).
+  // Prompt/instruction fields (carried for "consume into text" behavior).
   text?: string
   parameters?: any[]
   mentions?: { name: string, items: any[] }[]
+  // Agent connect (per-agent OAuth sign-in) fields — the raw data source
+  // object as returned by /data_sources/active, used by the Connect affordance.
+  raw?: any
+  needs_connect?: boolean
 }
 
 interface MentionCategory {
@@ -239,7 +251,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'tables', 'files', 'entities', 'connection_tools', 'prompts']
+    default: () => ['data_sources', 'instructions', 'skills', 'prompts', 'files', 'entities']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -265,8 +277,6 @@ const currentMentionStartIndex = ref(-1)
 const expandedItem = ref<MentionItem | null>(null)
 const expandedCategory = ref<string>('')
 const detailsCache = ref<Record<string, any>>({})
-const toolsCache = ref<Record<string, any[]>>({})
-const isLoadingTools = ref(false)
 const entityLoading = ref(false)
 const mentions = ref<MentionItem[]>([])
 const dropdownPosition = ref({ top: '0px', left: '0px' })
@@ -274,6 +284,28 @@ const allCategories = ref<MentionCategory[]>([])
 const isLoadingMentions = ref(false)
 const orgPermsState = usePermissions()
 const resourcePermsState = useResourcePermissions()
+
+// Per-agent connect (sign-in) state — mirrors DataSourceSelector. An agent that
+// is user_required and not connected (no creds, no system fallback) shows a
+// grayed row with a blue Connect button that triggers the same OAuth / creds
+// modal flow as DataSourceSelector.
+const { connectingId, needsUserConnection, startConnect, asCredentialsModalSource } = useDataSourceConnect()
+const showCredsModal = ref(false)
+const selectedConnectDs = ref<any>(null)
+
+async function connectAgent(item: MentionItem) {
+  const ds = item.raw || item
+  const openModal = await startConnect(ds)
+  if (!openModal) return // OAuth redirect in progress — page is navigating away
+  selectedConnectDs.value = asCredentialsModalSource(ds)
+  showCredsModal.value = true
+}
+
+async function onAgentCredentialsSaved() {
+  showCredsModal.value = false
+  // Re-fetch so a freshly-connected agent moves out of the "needs connect" state.
+  await fetchAvailableMentions()
+}
 
 // Prompt "consume into text" state. A consumed prompt's mentions are kept in
 // `promptMentions` (flat MentionItem list) and merged into the emitted mentions
@@ -305,7 +337,6 @@ const filteredCategories = computed(() => {
 
   return allCategories.value
     .filter(cat => props.categories.includes(cat.name))
-    .filter(cat => cat.name !== 'files')
     .map(category => {
       let items = category.items
 
@@ -331,15 +362,13 @@ const filteredCategories = computed(() => {
       }
 
       // CLIENT-SIDE filtering by selected data sources
-      // connection_tools: only show when an agent is selected (they are agent-scoped)
-      if (category.name === 'connection_tools' && !hasSelectedDataSources) {
-        items = []
-      } else if (hasSelectedDataSources) {
+      if (hasSelectedDataSources) {
         if (category.name === 'data_sources') {
-          items = items.filter(item => props.selectedDataSourceIds.includes(item.id))
+          // Keep needs-connect agents visible regardless of selection so the
+          // user can always reach the Connect affordance (they are never part of
+          // the selected set until connected).
+          items = items.filter(item => item.needs_connect || props.selectedDataSourceIds.includes(item.id))
         } else if (category.name === 'tables') {
-          items = items.filter(item => item.data_source_id && props.selectedDataSourceIds.includes(item.data_source_id))
-        } else if (category.name === 'connection_tools') {
           items = items.filter(item => item.data_source_id && props.selectedDataSourceIds.includes(item.data_source_id))
         } else if (category.name === 'entities') {
           items = items.filter(item => Array.isArray((item as any).data_source_ids) && (item as any).data_source_ids.some((dsId: string) => props.selectedDataSourceIds.includes(dsId)))
@@ -785,7 +814,8 @@ function expandItem(item: MentionItem, category: string) {
   if (category === 'entities' && item?.id) {
     loadEntityInline(String(item.id))
   } else if (category === 'data_sources' && item?.id) {
-    loadToolsForDataSource(String(item.id))
+    // Drill into the agent: fetch its tables via the schema endpoint.
+    loadTablesForAgent(String(item.id))
   }
 }
 
@@ -805,6 +835,15 @@ function selectItem(item: MentionItem, category: string) {
       return
     }
     insertPromptText(item, item.text || '')
+    return
+  }
+
+  // Instructions/skills are consumed into plain text — the instruction's content
+  // is inserted into the box so the agent receives it inline (the same proven
+  // path as prompts). This avoids a dead chip and keeps the backend untouched.
+  if (item.type === 'instruction') {
+    const header = item.name ? `${item.name}:\n` : ''
+    insertPromptText(item, `${header}${item.text || ''}`)
     return
   }
 
@@ -974,7 +1013,6 @@ function mergePromptMentionsIntoState(groups: { name: string, items: any[] }[]) 
     'TABLES': 'datasource_table',
     'FILES': 'file',
     'ENTITIES': 'entity',
-    'CONNECTION TOOLS': 'connection_tool',
   }
   for (const g of groups || []) {
     const type = GROUP_TO_TYPE[g.name]
@@ -995,16 +1033,29 @@ function mergePromptMentionsIntoState(groups: { name: string, items: any[] }[]) 
   }
 }
 
+// Resolve a mention chip back to its full MentionItem by id. Searches the
+// top-level categories AND the per-agent table cache (drilled-in tables are not
+// part of allCategories), so a table chip inserted from an agent's drill view
+// still flows into the emitted mentions.
+function findMentionItemById(id: string | null): MentionItem | undefined {
+  if (!id) return undefined
+  for (const category of allCategories.value) {
+    const found = category.items.find(i => i.id === id)
+    if (found) return found
+  }
+  for (const dsId of Object.keys(tablesByAgent.value)) {
+    const found = tablesByAgent.value[dsId].find(i => i.id === id)
+    if (found) return found
+  }
+  return undefined
+}
+
 function currentDomMentions(): MentionItem[] {
   if (!inputRef.value) return []
   const out: MentionItem[] = []
   inputRef.value.querySelectorAll('.mention').forEach(node => {
-    const id = node.getAttribute('data-mention-id')
-    if (!id) return
-    for (const category of allCategories.value) {
-      const found = category.items.find(i => i.id === id)
-      if (found) { out.push(found); break }
-    }
+    const found = findMentionItemById(node.getAttribute('data-mention-id'))
+    if (found) out.push(found)
   })
   return out
 }
@@ -1022,33 +1073,42 @@ function cancelPromptParams() {
   promptForParams.value = null
 }
 
+// Tables for the currently-expanded agent, lazily fetched from the schema
+// endpoint and cached per agent id.
+const tablesByAgent = ref<Record<string, MentionItem[]>>({})
+const isLoadingTables = ref(false)
+
 const tablesForExpandedDataSource = computed(() => {
   if (!expandedItem.value || expandedCategory.value !== 'data_sources') return [] as any[]
   const dsId = String(expandedItem.value.id)
-  const tablesCategory = allCategories.value.find(c => c.name === 'tables')
-  const items = (tablesCategory?.items || []).filter((t: any) => (t.data_source_id || t.datasource_id) === dsId)
-  return items.slice(0, 50)
+  return (tablesByAgent.value[dsId] || []).slice(0, 50)
 })
 
-const toolsForExpandedDataSource = computed(() => {
-  if (!expandedItem.value || expandedCategory.value !== 'data_sources') return [] as any[]
-  return (toolsCache.value[String(expandedItem.value.id)] || []).filter((t: any) => t.is_enabled)
-})
-
-async function loadToolsForDataSource(dsId: string) {
-  if (toolsCache.value[dsId] !== undefined) return
-  isLoadingTools.value = true
+async function loadTablesForAgent(dsId: string) {
+  if (tablesByAgent.value[dsId] !== undefined) return
+  isLoadingTables.value = true
   try {
-    const { data, error } = await useMyFetch(`/api/data_sources/${dsId}/tools`, { method: 'GET' })
-    if (!error.value && data.value) {
-      toolsCache.value[dsId] = (data.value as any) || []
+    const { data, error } = await useMyFetch(`/api/data_sources/${dsId}/schema`, { method: 'GET' })
+    if (!error.value && Array.isArray(data.value)) {
+      const agent = (allCategories.value.find(c => c.name === 'data_sources')?.items || [])
+        .find((d: any) => String(d.id) === dsId) as any
+      tablesByAgent.value[dsId] = (data.value as any[]).map((t: any) => ({
+        id: String(t.id),
+        type: 'datasource_table' as const,
+        name: t.name,
+        data_source_id: dsId,
+        data_source_name: agent?.name,
+        connection_name: t.connection_name || agent?.name,
+        columns: t.columns || [],
+        icon_type: t.connection_type || agent?.icon_type,
+      }))
     } else {
-      toolsCache.value[dsId] = []
+      tablesByAgent.value[dsId] = []
     }
   } catch {
-    toolsCache.value[dsId] = []
+    tablesByAgent.value[dsId] = []
   }
-  isLoadingTools.value = false
+  isLoadingTables.value = false
 }
 
 const entityDetails = computed(() => {
@@ -1095,16 +1155,8 @@ function updateMentionsList() {
 
   mentionNodes.forEach(node => {
     const id = node.getAttribute('data-mention-id')
-    const type = node.getAttribute('data-mention-type')
-
-    // Find the full item from our categories
-    for (const category of allCategories.value) {
-      const item = category.items.find(i => i.id === id)
-      if (item) {
-        newMentions.push(item)
-        break
-      }
-    }
+    const found = findMentionItemById(id)
+    if (found) newMentions.push(found)
   })
 
   // Fold in mentions carried by consumed prompts (no DOM span). DOM mentions
@@ -1125,7 +1177,6 @@ function buildMentionGroups(selected: MentionItem[]) {
   const dataSources: any[] = []
   const tables: any[] = []
   const entities: any[] = []
-  const connectionTools: any[] = []
 
   for (const m of selected) {
     if (m.type === 'file') {
@@ -1136,8 +1187,6 @@ function buildMentionGroups(selected: MentionItem[]) {
       tables.push({ id: m.id, name: m.name, datasource_id: m.data_source_id, data_source_name: m.data_source_name })
     } else if (m.type === 'entity') {
       entities.push({ id: m.id, title: m.name, entity_type: m.entity_type })
-    } else if (m.type === 'connection_tool') {
-      connectionTools.push({ id: m.id, name: m.name, data_source_id: m.data_source_id })
     }
   }
 
@@ -1145,7 +1194,6 @@ function buildMentionGroups(selected: MentionItem[]) {
   if (dataSources.length) groups.push({ name: 'DATA SOURCES', items: dataSources })
   if (tables.length) groups.push({ name: 'TABLES', items: tables })
   if (entities.length) groups.push({ name: 'ENTITIES', items: entities })
-  if (connectionTools.length) groups.push({ name: 'CONNECTION TOOLS', items: connectionTools })
 
   return groups
 }
@@ -1177,93 +1225,117 @@ function formatTimeAgo(dateStr: string | null): string {
   }
 }
 
-// Fetch available mentions from API
+// Per-category item caches. Each category is sourced from its own dedicated
+// endpoint so a single failing endpoint never blanks the whole menu. The menu
+// is assembled (in display order) by rebuildCategories().
+const agentCategoryItems = ref<MentionItem[]>([])
+const instructionCategoryItems = ref<MentionItem[]>([])
+const skillCategoryItems = ref<MentionItem[]>([])
+const fileCategoryItems = ref<MentionItem[]>([])
+const entityCategoryItems = ref<MentionItem[]>([])
+// Saved prompts are a separate API (GET /prompts) mapped into the 'prompts'
+// category. Selecting one substitutes its text into the box.
+const promptCategoryItems = ref<MentionItem[]>([])
+
+// Assemble the top-level mention categories in display order:
+// Agents, Instructions, Skills, Prompts, Files, Queries. The (hidden) 'tables'
+// category is only reachable by drilling into an agent.
+function rebuildCategories() {
+  allCategories.value = [
+    { name: 'data_sources', label: t('mentionInput.categories.dataSources'), items: agentCategoryItems.value },
+    { name: 'instructions', label: t('mentionInput.categories.instructions'), items: instructionCategoryItems.value },
+    { name: 'skills', label: t('mentionInput.categories.skills'), items: skillCategoryItems.value },
+    { name: 'prompts', label: t('mentionInput.categories.prompts'), items: promptCategoryItems.value },
+    { name: 'files', label: t('mentionInput.categories.files'), items: fileCategoryItems.value },
+    { name: 'entities', label: t('mentionInput.categories.queries'), items: entityCategoryItems.value },
+  ]
+}
+
+// Fetch agents, files and queries (entities). Agents come from the same source
+// DataSourceSelector uses (/data_sources/active?include_unconnected=true) so
+// unconnected user_required agents surface with a Connect affordance. Files use
+// the dedicated /files endpoint (the /mentions/available endpoint can 500), and
+// queries (entities) keep their existing /mentions/available source.
 async function fetchAvailableMentions() {
   if (isLoadingMentions.value) return
-
   isLoadingMentions.value = true
 
-  try {
-    const params = new URLSearchParams()
-    if (props.selectedDataSourceIds.length > 0) {
-      params.set('data_source_ids', props.selectedDataSourceIds.join(','))
-    }
-    const url = `/mentions/available${params.toString() ? '?' + params.toString() : ''}`
-
-    const { data, error } = await useMyFetch(url, { method: 'GET' })
-
-    if (error.value) {
-      console.error('Failed to fetch mentions:', error.value)
-      return
-    }
-
-    if (data.value) {
-      // Transform API response to include display fields
-      const apiData = data.value as any
-
-      allCategories.value = [
-        {
-          name: 'data_sources',
-          label: t('mentionInput.categories.dataSources'),
-          items: (apiData.data_sources || []).map((ds: any) => ({
-            ...ds,
-            subtitle: ds.description || ds.data_source_type,
-            icon_type: ds.data_source_type,
+  // Each category is fetched independently so one failing/forbidden endpoint
+  // (e.g. /files 403 for users without manage_files) never blanks the menu.
+  const tasks = [
+    (async () => {
+      try {
+        const { data, error } = await useMyFetch('/data_sources/active', { method: 'GET', query: { include_unconnected: true } })
+        if (!error.value && Array.isArray(data.value)) {
+          agentCategoryItems.value = (data.value as any[]).map((ds: any) => ({
+            id: String(ds.id),
+            type: 'data_source' as const,
+            name: ds.name,
+            description: ds.description,
+            subtitle: ds.description || ds.type,
+            icon_type: ds.type,
+            // Per-agent connect state — mirrors DataSourceSelector's needs-connect logic.
+            needs_connect: needsUserConnection(ds),
+            raw: ds,
           }))
-        },
-        {
-          name: 'entities',
-          label: t('mentionInput.categories.queries'),
-          items: (apiData.entities || []).map((entity: any) => ({
-            ...entity,
-            name: entity.title,
-            subtitle: entity.entity_type,
-          }))
-        },
-        {
-          name: 'files',
-          label: t('mentionInput.categories.files'),
-          items: (apiData.files || []).map((file: any) => ({
-            ...file,
+        }
+      } catch { /* keep prior items */ }
+    })(),
+    (async () => {
+      try {
+        const { data, error } = await useMyFetch('/files', { method: 'GET' })
+        if (!error.value && Array.isArray(data.value)) {
+          fileCategoryItems.value = (data.value as any[]).map((file: any) => ({
+            id: String(file.id),
+            type: 'file' as const,
             name: file.filename,
             subtitle: formatTimeAgo(file.created_at),
           }))
-        },
-        {
-          name: 'tables',
-          label: t('mentionInput.categories.tables'),
-          items: (apiData.tables || []).map((table: any) => ({
-            ...table,
-            // Normalize field for client-side filtering compatibility
-            data_source_id: table.data_source_id || table.datasource_id,
-            subtitle: table.connection_name || table.data_source_name,
-            icon_type: table.connection_type || table.data_source_type,
-          }))
-        },
-        {
-          name: 'connection_tools',
-          label: t('mentionInput.categories.tools'),
-          items: (apiData.connection_tools || []).map((tool: any) => ({
-            ...tool,
-            subtitle: tool.description || tool.connection_name,
-            data_source_id: tool.data_source_id,
-            icon_type: tool.connection_type,
+        }
+      } catch { /* keep prior items */ }
+    })(),
+    (async () => {
+      try {
+        const { data, error } = await useMyFetch('/mentions/available?categories=entities', { method: 'GET' })
+        if (!error.value && data.value) {
+          const apiData = data.value as any
+          entityCategoryItems.value = (apiData.entities || []).map((entity: any) => ({
+            ...entity,
+            id: String(entity.id),
+            type: 'entity' as const,
+            name: entity.title,
+            subtitle: entity.entity_type,
           }))
         }
-      ]
-      // Prompts are fetched separately; keep their category in sync.
-      syncPromptCategory()
-    }
-  } catch (err) {
-    console.error('Error fetching mentions:', err)
-  } finally {
-    isLoadingMentions.value = false
-  }
+      } catch { /* keep prior items */ }
+    })(),
+  ]
+
+  await Promise.allSettled(tasks)
+  rebuildCategories()
+  isLoadingMentions.value = false
 }
 
-// Saved prompts are a separate API (GET /prompts) and are mapped into a
-// 'prompts' mention category. Selecting one substitutes its text into the box.
-const promptCategoryItems = ref<MentionItem[]>([])
+// Instructions and skills share the /instructions endpoint, partitioned by the
+// `kind` query param. Selecting one consumes its text into the box (text-insert
+// behavior, like prompts) so the agent receives the instruction inline.
+async function fetchInstructionMentions(kind: 'instruction' | 'skill', target: typeof instructionCategoryItems) {
+  try {
+    const { data, error } = await useMyFetch(`/instructions?kind=${kind}&limit=50`, { method: 'GET' })
+    if (error.value) { target.value = []; return }
+    const list = (data.value as any)?.items || []
+    target.value = list.map((ins: any) => ({
+      id: String(ins.id),
+      type: 'instruction' as const,
+      name: ins.title || (ins.text || '').slice(0, 60),
+      text: ins.text || '',
+    } as MentionItem))
+  } catch {
+    target.value = []
+  }
+  rebuildCategories()
+}
+
 async function fetchPromptMentions() {
   try {
     const { data, error } = await useMyFetch('/prompts?limit=50', { method: 'GET' })
@@ -1278,25 +1350,9 @@ async function fetchPromptMentions() {
       parameters: p.parameters || [],
       mentions: p.mentions || [],
     } as MentionItem))
-    syncPromptCategory()
+    rebuildCategories()
   } catch {
     promptCategoryItems.value = []
-  }
-}
-
-// Ensure the 'prompts' category exists in allCategories and carries the latest
-// items. Prompts come from a separate API, so they must render even if the
-// /mentions/available fetch is unavailable.
-function syncPromptCategory() {
-  const cat = allCategories.value.find(c => c.name === 'prompts')
-  if (cat) {
-    cat.items = promptCategoryItems.value
-  } else {
-    allCategories.value.push({
-      name: 'prompts',
-      label: t('mentionInput.categories.prompts'),
-      items: promptCategoryItems.value,
-    })
   }
 }
 
@@ -1310,7 +1366,12 @@ onMounted(() => {
 
   fetchAvailableMentions()
   fetchPromptMentions()
+  fetchInstructionMentions('instruction', instructionCategoryItems)
+  fetchInstructionMentions('skill', skillCategoryItems)
 })
+
+// Rebuild labels when the locale changes so category headings stay localized.
+watch(i18nLocale, () => rebuildCategories())
 
 watch(() => props.selectedDataSourceIds, () => {
   fetchAvailableMentions()
