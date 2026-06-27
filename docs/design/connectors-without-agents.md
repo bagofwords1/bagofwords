@@ -377,6 +377,66 @@ a server URL into a raw form. This mirrors the existing **data source registry**
   `ToolDescriptor`s later (§5) for a sharper planner UX. The catalog is the *discovery/enable*
   layer; it is orthogonal to how tools are presented to the planner.
 
+### 7a. DCR (Dynamic Client Registration) for catalog MCPs — *required for "paste-URL" connect*
+
+Most modern remote MCP servers don't hand out a `client_id`/`client_secret`; they expect the
+client to **discover** their OAuth metadata and **dynamically register** itself (RFC 7591).
+This is what makes "paste a server URL → connect" work and is what a catalog of public MCPs
+needs. **It is not implemented today.**
+
+**Current state (two OAuth directions — don't conflate them):**
+- **Inbound — BagOfWords *is* the Authorization Server.** `oauth_server_service.py` +
+  `routes/oauth_server.py` issue tokens to external MCP clients (Claude Desktop, Cursor)
+  connecting *to* the `/mcp` endpoint. Has `.well-known/oauth-authorization-server` and
+  `.well-known/oauth-protected-resource`, PKCE, refresh. **But client onboarding is manual CRUD
+  (`/api/oauth/clients`) — no RFC 7591 `/register` endpoint.**
+- **Outbound — BagOfWords *is* the OAuth client.** `connection_oauth_service.py` for
+  `conn_type == "mcp"` (`:136-153`) **requires** `authorize_url` + `token_url` + `client_id` +
+  `client_secret` pre-stored in the connection. No discovery, no DCR.
+
+**What DCR adds on the outbound side (the catalog use-case):**
+
+1. **Discovery.** From the MCP `server_url`: fetch `/.well-known/oauth-protected-resource`
+   (RFC 9728) → find the `authorization_servers`; fetch that AS's
+   `/.well-known/oauth-authorization-server` (RFC 8414) → `authorization_endpoint`,
+   `token_endpoint`, and `registration_endpoint`.
+2. **Register once per connection (app-level, not per-user).** If the connection has no
+   `client_id`, POST client metadata to the `registration_endpoint` (RFC 7591):
+   `redirect_uris=[<BOW callback>]`, `grant_types=[authorization_code, refresh_token]`,
+   `token_endpoint_auth_method`, `scope`. Store the returned `client_id` (+ `client_secret` if
+   confidential, + `registration_access_token` / `registration_client_uri` for RFC 7592
+   management) **encrypted on the `Connection`** — same two-tier split we already use: registered
+   app creds live on the connection (org-level), per-user tokens in `UserConnectionCredentials`.
+3. **Authorize per user.** Then run the **existing** PKCE authorization-code flow per user
+   (`/connections/{id}/oauth/authorize` → callback → `UserConnectionCredentials`). DCR changes
+   *who registers the app*, not *who logs in* — `auth_policy="user_required"` still governs
+   identity, so OBO/per-user identity (§3) is unchanged.
+4. **Resource binding.** MCP requires the access token be audience-bound to the server — pass
+   the `resource` parameter (RFC 8707) on authorize + token requests (the existing code already
+   notes audience-binding intent).
+
+**Where it slots in:**
+- A new `mcp_oauth_discovery` helper + DCR call in `connection_oauth_service.py` (or a small
+  `mcp_dcr_service.py`), invoked lazily the first time an `mcp` connection with OAuth and no
+  `client_id` starts its authorize flow.
+- `Connection.credentials` gains optional `client_id` / `client_secret` /
+  `registration_access_token` / discovered endpoints (cached so we discover once).
+- **Catalog entries need only `server_url`** (+ optional default scopes). With DCR, the catalog
+  stops baking in client secrets — that's the whole point. Entries for providers that *don't*
+  support DCR can still pin `client_id`/`client_secret` (the existing path), so the catalog
+  supports both.
+
+**Security guardrails (DCR connects to arbitrary servers):**
+- Restrict DCR targets to **catalog entries** (or an admin allowlist of hostnames) to avoid
+  SSRF / rogue-server registration; don't DCR against a raw user-typed URL without admin opt-in.
+- Validate the discovered endpoints are HTTPS and same-site/expected issuer; encrypt all stored
+  client creds (Fernet, as today); honour RFC 7592 to rotate/delete the registration when the
+  connector is deleted.
+
+**Optional, symmetric:** add an RFC 7591 `/register` endpoint to the *inbound* AS so external
+MCP clients can auto-register with BagOfWords (today they need manual `/api/oauth/clients`).
+Separate effort; mentioned for completeness.
+
 ### 8. execute_mcp / search_mcps allow-list
 
 Because connectors are data sources, `report.data_sources → connections` already includes
@@ -449,6 +509,11 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - **Phase 2 — public MCP catalog (backend):** `connector_catalog` registry + `GET
   /connectors/catalog` + "enable from template" endpoint (creates connector DataSource +
   `mcp` Connection + refresh-tools).
+- **Phase 2a — outbound DCR + discovery (§7a):** `.well-known` discovery (RFC 9728 + 8414) +
+  RFC 7591 dynamic client registration for `mcp` OAuth connections, with resource-binding
+  (RFC 8707) and a catalog/allowlist guardrail. Unlocks "paste-URL / one-click" catalog
+  connect without baked-in client secrets. (Optional symmetric: RFC 7591 `/register` on the
+  inbound AS.)
 - **Phase 3 — admin global connectors (UX):** connectors gallery in `settings/integrations`;
   enable org-wide (`is_public=True`); system or OBO/`user_required` auth.
 - **Phase 4 — private connectors + member self-serve:** `create_private_connector` permission;
@@ -470,7 +535,8 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - `backend/app/models/connection.py` — `auth_policy`, `allowed_user_auth_modes`, `ConnectionTool` (reuse).
 - `backend/app/schemas/data_source_registry.py` — `mcp`/`custom_api` tool-provider entries (`:878`, `:920`), `tool_provider_types()` (`:1030`); template for the new `connector_catalog`.
 - `backend/app/schemas/connector_catalog.py` *(new)* — curated public-MCP catalog; served by `GET /connectors/catalog`.
-- `backend/app/services/connection_oauth_service.py` — OBO / per-user token resolve + refresh (reuse for org connectors).
+- `backend/app/services/connection_oauth_service.py` — OBO / per-user token resolve + refresh (reuse for org connectors); add MCP `.well-known` discovery + RFC 7591 DCR for `conn_type=="mcp"` (`:136-153`).
+- `backend/app/services/oauth_server_service.py` + `routes/oauth_server.py` — inbound AS (BOW as server); optional RFC 7591 `/register` for external client auto-onboarding.
 - `backend/app/models/connection_tool.py` — per-DS tool overlay (Agent-owner policy, reuse).
 - `backend/app/models/user_connection_tool_preference.py` *(new)* — per-user enable/policy overlay for standalone connector use.
 - `backend/app/services/data_source_service.py` — `construct_clients` (`:1806`), visibility/usability filters (`:1715`).
