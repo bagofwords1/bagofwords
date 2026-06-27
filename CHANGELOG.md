@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.426 (June 27, 2026)
+- Add **Prompts** - save and reuse prompts. Including running for usrers
+- Added **Notifications** - sharing/alerts from agents will be shown here
+- Redesigned main nav menu to include inline reports, prompts, and clean ups
+
 ## Version 0.0.425 (June 25, 2026)
 - **Channels (integrations) settings — full localization + RTL fixes (#452)** — the six **Settings → Channels** panels (Slack, Microsoft Teams, WhatsApp, AI Mailbox, Excel Add-in, OAuth Clients) were hardcoded in English; every user-facing string is now wired through i18n with a new `settings.integrations.channels.*` key set translated into all 10 locales (code literals like `users:read.email`, `manifest.xml`, and `X-Hub-Signature-256` kept literal via slots). Also fills previously-untranslated integration keys that silently fell back to English, and fixes RTL in `OAuthClientsModal` (physical `ml-`/`mr-`/`right-` → logical `ms-`/`me-`/`end-`), keeping list rows icon-left / status-right under RTL.
 - **Personal API keys in the User Profile + MCP modal fix (#451)** — the user profile modal gains an **API Keys** tab (list, one-time-reveal generate, delete) for the `bow_…` tokens used by the MCP server / programmatic access, reusing the per-user `/api/api_keys` endpoints. Also fixes a bug where the MCP modal always showed **"0 API tokens"** when opened from the sidebar: its key-list `watch` wasn't `{ immediate: true }`, so on the already-open (`v-if`) mount the loader never ran. New `profile.apiKeys.*` strings across all 10 locales.

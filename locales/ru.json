@@ -60,7 +60,11 @@
     "expandSidebar": "Развернуть боковую панель",
     "collapseSidebar": "Свернуть боковую панель",
     "version": "Версия",
-    "loggedInAs": "Вошли как {name}"
+    "loggedInAs": "Вошли как {name}",
+    "prompts": "Промпты",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Администрирование",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Вход",
@@ -132,7 +136,18 @@
     "connectYourLLM": "Подключите свою LLM",
     "setupComplete": "Настройка завершена — теперь вы можете задавать вопросы на естественном языке.",
     "manageIntegrations": "Управление интеграциями",
-    "viewIntegrations": "Показать интеграции"
+    "viewIntegrations": "Показать интеграции",
+    "greeting": {
+      "morning": "Доброе утро, {name}!",
+      "afternoon": "Добрый день, {name}!",
+      "evening": "Добрый вечер, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Доброе утро!",
+      "afternoon": "Добрый день!",
+      "evening": "Добрый вечер!"
+    },
+    "whatCanIHelpWith": "Чем я могу помочь?"
   },
   "prompt": {
     "placeholderDefault": "Запросите данные, дашборд или глубокий анализ",
@@ -278,7 +293,20 @@
     "columnUser": "Пользователь",
     "emptyTitle": "Задайте вопрос, чтобы начать.",
     "emptyTipLabel": "Совет:",
-    "emptyTipBody": "Не знаете, что спросить? Вы можете попросить ИИ-аналитика предложить вопросы по конкретной теме."
+    "emptyTipBody": "Не знаете, что спросить? Вы можете попросить ИИ-аналитика предложить вопросы по конкретной теме.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Выполнение агента",
@@ -674,6 +702,7 @@
     "placeholder": "Введите {'@'} для упоминания...",
     "loading": "Загрузка…",
     "noResults": "Результаты не найдены",
+    "allCategories": "Все категории",
     "tables": "Таблицы",
     "noTables": "Таблиц нет.",
     "tools": "Инструменты",
@@ -686,7 +715,10 @@
       "dataSources": "Агенты",
       "queries": "Запросы",
       "files": "Файлы",
-      "tables": "Таблицы"
+      "tables": "Таблицы",
+      "prompts": "Промпты",
+      "instructions": "Инструкции",
+      "skills": "Навыки"
     },
     "time": {
       "justNow": "только что",
@@ -1618,7 +1650,11 @@
     "dayWed": "Ср",
     "dayThu": "Чт",
     "dayFri": "Пт",
-    "daySat": "Сб"
+    "daySat": "Сб",
+    "delete": "Удалить",
+    "deleteConfirm": "Удалить эту запланированную задачу? Это действие нельзя отменить.",
+    "toastDeleted": "Запланированная задача удалена",
+    "deleteFailed": "Не удалось удалить задачу"
   },
   "files": {
     "title": "Файлы",
@@ -2331,7 +2367,11 @@
     "toastUpdated": "Запланированный запрос обновлён",
     "toastScheduled": "Запрос запланирован",
     "toastError": "Ошибка",
-    "toastSaveFailed": "Не удалось сохранить запланированный запрос"
+    "toastSaveFailed": "Не удалось сохранить запланированный запрос",
+    "delete": "Удалить",
+    "deleteConfirm": "Удалить эту запланированную задачу? Это действие нельзя отменить.",
+    "toastDeleted": "Запланированная задача удалена",
+    "toastDeleteFailed": "Не удалось удалить запланированную задачу"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2454,107 @@
       "toastDeleted": "API-ключ удалён",
       "toastDeleteFailed": "Не удалось удалить API-ключ"
     }
+  },
+  "commandPalette": {
+    "prompts": "Промпты"
+  },
+  "promptParams": {
+    "title": "Заполните параметры — {title}",
+    "untitled": "Промпт",
+    "selectOption": "Выбрать…",
+    "to": "до",
+    "noParams": "У этого промпта нет параметров.",
+    "cancel": "Отмена",
+    "confirm": "Использовать промпт"
+  },
+  "prompts": {
+    "title": "Промпты",
+    "newPrompt": "Новый промпт",
+    "createFirst": "Создайте свой первый промпт",
+    "searchPlaceholder": "Поиск промптов…",
+    "loading": "Загрузка промптов…",
+    "emptyTitle": "Промптов пока нет",
+    "emptyHint": "Сохраняйте многоразовые промпты, которые ваша команда может запускать по требованию.",
+    "noMatches": "Нет промптов, соответствующих фильтрам",
+    "noMatchesHint": "Попробуйте изменить поиск или фильтры.",
+    "filterAll": "Все",
+    "allAgents": "Все агенты",
+    "allUsers": "Все пользователи",
+    "untitled": "Промпт без названия",
+    "run": "Запустить",
+    "edit": "Изменить",
+    "delete": "Удалить",
+    "required": "обязательно",
+    "nParams": "{n} параметров",
+    "scopeGlobal": "Глобальный",
+    "scopeAgent": "Агент",
+    "scopePrivate": "Личный",
+    "byAuthor": "автор: {name}",
+    "viewText": "Промпт",
+    "viewParameters": "Параметры",
+    "viewAgents": "Агенты",
+    "runFor": "Запустить для…",
+    "newTitle": "Новый промпт",
+    "editTitle": "Изменить промпт",
+    "sectionPrompt": "Промпт",
+    "sectionParameters": "Параметры",
+    "sectionAudience": "Аудитория",
+    "sectionAdvanced": "Дополнительно",
+    "titlePlaceholder": "Название (необязательно)",
+    "textPlaceholder": "Напишите свой промпт. Используйте {'@'} для упоминаний и {'{'}{'{'}name{'}'}{'}'} для параметров…",
+    "insertParam": "Вставить параметр",
+    "insertParamHint": "Используйте заполнители {'{'}{'{'}name{'}'}{'}'} для значений, заполняемых во время выполнения.",
+    "insertParamPromptLabel": "Имя параметра:",
+    "addParam": "Добавить параметр",
+    "removeParam": "Удалить",
+    "noParamsYet": "Параметров нет. Добавьте один, чтобы собирать значения при запуске.",
+    "paramName": "имя",
+    "paramLabel": "Метка",
+    "paramRequired": "Обязательно",
+    "paramOptions": "Варианты (через запятую)",
+    "typeText": "Текст",
+    "typeNumber": "Число",
+    "typeEnum": "Выбор",
+    "typeDate": "Дата",
+    "typeDateRange": "Диапазон дат",
+    "selectAgents": "Агенты, к которым относится этот промпт",
+    "noManageableAgents": "Вы не управляете ни одним агентом.",
+    "globalHint": "Видно всем в организации.",
+    "privateHint": "Видно только вам.",
+    "mode": "Режим",
+    "modeChat": "Чат",
+    "modeDeep": "Глубокий",
+    "modeTraining": "Обучение",
+    "model": "Модель",
+    "modelDefault": "Модель по умолчанию",
+    "cancel": "Отмена",
+    "create": "Создать",
+    "update": "Обновить",
+    "toastCreated": "Промпт создан",
+    "toastUpdated": "Промпт обновлён",
+    "toastSaveFailed": "Не удалось сохранить промпт",
+    "toastDeleted": "Промпт удалён",
+    "toastDeleteFailed": "Не удалось удалить промпт",
+    "deleteConfirm": "Удалить «{title}»? Это действие нельзя отменить.",
+    "toastRunFailed": "Не удалось запустить промпт",
+    "runForTitle": "Запустить «{title}» для…",
+    "targetMembers": "Участники",
+    "targetGroup": "Группа",
+    "searchMembers": "Поиск участников…",
+    "selectGroup": "Выберите группу…",
+    "nMembers": "{n} участников",
+    "paramsNeeded": "У этого промпта есть параметры — заполните их один раз для всех.",
+    "paramsReady": "Параметры заданы.",
+    "fillParams": "Заполнить параметры",
+    "editParams": "Изменить параметры",
+    "runForConfirm": "Запустить «{title}» для {n} участников? Результаты придут каждому лично.",
+    "runForAction": "Запустить для участников",
+    "runForResult": "Запущено для {ran}, пропущено {skipped}.",
+    "toastRunForFailed": "Не удалось запустить для выбранных участников",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

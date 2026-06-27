@@ -63,7 +63,11 @@
     "expandSidebar": "הרחבת סרגל הצד",
     "collapseSidebar": "כיווץ סרגל הצד",
     "version": "גרסה",
-    "loggedInAs": "מחובר/ת בתור {name}"
+    "loggedInAs": "מחובר/ת בתור {name}",
+    "prompts": "פרומפטים",
+    "starOnGithub": "Star our GitHub",
+    "admin": "ניהול",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "התחברות",
@@ -135,7 +139,18 @@
     "connectYourLLM": "חיבור ה-LLM שלכם",
     "setupComplete": "ההתקנה הושלמה — כעת תוכלו להתחיל לשאול שאלות בשפה טבעית.",
     "manageIntegrations": "ניהול אינטגרציות",
-    "viewIntegrations": "צפייה באינטגרציות"
+    "viewIntegrations": "צפייה באינטגרציות",
+    "greeting": {
+      "morning": "בוקר טוב, {name}!",
+      "afternoon": "צהריים טובים, {name}!",
+      "evening": "ערב טוב, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "בוקר טוב!",
+      "afternoon": "צהריים טובים!",
+      "evening": "ערב טוב!"
+    },
+    "whatCanIHelpWith": "במה אוכל לעזור?"
   },
   "prompt": {
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
@@ -288,7 +303,20 @@
     "emptyHint": "נסו לשנות את המסננים או את מונח החיפוש",
     "emptyTitle": "שאל שאלה כדי להתחיל.",
     "emptyTipLabel": "טיפ:",
-    "emptyTipBody": "לא בטוח מה לשאול? אפשר לבקש מסוכן ה-AI להציע שאלות על נושא מסוים."
+    "emptyTipBody": "לא בטוח מה לשאול? אפשר לבקש מסוכן ה-AI להציע שאלות על נושא מסוים.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -684,6 +712,7 @@
     "placeholder": "הקלד {'@'} כדי לאזכר...",
     "loading": "טוען…",
     "noResults": "לא נמצאו תוצאות",
+    "allCategories": "כל הקטגוריות",
     "tables": "טבלאות",
     "noTables": "אין טבלאות.",
     "tools": "כלים",
@@ -696,7 +725,10 @@
       "dataSources": "סוכנים",
       "queries": "שאילתות",
       "files": "קבצים",
-      "tables": "טבלאות"
+      "tables": "טבלאות",
+      "prompts": "פרומפטים",
+      "instructions": "הוראות",
+      "skills": "מיומנויות"
     },
     "time": {
       "justNow": "זה עתה",
@@ -1696,7 +1728,11 @@
     "dayWed": "ד׳",
     "dayThu": "ה׳",
     "dayFri": "ו׳",
-    "daySat": "ש׳"
+    "daySat": "ש׳",
+    "delete": "מחיקה",
+    "deleteConfirm": "למחוק את המשימה המתוזמנת הזו? לא ניתן לבטל פעולה זו.",
+    "toastDeleted": "המשימה המתוזמנת נמחקה",
+    "deleteFailed": "מחיקת המשימה נכשלה"
   },
   "files": {
     "title": "קבצים",
@@ -2409,7 +2445,11 @@
     "toastUpdated": "המשימה המתוזמנת עודכנה",
     "toastScheduled": "המשימה תוזמנה",
     "toastError": "שגיאה",
-    "toastSaveFailed": "שמירת המשימה המתוזמנת נכשלה"
+    "toastSaveFailed": "שמירת המשימה המתוזמנת נכשלה",
+    "delete": "מחיקה",
+    "deleteConfirm": "למחוק את המשימה המתוזמנת הזו? לא ניתן לבטל פעולה זו.",
+    "toastDeleted": "המשימה המתוזמנת נמחקה",
+    "toastDeleteFailed": "מחיקת המשימה המתוזמנת נכשלה"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2507,5 +2547,107 @@
       "toastDeleted": "מפתח API נמחק",
       "toastDeleteFailed": "מחיקת מפתח ה-API נכשלה"
     }
+  },
+  "commandPalette": {
+    "prompts": "פרומפטים"
+  },
+  "promptParams": {
+    "title": "מלא את הפרמטרים — {title}",
+    "untitled": "פרומפט",
+    "selectOption": "בחר…",
+    "to": "עד",
+    "noParams": "לפרומפט הזה אין פרמטרים.",
+    "cancel": "ביטול",
+    "confirm": "השתמש בפרומפט"
+  },
+  "prompts": {
+    "title": "פרומפטים",
+    "newPrompt": "פרומפט חדש",
+    "createFirst": "צור את הפרומפט הראשון שלך",
+    "searchPlaceholder": "חיפוש פרומפטים…",
+    "loading": "טוען פרומפטים…",
+    "emptyTitle": "אין פרומפטים עדיין",
+    "emptyHint": "שמור פרומפטים לשימוש חוזר שהצוות שלך יכול להריץ לפי הצורך.",
+    "noMatches": "אין פרומפטים שתואמים את המסננים שלך",
+    "noMatchesHint": "נסה לשנות את החיפוש או המסננים.",
+    "filterAll": "הכול",
+    "allAgents": "כל הסוכנים",
+    "allUsers": "כל המשתמשים",
+    "untitled": "פרומפט ללא כותרת",
+    "run": "הרץ",
+    "edit": "עריכה",
+    "delete": "מחיקה",
+    "required": "חובה",
+    "nParams": "{n} פרמטרים",
+    "scopeGlobal": "גלובלי",
+    "scopeAgent": "סוכן",
+    "scopePrivate": "פרטי",
+    "byAuthor": "מאת {name}",
+    "viewText": "פרומפט",
+    "viewParameters": "פרמטרים",
+    "viewAgents": "סוכנים",
+    "runFor": "הרץ עבור…",
+    "newTitle": "פרומפט חדש",
+    "editTitle": "עריכת פרומפט",
+    "sectionPrompt": "פרומפט",
+    "sectionParameters": "פרמטרים",
+    "sectionAudience": "קהל",
+    "sectionAdvanced": "מתקדם",
+    "titlePlaceholder": "כותרת (אופציונלי)",
+    "textPlaceholder": "כתוב את הפרומפט שלך. השתמש ב-{'@'} לאזכורים וב-{'{'}{'{'}name{'}'}{'}'} לפרמטרים…",
+    "insertParam": "הוסף פרמטר",
+    "insertParamHint": "השתמש במצייני המיקום {'{'}{'{'}name{'}'}{'}'} עבור ערכים שיוזנו בזמן ההרצה.",
+    "insertParamPromptLabel": "שם הפרמטר:",
+    "addParam": "הוסף פרמטר",
+    "removeParam": "הסר",
+    "noParamsYet": "אין פרמטרים. הוסף אחד כדי לאסוף ערכים בזמן ההרצה.",
+    "paramName": "שם",
+    "paramLabel": "תווית",
+    "paramRequired": "חובה",
+    "paramOptions": "אפשרויות (מופרדות בפסיקים)",
+    "typeText": "טקסט",
+    "typeNumber": "מספר",
+    "typeEnum": "בחירה",
+    "typeDate": "תאריך",
+    "typeDateRange": "טווח תאריכים",
+    "selectAgents": "הסוכנים שאליהם שייך הפרומפט הזה",
+    "noManageableAgents": "אינך מנהל אף סוכן.",
+    "globalHint": "גלוי לכולם בארגון.",
+    "privateHint": "גלוי לך בלבד.",
+    "mode": "מצב",
+    "modeChat": "צ'אט",
+    "modeDeep": "מעמיק",
+    "modeTraining": "אימון",
+    "model": "מודל",
+    "modelDefault": "מודל ברירת מחדל",
+    "cancel": "ביטול",
+    "create": "צור",
+    "update": "עדכן",
+    "toastCreated": "הפרומפט נוצר",
+    "toastUpdated": "הפרומפט עודכן",
+    "toastSaveFailed": "לא ניתן היה לשמור את הפרומפט",
+    "toastDeleted": "הפרומפט נמחק",
+    "toastDeleteFailed": "לא ניתן היה למחוק את הפרומפט",
+    "deleteConfirm": "למחוק את “{title}”? לא ניתן לבטל פעולה זו.",
+    "toastRunFailed": "לא ניתן היה להריץ את הפרומפט",
+    "runForTitle": "הרץ את “{title}” עבור…",
+    "targetMembers": "חברים",
+    "targetGroup": "קבוצה",
+    "searchMembers": "חיפוש חברים…",
+    "selectGroup": "בחר קבוצה…",
+    "nMembers": "{n} חברים",
+    "paramsNeeded": "לפרומפט הזה יש פרמטרים — מלא אותם פעם אחת עבור כולם.",
+    "paramsReady": "הפרמטרים הוגדרו.",
+    "fillParams": "מלא פרמטרים",
+    "editParams": "ערוך פרמטרים",
+    "runForConfirm": "להריץ את “{title}” עבור {n} חברים? התוצאות נשלחות לכל אחד באופן פרטי.",
+    "runForAction": "הרץ עבור חברים",
+    "runForResult": "הורץ עבור {ran}, דולגו {skipped}.",
+    "toastRunForFailed": "לא ניתן היה להריץ עבור החברים שנבחרו",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

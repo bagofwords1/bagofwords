@@ -60,7 +60,11 @@
     "expandSidebar": "Expandir barra lateral",
     "collapseSidebar": "Recolher barra lateral",
     "version": "Versão",
-    "loggedInAs": "Conectado como {name}"
+    "loggedInAs": "Conectado como {name}",
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Administração",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Entrar",
@@ -132,7 +136,18 @@
     "connectYourLLM": "Conecte seu LLM",
     "setupComplete": "Configuração concluída — agora você pode começar a fazer perguntas em linguagem natural.",
     "manageIntegrations": "Gerenciar integrações",
-    "viewIntegrations": "Ver integrações"
+    "viewIntegrations": "Ver integrações",
+    "greeting": {
+      "morning": "Bom dia, {name}!",
+      "afternoon": "Boa tarde, {name}!",
+      "evening": "Boa noite, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Bom dia!",
+      "afternoon": "Boa tarde!",
+      "evening": "Boa noite!"
+    },
+    "whatCanIHelpWith": "Em que posso ajudar?"
   },
   "prompt": {
     "placeholderDefault": "Peça dados, um painel ou uma análise aprofundada",
@@ -278,7 +293,20 @@
     "columnUser": "Usuário",
     "emptyTitle": "Faça uma pergunta para começar.",
     "emptyTipLabel": "Dica:",
-    "emptyTipBody": "Não sabe o que perguntar? Você pode pedir ao Analista de IA que sugira perguntas sobre um tópico específico."
+    "emptyTipBody": "Não sabe o que perguntar? Você pode pedir ao Analista de IA que sugira perguntas sobre um tópico específico.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Execução do agente",
@@ -674,6 +702,7 @@
     "placeholder": "Digite {'@'} para mencionar...",
     "loading": "Carregando…",
     "noResults": "Nenhum resultado encontrado",
+    "allCategories": "Todas as categorias",
     "tables": "Tabelas",
     "noTables": "Sem tabelas.",
     "tools": "Ferramentas",
@@ -686,7 +715,10 @@
       "dataSources": "Agentes",
       "queries": "Consultas",
       "files": "Arquivos",
-      "tables": "Tabelas"
+      "tables": "Tabelas",
+      "prompts": "Prompts",
+      "instructions": "Instruções",
+      "skills": "Habilidades"
     },
     "time": {
       "justNow": "agora mesmo",
@@ -1618,7 +1650,11 @@
     "dayWed": "Qua",
     "dayThu": "Qui",
     "dayFri": "Sex",
-    "daySat": "Sáb"
+    "daySat": "Sáb",
+    "delete": "Excluir",
+    "deleteConfirm": "Excluir esta tarefa agendada? Esta ação não pode ser desfeita.",
+    "toastDeleted": "Tarefa agendada excluída",
+    "deleteFailed": "Falha ao excluir a tarefa"
   },
   "files": {
     "title": "Arquivos",
@@ -2331,7 +2367,11 @@
     "toastUpdated": "Solicitação agendada atualizada",
     "toastScheduled": "Solicitação agendada",
     "toastError": "Erro",
-    "toastSaveFailed": "Falha ao salvar solicitação agendada"
+    "toastSaveFailed": "Falha ao salvar solicitação agendada",
+    "delete": "Excluir",
+    "deleteConfirm": "Excluir esta tarefa agendada? Esta ação não pode ser desfeita.",
+    "toastDeleted": "Tarefa agendada excluída",
+    "toastDeleteFailed": "Falha ao excluir a tarefa agendada"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2454,107 @@
       "toastDeleted": "Chave de API excluída",
       "toastDeleteFailed": "Falha ao excluir a chave de API"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Preencha os parâmetros — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Selecionar…",
+    "to": "a",
+    "noParams": "Este prompt não tem parâmetros.",
+    "cancel": "Cancelar",
+    "confirm": "Usar prompt"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "newPrompt": "Novo prompt",
+    "createFirst": "Crie seu primeiro prompt",
+    "searchPlaceholder": "Pesquisar prompts…",
+    "loading": "Carregando prompts…",
+    "emptyTitle": "Ainda não há prompts",
+    "emptyHint": "Salve prompts reutilizáveis que sua equipe pode executar quando precisar.",
+    "noMatches": "Nenhum prompt corresponde aos seus filtros",
+    "noMatchesHint": "Tente ajustar sua pesquisa ou filtros.",
+    "filterAll": "Todos",
+    "allAgents": "Todos os agentes",
+    "allUsers": "Todos os usuários",
+    "untitled": "Prompt sem título",
+    "run": "Executar",
+    "edit": "Editar",
+    "delete": "Excluir",
+    "required": "obrigatório",
+    "nParams": "{n} parâmetros",
+    "scopeGlobal": "Global",
+    "scopeAgent": "Agente",
+    "scopePrivate": "Privado",
+    "byAuthor": "por {name}",
+    "viewText": "Prompt",
+    "viewParameters": "Parâmetros",
+    "viewAgents": "Agentes",
+    "runFor": "Executar para…",
+    "newTitle": "Novo prompt",
+    "editTitle": "Editar prompt",
+    "sectionPrompt": "Prompt",
+    "sectionParameters": "Parâmetros",
+    "sectionAudience": "Público",
+    "sectionAdvanced": "Avançado",
+    "titlePlaceholder": "Título (opcional)",
+    "textPlaceholder": "Escreva seu prompt. Use {'@'} para menções e {'{'}{'{'}name{'}'}{'}'} para parâmetros…",
+    "insertParam": "Inserir parâmetro",
+    "insertParamHint": "Use marcadores {'{'}{'{'}name{'}'}{'}'} para valores preenchidos no momento da execução.",
+    "insertParamPromptLabel": "Nome do parâmetro:",
+    "addParam": "Adicionar parâmetro",
+    "removeParam": "Remover",
+    "noParamsYet": "Nenhum parâmetro. Adicione um para coletar valores na execução.",
+    "paramName": "nome",
+    "paramLabel": "Rótulo",
+    "paramRequired": "Obrigatório",
+    "paramOptions": "Opções (separadas por vírgula)",
+    "typeText": "Texto",
+    "typeNumber": "Número",
+    "typeEnum": "Escolha",
+    "typeDate": "Data",
+    "typeDateRange": "Intervalo de datas",
+    "selectAgents": "Agentes aos quais este prompt pertence",
+    "noManageableAgents": "Você não gerencia nenhum agente.",
+    "globalHint": "Visível para todos na organização.",
+    "privateHint": "Visível apenas para você.",
+    "mode": "Modo",
+    "modeChat": "Chat",
+    "modeDeep": "Profundo",
+    "modeTraining": "Treinamento",
+    "model": "Modelo",
+    "modelDefault": "Modelo padrão",
+    "cancel": "Cancelar",
+    "create": "Criar",
+    "update": "Atualizar",
+    "toastCreated": "Prompt criado",
+    "toastUpdated": "Prompt atualizado",
+    "toastSaveFailed": "Não foi possível salvar o prompt",
+    "toastDeleted": "Prompt excluído",
+    "toastDeleteFailed": "Não foi possível excluir o prompt",
+    "deleteConfirm": "Excluir “{title}”? Esta ação não pode ser desfeita.",
+    "toastRunFailed": "Não foi possível executar o prompt",
+    "runForTitle": "Executar “{title}” para…",
+    "targetMembers": "Membros",
+    "targetGroup": "Grupo",
+    "searchMembers": "Pesquisar membros…",
+    "selectGroup": "Selecione um grupo…",
+    "nMembers": "{n} membros",
+    "paramsNeeded": "Este prompt tem parâmetros — preencha-os uma vez para todos.",
+    "paramsReady": "Parâmetros definidos.",
+    "fillParams": "Preencher parâmetros",
+    "editParams": "Editar parâmetros",
+    "runForConfirm": "Executar “{title}” para {n} membros? Os resultados vão para cada um em particular.",
+    "runForAction": "Executar para membros",
+    "runForResult": "Executado para {ran}, ignorados {skipped}.",
+    "toastRunForFailed": "Não foi possível executar para os membros selecionados",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

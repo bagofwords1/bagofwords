@@ -122,6 +122,7 @@ class MentionType(str, Enum):
     DATA_SOURCE = "DATA_SOURCE"
     TABLE = "TABLE"            # DataSourceTable
     ENTITY = "ENTITY"
+    INSTRUCTION = "INSTRUCTION"  # Instruction or skill (kind on the row)
 
 
 class MentionBase(BaseModel):

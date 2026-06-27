@@ -16,6 +16,7 @@ class ScheduledTasksSection(ContextSection):
 
     Surfaced so the agent knows what is already scheduled — to avoid creating
     duplicates with create_scheduled_task, and to have the task id available for
+    edit_scheduled_task (change prompt/schedule/active state) and
     cancel_scheduled_task.
     """
 

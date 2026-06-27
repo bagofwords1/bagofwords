@@ -60,7 +60,11 @@
     "expandSidebar": "Expandera sidopanel",
     "collapseSidebar": "Fäll ihop sidopanel",
     "version": "Version",
-    "loggedInAs": "Inloggad som {name}"
+    "loggedInAs": "Inloggad som {name}",
+    "prompts": "Prompter",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Administration",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Logga in",
@@ -132,7 +136,18 @@
     "connectYourLLM": "Anslut din LLM",
     "setupComplete": "Konfigurationen är klar — du kan nu börja ställa frågor på naturligt språk.",
     "manageIntegrations": "Hantera integrationer",
-    "viewIntegrations": "Visa integrationer"
+    "viewIntegrations": "Visa integrationer",
+    "greeting": {
+      "morning": "God morgon, {name}!",
+      "afternoon": "God eftermiddag, {name}!",
+      "evening": "God kväll, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "God morgon!",
+      "afternoon": "God eftermiddag!",
+      "evening": "God kväll!"
+    },
+    "whatCanIHelpWith": "Vad kan jag hjälpa till med?"
   },
   "prompt": {
     "placeholderDefault": "Be om data, en instrumentpanel eller en djupanalys",
@@ -278,7 +293,20 @@
     "columnUser": "Användare",
     "emptyTitle": "Ställ en fråga för att komma igång.",
     "emptyTipLabel": "Tips:",
-    "emptyTipBody": "Vet du inte vad du ska fråga? Du kan be AI-analytikern att föreslå frågor om ett specifikt ämne."
+    "emptyTipBody": "Vet du inte vad du ska fråga? Du kan be AI-analytikern att föreslå frågor om ett specifikt ämne.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Agentkörning",
@@ -674,6 +702,7 @@
     "placeholder": "Skriv {'@'} för att nämna...",
     "loading": "Laddar…",
     "noResults": "Inga resultat hittades",
+    "allCategories": "Alla kategorier",
     "tables": "Tabeller",
     "noTables": "Inga tabeller.",
     "tools": "Verktyg",
@@ -686,7 +715,10 @@
       "dataSources": "Agenter",
       "queries": "Frågor",
       "files": "Filer",
-      "tables": "Tabeller"
+      "tables": "Tabeller",
+      "prompts": "Prompter",
+      "instructions": "Instruktioner",
+      "skills": "Färdigheter"
     },
     "time": {
       "justNow": "just nu",
@@ -1618,7 +1650,11 @@
     "dayWed": "Ons",
     "dayThu": "Tor",
     "dayFri": "Fre",
-    "daySat": "Lör"
+    "daySat": "Lör",
+    "delete": "Ta bort",
+    "deleteConfirm": "Ta bort den här schemalagda uppgiften? Detta kan inte ångras.",
+    "toastDeleted": "Schemalagd uppgift borttagen",
+    "deleteFailed": "Det gick inte att ta bort uppgiften"
   },
   "files": {
     "title": "Filer",
@@ -2331,7 +2367,11 @@
     "toastUpdated": "Schemalagd prompt uppdaterad",
     "toastScheduled": "Prompt schemalagd",
     "toastError": "Fel",
-    "toastSaveFailed": "Det gick inte att spara den schemalagda prompten"
+    "toastSaveFailed": "Det gick inte att spara den schemalagda prompten",
+    "delete": "Ta bort",
+    "deleteConfirm": "Ta bort den här schemalagda uppgiften? Detta kan inte ångras.",
+    "toastDeleted": "Schemalagd uppgift borttagen",
+    "toastDeleteFailed": "Det gick inte att ta bort den schemalagda uppgiften"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2454,107 @@
       "toastDeleted": "API-nyckel borttagen",
       "toastDeleteFailed": "Det gick inte att ta bort API-nyckeln"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompter"
+  },
+  "promptParams": {
+    "title": "Fyll i parametrar — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Välj…",
+    "to": "till",
+    "noParams": "Den här prompten har inga parametrar.",
+    "cancel": "Avbryt",
+    "confirm": "Använd prompt"
+  },
+  "prompts": {
+    "title": "Prompter",
+    "newPrompt": "Ny prompt",
+    "createFirst": "Skapa din första prompt",
+    "searchPlaceholder": "Sök prompter…",
+    "loading": "Laddar prompter…",
+    "emptyTitle": "Inga prompter ännu",
+    "emptyHint": "Spara återanvändbara prompter som ditt team kan köra vid behov.",
+    "noMatches": "Inga prompter matchar dina filter",
+    "noMatchesHint": "Försök justera din sökning eller dina filter.",
+    "filterAll": "Alla",
+    "allAgents": "Alla agenter",
+    "allUsers": "Alla användare",
+    "untitled": "Namnlös prompt",
+    "run": "Kör",
+    "edit": "Redigera",
+    "delete": "Ta bort",
+    "required": "obligatoriskt",
+    "nParams": "{n} parametrar",
+    "scopeGlobal": "Global",
+    "scopeAgent": "Agent",
+    "scopePrivate": "Privat",
+    "byAuthor": "av {name}",
+    "viewText": "Prompt",
+    "viewParameters": "Parametrar",
+    "viewAgents": "Agenter",
+    "runFor": "Kör för…",
+    "newTitle": "Ny prompt",
+    "editTitle": "Redigera prompt",
+    "sectionPrompt": "Prompt",
+    "sectionParameters": "Parametrar",
+    "sectionAudience": "Målgrupp",
+    "sectionAdvanced": "Avancerat",
+    "titlePlaceholder": "Titel (valfritt)",
+    "textPlaceholder": "Skriv din prompt. Använd {'@'} för omnämnanden och {'{'}{'{'}name{'}'}{'}'} för parametrar…",
+    "insertParam": "Infoga parameter",
+    "insertParamHint": "Använd platshållare {'{'}{'{'}name{'}'}{'}'} för värden som fylls i vid körning.",
+    "insertParamPromptLabel": "Parameternamn:",
+    "addParam": "Lägg till parameter",
+    "removeParam": "Ta bort",
+    "noParamsYet": "Inga parametrar. Lägg till en för att samla in värden vid körning.",
+    "paramName": "namn",
+    "paramLabel": "Etikett",
+    "paramRequired": "Obligatoriskt",
+    "paramOptions": "Alternativ (kommaseparerade)",
+    "typeText": "Text",
+    "typeNumber": "Tal",
+    "typeEnum": "Val",
+    "typeDate": "Datum",
+    "typeDateRange": "Datumintervall",
+    "selectAgents": "Agenter som den här prompten tillhör",
+    "noManageableAgents": "Du hanterar inga agenter.",
+    "globalHint": "Synlig för alla i organisationen.",
+    "privateHint": "Endast synlig för dig.",
+    "mode": "Läge",
+    "modeChat": "Chatt",
+    "modeDeep": "Djup",
+    "modeTraining": "Träning",
+    "model": "Modell",
+    "modelDefault": "Standardmodell",
+    "cancel": "Avbryt",
+    "create": "Skapa",
+    "update": "Uppdatera",
+    "toastCreated": "Prompt skapad",
+    "toastUpdated": "Prompt uppdaterad",
+    "toastSaveFailed": "Det gick inte att spara prompten",
+    "toastDeleted": "Prompt borttagen",
+    "toastDeleteFailed": "Det gick inte att ta bort prompten",
+    "deleteConfirm": "Ta bort “{title}”? Detta kan inte ångras.",
+    "toastRunFailed": "Det gick inte att köra prompten",
+    "runForTitle": "Kör “{title}” för…",
+    "targetMembers": "Medlemmar",
+    "targetGroup": "Grupp",
+    "searchMembers": "Sök medlemmar…",
+    "selectGroup": "Välj en grupp…",
+    "nMembers": "{n} medlemmar",
+    "paramsNeeded": "Den här prompten har parametrar — fyll i dem en gång för alla.",
+    "paramsReady": "Parametrar inställda.",
+    "fillParams": "Fyll i parametrar",
+    "editParams": "Redigera parametrar",
+    "runForConfirm": "Kör “{title}” för {n} medlemmar? Resultaten skickas privat till var och en.",
+    "runForAction": "Kör för medlemmar",
+    "runForResult": "Kördes för {ran}, hoppade över {skipped}.",
+    "toastRunForFailed": "Det gick inte att köra för de valda medlemmarna",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

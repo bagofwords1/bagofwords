@@ -33,58 +33,48 @@
   <aside id="separator-sidebar"
     :class="[
       'fixed start-0 z-40 bg-gray-50 dark:bg-gray-950 transition-all duration-300 -translate-x-full rtl:translate-x-full sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
-      isCollapsed ? 'w-14' : 'w-48',
+      isCollapsed ? 'w-14' : 'w-60',
       showTopBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
-    <button @click="toggleSidebar" :class="[
-            'flex items-center gap-3 rounded-lg transition-all duration-200 bg-gray-50 dark:bg-gray-950',
-            isCollapsed
-              ? 'px-2 py-2 w-full text-center justify-center -mb-4 text-gray-700 dark:text-gray-300 hover:text-blue-500'
-              : 'px-1 py-1 mt-3 ms-auto -mb-5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-          ]">
-            <UTooltip v-if="isCollapsed" :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
+    <button v-if="isCollapsed" @click="toggleSidebar"
+          class="flex items-center justify-center w-full px-2 py-2 -mb-4 rounded-lg bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 hover:text-blue-500 transition-colors">
+            <UTooltip :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-4 h-4 text-sm">
                 <SidebarIcon class="w-4 h-4 rtl-flip" />
               </span>
             </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-4 h-4 text-sm">
-                <SidebarIcon class="w-4 h-4 rtl-flip" />
-              </span>
-              <span v-if="showText" class="text-xs opacity-75"></span>
-            </template>
           </button>
-    <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col justify-between">
+    <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col">
 
-      <ul class="font-normal text-[13px] !ps-0">
-        <li>
-            <button @click="router.push('/')" class="flex items-center justify-center p-1 text-gray-700 group">
-              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-8 max-w-[120px] object-contain'" />
+      <ul class="font-normal text-[13px] !ps-0 shrink-0">
+        <li class="flex items-center mb-3" :class="isCollapsed ? 'flex-col gap-1' : 'justify-between'">
+            <button @click="router.push('/')" :class="['flex items-center text-gray-700 group min-w-0 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors', isCollapsed ? 'justify-center p-1' : 'gap-2 px-2.5 py-1']">
+              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
+              <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
             </button>
-        </li>
-
-        <!-- Agents (top-level) — plain link: cube on the left, stacked agent icons on the right. -->
-        <li class="mt-4">
-          <NuxtLink to="/agents" :class="[
-            'flex items-center w-full rounded-lg border transition-all duration-200',
-            isRouteActive('/agents') ? 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-white font-semibold' : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow',
-            isCollapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2'
-          ]">
-            <UTooltip v-if="isCollapsed" text="Agents" :popper="{ placement: tooltipPlacement }">
-              <span class="relative flex items-center justify-center w-5 h-5">
-                <UIcon name="heroicons-cube" class="w-[18px] h-[18px]" />
-                <span v-if="navAgentCount > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ navAgentCount > 9 ? '9+' : navAgentCount }}</span>
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-[18px] h-[18px] shrink-0"><UIcon name="heroicons-cube" /></span>
-              <span v-if="showText" class="font-medium">Agents</span>
-              <span v-if="showText && navAgentTypes.length" class="ml-auto flex -space-x-1.5 items-center shrink-0">
-                <DataSourceIcon v-for="(t, i) in navAgentTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white dark:ring-gray-900 rounded-full bg-white dark:bg-gray-900" />
-              </span>
-            </template>
-          </NuxtLink>
+            <div class="flex items-center gap-0.5" :class="isCollapsed ? 'flex-col' : ''">
+              <!-- Search (opens the ⌘K command palette) -->
+              <UTooltip :text="$t('commandPalette.placeholder')" :popper="{ placement: tooltipPlacement }">
+                <button
+                  @click="openCommandPalette"
+                  class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+                  aria-label="Search"
+                >
+                  <UIcon name="i-heroicons-magnifying-glass" class="w-[18px] h-[18px]" />
+                </button>
+              </UTooltip>
+              <!-- Collapse sidebar (expanded state only; collapsed uses the top expand button) -->
+              <UTooltip v-if="!isCollapsed" :text="$t('nav.collapseSidebar')" :popper="{ placement: tooltipPlacement }">
+                <button
+                  @click="toggleSidebar"
+                  class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+                  aria-label="Collapse sidebar"
+                >
+                  <SidebarIcon class="w-[18px] h-[18px] rtl-flip" />
+                </button>
+              </UTooltip>
+            </div>
         </li>
 
         <li>
@@ -93,17 +83,17 @@
                @click="createNewReport"
                :disabled="creatingReport"
                :class="[
-                 'flex items-center px-3 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50 disabled:cursor-not-allowed',
+                 'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50 disabled:cursor-not-allowed',
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
-                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
-                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
@@ -113,25 +103,44 @@
         </li>
 
         <template v-for="item in mainNavItems" :key="item.href">
-        <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-3">
+        <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-2.5">
           <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ $t(item.section) }}</span>
         </li>
-        <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="{ hidden: item.hidden }">
-          <NuxtLink :to="item.href" :class="[
-            'flex items-center px-3 py-1.5 w-full rounded-md',
-            isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+        <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="[{ hidden: item.hidden }, item.gapBefore ? 'mt-2' : '']">
+          <!-- Action item (e.g. Notifications → opens the bell modal) -->
+          <button v-if="item.action === 'notifications'" @click="notifOpen = true" :class="[
+            'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <UIcon v-if="item.icon" :name="item.icon" />
-                <component v-else-if="item.component" :is="item.component" />
+              <span class="relative flex items-center justify-center w-5 h-5 text-[16px]">
+                <UIcon :name="item.icon || 'i-heroicons-bell'" />
+                <span v-if="notifUnread" class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
               </span>
             </UTooltip>
             <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+              <span class="flex items-center justify-center w-5 h-5 text-[18px]">
+                <UIcon :name="item.icon || 'i-heroicons-bell'" />
+              </span>
+              <span v-if="showText" class="flex-1 text-left">{{ $t(item.label) }}</span>
+              <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+            </template>
+          </button>
+          <NuxtLink v-else :to="item.href" :class="[
+            'flex items-center px-2.5 py-1.5 w-full rounded-md',
+            isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+            isCollapsed ? 'justify-center' : 'gap-2.5'
+          ]">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
                 <UIcon v-if="item.icon" :name="item.icon" />
-                <component v-else-if="item.component" :is="item.component" />
+                <component v-else-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <UIcon v-if="item.icon" :name="item.icon" />
+                <component v-else-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
               </span>
               <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
@@ -139,72 +148,99 @@
         </li>
         </template>
       </ul>
-      <ul class="font-normal text-[13px] !ps-0">
+
+      <!-- Recent reports — pinned (starred) first; scrolls independently. -->
+      <div v-if="!isCollapsed" class="flex-1 min-h-0 flex flex-col mt-4">
+        <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
+          <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('nav.reports') }}</span>
+          <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
+            {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
+          </NuxtLink>
+        </div>
+        <div class="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
+          <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
+            <li v-for="report in recentReports" :key="report.id" class="relative group/report">
+              <NuxtLink :to="`/reports/${report.id}`" :class="[
+                'flex items-center gap-2 px-2.5 py-1.5 pr-8 w-full rounded-md',
+                isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+              ]">
+                <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="flex-1 truncate">{{ report.title || $t('reports.untitled') }}</span>
+                <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400 group-hover/report:opacity-0 transition-opacity" />
+              </NuxtLink>
+              <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
+              <button
+                type="button"
+                @click.stop.prevent="openReportMenu($event, report)"
+                class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+                :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
+                aria-label="Report actions"
+              >
+                <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
+              </button>
+            </li>
+            <li v-if="!recentReports.length" class="px-2.5 py-1.5 text-[12px] text-gray-400 dark:text-gray-500">
+              {{ $t('reports.empty') }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <ul class="font-normal text-[13px] !ps-0 shrink-0 mt-auto pt-2">
         <li v-for="item in bottomNavItems" :key="item.href">
           <a v-if="item.external" :href="item.href" target="_blank" rel="noopener noreferrer" :class="[
-            'flex items-center px-3 py-1.5 w-full rounded-md',
-            'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+            'flex items-center px-2.5 py-1.5 w-full rounded-md',
+            'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <component v-if="item.component" :is="item.component" />
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <component v-if="item.component" :is="item.component" />
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
               <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
           </a>
           <NuxtLink v-else :to="item.href" :class="[
-            'flex items-center px-3 py-1.5 w-full rounded-md',
-            isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+            'flex items-center px-2.5 py-1.5 w-full rounded-md',
+            isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <component v-if="item.component" :is="item.component" />
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <component v-if="item.component" :is="item.component" />
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
               <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
           </NuxtLink>
         </li>
-        <li v-if="isMcpEnabled && useCan('manage_settings')">
-          <button
-            @click="showMcpModal = true"
-            :class="[
-              'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
-              isCollapsed ? 'justify-center' : 'gap-2.5'
-            ]"
-          >
-            <UTooltip v-if="isCollapsed" :text="$t('mcp.tooltipCollapsed')" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <McpIcon :class="isCollapsed ? 'w-5 h-5' : 'w-[18px] h-[18px]'" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <McpIcon :class="isCollapsed ? 'w-5 h-5' : 'w-[18px] h-[18px]'" />
-              </span>
-              <span v-if="showText">{{ $t('nav.mcpServer') }}</span>
-            </template>
-          </button>
-        </li>
         <li>
-          <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full">
+          <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
+            :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
+            <template #item="{ item }">
+              <span v-if="item.isVersion" class="text-[11px] text-gray-400 dark:text-gray-500">{{ item.label }}</span>
+              <template v-else>
+                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-else class="w-4 h-4 shrink-0"></span>
+                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              </template>
+            </template>
              <button :class="[
-               'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+               'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
                isCollapsed ? 'justify-center' : 'gap-2.5'
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
@@ -219,23 +255,17 @@
                   {{ userInitial }}
                 </div>
                 <span v-if="showText" class="truncate">{{ currentUserName }}</span>
+                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ml-auto w-4 h-4 text-gray-400 shrink-0" />
               </template>
             </button>
           </UDropdown>
-        </li>
-        <li v-if="version && !isCollapsed">
-          <UTooltip :text="$t('nav.version')" :popper="{ placement: tooltipPlacement }">
-            <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900 dark:hover:text-white">
-              {{ version }}
-            </div>
-          </UTooltip>
         </li>
       </ul>
     </div>
 
   </aside>
 
-  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-48', showTopBanner ? 'pt-10' : 'pt-0']">
+  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', showTopBanner ? 'pt-10' : 'pt-0']">
     <UNotifications />
 
     <slot />
@@ -245,25 +275,98 @@
 
   <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
 
+  <!-- Sidebar report actions: share / rename / delete (singletons bound to menuReport) -->
+  <!-- Teleported to body so it escapes the sidebar's transform/overflow clipping. -->
+  <Teleport to="body">
+    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70]" @click="reportMenuOpen = false" @contextmenu.prevent="reportMenuOpen = false">
+      <div
+        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-[13px]"
+        :style="{ top: reportMenuPos.y + 'px', left: reportMenuPos.x + 'px' }"
+        @click.stop
+      >
+        <button
+          v-for="(action, i) in currentReportActions"
+          :key="i"
+          type="button"
+          class="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+          :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'"
+          @click="reportMenuOpen = false; action.click()"
+        >
+          <UIcon :name="action.icon" class="w-4 h-4 shrink-0" :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'" />
+          <span class="truncate">{{ action.label }}</span>
+        </button>
+      </div>
+    </div>
+  </Teleport>
+
+  <ShareConversationModal v-if="menuReport" v-model="shareOpen" :report="menuReport" no-trigger />
+
+  <UModal v-model="renameOpen">
+    <div class="p-4">
+      <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reports.renameTitle') }}</h3>
+      <input
+        v-model="renameTitle"
+        type="text"
+        :placeholder="$t('reports.renamePlaceholder')"
+        class="mt-3 w-full h-9 px-3 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400"
+        @keyup.enter="doRename"
+      />
+      <div class="flex justify-end gap-2 mt-4">
+        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="renameOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="!renameTitle.trim() || renaming" @click="doRename">{{ $t('common.save') }}</button>
+      </div>
+    </div>
+  </UModal>
+
+  <UModal v-model="deleteOpen">
+    <div class="p-4">
+      <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reports.deleteTitle') }}</h3>
+      <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('reports.deleteBody') }}</p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="deleteOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
+      </div>
+    </div>
+  </UModal>
+
+  <!-- Per-user notification inbox (bell in the sidebar) -->
+  <NotificationModal />
+
   <!-- Global ⌘K / Ctrl+K command palette -->
   <CommandPalette />
   </div>
 </template>
 
 <script setup lang="ts">
+  import { markRaw } from 'vue'
   import Spinner from '~/components/Spinner.vue'
   import McpIcon from '~/components/icons/McpIcon.vue'
+  import GithubIcon from '~/components/icons/GithubIcon.vue'
   import LibraryIcon from '~/components/icons/LibraryIcon.vue'
   import ActivityIcon from '~/components/icons/ActivityIcon.vue'
-  import AgentIcon from '~/components/icons/AgentIcon.vue'
   import SidebarIcon from '~/components/icons/SidebarIcon.vue'
   import McpModal from '~/components/McpModal.vue'
   import UserProfileModal from '~/components/UserProfileModal.vue'
+  import NotificationModal from '~/components/NotificationModal.vue'
   import { useCan } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
   const showProfileModal = ref(false)
+
+  // Sidebar search button opens the global ⌘K command palette.
+  const { open: openCommandPalette } = useCommandPalette()
+
+  // Notification inbox (shared state with NotificationModal + the sidebar bell).
+  const { isOpen: notifOpen, unread: notifUnread, fetchCount: fetchNotifCount } = useNotifications()
+  let notifPollTimer: any = null
+  onMounted(() => {
+    fetchNotifCount()
+    notifPollTimer = setInterval(fetchNotifCount, 60000)
+  })
+  onBeforeUnmount(() => { if (notifPollTimer) clearInterval(notifPollTimer) })
+  // Resync the badge when the inbox closes (read/dismiss may have changed it).
+  watch(notifOpen, (open) => { if (!open) fetchNotifCount() })
 
   const route = useRoute()
   const isRouteActive = (path: string) => {
@@ -273,6 +376,7 @@
   watch(() => route.fullPath, () => {
     showMcpModal.value = false
     showProfileModal.value = false
+    notifOpen.value = false
   })
 
   interface NavItem {
@@ -284,6 +388,8 @@
     adminOnly?: boolean
     permission?: string
     section?: string
+    gapBefore?: boolean
+    action?: 'notifications'
     external?: boolean
     activePath?: string
   }
@@ -306,13 +412,14 @@
   )
 
   const mainNavItems: NavItem[] = [
-    { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
+    { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
+    { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
+    { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
-    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true, section: 'nav.manage' },
-    { href: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals' },
+    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true },
   ]
 
   const bottomNavItems = computed<NavItem[]>(() => {
@@ -324,28 +431,15 @@
     // actually reach a settings tab, and point it at the first one they can open.
     const tab = firstAccessibleSettingsTab.value
     if (tab) {
-      items.push({ href: `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' })
+      items.push({ href: `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
     }
-    items.push({ href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true })
     return items
   })
   
   // Agent management - use selectedAgentObjects for new report creation
   const { initAgent, selectedAgentObjects, agents, hasAgents } = useAgent()
 
-  // Stacked agent icons (first 3 connection types) for the Agents nav item.
-  const navAgentCount = computed(() => (agents.value || []).length)
-  const navAgentTypes = computed(() => {
-    const types: string[] = []
-    for (const a of (agents.value || [])) {
-      const t = (a as any).connections?.[0]?.type
-      if (t) types.push(t)
-      if (types.length >= 3) break
-    }
-    return types
-  })
 
-  
   const workspaceIconUrl = computed<string | null>(() => {
     const orgId = organization.value?.id
     const orgs = (currentUser.value as any)?.organizations || []
@@ -392,7 +486,8 @@
         // Fetch onboarding and agents in parallel for faster load
         await Promise.all([
           fetchOnboarding({ in_onboarding: false }),
-          initAgent()
+          initAgent(),
+          fetchRecentReports()
         ])
       }
     } catch {}
@@ -421,6 +516,130 @@
   // Sidebar collapse state (shared via composable)
   const { isCollapsed, showText, toggle: toggleSidebar } = useSidebar()
   const creatingReport = ref(false)
+
+  // Recent reports list shown in the sidebar. The backend already orders
+  // these `is_starred DESC, created_at DESC`, so pinned reports come first.
+  const recentReports = ref<any[]>([])
+  const fetchRecentReports = async () => {
+    try {
+      const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50 } })
+      if ((resp as any).status?.value === 'success' && (resp as any).data?.value?.reports) {
+        recentReports.value = (resp as any).data.value.reports
+      }
+    } catch {}
+  }
+  // Heroicon for a report based on its primary artifact type.
+  const reportTypeIcon = (report: any): string => {
+    const modes = report?.artifact_modes || []
+    if (modes.includes('page')) return 'i-heroicons-chart-bar-square'
+    if (modes.includes('slides')) return 'i-heroicons-presentation-chart-bar'
+    return 'i-heroicons-chat-bubble-left-right'
+  }
+  // Keep the list fresh when the user moves between reports (titles/new reports).
+  watch(() => route.path, (path) => {
+    if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()
+  })
+
+  // ── Per-report hover menu: share / rename / star / delete ──────────────
+  // Rendered via Teleport (see template) so it escapes the sidebar's
+  // transform + overflow clipping; positioned at the click coordinates.
+  const reportToast = useToast()
+  const menuReport = ref<any>(null)
+  const reportMenuOpen = ref(false)
+  const reportMenuPos = ref({ x: 0, y: 0 })
+  const shareOpen = ref(false)
+  const renameOpen = ref(false)
+  const renameTitle = ref('')
+  const renaming = ref(false)
+  const deleteOpen = ref(false)
+  const deleting = ref(false)
+
+  const openReportMenu = (e: MouseEvent, report: any) => {
+    menuReport.value = report
+    // Clamp so the 208px-wide menu never runs off the right/bottom edge.
+    const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
+    const y = Math.min(e.clientY, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 180)
+    reportMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
+    reportMenuOpen.value = true
+  }
+
+  // Flat action list for the teleported menu, derived from the active report.
+  const currentReportActions = computed(() => {
+    const report = menuReport.value
+    if (!report) return [] as any[]
+    return [
+      { label: t('reports.menu.share'), icon: 'i-heroicons-arrow-up-tray', click: () => openShare(report) },
+      { label: t('reports.menu.rename'), icon: 'i-heroicons-pencil-square', click: () => openRename(report) },
+      {
+        label: report.is_starred ? t('reports.menu.unstar') : t('reports.menu.star'),
+        icon: report.is_starred ? 'i-heroicons-star-solid' : 'i-heroicons-star',
+        click: () => toggleStarReport(report),
+      },
+      { label: t('reports.menu.delete'), icon: 'i-heroicons-trash', danger: true, click: () => openDelete(report) },
+    ]
+  })
+
+  // Close the menu on scroll / resize / route change so it never floats stale.
+  watch(() => route.path, () => { reportMenuOpen.value = false })
+
+  const openShare = (report: any) => { menuReport.value = report; shareOpen.value = true }
+
+  const openRename = (report: any) => {
+    menuReport.value = report
+    renameTitle.value = report.title || ''
+    renameOpen.value = true
+  }
+  const doRename = async () => {
+    const r = menuReport.value
+    const title = renameTitle.value.trim()
+    if (!r || !title || renaming.value) return
+    renaming.value = true
+    try {
+      const resp: any = await useMyFetch(`/reports/${r.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+      if (resp?.error?.value) throw resp.error.value
+      r.title = title
+      renameOpen.value = false
+    } catch (e: any) {
+      reportToast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+      renaming.value = false
+    }
+  }
+
+  const toggleStarReport = async (report: any) => {
+    const next = !report.is_starred
+    report.is_starred = next // optimistic
+    try {
+      const resp: any = await useMyFetch(`/reports/${report.id}/star`, { method: next ? 'POST' : 'DELETE' })
+      if (resp?.error?.value) throw resp.error.value
+      await fetchRecentReports() // server orders starred-first
+    } catch (e: any) {
+      report.is_starred = !next // revert
+      reportToast.add({ title: t('reports.toasts.starFailed'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    }
+  }
+
+  const openDelete = (report: any) => { menuReport.value = report; deleteOpen.value = true }
+  const doDelete = async () => {
+    const r = menuReport.value
+    if (!r || deleting.value) return
+    deleting.value = true
+    try {
+      const resp: any = await useMyFetch(`/reports/${r.id}`, { method: 'DELETE' })
+      if (resp?.error?.value) throw resp.error.value
+      recentReports.value = recentReports.value.filter((x: any) => x.id !== r.id)
+      deleteOpen.value = false
+      if (route.path === `/reports/${r.id}`) router.push('/')
+    } catch (e: any) {
+      reportToast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
+    } finally {
+      deleting.value = false
+    }
+  }
 
   // Collapsed sidebar tooltips need to pop INTO the viewport, not out of it.
   // In LTR the sidebar is on the left so tooltips go right; in RTL the
@@ -462,6 +681,27 @@
       icon: 'heroicons-user-circle',
       click: () => { showProfileModal.value = true }
     }])
+
+    // Documentation + MCP Server + GitHub moved out of the main sidebar into this menu.
+    const resources: any[] = [{
+      label: t('nav.documentation'),
+      icon: 'heroicons-book-open',
+      click: () => { window.open('https://docs.bagofwords.com', '_blank', 'noopener') }
+    }]
+    if (isMcpEnabled.value && useCan('manage_settings')) {
+      resources.push({
+        label: t('nav.mcpServer'),
+        iconComponent: markRaw(McpIcon),
+        click: () => { showMcpModal.value = true }
+      })
+    }
+    resources.push({
+      label: t('nav.starOnGithub'),
+      iconComponent: markRaw(GithubIcon),
+      click: () => { window.open('https://github.com/bagofwords1/bagofwords', '_blank', 'noopener') }
+    })
+    groups.push(resources)
+
     const orgs = userOrganizations.value
     if (orgs.length > 1) {
       groups.push(
@@ -478,6 +718,9 @@
       icon: 'heroicons-arrow-left',
       click: signOff
     }])
+    if (version) {
+      groups.push([{ label: `v${version}`, isVersion: true, disabled: true }])
+    }
     return groups
   })
 
@@ -537,6 +780,7 @@ const createNewReport = async () => {
     }
 
     const data = ((response as any).data?.value) as any;
+    fetchRecentReports()
     await router.push({
         path: `/reports/${data.id}`
     })

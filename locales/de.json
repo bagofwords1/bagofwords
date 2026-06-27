@@ -60,7 +60,11 @@
     "expandSidebar": "Seitenleiste erweitern",
     "collapseSidebar": "Seitenleiste einklappen",
     "version": "Version",
-    "loggedInAs": "Angemeldet als {name}"
+    "loggedInAs": "Angemeldet als {name}",
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Verwaltung",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -132,7 +136,18 @@
     "connectYourLLM": "Verbinden Sie Ihr LLM",
     "setupComplete": "Einrichtung abgeschlossen — Sie können jetzt Fragen in natürlicher Sprache stellen.",
     "manageIntegrations": "Integrationen verwalten",
-    "viewIntegrations": "Integrationen anzeigen"
+    "viewIntegrations": "Integrationen anzeigen",
+    "greeting": {
+      "morning": "Guten Morgen, {name}!",
+      "afternoon": "Guten Tag, {name}!",
+      "evening": "Guten Abend, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Guten Morgen!",
+      "afternoon": "Guten Tag!",
+      "evening": "Guten Abend!"
+    },
+    "whatCanIHelpWith": "Womit kann ich helfen?"
   },
   "prompt": {
     "placeholderDefault": "Fragen Sie nach Daten, einem Dashboard oder einer detaillierten Analyse",
@@ -278,7 +293,20 @@
     "columnUser": "Benutzer",
     "emptyTitle": "Stellen Sie eine Frage, um zu beginnen.",
     "emptyTipLabel": "Tipp:",
-    "emptyTipBody": "Sie wissen nicht, was Sie fragen sollen? Sie können den KI-Analysten bitten, Fragen zu einem bestimmten Thema vorzuschlagen."
+    "emptyTipBody": "Sie wissen nicht, was Sie fragen sollen? Sie können den KI-Analysten bitten, Fragen zu einem bestimmten Thema vorzuschlagen.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Agentenausführung",
@@ -674,6 +702,7 @@
     "placeholder": "Geben Sie {'@'} ein, um zu erwähnen ...",
     "loading": "Lädt …",
     "noResults": "Keine Ergebnisse gefunden",
+    "allCategories": "Alle Kategorien",
     "tables": "Tabellen",
     "noTables": "Keine Tabellen.",
     "tools": "Werkzeuge",
@@ -686,7 +715,10 @@
       "dataSources": "Agenten",
       "queries": "Abfragen",
       "files": "Dateien",
-      "tables": "Tabellen"
+      "tables": "Tabellen",
+      "prompts": "Prompts",
+      "instructions": "Anweisungen",
+      "skills": "Fähigkeiten"
     },
     "time": {
       "justNow": "gerade eben",
@@ -1618,7 +1650,11 @@
     "dayWed": "Mi",
     "dayThu": "Do",
     "dayFri": "Fr",
-    "daySat": "Sa"
+    "daySat": "Sa",
+    "delete": "Löschen",
+    "deleteConfirm": "Diese geplante Aufgabe löschen? Dies kann nicht rückgängig gemacht werden.",
+    "toastDeleted": "Geplante Aufgabe gelöscht",
+    "deleteFailed": "Aufgabe konnte nicht gelöscht werden"
   },
   "files": {
     "title": "Dateien",
@@ -2331,7 +2367,11 @@
     "toastUpdated": "Geplanter Prompt aktualisiert",
     "toastScheduled": "Prompt geplant",
     "toastError": "Fehler",
-    "toastSaveFailed": "Geplanter Prompt konnte nicht gespeichert werden"
+    "toastSaveFailed": "Geplanter Prompt konnte nicht gespeichert werden",
+    "delete": "Löschen",
+    "deleteConfirm": "Diese geplante Aufgabe löschen? Dies kann nicht rückgängig gemacht werden.",
+    "toastDeleted": "Geplante Aufgabe gelöscht",
+    "toastDeleteFailed": "Geplante Aufgabe konnte nicht gelöscht werden"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2454,107 @@
       "toastDeleted": "API-Schlüssel gelöscht",
       "toastDeleteFailed": "API-Schlüssel konnte nicht gelöscht werden"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Parameter ausfüllen — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Auswählen…",
+    "to": "bis",
+    "noParams": "Dieser Prompt hat keine Parameter.",
+    "cancel": "Abbrechen",
+    "confirm": "Prompt verwenden"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "newPrompt": "Neuer Prompt",
+    "createFirst": "Erstellen Sie Ihren ersten Prompt",
+    "searchPlaceholder": "Prompts suchen…",
+    "loading": "Prompts werden geladen…",
+    "emptyTitle": "Noch keine Prompts",
+    "emptyHint": "Speichern Sie wiederverwendbare Prompts, die Ihr Team bei Bedarf ausführen kann.",
+    "noMatches": "Keine Prompts entsprechen Ihren Filtern",
+    "noMatchesHint": "Passen Sie Ihre Suche oder Filter an.",
+    "filterAll": "Alle",
+    "allAgents": "Alle Agenten",
+    "allUsers": "Alle Benutzer",
+    "untitled": "Prompt ohne Titel",
+    "run": "Ausführen",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "required": "erforderlich",
+    "nParams": "{n} Parameter",
+    "scopeGlobal": "Global",
+    "scopeAgent": "Agent",
+    "scopePrivate": "Privat",
+    "byAuthor": "von {name}",
+    "viewText": "Prompt",
+    "viewParameters": "Parameter",
+    "viewAgents": "Agenten",
+    "runFor": "Ausführen für…",
+    "newTitle": "Neuer Prompt",
+    "editTitle": "Prompt bearbeiten",
+    "sectionPrompt": "Prompt",
+    "sectionParameters": "Parameter",
+    "sectionAudience": "Zielgruppe",
+    "sectionAdvanced": "Erweitert",
+    "titlePlaceholder": "Titel (optional)",
+    "textPlaceholder": "Schreiben Sie Ihren Prompt. Verwenden Sie {'@'} für Erwähnungen und {'{'}{'{'}name{'}'}{'}'} für Parameter…",
+    "insertParam": "Parameter einfügen",
+    "insertParamHint": "Verwenden Sie {'{'}{'{'}name{'}'}{'}'}-Platzhalter für Werte, die zur Laufzeit ausgefüllt werden.",
+    "insertParamPromptLabel": "Parametername:",
+    "addParam": "Parameter hinzufügen",
+    "removeParam": "Entfernen",
+    "noParamsYet": "Keine Parameter. Fügen Sie einen hinzu, um Werte zur Laufzeit zu erfassen.",
+    "paramName": "Name",
+    "paramLabel": "Beschriftung",
+    "paramRequired": "Erforderlich",
+    "paramOptions": "Optionen (durch Komma getrennt)",
+    "typeText": "Text",
+    "typeNumber": "Zahl",
+    "typeEnum": "Auswahl",
+    "typeDate": "Datum",
+    "typeDateRange": "Datumsbereich",
+    "selectAgents": "Agenten, zu denen dieser Prompt gehört",
+    "noManageableAgents": "Sie verwalten keine Agenten.",
+    "globalHint": "Für alle in der Organisation sichtbar.",
+    "privateHint": "Nur für Sie sichtbar.",
+    "mode": "Modus",
+    "modeChat": "Chat",
+    "modeDeep": "Tiefgehend",
+    "modeTraining": "Training",
+    "model": "Modell",
+    "modelDefault": "Standardmodell",
+    "cancel": "Abbrechen",
+    "create": "Erstellen",
+    "update": "Aktualisieren",
+    "toastCreated": "Prompt erstellt",
+    "toastUpdated": "Prompt aktualisiert",
+    "toastSaveFailed": "Prompt konnte nicht gespeichert werden",
+    "toastDeleted": "Prompt gelöscht",
+    "toastDeleteFailed": "Prompt konnte nicht gelöscht werden",
+    "deleteConfirm": "„{title}“ löschen? Dies kann nicht rückgängig gemacht werden.",
+    "toastRunFailed": "Prompt konnte nicht ausgeführt werden",
+    "runForTitle": "„{title}“ ausführen für…",
+    "targetMembers": "Mitglieder",
+    "targetGroup": "Gruppe",
+    "searchMembers": "Mitglieder suchen…",
+    "selectGroup": "Gruppe auswählen…",
+    "nMembers": "{n} Mitglieder",
+    "paramsNeeded": "Dieser Prompt hat Parameter — füllen Sie sie einmal für alle aus.",
+    "paramsReady": "Parameter festgelegt.",
+    "fillParams": "Parameter ausfüllen",
+    "editParams": "Parameter bearbeiten",
+    "runForConfirm": "„{title}“ für {n} Mitglieder ausführen? Die Ergebnisse gehen jeweils privat an jeden.",
+    "runForAction": "Für Mitglieder ausführen",
+    "runForResult": "Ausgeführt für {ran}, übersprungen {skipped}.",
+    "toastRunForFailed": "Ausführung für die ausgewählten Mitglieder fehlgeschlagen",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

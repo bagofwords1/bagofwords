@@ -765,8 +765,10 @@ import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
+import NotifyTool from '~/components/tools/NotifyTool.vue'
 import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
 import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
+import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
@@ -1176,18 +1178,28 @@ async function handleAgentConnected() {
     if (report.value?.data_sources) currentAgents.value = [...report.value.data_sources]
 }
 
-// Flat, deduplicated conversation starters from all selected agents (max 3)
-// Each stored starter is "Title\nDetailed prompt" — split into { title, prompt }
-const agentConversationStarters = computed(() =>
-    [...new Set<string>(currentAgents.value.flatMap((a: any) => a.conversation_starters || []))]
-        .slice(0, 3)
-        .map((s: string) => {
-            const nl = s.indexOf('\n')
-            return nl === -1
-                ? { title: s, prompt: s }
-                : { title: s.slice(0, nl).trim(), prompt: s.slice(nl + 1).trim() }
-        })
-)
+// Conversation starters from the selected agents, sourced from agent-scoped
+// starter Prompts (not the legacy data_source.conversation_starters JSON).
+// Each prompt's `text` is "Title\nDetailed prompt" — split into { title, prompt }.
+const agentConversationStarters = ref<{ title: string; prompt: string }[]>([])
+async function loadAgentStarters() {
+    const ids = [...new Set((currentAgents.value || []).map((a: any) => a?.id).filter(Boolean))]
+    if (!ids.length) { agentConversationStarters.value = []; return }
+    const texts: string[] = []
+    for (const id of ids) {
+        try {
+            const { data } = await useMyFetch(`/prompts?data_source_id=${id}`)
+            for (const p of ((data.value as any)?.prompts || [])) if (p?.text) texts.push(p.text)
+        } catch { /* ignore */ }
+    }
+    agentConversationStarters.value = [...new Set<string>(texts)].slice(0, 3).map((s: string) => {
+        const nl = s.indexOf('\n')
+        return nl === -1
+            ? { title: s, prompt: s }
+            : { title: s.slice(0, nl).trim(), prompt: s.slice(nl + 1).trim() }
+    })
+}
+watch(currentAgents, loadAgentStarters, { immediate: true, deep: true })
 
 async function openInstructionById(instructionId: string, opts?: { initialVersionNumber?: number | null }) {
 	// Immediately switch to agent panel with loading state
@@ -1609,10 +1621,14 @@ function getToolComponent(toolName: string) {
 			return EditInstructionTool
 		case 'send_email':
 			return SendEmailTool
+		case 'notify':
+			return NotifyTool
 		case 'create_scheduled_task':
 			return CreateScheduledTaskTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
+		case 'edit_scheduled_task':
+			return EditScheduledTaskTool
 		case 'list_agent_executions':
 			return ListAgentExecutionsTool
 		case 'search_instructions':

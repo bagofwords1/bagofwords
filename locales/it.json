@@ -60,7 +60,11 @@
     "expandSidebar": "Espandi barra laterale",
     "collapseSidebar": "Comprimi barra laterale",
     "version": "Versione",
-    "loggedInAs": "Connesso come {name}"
+    "loggedInAs": "Connesso come {name}",
+    "prompts": "Prompt",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Amministrazione",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Accedi",
@@ -132,7 +136,18 @@
     "connectYourLLM": "Collega il tuo LLM",
     "setupComplete": "Configurazione completata — ora puoi iniziare a porre domande in linguaggio naturale.",
     "manageIntegrations": "Gestisci integrazioni",
-    "viewIntegrations": "Visualizza integrazioni"
+    "viewIntegrations": "Visualizza integrazioni",
+    "greeting": {
+      "morning": "Buongiorno, {name}!",
+      "afternoon": "Buon pomeriggio, {name}!",
+      "evening": "Buonasera, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Buongiorno!",
+      "afternoon": "Buon pomeriggio!",
+      "evening": "Buonasera!"
+    },
+    "whatCanIHelpWith": "Come posso aiutarti?"
   },
   "prompt": {
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
@@ -278,7 +293,20 @@
     "columnUser": "Utente",
     "emptyTitle": "Poni una domanda per iniziare.",
     "emptyTipLabel": "Suggerimento:",
-    "emptyTipBody": "Non sai cosa chiedere? Puoi chiedere all'Analista IA di suggerirti domande su un argomento specifico."
+    "emptyTipBody": "Non sai cosa chiedere? Puoi chiedere all'Analista IA di suggerirti domande su un argomento specifico.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Esecuzione dell'agente",
@@ -674,6 +702,7 @@
     "placeholder": "Digita {'@'} per menzionare...",
     "loading": "Caricamento…",
     "noResults": "Nessun risultato trovato",
+    "allCategories": "Tutte le categorie",
     "tables": "Tabelle",
     "noTables": "Nessuna tabella.",
     "tools": "Strumenti",
@@ -686,7 +715,10 @@
       "dataSources": "Agenti",
       "queries": "Query",
       "files": "File",
-      "tables": "Tabelle"
+      "tables": "Tabelle",
+      "prompts": "Prompt",
+      "instructions": "Istruzioni",
+      "skills": "Competenze"
     },
     "time": {
       "justNow": "proprio ora",
@@ -1618,7 +1650,11 @@
     "dayWed": "Mer",
     "dayThu": "Gio",
     "dayFri": "Ven",
-    "daySat": "Sab"
+    "daySat": "Sab",
+    "delete": "Elimina",
+    "deleteConfirm": "Eliminare questa attività pianificata? L'operazione non può essere annullata.",
+    "toastDeleted": "Attività pianificata eliminata",
+    "deleteFailed": "Impossibile eliminare l'attività"
   },
   "files": {
     "title": "File",
@@ -2331,7 +2367,11 @@
     "toastUpdated": "Prompt pianificato aggiornato",
     "toastScheduled": "Prompt pianificato",
     "toastError": "Errore",
-    "toastSaveFailed": "Impossibile salvare il prompt pianificato"
+    "toastSaveFailed": "Impossibile salvare il prompt pianificato",
+    "delete": "Elimina",
+    "deleteConfirm": "Eliminare questa attività pianificata? L'operazione non può essere annullata.",
+    "toastDeleted": "Attività pianificata eliminata",
+    "toastDeleteFailed": "Impossibile eliminare l'attività pianificata"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2454,107 @@
       "toastDeleted": "Chiave API eliminata",
       "toastDeleteFailed": "Impossibile eliminare la chiave API"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompt"
+  },
+  "promptParams": {
+    "title": "Compila i parametri — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Seleziona…",
+    "to": "a",
+    "noParams": "Questo prompt non ha parametri.",
+    "cancel": "Annulla",
+    "confirm": "Usa prompt"
+  },
+  "prompts": {
+    "title": "Prompt",
+    "newPrompt": "Nuovo prompt",
+    "createFirst": "Crea il tuo primo prompt",
+    "searchPlaceholder": "Cerca prompt…",
+    "loading": "Caricamento prompt…",
+    "emptyTitle": "Ancora nessun prompt",
+    "emptyHint": "Salva prompt riutilizzabili che il tuo team può eseguire su richiesta.",
+    "noMatches": "Nessun prompt corrisponde ai filtri",
+    "noMatchesHint": "Prova a modificare la ricerca o i filtri.",
+    "filterAll": "Tutti",
+    "allAgents": "Tutti gli agenti",
+    "allUsers": "Tutti gli utenti",
+    "untitled": "Prompt senza titolo",
+    "run": "Esegui",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "required": "obbligatorio",
+    "nParams": "{n} parametri",
+    "scopeGlobal": "Globale",
+    "scopeAgent": "Agente",
+    "scopePrivate": "Privato",
+    "byAuthor": "di {name}",
+    "viewText": "Prompt",
+    "viewParameters": "Parametri",
+    "viewAgents": "Agenti",
+    "runFor": "Esegui per…",
+    "newTitle": "Nuovo prompt",
+    "editTitle": "Modifica prompt",
+    "sectionPrompt": "Prompt",
+    "sectionParameters": "Parametri",
+    "sectionAudience": "Pubblico",
+    "sectionAdvanced": "Avanzate",
+    "titlePlaceholder": "Titolo (facoltativo)",
+    "textPlaceholder": "Scrivi il tuo prompt. Usa {'@'} per le menzioni e {'{'}{'{'}name{'}'}{'}'} per i parametri…",
+    "insertParam": "Inserisci parametro",
+    "insertParamHint": "Usa i segnaposto {'{'}{'{'}name{'}'}{'}'} per i valori da compilare in fase di esecuzione.",
+    "insertParamPromptLabel": "Nome del parametro:",
+    "addParam": "Aggiungi parametro",
+    "removeParam": "Rimuovi",
+    "noParamsYet": "Nessun parametro. Aggiungine uno per raccogliere i valori in fase di esecuzione.",
+    "paramName": "nome",
+    "paramLabel": "Etichetta",
+    "paramRequired": "Obbligatorio",
+    "paramOptions": "Opzioni (separate da virgole)",
+    "typeText": "Testo",
+    "typeNumber": "Numero",
+    "typeEnum": "Scelta",
+    "typeDate": "Data",
+    "typeDateRange": "Intervallo di date",
+    "selectAgents": "Agenti a cui appartiene questo prompt",
+    "noManageableAgents": "Non gestisci alcun agente.",
+    "globalHint": "Visibile a tutti nell'organizzazione.",
+    "privateHint": "Visibile solo a te.",
+    "mode": "Modalità",
+    "modeChat": "Chat",
+    "modeDeep": "Approfondito",
+    "modeTraining": "Addestramento",
+    "model": "Modello",
+    "modelDefault": "Modello predefinito",
+    "cancel": "Annulla",
+    "create": "Crea",
+    "update": "Aggiorna",
+    "toastCreated": "Prompt creato",
+    "toastUpdated": "Prompt aggiornato",
+    "toastSaveFailed": "Impossibile salvare il prompt",
+    "toastDeleted": "Prompt eliminato",
+    "toastDeleteFailed": "Impossibile eliminare il prompt",
+    "deleteConfirm": "Eliminare “{title}”? L'operazione non può essere annullata.",
+    "toastRunFailed": "Impossibile eseguire il prompt",
+    "runForTitle": "Esegui “{title}” per…",
+    "targetMembers": "Membri",
+    "targetGroup": "Gruppo",
+    "searchMembers": "Cerca membri…",
+    "selectGroup": "Seleziona un gruppo…",
+    "nMembers": "{n} membri",
+    "paramsNeeded": "Questo prompt ha parametri: compilali una volta per tutti.",
+    "paramsReady": "Parametri impostati.",
+    "fillParams": "Compila parametri",
+    "editParams": "Modifica parametri",
+    "runForConfirm": "Eseguire “{title}” per {n} membri? I risultati vengono inviati a ciascuno in privato.",
+    "runForAction": "Esegui per i membri",
+    "runForResult": "Eseguito per {ran}, saltati {skipped}.",
+    "toastRunForFailed": "Impossibile eseguire per i membri selezionati",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

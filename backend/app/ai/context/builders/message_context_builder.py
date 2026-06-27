@@ -365,9 +365,9 @@ def _digest_excel_tool(tool_execution) -> str:
 def _digest_scheduled_tool(tool_execution) -> str:
     """One-line digest for scheduled-task tools.
 
-    Records in the conversation history what was scheduled / cancelled (task id
-    + cron), so the planner can dedupe new schedules and cancel the right task
-    on a follow-up turn. Returns an empty string for other tools so callers can
+    Records in the conversation history what was scheduled / edited / cancelled
+    (task id + cron), so the planner can dedupe new schedules and edit or cancel
+    the right task on a follow-up turn. Returns an empty string for other tools so callers can
     fall through to the next elif. The active tasks themselves are listed in the
     <scheduled_tasks> context section.
     """
@@ -389,6 +389,17 @@ def _digest_scheduled_tool(tool_execution) -> str:
         if rj.get('error'):
             parts.append(f"error: {rj.get('error')}")
         return "; ".join(parts) if parts else "cancelled"
+    if name == 'edit_scheduled_task':
+        parts = []
+        if rj.get('task_id'):
+            parts.append(f"task_id: {rj.get('task_id')}")
+        if rj.get('cron_schedule'):
+            parts.append(f"cron: {rj.get('cron_schedule')}")
+        if rj.get('is_active') is not None:
+            parts.append(f"active: {rj.get('is_active')}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts) if parts else "edited"
     return ""
 
 
@@ -419,6 +430,21 @@ def _digest_notification_tool(tool_execution) -> str:
         if rj.get('error'):
             parts.append(f"error: {rj.get('error')}")
         return "; ".join(parts)
+    if name == 'notify':
+        parts = []
+        results = rj.get('results') or []
+        reached = [r for r in results if r.get('delivered')]
+        if reached:
+            who = ", ".join(r.get('email', '?') for r in reached[:5])
+            parts.append(f"notified: {who}")
+        if rj.get('subject'):
+            subj = str(rj.get('subject'))
+            parts.append(f"subject: {subj[:80]}{'…' if len(subj) > 80 else ''}")
+        if rj.get('rejected'):
+            parts.append(f"skipped_non_members: {', '.join(rj.get('rejected'))}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts) if parts else "notified"
     return ""
 
 
@@ -860,11 +886,11 @@ class MessageContextBuilder:
                                     digest = _digest_excel_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task') and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task', 'edit_scheduled_task') and tool_execution.result_json:
                                     digest = _digest_scheduled_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('send_email', 'notify') and tool_execution.result_json:
                                     digest = _digest_notification_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
@@ -1456,11 +1482,11 @@ class MessageContextBuilder:
                                 digest = _digest_excel_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task') and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task', 'edit_scheduled_task') and tool_execution.result_json:
                                 digest = _digest_scheduled_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('send_email', 'notify') and tool_execution.result_json:
                                 digest = _digest_notification_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest

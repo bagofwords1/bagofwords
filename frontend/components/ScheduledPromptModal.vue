@@ -163,9 +163,21 @@
             </div>
 
             <template #footer>
-                <div class="flex justify-end gap-2">
-                    <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">{{ $t('scheduledPrompt.cancel') }}</UButton>
-                    <UButton color="blue" size="xs" :loading="isSaving" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
+                <div class="flex items-center justify-between gap-2">
+                    <UButton
+                        v-if="isEditing"
+                        color="red"
+                        variant="ghost"
+                        size="xs"
+                        icon="i-heroicons-trash"
+                        :loading="isDeleting"
+                        @click="deleteScheduledPrompt"
+                    >{{ $t('scheduledPrompt.delete') }}</UButton>
+                    <span v-else />
+                    <div class="flex justify-end gap-2">
+                        <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">{{ $t('scheduledPrompt.cancel') }}</UButton>
+                        <UButton color="blue" size="xs" :loading="isSaving" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
+                    </div>
                 </div>
             </template>
         </UCard>
@@ -190,10 +202,11 @@ const props = defineProps<{
     draftModel?: string
 }>()
 
-const emit = defineEmits(['saved'])
+const emit = defineEmits(['saved', 'deleted'])
 
 const isOpen = defineModel<boolean>({ default: false })
 const isSaving = ref(false)
+const isDeleting = ref(false)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
 const isEditing = computed(() => !!props.scheduledPrompt)
@@ -412,6 +425,26 @@ async function saveScheduledPrompt(prompt: { content: string; mentions?: any[]; 
         toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastSaveFailed') })
     } finally {
         isSaving.value = false
+    }
+}
+
+async function deleteScheduledPrompt() {
+    if (!isEditing.value || isDeleting.value) return
+    if (!confirm(t('scheduledPrompt.deleteConfirm'))) return
+    isDeleting.value = true
+    try {
+        const response = await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts/${props.scheduledPrompt.id}`, {
+            method: 'DELETE',
+        })
+        if ((response as any).error?.value) throw new Error('Delete failed')
+        toast.add({ title: t('scheduledPrompt.toastDeleted'), color: 'green' })
+        isOpen.value = false
+        emit('deleted', props.scheduledPrompt.id)
+        emit('saved')
+    } catch {
+        toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastDeleteFailed') })
+    } finally {
+        isDeleting.value = false
     }
 }
 

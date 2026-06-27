@@ -45,12 +45,23 @@
     :initial-text="instructionInitialText"
     @instructionSaved="onInstructionSaved"
   />
+
+  <!-- Parameter fill for a selected prompt (only when it has parameters). -->
+  <PromptParametersModal
+    v-if="showPromptParams"
+    v-model="showPromptParams"
+    :prompt="promptForParams"
+    @confirm="onPromptParamsConfirm"
+    @cancel="showPromptParams = false"
+  />
 </template>
 
 <script setup lang="ts">
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import PromptParametersModal from '~/components/prompt/PromptParametersModal.vue'
 import { useCan, useCanAny } from '~/composables/usePermissions'
+import { usePromptFill } from '~/composables/usePromptFill'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -74,6 +85,7 @@ const loading = ref(false)
 const reportItems = ref<any[]>([])
 const agentItemsRaw = ref<any[]>([])
 const instructionItems = ref<any[]>([])
+const promptItems = ref<any[]>([])
 
 async function fetchReports(q: string) {
   try {
@@ -89,6 +101,14 @@ async function fetchInstructions(q: string) {
     const res: any = await useMyFetch(qs, { method: 'GET' })
     instructionItems.value = res?.data?.value?.items ?? []
   } catch { instructionItems.value = [] }
+}
+
+async function fetchPrompts(q: string) {
+  try {
+    const qs = `/prompts?limit=5${q ? `&search=${encodeURIComponent(q)}` : ''}`
+    const res: any = await useMyFetch(qs, { method: 'GET' })
+    promptItems.value = res?.data?.value?.prompts ?? []
+  } catch { promptItems.value = [] }
 }
 
 async function fetchAgents() {
@@ -107,7 +127,7 @@ watch(queryStr, (q) => {
   clearTimeout(debounceT)
   loading.value = true
   debounceT = setTimeout(async () => {
-    await Promise.all([fetchReports(q), fetchInstructions(q)])
+    await Promise.all([fetchReports(q), fetchInstructions(q), fetchPrompts(q)])
     loading.value = false
   }, 200)
 })
@@ -119,7 +139,7 @@ watch(isOpen, async (open) => {
   paletteRef.value?.updateQuery?.('')
   queryStr.value = ''
   loading.value = true
-  await Promise.all([fetchReports(''), fetchInstructions(''), fetchAgents()])
+  await Promise.all([fetchReports(''), fetchInstructions(''), fetchPrompts(''), fetchAgents()])
   loading.value = false
 })
 
@@ -200,6 +220,19 @@ const agentsGroup = computed(() => {
   }
 })
 
+const promptsGroup = computed(() => ({
+  key: 'prompts',
+  label: t('commandPalette.prompts'),
+  static: true,
+  commands: promptItems.value.map((p: any) => ({
+    id: `prompt-${p.id}`,
+    label: p.title || truncate(p.text),
+    icon: 'i-heroicons-command-line',
+    suffix: (p.parameters && p.parameters.length) ? `${p.parameters.length} ${p.parameters.length === 1 ? 'param' : 'params'}` : undefined,
+    prompt: p,
+  })),
+}))
+
 const instructionsGroup = computed(() => ({
   key: 'instructions',
   label: t('commandPalette.instructions'),
@@ -216,6 +249,7 @@ const instructionsGroup = computed(() => ({
 const groups = computed(() => {
   const g: any[] = [actionsGroup.value]
   if (reportsGroup.value.commands.length) g.push(reportsGroup.value)
+  if (promptsGroup.value.commands.length) g.push(promptsGroup.value)
   if (agentsGroup.value.commands.length) g.push(agentsGroup.value)
   if (instructionsGroup.value.commands.length) g.push(instructionsGroup.value)
   return g
@@ -225,25 +259,63 @@ const groups = computed(() => {
 function onSelect(option: any) {
   if (!option) return
   if (option.click) { close(); option.click(); return }
+  if (option.prompt) { selectPrompt(option.prompt); return }
   if (option.instruction) { openInstruction(option.instruction); return }
   if (option.to) { close(); router.push(option.to) }
+}
+
+// --- prompts ---
+const { substitute, mergeMentions } = usePromptFill()
+const showPromptParams = ref(false)
+const promptForParams = ref<any>(null)
+
+function selectPrompt(prompt: any) {
+  if (prompt?.parameters && prompt.parameters.length) {
+    // Fill parameters BEFORE creating the report. Close the palette first so
+    // the parameter modal isn't trapped behind it.
+    promptForParams.value = prompt
+    close()
+    nextTick(() => { showPromptParams.value = true })
+    return
+  }
+  close()
+  createReport(prompt.text || '', mergeMentions([], prompt.mentions || []))
+}
+
+function onPromptParamsConfirm(values: Record<string, any>) {
+  const prompt = promptForParams.value
+  showPromptParams.value = false
+  if (!prompt) return
+  const text = substitute(prompt.text || '', values)
+  const mentions = mergeMentions([], prompt.mentions || [])
+  close()
+  createReport(text, mentions)
 }
 
 // --- actions ---
 const { initAgent, selectedAgentObjects } = useAgent()
 const creatingReport = ref(false)
-async function createReport(initialPrompt: string) {
+async function createReport(initialPrompt: string, mentions: any[] = []) {
   if (creatingReport.value) return
   creatingReport.value = true
   try {
     const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
+    // Attach any data-source mentions carried by a consumed prompt so the new
+    // report has the right context (dedup against the agent selector's ids).
+    const promptDsIds = (mentions || [])
+      .filter((g: any) => g?.name === 'DATA SOURCES')
+      .flatMap((g: any) => (g.items || []).map((it: any) => it.id))
+    const allDsIds = Array.from(new Set([...dataSourceIds, ...promptDsIds]))
     const res: any = await useMyFetch('/reports', {
       method: 'POST',
-      body: JSON.stringify({ title: 'untitled report', files: [], data_sources: dataSourceIds }),
+      body: JSON.stringify({ title: 'untitled report', files: [], data_sources: allDsIds }),
     })
     const data: any = res?.data?.value
     if (data?.id) {
-      router.push({ path: `/reports/${data.id}`, query: initialPrompt ? { prompt: initialPrompt } : undefined })
+      const query: any = {}
+      if (initialPrompt) query.prompt = initialPrompt
+      if (mentions && mentions.length) query.mentions = encodeURIComponent(JSON.stringify(mentions))
+      router.push({ path: `/reports/${data.id}`, query: Object.keys(query).length ? query : undefined })
     }
   } finally {
     creatingReport.value = false

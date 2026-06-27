@@ -488,6 +488,7 @@ class InstructionService:
         skip: int = 0,
         limit: int = 50,
         status: Optional[str] = None,
+        kind: Optional[str] = None,
         categories: Optional[List[str]] = None,
         include_own: bool = True,
         include_drafts: bool = False,
@@ -537,7 +538,7 @@ class InstructionService:
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
-            current_user=current_user,
+            current_user=current_user, kind=kind,
         )
 
     async def get_available_source_types(
@@ -2345,6 +2346,7 @@ class InstructionService:
         build_id: Optional[str] = None,
         include_global: bool = True,
         current_user: Optional[User] = None,
+        kind: Optional[str] = None,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -2436,6 +2438,8 @@ class InstructionService:
         
         if status:
             filter_conditions.append(Instruction.status == status)
+        if kind:
+            filter_conditions.append(Instruction.kind == kind)
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
         if data_source_ids:

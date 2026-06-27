@@ -139,7 +139,17 @@ class ReportService:
                 report.conversation_share_enabled = False
 
         # Update shares list
+        newly_added_user_ids: list[str] = []
         if visibility == 'shared' and shared_user_ids is not None:
+            # Snapshot who already had this share so we only notify *new* recipients.
+            existing_rows = (await db.execute(
+                select(ReportShare.user_id).where(
+                    ReportShare.report_id == report_id,
+                    ReportShare.share_type == share_type,
+                    ReportShare.deleted_at.is_(None),
+                )
+            )).all()
+            existing_uids = {str(r[0]) for r in existing_rows}
             # Remove existing shares for this type
             await db.execute(
                 delete(ReportShare).where(
@@ -155,6 +165,7 @@ class ReportService:
                     share_type=share_type,
                 )
                 db.add(share)
+            newly_added_user_ids = [str(u) for u in shared_user_ids if str(u) not in existing_uids]
         elif visibility != 'shared':
             # Clear shares if moving away from shared mode
             await db.execute(
@@ -166,6 +177,19 @@ class ReportService:
 
         await db.commit()
         await db.refresh(report)
+
+        # Notify-first: the durable in-app notification is the canonical record of
+        # "shared with you" — created here on the share grant itself (email stays
+        # the explicit opt-in action). Non-fatal: sharing must not depend on it.
+        if newly_added_user_ids:
+            try:
+                from app.services.inbox_service import inbox_service
+                await inbox_service.notify_share(
+                    db, report=report, share_type=share_type,
+                    user_ids=newly_added_user_ids, actor_user=current_user,
+                )
+            except Exception:
+                logger.warning("share in-app notification failed", exc_info=True)
 
         # Telemetry
         try:
@@ -665,6 +689,24 @@ class ReportService:
             from app.settings.config import settings as app_settings
             from app.dependencies import _locale_from_org
             report_url = f"{app_settings.bow_config.base_url}/r/{report_id}"
+            # notify-first: durable in-app row for user subscribers (collapsed per
+            # report so repeated runs refresh one entry). Email follows.
+            try:
+                from app.services.inbox_service import inbox_service
+                user_ids = [str(s.get("id")) for s in report_orm.notification_subscribers
+                            if s.get("type") == "user" and s.get("id")]
+                if user_ids:
+                    await inbox_service.notify_users(
+                        db, organization_id=str(report_orm.organization_id), user_ids=user_ids,
+                        source="schedule", type="scheduled_run",
+                        title=f'"{report_orm.title or "Untitled"}" ran',
+                        body="Your scheduled report ran.",
+                        link=f"/reports/{report_id}",
+                        subject={"kind": "report", "report_id": str(report_id)},
+                        group_key=f"schedule:{report_id}",
+                    )
+            except Exception:
+                logger.warning("scheduled-report in-app notification failed", exc_info=True)
             asyncio.create_task(
                 notification_service.send_scheduled_report_results(
                     report_id=report_id,
