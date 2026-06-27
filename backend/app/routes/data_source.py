@@ -19,7 +19,11 @@ from app.schemas.datasource_table_schema import (
     DeltaUpdateTablesResponse,
 )
 from app.core.permissions_decorator import requires_permission, requires_resource_permission, check_resource_permissions
+from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+from app.schemas.data_source_registry import tool_provider_types
 from app.models.data_source import DataSource
+from app.models.connection import Connection
+from sqlalchemy import select
 
 router = APIRouter(tags=["data_sources"])
 data_source_service = DataSourceService()
@@ -84,13 +88,47 @@ async def get_data_source_fields(
     return await data_source_service.get_data_source_fields(db, data_source_type, organization, current_user, auth_policy=auth_policy)
 
 @router.post("/data_sources", response_model=DataSourceSchema)
-@requires_permission('create_data_source')
 async def create_data_source(
     data_source: DataSourceCreate,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    # Permission: full create rights via `create_data_source`/admin, OR a
+    # member self-serving a PRIVATE tools-only connector via
+    # `create_private_connector`. The latter is forced private (is_public=False,
+    # owned by the creator) so members can't publish org-wide sources.
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    is_admin = FULL_ADMIN in resolved.org_permissions
+    can_create_ds = is_admin or resolved.has_org_permission('create_data_source')
+
+    # Is this request a tools-only connector (mcp/custom_api)?
+    tps = tool_provider_types()
+    connector_request = False
+    if data_source.type:
+        connector_request = data_source.type in tps
+    elif data_source.connection_id or data_source.connection_ids:
+        ids = list(data_source.connection_ids or [data_source.connection_id])
+        conns = (await db.execute(
+            select(Connection).where(
+                Connection.id.in_(ids),
+                Connection.organization_id == organization.id,
+            )
+        )).scalars().all()
+        connector_request = bool(conns) and all(c.type in tps for c in conns)
+
+    if can_create_ds:
+        pass
+    elif connector_request and (is_admin or resolved.has_org_permission('create_private_connector')):
+        # Force private ownership for the self-serve connector path.
+        data_source.is_public = False
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to create a data source. "
+                   "Members can create private connectors only.",
+        )
+
     # Check resource-level permission on connection(s) being linked
     connection_ids = []
     if data_source.connection_ids:

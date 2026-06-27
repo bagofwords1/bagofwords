@@ -206,6 +206,11 @@ class DataSourceListItemSchema(BaseModel):
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 
+    # True when every connection is a tool provider (mcp/custom_api, i.e.
+    # data_shape="tools"). Lets /agents surface these as "connectors" — a
+    # lightweight, often private, tools-only data source — vs analytical agents.
+    is_connector: bool = False
+
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
     auth_policy: Optional[str] = None

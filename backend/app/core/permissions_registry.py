@@ -27,6 +27,10 @@ PERMISSION_CATEGORIES = {
     "Data & Connections": [
         "create_data_source",
         "manage_connections",
+        # Self-serve: create a PRIVATE, tools-only connector (mcp/custom_api)
+        # owned by the member. Does NOT grant creating org-wide data sources or
+        # database/file agents — those still require create_data_source.
+        "create_private_connector",
     ],
     "Instructions": [
         "manage_instructions",
@@ -128,6 +132,9 @@ DEFAULT_MEMBER_PERMISSIONS = [
     "publish_reports",
     "manage_files",
     "view_members",
+    # Members may connect their own private tools-only connectors (Gmail,
+    # Monday, MCP) without org-wide data-source governance.
+    "create_private_connector",
 ]
 
 # Admin: gets all org perms via full_admin_access wildcard.
