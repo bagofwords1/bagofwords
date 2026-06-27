@@ -2656,7 +2656,7 @@
     "goHome": "Go home"
   },
   "profile": {
-    "menuItem": "Profile",
+    "menuItem": "Account Settings",
     "nav": {
       "general": "General",
       "instructions": "Custom Instructions",

@@ -231,10 +231,13 @@
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
             :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
             <template #item="{ item }">
-              <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span v-else class="w-4 h-4 shrink-0"></span>
-              <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              <span v-if="item.isVersion" class="text-[11px] text-gray-400 dark:text-gray-500">{{ item.label }}</span>
+              <template v-else>
+                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-else class="w-4 h-4 shrink-0"></span>
+                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              </template>
             </template>
              <button :class="[
                'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
@@ -256,13 +259,6 @@
               </template>
             </button>
           </UDropdown>
-        </li>
-        <li v-if="version && !isCollapsed">
-          <UTooltip :text="$t('nav.version')" :popper="{ placement: tooltipPlacement }">
-            <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900 dark:hover:text-white">
-              {{ version }}
-            </div>
-          </UTooltip>
         </li>
       </ul>
     </div>
@@ -420,7 +416,7 @@
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
     { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
-    { href: '/prompts', icon: 'heroicons-sparkles', label: 'nav.prompts' },
+    { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
     { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true },
@@ -722,6 +718,9 @@
       icon: 'heroicons-arrow-left',
       click: signOff
     }])
+    if (version) {
+      groups.push([{ label: `v${version}`, isVersion: true, disabled: true }])
+    }
     return groups
   })
 
