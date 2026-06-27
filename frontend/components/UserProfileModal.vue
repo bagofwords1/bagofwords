@@ -330,6 +330,101 @@
               <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('profile.appearance.languageDescription') }}</p>
             </div>
           </div>
+
+          <!-- MCP Server (mirrors McpModal's content) -->
+          <div v-else-if="activeTab === 'mcp'" class="space-y-5">
+            <div>
+              <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('mcpServerModal.title') }}</h3>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('mcpServerModal.subtitle') }}</p>
+            </div>
+
+            <div v-if="mcpLoading" class="py-12 flex items-center justify-center">
+              <Spinner class="w-6 h-6 text-gray-400" />
+            </div>
+
+            <template v-else>
+              <!-- Server status + generate/regenerate -->
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+                  <div class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"></div>
+                  <code class="font-mono text-gray-700 dark:text-gray-300 truncate">{{ mcpServerUrl }}</code>
+                </div>
+                <UButton size="xs" color="blue" :loading="mcpCreating" class="shrink-0" @click="regenerateMcpToken">
+                  <UIcon :name="apiKeys.length === 0 ? 'heroicons-plus' : 'heroicons-arrow-path'" class="w-3.5 h-3.5 mr-1" />
+                  {{ apiKeys.length === 0 ? $t('mcpServerModal.generateToken') : $t('mcpServerModal.regenerateToken') }}
+                </UButton>
+              </div>
+
+              <!-- Configuration -->
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
+                <div class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <pre class="px-3 py-2.5 pr-20 font-mono text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">{{ mcpConfig }}</pre>
+                  <div class="absolute top-2 right-2">
+                    <UTooltip :text="mcpCurrentToken ? '' : (apiKeys.length === 0 ? $t('mcpServerModal.generateTokenToCopy') : $t('mcpServerModal.regenerateTokenToCopy'))" :popper="{ placement: 'top' }">
+                      <button
+                        @click="mcpCurrentToken && copyMcp(mcpConfig)"
+                        :disabled="!mcpCurrentToken"
+                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
+                      >
+                        <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
+                        {{ $t('mcpServerModal.copy') }}
+                      </button>
+                    </UTooltip>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Access token -->
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
+                <div v-if="apiKeys.length === 0 && !mcpCurrentToken" class="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-dashed px-4 py-6 text-center">
+                  <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">{{ $t('mcpServerModal.noTokenYet') }}</p>
+                  <UButton size="sm" color="blue" :loading="mcpCreating" @click="regenerateMcpToken">
+                    <UIcon name="heroicons-plus" class="w-4 h-4 mr-1" />
+                    {{ $t('mcpServerModal.generateToken') }}
+                  </UButton>
+                </div>
+                <div v-else class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div class="px-3 py-2 pr-20 flex items-center gap-3">
+                    <code class="font-mono text-xs text-gray-700 dark:text-gray-300 truncate">{{ mcpCurrentToken || '••••••••••••••••••••••••••••••••' }}</code>
+                    <span v-if="!mcpCurrentToken && apiKeys.length > 0" class="text-[10px] text-gray-400 shrink-0">{{ mcpFormatDate(apiKeys[0].created_at) }}</span>
+                  </div>
+                  <div class="absolute top-1/2 -translate-y-1/2 right-2">
+                    <UTooltip :text="mcpCurrentToken ? '' : $t('mcpServerModal.regenerateTokenToCopy')" :popper="{ placement: 'top' }">
+                      <button
+                        @click="mcpCurrentToken && copyMcp(mcpCurrentToken)"
+                        :disabled="!mcpCurrentToken"
+                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
+                      >
+                        <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
+                        {{ $t('mcpServerModal.copy') }}
+                      </button>
+                    </UTooltip>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Manage tokens -->
+              <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
+                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                  <UIcon :name="mcpShowTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
+                  {{ $t('mcpServerModal.manageTokens', { n: apiKeys.length }) }}
+                </button>
+                <div v-if="mcpShowTokens" class="mt-3 border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700">
+                  <div v-for="key in apiKeys" :key="key.id" class="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <code class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ key.key_prefix }}•••••••••</code>
+                      <span class="text-[10px] text-gray-400">{{ mcpFormatDate(key.created_at) }}</span>
+                    </div>
+                    <button @click="deleteApiKey(key)" class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" :title="$t('mcpServerModal.deleteTokenTitle')">
+                      <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
       </section>
     </div>
@@ -595,6 +690,66 @@ async function deleteApiKey(key: ApiKey) {
   }
 }
 
+// --- MCP server (mirrors McpModal; shares the same /api/api_keys list) ---
+const mcpLoading = ref(false)
+const mcpCreating = ref(false)
+const mcpBaseUrl = ref('')
+const mcpCurrentToken = ref<string | null>(null)
+const mcpShowTokens = ref(false)
+const mcpLoaded = ref(false)
+
+const mcpServerUrl = computed(() => {
+  const base = mcpBaseUrl.value || (typeof window !== 'undefined' ? window.location.origin : '')
+  return `${base}/api/mcp`
+})
+const mcpConfig = computed(() => {
+  const token = mcpCurrentToken.value || '<YOUR_API_KEY>'
+  return JSON.stringify({
+    mcpServers: { bagofwords: { url: mcpServerUrl.value, headers: { Authorization: `Bearer ${token}` } } },
+  }, null, 2)
+})
+function mcpFormatDate(dateStr: string) {
+  return _apiKeyDf.format(dateStr, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+async function copyMcp(text: string | undefined) {
+  if (!text) return
+  await navigator.clipboard.writeText(text)
+  toast.add({ title: t('mcpServerModal.toastCopied'), icon: 'i-heroicons-check-circle', color: 'green' })
+}
+async function loadMcpSettings() {
+  try {
+    const res = await useMyFetch('/settings')
+    if (res.data?.value) mcpBaseUrl.value = (res.data.value as any).base_url || ''
+  } catch {}
+}
+async function regenerateMcpToken() {
+  mcpCreating.value = true
+  try {
+    const res = await useMyFetch('/api/api_keys', { method: 'POST', body: { name: 'MCP' } })
+    const created = res.data?.value as ApiKey | null
+    if (res.status.value !== 'success' || !created) throw new Error('create failed')
+    apiKeys.value = [created, ...apiKeys.value]
+    if (created.key) {
+      mcpCurrentToken.value = created.key
+      toast.add({ title: t('mcpServerModal.toastTokenGenerated'), icon: 'i-heroicons-check-circle', color: 'green' })
+    }
+  } catch {
+    toast.add({ title: t('mcpServerModal.toastTokenFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
+  } finally {
+    mcpCreating.value = false
+  }
+}
+async function loadMcp() {
+  if (mcpLoaded.value) return
+  mcpLoading.value = true
+  mcpCurrentToken.value = null
+  mcpShowTokens.value = false
+  apiKeysLoaded.value = false // ensure a fresh key list for the MCP view
+  await Promise.all([loadMcpSettings(), loadApiKeys()])
+  mcpLoaded.value = true
+  mcpLoading.value = false
+}
+
 // --- Usage (per-user quota summary from whoami) ---
 const emptyMetric = { used: 0, limit: null as number | null }
 const usage = computed(() => {
@@ -701,14 +856,18 @@ watch(isOpen, (open) => {
     loadOrgLocale()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()
+    if (activeTab.value === 'mcp') loadMcp()
   } else {
     // Reset one-time key reveal and force a fresh fetch on next open.
     newApiKey.value = null
     apiKeysLoaded.value = false
+    mcpLoaded.value = false
+    mcpCurrentToken.value = null
   }
 }, { immediate: true })
 watch(activeTab, (tab) => {
   if (tab === 'instructions') loadInstructions()
   if (tab === 'apiKeys') loadApiKeys()
+  if (tab === 'mcp') loadMcp()
 })
 </script>
