@@ -61,7 +61,9 @@
     "collapseSidebar": "Réduire la barre latérale",
     "version": "Version",
     "loggedInAs": "Connecté en tant que {name}",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Administration"
   },
   "auth": {
     "signIn": "Connexion",
@@ -133,7 +135,18 @@
     "connectYourLLM": "Connectez votre LLM",
     "setupComplete": "Configuration terminée — vous pouvez maintenant poser des questions en langage naturel.",
     "manageIntegrations": "Gérer les intégrations",
-    "viewIntegrations": "Voir les intégrations"
+    "viewIntegrations": "Voir les intégrations",
+    "greeting": {
+      "morning": "Bonjour, {name}!",
+      "afternoon": "Bonjour, {name}!",
+      "evening": "Bonsoir, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Bonjour!",
+      "afternoon": "Bonjour!",
+      "evening": "Bonsoir!"
+    },
+    "whatCanIHelpWith": "Comment puis-je vous aider ?"
   },
   "prompt": {
     "placeholderDefault": "Demandez des données, un tableau de bord ou une analyse approfondie",
@@ -279,7 +292,19 @@
     "columnUser": "Utilisateur",
     "emptyTitle": "Posez une question pour commencer.",
     "emptyTipLabel": "Astuce :",
-    "emptyTipBody": "Vous ne savez pas quoi demander ? Vous pouvez demander à l'Analyste IA de suggérer des questions sur un sujet spécifique."
+    "emptyTipBody": "Vous ne savez pas quoi demander ? Vous pouvez demander à l'Analyste IA de suggérer des questions sur un sujet spécifique.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "Exécution de l'agent",

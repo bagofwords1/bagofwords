@@ -61,7 +61,9 @@
     "collapseSidebar": "Fäll ihop sidopanel",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",
-    "prompts": "Prompter"
+    "prompts": "Prompter",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Administration"
   },
   "auth": {
     "signIn": "Logga in",
@@ -133,7 +135,18 @@
     "connectYourLLM": "Anslut din LLM",
     "setupComplete": "Konfigurationen är klar — du kan nu börja ställa frågor på naturligt språk.",
     "manageIntegrations": "Hantera integrationer",
-    "viewIntegrations": "Visa integrationer"
+    "viewIntegrations": "Visa integrationer",
+    "greeting": {
+      "morning": "God morgon, {name}!",
+      "afternoon": "God eftermiddag, {name}!",
+      "evening": "God kväll, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "God morgon!",
+      "afternoon": "God eftermiddag!",
+      "evening": "God kväll!"
+    },
+    "whatCanIHelpWith": "Vad kan jag hjälpa till med?"
   },
   "prompt": {
     "placeholderDefault": "Be om data, en instrumentpanel eller en djupanalys",
@@ -279,7 +292,19 @@
     "columnUser": "Användare",
     "emptyTitle": "Ställ en fråga för att komma igång.",
     "emptyTipLabel": "Tips:",
-    "emptyTipBody": "Vet du inte vad du ska fråga? Du kan be AI-analytikern att föreslå frågor om ett specifikt ämne."
+    "emptyTipBody": "Vet du inte vad du ska fråga? Du kan be AI-analytikern att föreslå frågor om ett specifikt ämne.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "Agentkörning",

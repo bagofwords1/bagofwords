@@ -70,16 +70,6 @@
             <EmptyHint v-if="skillCount === 0" text="No skills yet." />
             <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
           </TreeGroup>
-          <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0"
-                  style="padding-left:6px;padding-right:8px"
-                  :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
-                  @click="openReview(null)">
-            <span class="w-3 shrink-0"></span>
-            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-            <span class="flex-1 text-left truncate">Review</span>
-            <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 tabular-nums">{{ reviewCount }}</span>
-          </button>
-
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">

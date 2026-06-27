@@ -193,6 +193,7 @@
             <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
                 <!-- Instructions -->
                 <button
+                class="hidden"
                     :class="props.compact
                         ? 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
                         : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"

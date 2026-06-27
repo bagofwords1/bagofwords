@@ -61,7 +61,9 @@
     "collapseSidebar": "Свернуть боковую панель",
     "version": "Версия",
     "loggedInAs": "Вошли как {name}",
-    "prompts": "Промпты"
+    "prompts": "Промпты",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Администрирование"
   },
   "auth": {
     "signIn": "Вход",
@@ -133,7 +135,18 @@
     "connectYourLLM": "Подключите свою LLM",
     "setupComplete": "Настройка завершена — теперь вы можете задавать вопросы на естественном языке.",
     "manageIntegrations": "Управление интеграциями",
-    "viewIntegrations": "Показать интеграции"
+    "viewIntegrations": "Показать интеграции",
+    "greeting": {
+      "morning": "Доброе утро, {name}!",
+      "afternoon": "Добрый день, {name}!",
+      "evening": "Добрый вечер, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Доброе утро!",
+      "afternoon": "Добрый день!",
+      "evening": "Добрый вечер!"
+    },
+    "whatCanIHelpWith": "Чем я могу помочь?"
   },
   "prompt": {
     "placeholderDefault": "Запросите данные, дашборд или глубокий анализ",
@@ -279,7 +292,19 @@
     "columnUser": "Пользователь",
     "emptyTitle": "Задайте вопрос, чтобы начать.",
     "emptyTipLabel": "Совет:",
-    "emptyTipBody": "Не знаете, что спросить? Вы можете попросить ИИ-аналитика предложить вопросы по конкретной теме."
+    "emptyTipBody": "Не знаете, что спросить? Вы можете попросить ИИ-аналитика предложить вопросы по конкретной теме.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "Выполнение агента",

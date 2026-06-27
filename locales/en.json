@@ -81,7 +81,9 @@
     "collapseSidebar": "Collapse sidebar",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Admin"
   },
   "auth": {
     "signIn": "Login",
@@ -153,7 +155,18 @@
     "connectYourLLM": "Connect your LLM",
     "setupComplete": "Setup complete — you can now start asking questions in natural language.",
     "manageIntegrations": "Manage integrations",
-    "viewIntegrations": "View integrations"
+    "viewIntegrations": "View integrations",
+    "greeting": {
+      "morning": "Good morning, {name}!",
+      "afternoon": "Good afternoon, {name}!",
+      "evening": "Good evening, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Good morning!",
+      "afternoon": "Good afternoon!",
+      "evening": "Good evening!"
+    },
+    "whatCanIHelpWith": "What can I help with?"
   },
   "prompt": {
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
@@ -339,7 +352,19 @@
       "dashboard": "Dashboard",
       "slides": "Slides",
       "deep": "Deep Analytics"
-    }
+    },
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "Agent Execution",

@@ -77,12 +77,13 @@
             @click="item.needs_connect ? connectAgent(item) : selectItem(item, category.name)"
           >
             <div :class="['flex items-center space-x-2 flex-1 min-w-0', { 'opacity-50': item.needs_connect }]">
-              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
+              <DataSourceIcon v-if="category.name === 'tables'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'data_sources'" name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-              <Icon v-else-if="category.name === 'instructions'" :name="item.kind === 'skill' ? 'heroicons-sparkles' : 'heroicons-book-open'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-              <Icon v-else-if="category.name === 'prompts'" name="heroicons-command-line" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'instructions'" :name="item.kind === 'skill' ? 'heroicons-sparkles' : 'heroicons-document-text'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'prompts'" name="heroicons-book-open" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ item.name }}</span>
@@ -490,9 +491,9 @@ const showCategoryList = computed(() =>
 // per-item icons used in the item view.
 function categoryIcon(name: string): string {
   switch (name) {
-    case 'data_sources': return 'heroicons-cube-transparent'
-    case 'instructions': return 'heroicons-book-open'
-    case 'prompts': return 'heroicons-command-line'
+    case 'data_sources': return 'heroicons-cube'
+    case 'instructions': return 'heroicons-document-text'
+    case 'prompts': return 'heroicons-book-open'
     case 'files': return 'heroicons-document'
     case 'entities': return 'heroicons-chart-bar'
     default: return 'heroicons-tag'

@@ -61,7 +61,9 @@
     "collapseSidebar": "Seitenleiste einklappen",
     "version": "Version",
     "loggedInAs": "Angemeldet als {name}",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Verwaltung"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -133,7 +135,18 @@
     "connectYourLLM": "Verbinden Sie Ihr LLM",
     "setupComplete": "Einrichtung abgeschlossen — Sie können jetzt Fragen in natürlicher Sprache stellen.",
     "manageIntegrations": "Integrationen verwalten",
-    "viewIntegrations": "Integrationen anzeigen"
+    "viewIntegrations": "Integrationen anzeigen",
+    "greeting": {
+      "morning": "Guten Morgen, {name}!",
+      "afternoon": "Guten Tag, {name}!",
+      "evening": "Guten Abend, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Guten Morgen!",
+      "afternoon": "Guten Tag!",
+      "evening": "Guten Abend!"
+    },
+    "whatCanIHelpWith": "Womit kann ich helfen?"
   },
   "prompt": {
     "placeholderDefault": "Fragen Sie nach Daten, einem Dashboard oder einer detaillierten Analyse",
@@ -279,7 +292,19 @@
     "columnUser": "Benutzer",
     "emptyTitle": "Stellen Sie eine Frage, um zu beginnen.",
     "emptyTipLabel": "Tipp:",
-    "emptyTipBody": "Sie wissen nicht, was Sie fragen sollen? Sie können den KI-Analysten bitten, Fragen zu einem bestimmten Thema vorzuschlagen."
+    "emptyTipBody": "Sie wissen nicht, was Sie fragen sollen? Sie können den KI-Analysten bitten, Fragen zu einem bestimmten Thema vorzuschlagen.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "Agentenausführung",

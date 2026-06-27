@@ -61,7 +61,9 @@
     "collapseSidebar": "طيّ الشريط الجانبي",
     "version": "الإصدار",
     "loggedInAs": "تم تسجيل الدخول باسم {name}",
-    "prompts": "المطالبات"
+    "prompts": "المطالبات",
+    "starOnGithub": "Star our GitHub",
+    "admin": "الإدارة"
   },
   "auth": {
     "signIn": "تسجيل الدخول",
@@ -133,7 +135,18 @@
     "connectYourLLM": "اربط نموذج اللغة الكبير الخاص بك",
     "setupComplete": "اكتمل الإعداد — يمكنك الآن البدء بطرح الأسئلة باللغة الطبيعية.",
     "manageIntegrations": "إدارة التكاملات",
-    "viewIntegrations": "عرض التكاملات"
+    "viewIntegrations": "عرض التكاملات",
+    "greeting": {
+      "morning": "صباح الخير, {name}!",
+      "afternoon": "مساء الخير, {name}!",
+      "evening": "مساء الخير, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "صباح الخير!",
+      "afternoon": "مساء الخير!",
+      "evening": "مساء الخير!"
+    },
+    "whatCanIHelpWith": "بماذا يمكنني المساعدة؟"
   },
   "prompt": {
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
@@ -279,7 +292,19 @@
     "columnUser": "المستخدم",
     "emptyTitle": "اطرح سؤالًا للبدء.",
     "emptyTipLabel": "تلميح:",
-    "emptyTipBody": "لست متأكدًا مما يجب طرحه؟ يمكنك أن تطلب من محلل الذكاء الاصطناعي اقتراح أسئلة حول موضوع محدد."
+    "emptyTipBody": "لست متأكدًا مما يجب طرحه؟ يمكنك أن تطلب من محلل الذكاء الاصطناعي اقتراح أسئلة حول موضوع محدد.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "تنفيذ الوكيل",

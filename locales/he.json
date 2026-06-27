@@ -64,7 +64,9 @@
     "collapseSidebar": "כיווץ סרגל הצד",
     "version": "גרסה",
     "loggedInAs": "מחובר/ת בתור {name}",
-    "prompts": "פרומפטים"
+    "prompts": "פרומפטים",
+    "starOnGithub": "Star our GitHub",
+    "admin": "ניהול"
   },
   "auth": {
     "signIn": "התחברות",
@@ -136,7 +138,18 @@
     "connectYourLLM": "חיבור ה-LLM שלכם",
     "setupComplete": "ההתקנה הושלמה — כעת תוכלו להתחיל לשאול שאלות בשפה טבעית.",
     "manageIntegrations": "ניהול אינטגרציות",
-    "viewIntegrations": "צפייה באינטגרציות"
+    "viewIntegrations": "צפייה באינטגרציות",
+    "greeting": {
+      "morning": "בוקר טוב, {name}!",
+      "afternoon": "צהריים טובים, {name}!",
+      "evening": "ערב טוב, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "בוקר טוב!",
+      "afternoon": "צהריים טובים!",
+      "evening": "ערב טוב!"
+    },
+    "whatCanIHelpWith": "במה אוכל לעזור?"
   },
   "prompt": {
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
@@ -289,7 +302,19 @@
     "emptyHint": "נסו לשנות את המסננים או את מונח החיפוש",
     "emptyTitle": "שאל שאלה כדי להתחיל.",
     "emptyTipLabel": "טיפ:",
-    "emptyTipBody": "לא בטוח מה לשאול? אפשר לבקש מסוכן ה-AI להציע שאלות על נושא מסוים."
+    "emptyTipBody": "לא בטוח מה לשאול? אפשר לבקש מסוכן ה-AI להציע שאלות על נושא מסוים.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone."
   },
   "traceModal": {
     "title": "הפעלת סוכן",
