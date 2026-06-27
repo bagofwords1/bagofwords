@@ -2078,6 +2078,11 @@ class AgentV2:
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
+            # Track whether the completion terminated in an error (e.g. an LLM
+            # call failure that exhausted retries). The post-analysis tasks run
+            # on this path too, so we use this to suppress follow-up suggestions
+            # for a turn that ended on an error.
+            completion_errored = False
             
             # Lazy draft build: don't pre-seed. The first create_instruction
             # or edit_instruction tool call lazy-creates the draft and writes
@@ -2494,6 +2499,7 @@ class AgentV2:
                                 # Also flip completion to error status with a
                                 # human-readable message so refresh shows it.
                                 analysis_done = True
+                                completion_errored = True
                                 await _cancel_skeleton_block("max_invalid_retries")
                                 # Mark completion_finished_emitted before the try so that even
                                 # if update_message fails, the success path at the end of the
@@ -3520,8 +3526,10 @@ class AgentV2:
             # — so it's reliable: self.db is alive and the SSE event is enqueued
             # before main_execution returns (i.e. before [DONE]). Persisted on the
             # completion so the chips also survive a page reload.
+            # Skip when the turn ended on an error — suggesting follow-ups under
+            # an error message reads as if the turn succeeded.
             try:
-                if self._follow_ups_enabled() and self.system_completion:
+                if not completion_errored and self._follow_ups_enabled() and self.system_completion:
                     await self._generate_and_emit_follow_ups()
             except Exception as e:
                 import logging
