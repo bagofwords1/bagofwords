@@ -107,7 +107,26 @@
           <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ $t(item.section) }}</span>
         </li>
         <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="[{ hidden: item.hidden }, item.gapBefore ? 'mt-2' : '']">
-          <NuxtLink :to="item.href" :class="[
+          <!-- Action item (e.g. Notifications → opens the bell modal) -->
+          <button v-if="item.action === 'notifications'" @click="notifOpen = true" :class="[
+            'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+            isCollapsed ? 'justify-center' : 'gap-2.5'
+          ]">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
+              <span class="relative flex items-center justify-center w-5 h-5 text-[16px]">
+                <UIcon :name="item.icon || 'i-heroicons-bell'" />
+                <span v-if="notifUnread" class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-5 h-5 text-[18px]">
+                <UIcon :name="item.icon || 'i-heroicons-bell'" />
+              </span>
+              <span v-if="showText" class="flex-1 text-left">{{ $t(item.label) }}</span>
+              <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+            </template>
+          </button>
+          <NuxtLink v-else :to="item.href" :class="[
             'flex items-center px-2.5 py-1.5 w-full rounded-md',
             isRouteActive(item.activePath || item.href) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
             isCollapsed ? 'justify-center' : 'gap-2.5'
@@ -132,8 +151,11 @@
 
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
       <div v-if="!isCollapsed" class="flex-1 min-h-0 flex flex-col mt-4">
-        <div class="px-2.5 pb-1 shrink-0">
+        <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
           <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('nav.reports') }}</span>
+          <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
+            {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
+          </NuxtLink>
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
@@ -371,6 +393,7 @@
     permission?: string
     section?: string
     gapBefore?: boolean
+    action?: 'notifications'
     external?: boolean
     activePath?: string
   }
@@ -396,6 +419,7 @@
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
     { href: '/prompts', icon: 'heroicons-sparkles', label: 'nav.prompts' },
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
+    { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },

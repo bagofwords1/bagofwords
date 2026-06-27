@@ -63,7 +63,8 @@
     "loggedInAs": "Angemeldet als {name}",
     "prompts": "Prompts",
     "starOnGithub": "Star our GitHub",
-    "admin": "Verwaltung"
+    "admin": "Verwaltung",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -304,7 +305,8 @@
     "renameTitle": "Rename report",
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
-    "deleteBody": "This will permanently delete this report. This action cannot be undone."
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Agentenausführung",

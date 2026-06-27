@@ -63,7 +63,8 @@
     "loggedInAs": "Inloggad som {name}",
     "prompts": "Prompter",
     "starOnGithub": "Star our GitHub",
-    "admin": "Administration"
+    "admin": "Administration",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Logga in",
@@ -304,7 +305,8 @@
     "renameTitle": "Rename report",
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
-    "deleteBody": "This will permanently delete this report. This action cannot be undone."
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Agentkörning",

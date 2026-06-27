@@ -66,7 +66,8 @@
     "loggedInAs": "מחובר/ת בתור {name}",
     "prompts": "פרומפטים",
     "starOnGithub": "Star our GitHub",
-    "admin": "ניהול"
+    "admin": "ניהול",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "התחברות",
@@ -314,7 +315,8 @@
     "renameTitle": "Rename report",
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
-    "deleteBody": "This will permanently delete this report. This action cannot be undone."
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "הפעלת סוכן",

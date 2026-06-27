@@ -63,7 +63,8 @@
     "loggedInAs": "تم تسجيل الدخول باسم {name}",
     "prompts": "المطالبات",
     "starOnGithub": "Star our GitHub",
-    "admin": "الإدارة"
+    "admin": "الإدارة",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "تسجيل الدخول",
@@ -304,7 +305,8 @@
     "renameTitle": "Rename report",
     "renamePlaceholder": "Report title",
     "deleteTitle": "Delete report?",
-    "deleteBody": "This will permanently delete this report. This action cannot be undone."
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "تنفيذ الوكيل",
