@@ -2550,6 +2550,10 @@
     "runForConfirm": "Kör “{title}” för {n} medlemmar? Resultaten skickas privat till var och en.",
     "runForAction": "Kör för medlemmar",
     "runForResult": "Kördes för {ran}, hoppade över {skipped}.",
-    "toastRunForFailed": "Det gick inte att köra för de valda medlemmarna"
+    "toastRunForFailed": "Det gick inte att köra för de valda medlemmarna",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }

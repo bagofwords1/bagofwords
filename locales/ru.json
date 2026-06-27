@@ -2550,6 +2550,10 @@
     "runForConfirm": "Запустить «{title}» для {n} участников? Результаты придут каждому лично.",
     "runForAction": "Запустить для участников",
     "runForResult": "Запущено для {ran}, пропущено {skipped}.",
-    "toastRunForFailed": "Не удалось запустить для выбранных участников"
+    "toastRunForFailed": "Не удалось запустить для выбранных участников",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }

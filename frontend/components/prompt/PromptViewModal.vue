@@ -37,21 +37,15 @@
         </div>
 
         <!-- Parameters -->
-        <div v-if="parameters.length">
+        <div v-if="paramNames.length">
           <div class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">{{ $t('prompts.viewParameters') }}</div>
-          <ul class="space-y-1">
-            <li
-              v-for="p in parameters"
-              :key="p.name"
-              class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"
-            >
-              <code class="text-indigo-500 dark:text-indigo-400">{{ placeholder(p.name) }}</code>
-              <span class="text-gray-400">·</span>
-              <span>{{ p.label || p.name }}</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-400">{{ p.type || 'text' }}</span>
-              <span v-if="p.required" class="text-[10px] text-red-500">{{ $t('prompts.required') }}</span>
-            </li>
-          </ul>
+          <div class="flex flex-wrap gap-1.5">
+            <code
+              v-for="n in paramNames"
+              :key="n"
+              class="text-xs text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded px-1.5 py-0.5"
+            >{{ placeholder(n) }}</code>
+          </div>
         </div>
 
         <!-- Agents / scope -->
@@ -121,8 +115,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { usePromptFill } from '~/composables/usePromptFill'
 import type { Prompt } from '~/composables/usePrompts'
-import type { PromptParameter } from '~/composables/usePromptFill'
+
+const { extractParamNames } = usePromptFill()
 
 const props = defineProps<{
   modelValue: boolean
@@ -147,7 +143,8 @@ const isOpen = computed({
   set: (v: boolean) => emit('update:modelValue', v),
 })
 
-const parameters = computed<PromptParameter[]>(() => (props.prompt?.parameters || []) as PromptParameter[])
+// Parameters are bare {{name}} placeholders derived from the prompt text.
+const paramNames = computed<string[]>(() => extractParamNames(props.prompt?.text || ''))
 
 // Render a `{{name}}` placeholder string without embedding the literal braces
 // in the Vue template (which the SFC compiler would parse as interpolation).

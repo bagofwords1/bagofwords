@@ -2550,6 +2550,10 @@
     "runForConfirm": "تشغيل “{title}” لـ {n} أعضاء؟ تُرسَل النتائج إلى كل منهم بشكل خاص.",
     "runForAction": "تشغيل للأعضاء",
     "runForResult": "تم التشغيل لـ {ran}، وتم تخطي {skipped}.",
-    "toastRunForFailed": "تعذر التشغيل للأعضاء المحددين"
+    "toastRunForFailed": "تعذر التشغيل للأعضاء المحددين",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }

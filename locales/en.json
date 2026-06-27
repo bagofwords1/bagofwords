@@ -2837,6 +2837,10 @@
     "runForConfirm": "Run “{title}” for {n} members? Results go to each privately.",
     "runForAction": "Run for members",
     "runForResult": "Ran for {ran}, skipped {skipped}.",
-    "toastRunForFailed": "Could not run for the selected members"
+    "toastRunForFailed": "Could not run for the selected members",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }

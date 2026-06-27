@@ -26,7 +26,7 @@
             />
           </div>
 
-          <!-- Scope segmented control -->
+          <!-- Scope segmented control: All / Public / Agents / Private -->
           <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded">
             <button
               v-for="opt in scopeFilterOptions"
@@ -37,23 +37,25 @@
             >{{ opt.label }}</button>
           </div>
 
-          <!-- Agent filter -->
-          <select
+          <!-- Agent filter (USelectMenu) -->
+          <USelectMenu
             v-model="agentFilter"
-            class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-2 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            :options="agentFilterOptions"
+            option-attribute="label"
+            value-attribute="value"
+            size="xs"
+            class="text-xs w-44"
+            :ui="{ option: { base: 'text-xs py-1.5' } }"
           >
-            <option :value="''">{{ $t('prompts.allAgents') }}</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
-
-          <!-- User filter -->
-          <select
-            v-model="userFilter"
-            class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-2 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option :value="''">{{ $t('prompts.allUsers') }}</option>
-            <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name || u.email }}</option>
-          </select>
+            <template #label>
+              <DataSourceIcon v-if="selectedAgentOption?.type" :type="selectedAgentOption.type" class="h-3.5 w-auto flex-shrink-0" />
+              <span class="text-xs truncate">{{ selectedAgentOption?.label || $t('prompts.allAgents') }}</span>
+            </template>
+            <template #option="{ option }">
+              <DataSourceIcon v-if="option.type" :type="option.type" class="h-3.5 w-auto flex-shrink-0" />
+              <span class="text-xs truncate">{{ option.label }}</span>
+            </template>
+          </USelectMenu>
         </div>
       </div>
 
@@ -87,7 +89,7 @@
           v-for="p in prompts"
           :key="p.id"
           :prompt="p"
-          :agent-names="agentNames"
+          :agent-map="agentMap"
           :running="runningId === p.id"
           @view="openView"
           @edit="openEdit"
@@ -102,7 +104,6 @@
       v-model="viewOpen"
       :prompt="activePrompt"
       :agent-names="agentNames"
-      :author-names="userNames"
       :running="runningId === activePrompt?.id"
       @run="onRun"
       @edit="openEdit"
@@ -142,6 +143,7 @@ import PromptEditModal from '@/components/prompt/PromptEditModal.vue'
 import RunForModal from '@/components/prompt/RunForModal.vue'
 import PromptParametersModal from '@/components/prompt/PromptParametersModal.vue'
 import { usePrompts } from '~/composables/usePrompts'
+import { usePromptFill } from '~/composables/usePromptFill'
 import type { Prompt } from '~/composables/usePrompts'
 import type { PromptParamValue } from '~/composables/usePromptFill'
 
@@ -152,36 +154,42 @@ const toast = useToast()
 const router = useRouter()
 const { organization } = useOrganization()
 const { listPrompts, runPrompt, deletePrompt } = usePrompts()
+const { extractParamNames } = usePromptFill()
 
 // ── Filters ──
 const search = ref('')
 const scopeFilter = ref<'' | 'global' | 'agent' | 'private'>('')
 const agentFilter = ref('')
-const userFilter = ref('')
 
 const scopeFilterOptions = computed(() => [
   { value: '' as const, label: t('prompts.filterAll') },
-  { value: 'global' as const, label: t('prompts.scopeGlobal') },
+  { value: 'global' as const, label: t('prompts.scopePublic') },
   { value: 'agent' as const, label: t('prompts.scopeAgent') },
   { value: 'private' as const, label: t('prompts.scopePrivate') },
 ])
 
 const hasAnyFilter = computed(() =>
-  !!search.value || !!scopeFilter.value || !!agentFilter.value || !!userFilter.value,
+  !!search.value || !!scopeFilter.value || !!agentFilter.value,
 )
 
 // ── Data ──
 const prompts = ref<Prompt[]>([])
 const isLoading = ref(false)
-const agents = ref<{ id: string; name: string }[]>([])
-const users = ref<{ id: string; name: string; email: string }[]>([])
+const agents = ref<{ id: string; name: string; type?: string }[]>([])
 
 const agentNames = computed<Record<string, string>>(() =>
   Object.fromEntries(agents.value.map(a => [a.id, a.name])),
 )
-const userNames = computed<Record<string, string>>(() =>
-  Object.fromEntries(users.value.map(u => [u.id, u.name || u.email])),
+// id → { name, type } for the card chips' DataSourceIcon.
+const agentMap = computed<Record<string, { name: string; type?: string }>>(() =>
+  Object.fromEntries(agents.value.map(a => [a.id, { name: a.name, type: a.type }])),
 )
+
+const agentFilterOptions = computed(() => [
+  { value: '', label: t('prompts.allAgents'), type: undefined as string | undefined },
+  ...agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })),
+])
+const selectedAgentOption = computed(() => agentFilterOptions.value.find(o => o.value === agentFilter.value))
 
 let loadSeq = 0
 async function load() {
@@ -192,7 +200,6 @@ async function load() {
       search: search.value || undefined,
       scope: scopeFilter.value || undefined,
       data_source_id: agentFilter.value || undefined,
-      created_by: userFilter.value || undefined,
     })
     if (seq === loadSeq) prompts.value = res.prompts || []
   } finally {
@@ -203,27 +210,17 @@ async function load() {
 async function loadAgents() {
   try {
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query: { include_unconnected: true } })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name }))
-  } catch {}
-}
-
-async function loadUsers() {
-  const orgId = organization.value?.id
-  if (!orgId) return
-  try {
-    const { data } = await useMyFetch<any[]>(`/organizations/${orgId}/members`)
-    users.value = (data.value || [])
-      .map((m: any) => {
-        const id = m.user_id || m.user?.id
-        return id ? { id, name: m.user?.name || '', email: m.user?.email || m.email || '' } : null
-      })
-      .filter(Boolean) as any[]
+    agents.value = (data.value || []).map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      type: d.type || d.connections?.[0]?.type,
+    }))
   } catch {}
 }
 
 // Debounced reload on filter changes.
 let debounceTimer: any
-watch([search, scopeFilter, agentFilter, userFilter], () => {
+watch([search, scopeFilter, agentFilter], () => {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(load, 250)
 })
@@ -231,7 +228,6 @@ watch([search, scopeFilter, agentFilter, userFilter], () => {
 onMounted(() => {
   load()
   loadAgents()
-  loadUsers()
 })
 
 // ── Modals state ──
@@ -283,9 +279,12 @@ async function confirmDelete(p: Prompt | null) {
 }
 
 // ── Run flow ──
+// Run calls POST /prompts/{id}/run (via usePrompts.runPrompt) which seeds the
+// new report with EXACTLY the prompt's data_sources — never all agents.
 async function onRun(p: Prompt | null) {
   if (!p) return
-  if ((p.parameters || []).length > 0) {
+  // Params are bare {{name}} placeholders derived from the prompt text.
+  if (extractParamNames(p.text || '').length > 0) {
     runParamPrompt.value = p
     paramsOpen.value = true
     return

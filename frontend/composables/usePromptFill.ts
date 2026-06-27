@@ -25,6 +25,25 @@ export interface MentionGroup {
 }
 
 export function usePromptFill() {
+  // Extract the unique `{{name}}` placeholder names from a prompt's text, in
+  // first-seen order. This is the single source of truth for which parameters a
+  // prompt has — there is no separate parameter schema; the text drives it.
+  function extractParamNames(text: string): string[] {
+    if (!text) return []
+    const names: string[] = []
+    const seen = new Set<string>()
+    const re = /\{\{\s*([\w.-]+)\s*\}\}/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      const name = String(m[1]).trim()
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    return names
+  }
+
   // Replace every `{{name}}` placeholder in `text` with the matching value.
   // - date_range → "<start> to <end>"
   // - missing values collapse the placeholder to an empty string.
@@ -72,5 +91,5 @@ export function usePromptFill() {
     return result
   }
 
-  return { substitute, mergeMentions }
+  return { substitute, mergeMentions, extractParamNames }
 }

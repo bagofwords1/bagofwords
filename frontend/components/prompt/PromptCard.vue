@@ -5,7 +5,20 @@
   >
     <!-- Header: scope chip + manage actions (hover) -->
     <div class="flex items-start justify-between gap-2 mb-2">
+      <!-- Agent scope: real connection-type icon(s) + agent name(s) -->
+      <div v-if="prompt.scope === 'agent'" class="flex flex-wrap items-center gap-1">
+        <span
+          v-for="a in agentChips"
+          :key="a.id"
+          class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border text-violet-700 border-violet-200 bg-violet-50 dark:text-violet-300 dark:border-violet-900 dark:bg-violet-900/20"
+        >
+          <DataSourceIcon :type="a.type" class="h-3 w-auto" />
+          {{ a.name }}
+        </span>
+      </div>
+      <!-- Global / Private: simple icon chip -->
       <span
+        v-else
         class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border"
         :class="scopeChipClass"
       >
@@ -85,10 +98,12 @@
 import { computed } from 'vue'
 import Spinner from '@/components/Spinner.vue'
 import type { Prompt } from '~/composables/usePrompts'
+import { usePromptFill } from '~/composables/usePromptFill'
 
 const props = defineProps<{
   prompt: Prompt
-  agentNames?: Record<string, string>
+  // id → { name, type } for agent-scoped prompts (type drives DataSourceIcon).
+  agentMap?: Record<string, { name: string; type?: string }>
   running?: boolean
 }>()
 
@@ -100,8 +115,19 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { extractParamNames } = usePromptFill()
 
-const paramCount = computed(() => (props.prompt.parameters || []).length)
+// Parameters are bare {{name}} placeholders derived from the prompt text.
+const paramCount = computed(() => extractParamNames(props.prompt.text || '').length)
+
+// Agent chips: real connection-type icon + agent name, from the agent map.
+const agentChips = computed(() =>
+  (props.prompt.data_source_ids || []).map(id => ({
+    id,
+    name: props.agentMap?.[id]?.name || t('prompts.scopeAgent'),
+    type: props.agentMap?.[id]?.type,
+  })),
+)
 
 const scopeIcon = computed(() => {
   if (props.prompt.scope === 'global') return 'heroicons-globe-alt'
@@ -109,14 +135,9 @@ const scopeIcon = computed(() => {
   return 'heroicons-lock-closed'
 })
 
+// Only used for the global/private chip (agent scope renders icon chips above).
 const scopeLabel = computed(() => {
   if (props.prompt.scope === 'global') return t('prompts.scopeGlobal')
-  if (props.prompt.scope === 'agent') {
-    const ids = props.prompt.data_source_ids || []
-    const names = ids.map(id => props.agentNames?.[id]).filter(Boolean)
-    if (names.length) return names.join(', ')
-    return t('prompts.scopeAgent')
-  }
   return t('prompts.scopePrivate')
 })
 

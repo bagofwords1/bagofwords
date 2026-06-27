@@ -125,6 +125,7 @@
 import { ref, computed, watch } from 'vue'
 import PromptParametersModal from '@/components/prompt/PromptParametersModal.vue'
 import { usePrompts } from '~/composables/usePrompts'
+import { usePromptFill } from '~/composables/usePromptFill'
 import type { Prompt } from '~/composables/usePrompts'
 import type { PromptParamValue } from '~/composables/usePromptFill'
 
@@ -141,6 +142,7 @@ const { t } = useI18n()
 const toast = useToast()
 const { organization } = useOrganization()
 const { runPromptFor } = usePrompts()
+const { extractParamNames } = usePromptFill()
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -218,7 +220,7 @@ function onBlur() {
 }
 
 // ── Parameters ──
-const hasParams = computed(() => (props.prompt?.parameters || []).length > 0)
+const hasParams = computed(() => extractParamNames(props.prompt?.text || '').length > 0)
 const paramsModalOpen = ref(false)
 const paramsCollected = ref(false)
 const collectedParams = ref<Record<string, PromptParamValue> | null>(null)

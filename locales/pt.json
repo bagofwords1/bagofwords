@@ -2550,6 +2550,10 @@
     "runForConfirm": "Executar “{title}” para {n} membros? Os resultados vão para cada um em particular.",
     "runForAction": "Executar para membros",
     "runForResult": "Executado para {ran}, ignorados {skipped}.",
-    "toastRunForFailed": "Não foi possível executar para os membros selecionados"
+    "toastRunForFailed": "Não foi possível executar para os membros selecionados",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }

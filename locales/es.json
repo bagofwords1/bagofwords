@@ -2643,6 +2643,10 @@
     "runForConfirm": "¿Ejecutar “{title}” para {n} miembros? Los resultados llegan a cada uno en privado.",
     "runForAction": "Ejecutar para miembros",
     "runForResult": "Ejecutado para {ran}, omitidos {skipped}.",
-    "toastRunForFailed": "No se pudo ejecutar para los miembros seleccionados"
+    "toastRunForFailed": "No se pudo ejecutar para los miembros seleccionados",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }

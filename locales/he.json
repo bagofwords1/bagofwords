@@ -2643,6 +2643,10 @@
     "runForConfirm": "להריץ את “{title}” עבור {n} חברים? התוצאות נשלחות לכל אחד באופן פרטי.",
     "runForAction": "הרץ עבור חברים",
     "runForResult": "הורץ עבור {ran}, דולגו {skipped}.",
-    "toastRunForFailed": "לא ניתן היה להריץ עבור החברים שנבחרו"
+    "toastRunForFailed": "לא ניתן היה להריץ עבור החברים שנבחרו",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected"
   }
 }
