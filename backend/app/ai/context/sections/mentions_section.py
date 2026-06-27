@@ -33,6 +33,13 @@ class EntityMentionItem(BaseModel):
     entity_type: Optional[str] = None
 
 
+class InstructionMentionItem(BaseModel):
+    id: str
+    title: Optional[str] = None
+    kind: Optional[str] = None  # 'instruction' | 'skill'
+    text: Optional[str] = None
+
+
 class MentionsSection(ContextSection):
     tag_name = "mentions"
 
@@ -40,6 +47,10 @@ class MentionsSection(ContextSection):
     data_sources: List[DataSourceMentionItem] = []
     tables: List[TableMentionItem] = []
     entities: List[EntityMentionItem] = []
+    # Explicitly @-mentioned instructions/skills. These are FORCE-INCLUDED into
+    # the prompt context (full text), regardless of load_mode / agent scoping —
+    # mirroring how a mentioned file is force-included.
+    instructions: List[InstructionMentionItem] = []
 
     def render(self) -> str:
         parts: List[str] = []
@@ -111,6 +122,26 @@ class MentionsSection(ContextSection):
                     inner.append(xml_tag("status", xml_escape(e.status)))
                 ent_tags.append(xml_tag("entity", "\n".join(inner), {"id": e.id}))
             parts.append(xml_tag("entities", "\n".join(ent_tags)))
+
+        # Instructions / skills — force-included full content. Rendered under an
+        # explicit header so the model treats them as active instructions for
+        # this turn (the user explicitly @-mentioned them).
+        if self.instructions:
+            ins_tags: List[str] = []
+            for ins in self.instructions:
+                inner = []
+                if ins.title:
+                    inner.append(xml_tag("title", xml_escape(ins.title)))
+                if ins.kind:
+                    inner.append(xml_tag("kind", xml_escape(ins.kind)))
+                if ins.text:
+                    inner.append(xml_tag("content", xml_escape(ins.text)))
+                attrs = {"id": ins.id}
+                if ins.kind:
+                    attrs["kind"] = ins.kind
+                ins_tags.append(xml_tag("instruction", "\n".join(inner), attrs))
+            body = "=== MENTIONED INSTRUCTIONS ===\n" + "\n".join(ins_tags)
+            parts.append(xml_tag("instructions", body))
 
         if not parts:
             return xml_tag(self.tag_name, "No mentions for this turn")

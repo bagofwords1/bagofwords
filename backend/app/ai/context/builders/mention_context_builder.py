@@ -7,6 +7,7 @@ from app.models.file import File
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.entity import Entity
+from app.models.instruction import Instruction
 from app.ai.context.sections.mentions_section import MentionsSection
 
 
@@ -22,9 +23,10 @@ class MentionContextBuilder:
         data_sources: List[dict] = []
         tables: List[dict] = []
         entities: List[dict] = []
+        instructions: List[dict] = []
 
         if not self.head_completion:
-            return MentionsSection(files=files, data_sources=data_sources, tables=tables, entities=entities)
+            return MentionsSection(files=files, data_sources=data_sources, tables=tables, entities=entities, instructions=instructions)
 
         # Fetch mentions for current head completion (user message of this turn)
         stmt = (
@@ -112,6 +114,17 @@ class MentionContextBuilder:
                         "sample_rows": entity_sample_rows,
                     }
                     entities.append(item)
+                elif m.type == MentionType.INSTRUCTION:
+                    # Force-include the mentioned instruction/skill's full content
+                    # regardless of load_mode / agent scoping (mirrors FILE).
+                    ins = await self.db.get(Instruction, str(m.object_id))
+                    item = {
+                        "id": str(m.object_id),
+                        "title": getattr(ins, "title", None) or m.mention_content,
+                        "kind": getattr(ins, "kind", None) or "instruction",
+                        "text": getattr(ins, "text", None) or "",
+                    }
+                    instructions.append(item)
             except Exception:
                 # Best-effort; skip broken items
                 continue
@@ -125,7 +138,9 @@ class MentionContextBuilder:
             tables = tables[:max_items_per_group]
         if len(entities) > max_items_per_group:
             entities = entities[:max_items_per_group]
+        if len(instructions) > max_items_per_group:
+            instructions = instructions[:max_items_per_group]
 
-        return MentionsSection(files=files, data_sources=data_sources, tables=tables, entities=entities)
+        return MentionsSection(files=files, data_sources=data_sources, tables=tables, entities=entities, instructions=instructions)
 
 

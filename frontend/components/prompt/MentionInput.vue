@@ -81,8 +81,7 @@
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-              <Icon v-else-if="category.name === 'instructions'" name="heroicons-book-open" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-              <Icon v-else-if="category.name === 'skills'" name="heroicons-sparkles" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'instructions'" :name="item.kind === 'skill' ? 'heroicons-sparkles' : 'heroicons-book-open'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'prompts'" name="heroicons-command-line" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
@@ -246,10 +245,12 @@ interface MentionItem {
   description?: string
   columns?: string[]
   status?: string
+  // Instruction kind: 'instruction' | 'skill' (carried on instruction mentions).
+  kind?: string
   data_source_id?: string
   data_source_name?: string
   connection_name?: string
-  // Prompt/instruction fields (carried for "consume into text" behavior).
+  // Prompt-only fields (carried for "consume into text" behavior).
   text?: string
   parameters?: any[]
   mentions?: { name: string, items: any[] }[]
@@ -284,7 +285,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'instructions', 'skills', 'prompts', 'files', 'entities']
+    default: () => ['data_sources', 'instructions', 'prompts', 'files', 'entities']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -491,7 +492,6 @@ function categoryIcon(name: string): string {
   switch (name) {
     case 'data_sources': return 'heroicons-cube-transparent'
     case 'instructions': return 'heroicons-book-open'
-    case 'skills': return 'heroicons-sparkles'
     case 'prompts': return 'heroicons-command-line'
     case 'files': return 'heroicons-document'
     case 'entities': return 'heroicons-chart-bar'
@@ -522,9 +522,7 @@ function ensureCategoryLoaded(name: string) {
   } else if (name === 'prompts') {
     fetchPromptMentions()
   } else if (name === 'instructions') {
-    fetchInstructionMentions('instruction', instructionCategoryItems)
-  } else if (name === 'skills') {
-    fetchInstructionMentions('skill', skillCategoryItems)
+    fetchInstructionMentions()
   }
 }
 
@@ -990,15 +988,10 @@ function selectItem(item: MentionItem, category: string) {
     return
   }
 
-  // Instructions/skills are consumed into plain text — the instruction's content
-  // is inserted into the box so the agent receives it inline (the same proven
-  // path as prompts). This avoids a dead chip and keeps the backend untouched.
-  if (item.type === 'instruction') {
-    const header = item.name ? `${item.name}:\n` : ''
-    insertPromptText(item, `${header}${item.text || ''}`)
-    return
-  }
-
+  // Everything else (data sources, tables, files, entities, instructions/skills)
+  // is inserted as a normal mention chip that flows through buildMentionGroups
+  // → completion mentions. An @-mentioned instruction is force-included into the
+  // prompt context server-side (mirrors the FILE mention path).
   if (currentMentionStartIndex.value !== -1 && inputRef.value) {
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) return
@@ -1331,6 +1324,7 @@ function buildMentionGroups(selected: MentionItem[]) {
   const dataSources: any[] = []
   const tables: any[] = []
   const entities: any[] = []
+  const instructions: any[] = []
 
   for (const m of selected) {
     if (m.type === 'file') {
@@ -1341,6 +1335,8 @@ function buildMentionGroups(selected: MentionItem[]) {
       tables.push({ id: m.id, name: m.name, datasource_id: m.data_source_id, data_source_name: m.data_source_name })
     } else if (m.type === 'entity') {
       entities.push({ id: m.id, title: m.name, entity_type: m.entity_type })
+    } else if (m.type === 'instruction') {
+      instructions.push({ id: m.id, name: m.name, kind: m.kind })
     }
   }
 
@@ -1348,6 +1344,7 @@ function buildMentionGroups(selected: MentionItem[]) {
   if (dataSources.length) groups.push({ name: 'DATA SOURCES', items: dataSources })
   if (tables.length) groups.push({ name: 'TABLES', items: tables })
   if (entities.length) groups.push({ name: 'ENTITIES', items: entities })
+  if (instructions.length) groups.push({ name: 'INSTRUCTIONS', items: instructions })
 
   return groups
 }
@@ -1383,8 +1380,10 @@ function formatTimeAgo(dateStr: string | null): string {
 // endpoint so a single failing endpoint never blanks the whole menu. The menu
 // is assembled (in display order) by rebuildCategories().
 const agentCategoryItems = ref<MentionItem[]>([])
+// Instructions AND skills are listed together in one 'instructions' category
+// (kind carried per item); they are sourced from GET /instructions (no kind
+// filter).
 const instructionCategoryItems = ref<MentionItem[]>([])
-const skillCategoryItems = ref<MentionItem[]>([])
 const fileCategoryItems = ref<MentionItem[]>([])
 const entityCategoryItems = ref<MentionItem[]>([])
 // Saved prompts are a separate API (GET /prompts) mapped into the 'prompts'
@@ -1392,13 +1391,12 @@ const entityCategoryItems = ref<MentionItem[]>([])
 const promptCategoryItems = ref<MentionItem[]>([])
 
 // Assemble the top-level mention categories in display order:
-// Agents, Instructions, Skills, Prompts, Files, Queries. The (hidden) 'tables'
+// Agents, Instructions, Prompts, Files, Queries. The (hidden) 'tables'
 // category is only reachable by drilling into an agent.
 function rebuildCategories() {
   allCategories.value = [
     { name: 'data_sources', label: t('mentionInput.categories.dataSources'), items: agentCategoryItems.value },
     { name: 'instructions', label: t('mentionInput.categories.instructions'), items: instructionCategoryItems.value },
-    { name: 'skills', label: t('mentionInput.categories.skills'), items: skillCategoryItems.value },
     { name: 'prompts', label: t('mentionInput.categories.prompts'), items: promptCategoryItems.value },
     { name: 'files', label: t('mentionInput.categories.files'), items: fileCategoryItems.value },
     { name: 'entities', label: t('mentionInput.categories.queries'), items: entityCategoryItems.value },
@@ -1470,22 +1468,23 @@ async function fetchAvailableMentions() {
   isLoadingMentions.value = false
 }
 
-// Instructions and skills share the /instructions endpoint, partitioned by the
-// `kind` query param. Selecting one consumes its text into the box (text-insert
-// behavior, like prompts) so the agent receives the instruction inline.
-async function fetchInstructionMentions(kind: 'instruction' | 'skill', target: typeof instructionCategoryItems) {
+// Instructions and skills are listed together (one category). Sourced from
+// GET /instructions (no kind filter — both kinds returned); kind is kept per
+// item. Selecting one inserts a mention chip that force-includes the
+// instruction's content into context server-side (mirrors the FILE path).
+async function fetchInstructionMentions() {
   try {
-    const { data, error } = await useMyFetch(`/instructions?kind=${kind}&limit=50`, { method: 'GET' })
-    if (error.value) { target.value = []; return }
+    const { data, error } = await useMyFetch('/instructions?limit=50', { method: 'GET' })
+    if (error.value) { instructionCategoryItems.value = []; return }
     const list = (data.value as any)?.items || []
-    target.value = list.map((ins: any) => ({
+    instructionCategoryItems.value = list.map((ins: any) => ({
       id: String(ins.id),
       type: 'instruction' as const,
       name: ins.title || (ins.text || '').slice(0, 60),
-      text: ins.text || '',
+      kind: ins.kind || 'instruction',
     } as MentionItem))
   } catch {
-    target.value = []
+    instructionCategoryItems.value = []
   }
   rebuildCategories()
 }
@@ -1520,8 +1519,7 @@ onMounted(() => {
 
   fetchAvailableMentions()
   fetchPromptMentions()
-  fetchInstructionMentions('instruction', instructionCategoryItems)
-  fetchInstructionMentions('skill', skillCategoryItems)
+  fetchInstructionMentions()
 })
 
 // Rebuild labels when the locale changes so category headings stay localized.

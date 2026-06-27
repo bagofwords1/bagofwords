@@ -1114,7 +1114,8 @@ function submit() {
         data_sources: inlineMentions.value.filter(m => m.type === 'data_source'),
         tables: inlineMentions.value.filter(m => m.type === 'datasource_table'),
         files: inlineMentions.value.filter(m => m.type === 'file'),
-        entities: inlineMentions.value.filter(m => m.type === 'entity')
+        entities: inlineMentions.value.filter(m => m.type === 'entity'),
+        instructions: inlineMentions.value.filter(m => m.type === 'instruction')
     }
     // Get image files that have been successfully uploaded (for immediate display in chat)
     const imageFiles = successfullyUploadedFiles.value
@@ -1127,7 +1128,8 @@ function submit() {
             { name: 'DATA SOURCES', items: mentionsByType.data_sources },
             { name: 'TABLES', items: mentionsByType.tables },
             { name: 'FILES', items: mentionsByType.files },
-            { name: 'ENTITIES', items: mentionsByType.entities }
+            { name: 'ENTITIES', items: mentionsByType.entities },
+            { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
         ],
         mode: mode.value,                 // 'chat' | 'deep'
         model_id: selectedModel.value,    // backend model id from selector
@@ -1404,13 +1406,15 @@ async function createReport() {
                 data_sources: inlineMentions.value.filter((m: any) => m.type === 'data_source'),
                 tables: inlineMentions.value.filter((m: any) => m.type === 'datasource_table'),
                 files: inlineMentions.value.filter((m: any) => m.type === 'file'),
-                entities: inlineMentions.value.filter((m: any) => m.type === 'entity')
+                entities: inlineMentions.value.filter((m: any) => m.type === 'entity'),
+                instructions: inlineMentions.value.filter((m: any) => m.type === 'instruction')
             }
             const mentions = [
                 { name: 'DATA SOURCES', items: mentionsByType.data_sources },
                 { name: 'TABLES', items: mentionsByType.tables },
                 { name: 'FILES', items: mentionsByType.files },
-                { name: 'ENTITIES', items: mentionsByType.entities }
+                { name: 'ENTITIES', items: mentionsByType.entities },
+                { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
             ]
 
             router.push({ 
