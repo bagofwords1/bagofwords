@@ -23,11 +23,16 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
     const publicPrefixes = ['/users/', '/organizations/', '/onboarding', '/r/', '/c/', '/not_found']
     if (publicPrefixes.some(p => route.path.startsWith(p))) return
     redirectingToSignIn = true
+    // Clear the rejected token, then HARD-redirect. A SPA navigateTo gets
+    // bounced right back by the sign-in page's `unauthenticatedOnly` guard while
+    // nuxt-auth still derives status from the (now invalid) token, producing a
+    // loop. A full reload re-evaluates auth from the cleared cookie and lands on
+    // sign-in cleanly. No flag reset needed — the page is reloading.
     rawToken.value = null
-    const redirect = route.fullPath && route.fullPath !== '/' ? route.fullPath : undefined
-    Promise.resolve(
-      navigateTo({ path: '/users/sign-in', query: redirect ? { redirect } : {} })
-    ).finally(() => { redirectingToSignIn = false })
+    const redirect = route.fullPath && route.fullPath !== '/'
+      ? `?redirect=${encodeURIComponent(route.fullPath)}`
+      : ''
+    window.location.href = `/users/sign-in${redirect}`
   }
 
   // Ensure organization is loaded before making the request
