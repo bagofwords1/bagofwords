@@ -1188,7 +1188,7 @@ async function loadAgentStarters() {
     const texts: string[] = []
     for (const id of ids) {
         try {
-            const { data } = await useMyFetch(`/prompts?data_source_id=${id}&starters_only=true`)
+            const { data } = await useMyFetch(`/prompts?data_source_id=${id}`)
             for (const p of ((data.value as any)?.prompts || [])) if (p?.text) texts.push(p.text)
         } catch { /* ignore */ }
     }

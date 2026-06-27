@@ -990,7 +990,7 @@ const closeAgentView = () => { agentView.value = null; agentDetail.value = null;
 const refreshStarterPrompts = async () => {
   const id = agentView.value?.agentId; if (!id) { starterPrompts.value = []; return }
   try {
-    const { data } = await useMyFetch<any>(`/prompts?data_source_id=${id}&starters_only=true`)
+    const { data } = await useMyFetch<any>(`/prompts?data_source_id=${id}`)
     if (agentView.value?.agentId === id) starterPrompts.value = (data.value as any)?.prompts || []
   } catch { if (agentView.value?.agentId === id) starterPrompts.value = [] }
 }
@@ -1138,7 +1138,7 @@ const saveStarters = async () => {
   try {
     // Back the starters with the Prompt model (agent-scoped starter Prompts).
     // Replace-all: drop this agent's existing starter prompts, recreate from the editor.
-    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}&starters_only=true`)
+    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
     for (const p of ((existing.value as any)?.prompts || [])) {
       await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
     }

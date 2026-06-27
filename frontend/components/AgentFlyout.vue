@@ -511,7 +511,7 @@ const fetchAgentDetails = async (agentId: string) => {
 const fetchStartersForAgent = async (agentId: string) => {
   if (!agentId || startersCache.value[agentId]) return
   try {
-    const { data, error } = await useMyFetch(`/prompts?data_source_id=${agentId}&starters_only=true`, { method: 'GET' })
+    const { data, error } = await useMyFetch(`/prompts?data_source_id=${agentId}`, { method: 'GET' })
     if (error?.value) return
     const prompts = (data?.value as any)?.prompts || []
     startersCache.value[agentId] = prompts.map((p: any) => String(p?.text ?? '')).filter((t: string) => t.trim().length > 0)

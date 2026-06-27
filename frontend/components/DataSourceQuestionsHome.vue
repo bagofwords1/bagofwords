@@ -33,7 +33,7 @@ const starterTextsByDs = ref<Record<string, string[]>>({})
 const fetchStartersForDs = async (dsId: string) => {
     if (!dsId || starterTextsByDs.value[dsId]) return
     try {
-        const { data } = await useMyFetch(`/prompts?data_source_id=${dsId}&starters_only=true`)
+        const { data } = await useMyFetch(`/prompts?data_source_id=${dsId}`)
         const prompts = (data?.value as any)?.prompts || []
         starterTextsByDs.value = {
             ...starterTextsByDs.value,

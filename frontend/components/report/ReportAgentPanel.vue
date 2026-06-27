@@ -627,7 +627,7 @@ const starterPrompts = ref<any[]>([])
 async function loadStarterPrompts(agentId: string | null) {
   if (!agentId || agentId === GLOBAL_AGENT_ID) { starterPrompts.value = []; return }
   try {
-    const { data } = await useMyFetch(`/prompts?data_source_id=${agentId}&starters_only=true`)
+    const { data } = await useMyFetch(`/prompts?data_source_id=${agentId}`)
     starterPrompts.value = (data.value as any)?.prompts || []
   } catch { starterPrompts.value = [] }
 }
@@ -660,7 +660,7 @@ async function saveStarters() {
     .filter(s => s.trim().length > 0)
   try {
     // Replace-all of this agent's starter Prompts (no legacy JSON write).
-    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}&starters_only=true`)
+    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
     for (const p of ((existing.value as any)?.prompts || [])) {
       await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
     }
