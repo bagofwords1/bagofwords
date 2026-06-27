@@ -202,12 +202,12 @@ story 3 needs the new connector run-path; 1/2 work today; 4/5/6 mostly need memb
      per-user overlay on *their* connector. Inside the admin's agent, the **agent owner's**
      policy governs (decision §5). Same provider, but different connection → different identity
      slot *and* different policy source.
-   - **Recommended enhancement — per-provider linked identity** (avoids the double-connect):
-     resolve creds by provider/issuer, not just connection. When the agent's Monday has no
-     per-connection token for the user, fall back to any active token the user holds for the
-     **same Monday issuer/server** if its scopes cover the agent's needs (the "Connected
-     accounts" pattern). Must handle scope coverage, audience binding (RFC 8707), and
-     revocation cascade (disconnecting personal Monday would drop the agent's access too).
+   - **Decided behaviour — connect once per provider (see decision §6 / §3a).** The user
+     authorizes Monday **once**; that identity satisfies *every* connection to the same Monday
+     issuer, **provided the connections require the same scope set**. So here the user does
+     **not** reconnect — the agent's Monday reuses the token from their self-service Monday
+     (same issuer, same scopes). (The *tool policy* still does not transfer: in-agent uses the
+     agent owner's policy; standalone uses the user's own.)
 
 ## Proposed design
 
@@ -281,6 +281,34 @@ admin "service_account vs self" identity preference, and 403s a user with no tok
 policy demands self-identity. So **the same connector is shared org-wide but executes with each
 member's own Monday identity** — no new work beyond surfacing the "Connect" prompt when a
 user hits an org connector they haven't authorized yet (the selector already has this state).
+
+### 3a. Connect once per provider (linked identity)
+
+Decision §6: a user connects a provider **once** and that identity serves every connection to
+the same provider, **if the required scope matches**. Today creds are keyed
+`(connection_id, user_id, auth_mode)` (`user_connection_credentials.py:17`), so the token for
+one Monday connection is invisible to another. To get "connect once":
+
+- **Key the user's grant by provider identity, not by connection.** Provider identity =
+  the OAuth **issuer** (from discovery / catalog entry) + the canonical **scope set**. Two
+  connections to the same Monday MCP share an issuer; if they also declare the same scopes they
+  share one grant.
+- **Resolution order** when running a connection's tool for a user:
+  per-connection token (legacy/explicit) → **provider-identity token (same issuer + same
+  scope)** → otherwise prompt "Connect". This slots into
+  `resolve_credentials(db, connection, user)` as one extra lookup before the 403.
+- **Same-scope rule (your call).** Connect-once holds only when the connections **require the
+  same scope set**. Catalog entries for a given provider therefore declare a *canonical* scope
+  list so all connectors to that provider are scope-compatible by construction. A connection
+  asking for a *different/broader* scope is its own authorization (re-consent).
+- **Storage options:** (a) a new `UserProviderCredential(user_id, issuer, scope_hash,
+  encrypted_token, …)` that connections reference — cleanest, one token, one refresh owner; or
+  (b) keep `UserConnectionCredentials` and add an issuer+scope lookup that reuses a sibling
+  connection's row. Recommend (a) — single refresh owner avoids divergent token copies.
+- **Caveats to honour:** audience binding (RFC 8707) — if a provider issues tokens bound to a
+  specific connection/resource, connect-once only works when the audience is the shared provider,
+  not the connection; and **revocation cascade** — disconnecting the provider identity drops
+  access for *all* connections that rely on it (surface this in the disconnect UI).
 
 ### 4. PromptBoxV2 + selectors (frontend)
 
@@ -529,6 +557,11 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
    `execute_mcp`/`search_mcps` path first, first-class per-tool exposure later.
 4. **Mixed conversations: YES.** A turn may use an analytical Agent *and* connectors together;
    the lightweight loop (§6) only triggers when there is *no* analytical source.
+6. **Connect once per provider (linked identity), gated on identical scope.** A user authorizes
+   a provider (Monday, Gmail) **once**; that grant satisfies *every* connection to the same
+   provider/issuer **as long as those connections require the same scope set**. Connections
+   whose required scope differs are a *separate* authorization. Credential *identity* is shared
+   per provider; tool *policy* is not (decision §5). Design in §3a.
 5. **Per-tool policy ownership: depends on context.**
    - **Standalone connector use → the *user* sets their own per-tool policy** (allow / confirm /
      deny) and enable/disable. For a *private* connector this is trivial (the DataSource is the
@@ -548,10 +581,6 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 
 - **Catalog ownership of entries:** ship a static curated catalog only, or also let admins add
   org-private catalog entries (custom MCPs promoted into the gallery)?
-- **Per-provider linked identity (story 6):** do we want "connect Monday/Gmail once" to satisfy
-  *every* connection to that provider (a user-level "Connected accounts" identity), or keep
-  credentials strictly per-connection (a separate authorize per connection)? Affects whether we
-  add provider/issuer-keyed credential reuse on top of `UserConnectionCredentials`.
 - **DCR target scope:** allow DCR only against curated catalog entries, or also admin-allowlisted
   custom URLs?
 
@@ -578,6 +607,10 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - **Phase 4 — private connectors + member self-serve:** `create_private_connector` permission;
   member "Add connector" from the prompt box; "Connect your Gmail" via existing per-user OAuth;
   private/shared toggle in `MCPConnectionForm` (custom path).
+- **Phase 4a — connect-once / linked identity (§3a):** provider-identity credential
+  (`UserProviderCredential`, keyed issuer + scope); resolution fallback in
+  `resolve_credentials`; canonical per-provider scopes on catalog entries; revocation-cascade
+  surfaced in the disconnect UI.
 - **Phase 5 — PromptBoxV2 selection + per-tool policy:** connectors group in the selector;
   per-user "Connect" affordance for unauthorized org connectors (OBO). Add the **per-user tool
   overlay** (`UserConnectionToolPreference`) so standalone users set their own enable/policy;
@@ -598,6 +631,7 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - `backend/app/services/oauth_server_service.py` + `routes/oauth_server.py` — inbound AS (BOW as server); optional RFC 7591 `/register` for external client auto-onboarding.
 - `backend/app/models/connection_tool.py` — per-DS tool overlay (Agent-owner policy, reuse).
 - `backend/app/models/user_connection_tool_preference.py` *(new)* — per-user enable/policy overlay for standalone connector use.
+- `backend/app/models/user_provider_credential.py` *(new)* — per-user provider identity (issuer + scope) for connect-once (§3a); resolution fallback in `connection_service.resolve_credentials`.
 - `backend/app/services/data_source_service.py` — `construct_clients` (`:1806`), visibility/usability filters (`:1715`).
 - `backend/app/ai/agent_v2.py` — catalog build + `available_capabilities` (`:315-361`); `main_execution` lightweight guards (`:1825`).
 - `backend/app/ai/agents/planner/planner_v3.py` + `prompt_builder_v3.py` — connector prompt branch / first-class tools.
