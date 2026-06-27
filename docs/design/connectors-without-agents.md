@@ -298,11 +298,23 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
    `execute_mcp`/`search_mcps` path first, first-class per-tool exposure later.
 4. **Mixed conversations: YES.** A turn may use an analytical Agent *and* connectors together;
    the lightweight loop (§6) only triggers when there is *no* analytical source.
+5. **Per-tool policy ownership: depends on context.**
+   - **Standalone connector use → the *user* sets their own per-tool policy** (allow / confirm /
+     deny) and enable/disable. For a *private* connector this is trivial (the DataSource is the
+     user's, so the existing per-DS `ConnectionTool` overlay already *is* per-user). For a
+     *shared/org* connector used standalone, we need a **per-user tool overlay** —
+     a new `UserConnectionToolPreference(user_id, connection_tool_id, is_enabled, policy)`
+     row, resolved at runtime as: user pref → connection default. (Mirrors how
+     `UserConnectionCredentials` overlays org credentials.)
+   - **Connector attached to an Agent → the *Agent owner* sets the policy** via the existing
+     per-DS `ConnectionTool` overlay (`ToolsSelector.vue` / `PUT /data_sources/{id}/tools`).
+     Members using that Agent inherit it.
+   - Runtime resolution order when a tool runs: **Agent overlay (if in-agent) → user pref (if
+     standalone) → connection default.** `confirm` triggers an at-prompt confirmation step
+     before the tool executes.
 
 ## Still to confirm
 
-- **Confirmation policy:** honour `ConnectionTool.policy = confirm` for write-ish connector
-  actions (Gmail send, Monday create) with an at-prompt confirmation step?
 - **Catalog ownership of entries:** ship a static curated catalog only, or also let admins add
   org-private catalog entries (custom MCPs promoted into the gallery)?
 
@@ -324,9 +336,11 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - **Phase 4 — private connectors + member self-serve:** `create_private_connector` permission;
   member "Add connector" from the prompt box; "Connect your Gmail" via existing per-user OAuth;
   private/shared toggle in `MCPConnectionForm` (custom path).
-- **Phase 5 — PromptBoxV2 selection + tool picker:** connectors group in the selector;
-  per-user "Connect" affordance for unauthorized org connectors (OBO); optional per-prompt
-  `ConnectionTool` enable/policy.
+- **Phase 5 — PromptBoxV2 selection + per-tool policy:** connectors group in the selector;
+  per-user "Connect" affordance for unauthorized org connectors (OBO). Add the **per-user tool
+  overlay** (`UserConnectionToolPreference`) so standalone users set their own enable/policy;
+  in-agent keeps the Agent-owner overlay. Runtime resolution: Agent overlay → user pref →
+  connection default; `confirm` → at-prompt confirmation step.
 - **Phase 6 (optional) — first-class connector tools** to the planner instead of `execute_mcp`.
 
 ---
@@ -339,6 +353,8 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - `backend/app/schemas/data_source_registry.py` — `mcp`/`custom_api` tool-provider entries (`:878`, `:920`), `tool_provider_types()` (`:1030`); template for the new `connector_catalog`.
 - `backend/app/schemas/connector_catalog.py` *(new)* — curated public-MCP catalog; served by `GET /connectors/catalog`.
 - `backend/app/services/connection_oauth_service.py` — OBO / per-user token resolve + refresh (reuse for org connectors).
+- `backend/app/models/connection_tool.py` — per-DS tool overlay (Agent-owner policy, reuse).
+- `backend/app/models/user_connection_tool_preference.py` *(new)* — per-user enable/policy overlay for standalone connector use.
 - `backend/app/services/data_source_service.py` — `construct_clients` (`:1806`), visibility/usability filters (`:1715`).
 - `backend/app/ai/agent_v2.py` — catalog build + `available_capabilities` (`:315-361`); `main_execution` lightweight guards (`:1825`).
 - `backend/app/ai/agents/planner/planner_v3.py` + `prompt_builder_v3.py` — connector prompt branch / first-class tools.
