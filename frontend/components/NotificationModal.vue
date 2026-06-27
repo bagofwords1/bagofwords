@@ -1,5 +1,5 @@
 <template>
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-md', container: 'items-start', margin: 'sm:mt-[10vh]' }">
+  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl', container: 'items-start', margin: 'sm:mt-[10vh]' }">
     <div class="bg-white dark:bg-gray-900 rounded-lg overflow-hidden flex flex-col max-h-[78vh]">
       <!-- Header -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
@@ -13,26 +13,11 @@
         <div class="flex items-center gap-1">
           <button
             v-if="unread"
-            @click="markAllRead(activeFilter)"
+            @click="markAllRead()"
             class="text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
           >Mark all read</button>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
         </div>
-      </div>
-
-      <!-- Filter chips -->
-      <div class="flex items-center gap-1 px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-        <button
-          v-for="f in filters"
-          :key="f.key"
-          @click="setFilter(f.key)"
-          :class="[
-            'px-2.5 py-1 rounded-full text-[12px] transition-colors',
-            activeFilter === f.key
-              ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 font-medium'
-              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'
-          ]"
-        >{{ f.label }}</button>
       </div>
 
       <!-- List -->
@@ -100,19 +85,6 @@ import type { BowNotification } from '~/composables/useNotifications'
 const router = useRouter()
 const { isOpen, items, unread, loading, fetchItems, markRead, markAllRead, dismiss } = useNotifications()
 
-const filters = [
-  { key: null as string | null, label: 'All' },
-  { key: 'review', label: 'Agents' },
-  { key: 'share', label: 'Shares' },
-  { key: 'schedule', label: 'Scheduled' },
-]
-const activeFilter = ref<string | null>(null)
-
-function setFilter(key: string | null) {
-  activeFilter.value = key
-  fetchItems(key)
-}
-
 // Severity → accent (icon bubble).
 function sevBg(n: BowNotification): string {
   if (n.severity === 'error') return 'bg-red-50 dark:bg-red-500/10'
@@ -173,6 +145,6 @@ function onRowClick(n: BowNotification) {
 
 // Refetch the list each time the modal opens (badge count stays live via polling).
 watch(isOpen, (open) => {
-  if (open) fetchItems(activeFilter.value)
+  if (open) fetchItems()
 })
 </script>
