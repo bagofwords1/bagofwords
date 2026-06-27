@@ -31,7 +31,8 @@
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60'
             ]"
           >
-            <UIcon :name="item.icon" class="w-4 h-4 shrink-0" />
+            <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0" />
+            <UIcon v-else :name="item.icon" class="w-4 h-4 shrink-0" />
             <span class="whitespace-nowrap">{{ item.label }}</span>
           </button>
         </nav>
@@ -336,7 +337,9 @@
 </template>
 
 <script setup lang="ts">
+import { markRaw } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import McpIcon from '~/components/icons/McpIcon.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
@@ -350,17 +353,24 @@ const { t } = useI18n()
 const toast = useToast()
 const { data: currentUser, getSession } = useAuth()
 const { organization } = useOrganization()
+const { isMcpEnabled } = useOrgSettings()
 const colorMode = useColorMode()
 
-const activeTab = ref<'general' | 'instructions' | 'usage' | 'apiKeys' | 'appearance'>('general')
+const activeTab = ref<'general' | 'instructions' | 'usage' | 'apiKeys' | 'mcp' | 'appearance'>('general')
 
-const navItems = computed(() => [
-  { key: 'general', label: t('profile.nav.general'), icon: 'i-heroicons-user-circle' },
-  { key: 'instructions', label: t('profile.nav.instructions'), icon: 'i-heroicons-sparkles' },
-  { key: 'usage', label: t('profile.nav.usage'), icon: 'i-heroicons-chart-bar' },
-  { key: 'apiKeys', label: t('profile.nav.apiKeys'), icon: 'i-heroicons-key' },
-  { key: 'appearance', label: t('profile.nav.appearance'), icon: 'i-heroicons-swatch' },
-])
+const navItems = computed(() => {
+  const items: any[] = [
+    { key: 'general', label: t('profile.nav.general'), icon: 'i-heroicons-user-circle' },
+    { key: 'instructions', label: t('profile.nav.instructions'), icon: 'i-heroicons-sparkles' },
+    { key: 'usage', label: t('profile.nav.usage'), icon: 'i-heroicons-chart-bar' },
+    { key: 'apiKeys', label: t('profile.nav.apiKeys'), icon: 'i-heroicons-key' },
+  ]
+  if (isMcpEnabled.value) {
+    items.push({ key: 'mcp', label: t('nav.mcpServer'), iconComponent: markRaw(McpIcon) })
+  }
+  items.push({ key: 'appearance', label: t('profile.nav.appearance'), icon: 'i-heroicons-swatch' })
+  return items
+})
 
 // --- User basics ---
 const currentUserName = computed<string>(() => {
