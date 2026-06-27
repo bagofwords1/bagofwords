@@ -143,7 +143,21 @@ Verified end-to-end in the sandbox: sharing a conversation/artifact creates the
 right `share_conversation`/`share_artifact` row with the canonical copy + deep
 link; re-sharing does not duplicate.
 
-### 4.3b Other emit sites *(to build)*
+### 4.3b Other emit sites — ✅ implemented (notify-first)
+
+- **Scheduled run** — `scheduled_prompt_service.py` and `report_service.py` (the
+  scheduled-report rerun) create an in-app `scheduled_run` notification for the
+  `type=="user"` subscribers, collapsed per report (`group_key=schedule:{report_id}`)
+  so repeated runs refresh one entry; email follows for all subscribers.
+- **Added to an agent** — `data_source_member_email.send_member_added_email`
+  creates an `agent_access` notification for the added user, **independent of
+  SMTP** (the scheduling SMTP gate was removed so it fires even without email),
+  inside the existing 5-min undo-delayed + re-validated job. Email is sent only
+  when SMTP is configured.
+
+Verified in the sandbox: adding a member created the `agent_access` row with the
+canonical copy + `/agents/{id}` link, and it was created even though the email
+send failed (dummy SMTP) — proving in-app is decoupled from email.
 
 In `POST /reports/{id}/notify` (`report.py:254`) and `ReportService.set_visibility`
 (`report_service.py:104`): for every recipient that is a **known user**
@@ -206,6 +220,7 @@ permission gymnastics — ownership is the recipient.
 5. ✅ `/api/notifications` routes + mount
 6. ✅ Share-path notify-first (conversation + artifact; `set_visibility` + `notify_report`)
 7. ⬜ Frontend: `InboxFeed`, `/inbox`, nav bell
+6b. ✅ Scheduled-run + agent-access emit sites (notify-first)
 8. ⬜ In-report tool notification (depends on 2)
 9. ⬜ Unit tests for `InboxService` (dedup / resurface / per-user read) + an
    integration test that `emit()` fans out to agent managers

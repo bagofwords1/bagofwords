@@ -300,6 +300,26 @@ class ScheduledPromptService:
                 from app.dependencies import _locale_from_org
                 base_url = getattr(settings.bow_config, 'base_url', 'http://localhost:3000') if settings.bow_config else 'http://localhost:3000'
                 report_url = f"{base_url}/reports/{report.id}"
+                # notify-first: durable in-app row for user subscribers (collapsed
+                # per report so repeated runs refresh one entry). Email follows.
+                try:
+                    from app.services.inbox_service import inbox_service
+                    user_ids = [str(s.get("id")) for s in sp.notification_subscribers
+                                if s.get("type") == "user" and s.get("id")]
+                    if user_ids:
+                        es = exec_summary or {}
+                        await inbox_service.notify_users(
+                            db, organization_id=str(report.organization_id), user_ids=user_ids,
+                            source="schedule", type="scheduled_run",
+                            title=f'"{report.title or "Untitled"}" ran',
+                            body=(f"Your scheduled report ran — {es.get('iterations', 0)} steps, "
+                                  f"{es.get('queries', 0)} queries, {es.get('artifacts', 0)} artifacts."),
+                            link=f"/reports/{report.id}",
+                            subject={"kind": "report", "report_id": str(report.id)},
+                            group_key=f"schedule:{report.id}",
+                        )
+                except Exception:
+                    logger.warning("scheduled-run in-app notification failed", exc_info=True)
                 asyncio.create_task(
                     notification_service.send_scheduled_prompt_results(
                         report_id=report.id,
