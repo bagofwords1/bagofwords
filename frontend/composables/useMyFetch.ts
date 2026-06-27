@@ -1,11 +1,34 @@
 // /composables/useMyFetch.ts
 
+// Guards against a redirect storm: when a stale token is rejected, every
+// in-flight API call gets a 401 at once, but we only want a single redirect.
+let redirectingToSignIn = false
+
 export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const config = useRuntimeConfig()
   const { token } = useAuth()
+  const { rawToken } = useAuthState()
   const { organization, ensureOrganization } = useOrganization()
+  const route = useRoute()
 
   const isClient = process.client
+
+  // The server rejected our token (expired, revoked, or its signing secret
+  // changed). nuxt-auth still reports 'authenticated' from the token's mere
+  // presence, so without this the user is stranded on an empty app shell with
+  // every request 401ing. Clear the stale session and send them to sign-in.
+  const handleUnauthenticated = () => {
+    if (!isClient || redirectingToSignIn) return
+    // Don't loop on the auth/public pages that legitimately run unauthenticated.
+    const publicPrefixes = ['/users/', '/organizations/', '/onboarding', '/r/', '/c/', '/not_found']
+    if (publicPrefixes.some(p => route.path.startsWith(p))) return
+    redirectingToSignIn = true
+    rawToken.value = null
+    const redirect = route.fullPath && route.fullPath !== '/' ? route.fullPath : undefined
+    Promise.resolve(
+      navigateTo({ path: '/users/sign-in', query: redirect ? { redirect } : {} })
+    ).finally(() => { redirectingToSignIn = false })
+  }
 
   // Ensure organization is loaded before making the request
   const orgResult = await ensureOrganization()
@@ -58,7 +81,10 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
         refresh: () => {},
         status: ref('success')
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.status === 401 || error?.statusCode === 401 || error?.response?.status === 401) {
+        handleUnauthenticated()
+      }
       return {
         data: ref(null),
         error: ref(error),
