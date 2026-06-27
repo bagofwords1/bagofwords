@@ -674,6 +674,7 @@
     "placeholder": "Введите {'@'} для упоминания...",
     "loading": "Загрузка…",
     "noResults": "Результаты не найдены",
+    "allCategories": "All categories",
     "tables": "Таблицы",
     "noTables": "Таблиц нет.",
     "tools": "Инструменты",

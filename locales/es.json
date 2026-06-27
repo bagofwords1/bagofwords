@@ -684,6 +684,7 @@
     "placeholder": "Escribe {'@'} para mencionar...",
     "loading": "Cargando…",
     "noResults": "No se encontraron resultados",
+    "allCategories": "All categories",
     "tables": "Tablas",
     "noTables": "No hay tablas.",
     "tools": "Herramientas",

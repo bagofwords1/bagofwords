@@ -28,10 +28,43 @@
         <span>{{ $t('mentionInput.loading') }}</span>
       </div>
 
-      <!-- Search results view -->
+      <!-- Default view: collapsed list of category names (before typing). -->
+      <div v-else-if="showCategoryList" class="py-2">
+        <div
+          v-for="(category, categoryIndex) in categoryList"
+          :key="category.name"
+          :class="[
+            'group px-2 py-1.5 cursor-pointer flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800',
+            { 'bg-blue-50 dark:bg-blue-950': selectedIndex === categoryIndex }
+          ]"
+          :data-idx="categoryIndex"
+          @click="enterCategory(category.name)"
+        >
+          <div class="flex items-center space-x-2 min-w-0">
+            <Icon :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ category.label }}</span>
+          </div>
+          <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+        </div>
+        <div v-if="categoryList.length === 0" class="px-2 py-4 text-xs text-gray-500 dark:text-gray-400">
+          {{ $t('mentionInput.noResults') }}
+        </div>
+      </div>
+
+      <!-- Search / entered-category item view -->
       <div v-else-if="!expandedItem" class="py-2">
+        <!-- Back row when a single category was entered (no active query). -->
+        <div
+          v-if="activeCategory && !hasQuery"
+          class="px-2 py-1 mb-1 cursor-pointer flex items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+          @click="backToCategories"
+        >
+          <Icon name="heroicons-chevron-left" class="w-3.5 h-3.5 flex-shrink-0" />
+          <span>{{ $t('mentionInput.allCategories') }}</span>
+        </div>
         <div v-for="(category, categoryIndex) in filteredCategories" :key="category.name">
           <div class="px-2 py-1 text-[12px] font-medium text-gray-500 dark:text-gray-400">{{ category.label }}</div>
+          <div v-if="category.items.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noResults') }}</div>
           <div
             v-for="(item, itemIndex) in category.items"
             :key="item.id"
@@ -276,6 +309,10 @@ const selectedIndex = ref(0)
 const currentMentionStartIndex = ref(-1)
 const expandedItem = ref<MentionItem | null>(null)
 const expandedCategory = ref<string>('')
+// The category the user has "entered" from the default category-list view
+// ('' = show the category list). Only relevant while the @-query is empty; as
+// soon as the user types, search flattens across all categories regardless.
+const activeCategory = ref<string>('')
 const detailsCache = ref<Record<string, any>>({})
 const entityLoading = ref(false)
 const mentions = ref<MentionItem[]>([])
@@ -329,14 +366,34 @@ const lineHeightPx = computed(() => props.compact ? 18 : 24)
 const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
 const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
 
+// The raw @-query text (after the '@', before the caret). Empty until the user
+// types — drives the "category list vs items" default view.
+const mentionQuery = computed(() => {
+  if (currentMentionStartIndex.value === -1) return ''
+  return textContent.value.slice(currentMentionStartIndex.value + 1)
+})
+const hasQuery = computed(() => mentionQuery.value.trim().length > 0)
+
+// The clickable category rows shown by default (before the user types). Order
+// follows the `categories` prop; only categories present in allCategories with
+// a resolved label are shown.
+const categoryList = computed(() => {
+  return props.categories
+    .map(name => allCategories.value.find(c => c.name === name))
+    .filter((c): c is MentionCategory => !!c)
+})
+
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []
 
-  const mentionText = textContent.value.slice(currentMentionStartIndex.value + 1).toLowerCase()
+  const mentionText = mentionQuery.value.toLowerCase()
   const hasSelectedDataSources = props.selectedDataSourceIds.length > 0
 
   return allCategories.value
     .filter(cat => props.categories.includes(cat.name))
+    // While a query is active, search flattens across ALL categories. With no
+    // query but a category "entered", restrict to that one category's items.
+    .filter(cat => hasQuery.value || !activeCategory.value || cat.name === activeCategory.value)
     .map(category => {
       let items = category.items
 
@@ -388,7 +445,9 @@ const filteredCategories = computed(() => {
         items
       }
     })
-    .filter(category => category.items.length > 0)
+    // Hide empty categories, EXCEPT the one the user explicitly entered (so an
+    // entered-but-empty category still shows its header + an empty message).
+    .filter(category => category.items.length > 0 || (!hasQuery.value && category.name === activeCategory.value))
 })
 
 const dropdownStyle = computed(() => ({
@@ -418,6 +477,55 @@ function getItemAtIndex(index: number) {
     currentIndex += category.items.length
   }
   return null
+}
+
+// True when the dropdown should show the collapsed category-name list (default,
+// pre-typing state with no category entered and no item expanded).
+const showCategoryList = computed(() =>
+  !hasQuery.value && !activeCategory.value && !expandedItem.value
+)
+
+// Icon shown next to each category name in the collapsed list. Mirrors the
+// per-item icons used in the item view.
+function categoryIcon(name: string): string {
+  switch (name) {
+    case 'data_sources': return 'heroicons-cube-transparent'
+    case 'instructions': return 'heroicons-book-open'
+    case 'skills': return 'heroicons-sparkles'
+    case 'prompts': return 'heroicons-command-line'
+    case 'files': return 'heroicons-document'
+    case 'entities': return 'heroicons-chart-bar'
+    default: return 'heroicons-tag'
+  }
+}
+
+// Enter a category from the default list: show its items. Data is already
+// loaded on mount; ensureCategoryLoaded re-fetches lazily if a category is
+// somehow empty (e.g. a prior fetch failed), so re-entry self-heals.
+function enterCategory(name: string) {
+  activeCategory.value = name
+  selectedIndex.value = 0
+  ensureCategoryLoaded(name)
+}
+
+// Return from a category's item list back to the category-name list.
+function backToCategories() {
+  activeCategory.value = ''
+  selectedIndex.value = 0
+}
+
+function ensureCategoryLoaded(name: string) {
+  const cat = allCategories.value.find(c => c.name === name)
+  if (cat && cat.items.length > 0) return
+  if (name === 'data_sources' || name === 'files' || name === 'entities') {
+    fetchAvailableMentions()
+  } else if (name === 'prompts') {
+    fetchPromptMentions()
+  } else if (name === 'instructions') {
+    fetchInstructionMentions('instruction', instructionCategoryItems)
+  } else if (name === 'skills') {
+    fetchInstructionMentions('skill', skillCategoryItems)
+  }
 }
 
 function getCaretPosition(element: HTMLElement): number {
@@ -553,21 +661,26 @@ function handleInput(event: Event) {
                                container.parentElement?.closest('.mention')
 
         if (!isInsideMention) {
+          // A freshly-opened mention (new '@') starts at the category list.
+          if (currentMentionStartIndex.value !== lastAtIndex) activeCategory.value = ''
           currentMentionStartIndex.value = lastAtIndex
           showDropdown.value = true
           selectedIndex.value = 0
         } else {
           showDropdown.value = false
           currentMentionStartIndex.value = -1
+          activeCategory.value = ''
         }
       }
     } else {
       showDropdown.value = false
       currentMentionStartIndex.value = -1
+      activeCategory.value = ''
     }
   } else {
     showDropdown.value = false
     currentMentionStartIndex.value = -1
+    activeCategory.value = ''
   }
 
   emit('update:modelValue', textContent.value)
@@ -575,7 +688,32 @@ function handleInput(event: Event) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (showDropdown.value) {
+  if (showDropdown.value && showCategoryList.value) {
+    // Category-name list navigation (default pre-typing view).
+    const total = categoryList.value.length
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault()
+        if (total) selectedIndex.value = (selectedIndex.value + 1) % total
+        scrollSelectedIntoView()
+        return
+      case 'ArrowUp':
+        event.preventDefault()
+        if (total) selectedIndex.value = (selectedIndex.value - 1 + total) % total
+        scrollSelectedIntoView()
+        return
+      case 'Enter':
+      case 'ArrowRight':
+        event.preventDefault()
+        const cat = categoryList.value[selectedIndex.value]
+        if (cat) enterCategory(cat.name)
+        return
+      case 'Escape':
+        event.preventDefault()
+        showDropdown.value = false
+        return
+    }
+  } else if (showDropdown.value) {
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault()
@@ -605,12 +743,18 @@ function handleKeydown(event: KeyboardEvent) {
         if (expandedItem.value) {
           event.preventDefault()
           closeItemCard()
+        } else if (activeCategory.value && !hasQuery.value) {
+          // Back out of an entered category to the category list.
+          event.preventDefault()
+          backToCategories()
         }
         break
       case 'Escape':
         event.preventDefault()
         if (expandedItem.value) {
           closeItemCard()
+        } else if (activeCategory.value && !hasQuery.value) {
+          backToCategories()
         } else {
           showDropdown.value = false
         }
@@ -622,6 +766,14 @@ function handleKeydown(event: KeyboardEvent) {
       event.preventDefault()
       emit('submit')
     }
+  }
+
+  // Backspace inside an entered category with an empty query returns to the
+  // category list (instead of deleting the '@' that opened the menu).
+  if (event.key === 'Backspace' && showDropdown.value && activeCategory.value && !hasQuery.value) {
+    event.preventDefault()
+    backToCategories()
+    return
   }
 
   // Prevent typing inside mentions
@@ -932,6 +1084,7 @@ function selectItem(item: MentionItem, category: string) {
     currentMentionStartIndex.value = -1
     showDropdown.value = false
     expandedItem.value = null
+    activeCategory.value = ''
     selectedIndex.value = 0
 
     updateMentionsList()
@@ -996,6 +1149,7 @@ function insertPromptText(item: MentionItem, plainText: string) {
   currentMentionStartIndex.value = -1
   showDropdown.value = false
   expandedItem.value = null
+  activeCategory.value = ''
   selectedIndex.value = 0
 
   updateMentionsList()
@@ -1372,6 +1526,11 @@ onMounted(() => {
 
 // Rebuild labels when the locale changes so category headings stay localized.
 watch(i18nLocale, () => rebuildCategories())
+
+// Reset the highlight when switching between the category-list and item views
+// (e.g. the moment the user starts/stops typing a query) so the selection never
+// points past the visible rows.
+watch(showCategoryList, () => { selectedIndex.value = 0 })
 
 watch(() => props.selectedDataSourceIds, () => {
   fetchAvailableMentions()
