@@ -194,7 +194,73 @@ review signals). 8 layers on the in-report tool. 9 hardens.
 
 ---
 
-## 8. Open questions
+## 8. Notification copy (canonical text per type)
+
+Variables interpolated at emit time: `{actor}` (who did it), `{agent}` (data-source
+name), `{report}` (report title), `{n}`/`{secs}`/`{actual}` (counts). Convention:
+**title carries the subject; body is one explanatory sentence; no trailing
+call-to-action** (the row is the link). Counts render as a badge from
+`group_count`/dedup, not baked into the title, so text stays stable on refresh.
+
+**Review signals** — `source="review"`, link `/agents/{agent}`:
+
+| type | severity | title | body |
+|---|---|---|---|
+| `low_confidence` | warning | `Low-confidence answers on {agent}` | `An answer on {agent} scored below 3/5.` |
+| `schema_changed` | warning | `Schema changed on {agent}` | `Tables or columns changed on this connection — answers may be affected.` |
+| `slow_query` | warning | `Slow queries on {agent}` | `A data query on {agent} ran {actual}s, over the {secs}s budget.` |
+| `query_error` | error | `Query error on {agent}` | `A data query on {agent} failed to run.` |
+| `instruction_suggestion` | info | `{instruction title}` | `{AI\|Proposed} instruction change awaiting review on {agent}.` |
+
+**Share & access** — `source="share"`:
+
+| type | severity | title | body | link |
+|---|---|---|---|---|
+| `share_conversation` | info | `{actor} shared a conversation with you` | `{actor} shared "{report}" with you.` | `/reports/{id}` |
+| `share_artifact` | info | `{actor} shared a dashboard with you` | `{actor} shared the dashboard "{report}" with you.` | `/reports/{id}` |
+| `agent_access` | info | `You were added to {agent}` | `{actor} added you to {agent}. You can now chat with this agent and explore its data.` | `/agents/{agent}` |
+
+**Scheduled runs** — `source="schedule"`, link `/reports/{id}`:
+
+| type | severity | title | body |
+|---|---|---|---|
+| `scheduled_run` | info | `"{report}" ran` | `Your scheduled report ran — {iterations} steps, {queries} queries, {artifacts} artifacts.` |
+| `scheduled_run_failed` | error | `"{report}" failed to run` | `Your scheduled report didn't complete on its last run.` |
+
+**In-report tool** — `source="report_tool"`: free-form (tool supplies title/body);
+default title `Update from {report}`, link `/reports/{id}`.
+
+> **Two required tweaks to the review fan-out** (`review_producers.py` /
+> `_fanout_notification`) to match the copy above:
+> 1. **Drop action references.** Current producer bodies end with *"Run training
+>    to close the gaps"* / *"Consider a guardrail instruction"* — those point at
+>    the run-training/run-eval buttons we removed from this surface. Strip them.
+> 2. **Add the agent name to titles.** Producer titles are generic
+>    (`"Low-confidence answers"`) because the review feed was agent-scoped. The
+>    inbox spans agents, so `_fanout_notification` must resolve the data-source
+>    name and put `{agent}` in the title.
+
+---
+
+## 9. Frontend — ✅ bell + modal implemented
+
+- `composables/useNotifications.ts` — shared open-state, item list, unread count,
+  and actions (`fetchCount`/`fetchItems`/`markRead`/`markAllRead`/`dismiss`).
+- `components/NotificationModal.vue` — minimal `UModal` (header + unread badge +
+  "Mark all read", `All / Agents / Shares / Scheduled` filter chips, rows with a
+  severity-tinted icon, title/body/relative-time, unread dot, hover-dismiss, empty
+  state). Row click → `markRead` + navigate to `link`.
+- `layouts/default.vue` — a small bell with a red unread badge at the top of the
+  sidebar (next to the logo); count polled every 60s and resynced when the modal
+  closes.
+
+*Still copy/i18n:* the modal uses literal English strings; add `$t` keys across
+locales as a follow-up. A top-level `/inbox` page (vs. modal-only) is optional —
+the modal covers the primary surface.
+
+---
+
+## 10. Open questions
 
 - **Backfill**: fan out existing open `ReviewItem`s into notifications on
   deploy, or start fresh? (Recommend: start fresh; review feed still shows

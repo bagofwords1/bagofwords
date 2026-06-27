@@ -58,10 +58,24 @@
     <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col justify-between">
 
       <ul class="font-normal text-[13px] !ps-0">
-        <li>
+        <li class="flex items-center" :class="isCollapsed ? 'flex-col gap-1' : 'justify-between'">
             <button @click="router.push('/')" class="flex items-center justify-center p-1 text-gray-700 group">
               <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-8 max-w-[120px] object-contain'" />
             </button>
+            <!-- Notifications bell -->
+            <UTooltip text="Notifications" :popper="{ placement: tooltipPlacement }">
+              <button
+                @click="notifOpen = true"
+                class="relative flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+                aria-label="Notifications"
+              >
+                <UIcon name="i-heroicons-bell" class="w-[18px] h-[18px]" />
+                <span
+                  v-if="notifUnread"
+                  class="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[9px] font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950"
+                >{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+              </button>
+            </UTooltip>
         </li>
 
         <!-- Agents (top-level) — plain link: cube on the left, stacked agent icons on the right. -->
@@ -245,6 +259,9 @@
 
   <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
 
+  <!-- Per-user notification inbox (bell in the sidebar) -->
+  <NotificationModal />
+
   <!-- Global ⌘K / Ctrl+K command palette -->
   <CommandPalette />
   </div>
@@ -259,11 +276,23 @@
   import SidebarIcon from '~/components/icons/SidebarIcon.vue'
   import McpModal from '~/components/McpModal.vue'
   import UserProfileModal from '~/components/UserProfileModal.vue'
+  import NotificationModal from '~/components/NotificationModal.vue'
   import { useCan } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
   const showProfileModal = ref(false)
+
+  // Notification inbox (shared state with NotificationModal + the sidebar bell).
+  const { isOpen: notifOpen, unread: notifUnread, fetchCount: fetchNotifCount } = useNotifications()
+  let notifPollTimer: any = null
+  onMounted(() => {
+    fetchNotifCount()
+    notifPollTimer = setInterval(fetchNotifCount, 60000)
+  })
+  onBeforeUnmount(() => { if (notifPollTimer) clearInterval(notifPollTimer) })
+  // Resync the badge when the inbox closes (read/dismiss may have changed it).
+  watch(notifOpen, (open) => { if (!open) fetchNotifCount() })
 
   const route = useRoute()
   const isRouteActive = (path: string) => {
@@ -273,6 +302,7 @@
   watch(() => route.fullPath, () => {
     showMcpModal.value = false
     showProfileModal.value = false
+    notifOpen.value = false
   })
 
   interface NavItem {

@@ -6,8 +6,11 @@ org/agent-scoped team queue; a ``Notification`` belongs to a single user and
 owns that user's read/dismiss state. Review items fan out into notifications,
 and the share + in-report-tool paths write directly into it.
 
+Also merges the two existing heads (followups01 and c3f1a9b2d4e7) so the tree
+collapses back to a single head.
+
 Revision ID: notif0001
-Revises: followups01
+Revises: followups01, c3f1a9b2d4e7
 Create Date: 2026-06-26
 """
 from alembic import op
@@ -15,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision = "notif0001"
-down_revision = "followups01"
+down_revision = ("followups01", "c3f1a9b2d4e7")
 branch_labels = None
 depends_on = None
 
