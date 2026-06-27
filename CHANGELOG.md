@@ -2,9 +2,8 @@
 
 ## Version 0.0.426 (June 27, 2026)
 - Add **Prompts** - save and reuse prompts. Including running for usrers
-- Redesigned main nav menu to include inline reports, prompts, and clean ups
 - Added **Notifications** - sharing/alerts from agents will be shown here
-- 
+- Redesigned main nav menu to include inline reports, prompts, and clean ups
 
 ## Version 0.0.425 (June 25, 2026)
 - **Channels (integrations) settings — full localization + RTL fixes (#452)** — the six **Settings → Channels** panels (Slack, Microsoft Teams, WhatsApp, AI Mailbox, Excel Add-in, OAuth Clients) were hardcoded in English; every user-facing string is now wired through i18n with a new `settings.integrations.channels.*` key set translated into all 10 locales (code literals like `users:read.email`, `manifest.xml`, and `X-Hub-Signature-256` kept literal via slots). Also fills previously-untranslated integration keys that silently fell back to English, and fixes RTL in `OAuthClientsModal` (physical `ml-`/`mr-`/`right-` → logical `ms-`/`me-`/`end-`), keeping list rows icon-left / status-right under RTL.
