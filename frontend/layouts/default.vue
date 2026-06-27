@@ -417,10 +417,10 @@
 
   const mainNavItems: NavItem[] = [
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
-    { href: '/prompts', icon: 'heroicons-sparkles', label: 'nav.prompts' },
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
     { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
+    { href: '/prompts', icon: 'heroicons-sparkles', label: 'nav.prompts' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
     { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true },
