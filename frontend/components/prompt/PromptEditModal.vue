@@ -72,14 +72,48 @@
             </button>
           </div>
 
-          <!-- Agents: reuse the shared DataSourceSelector (auto/empty == all agents) -->
-          <div v-if="audience === 'agent'" class="flex items-center gap-2">
-            <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('prompts.selectAgents') }}</span>
-            <DataSourceSelector
-              v-model:selectedDataSources="selectedAgents"
-              permission="update_data_source"
-            />
-            <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ agentSelectionHint }}</span>
+          <!-- Agents: explicit multiselect — always shows the agent name(s) by
+               name (DataSourceIcon + name). Never collapses to "Auto". -->
+          <div v-if="audience === 'agent'">
+            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.selectAgents') }}</div>
+            <div v-if="!manageableAgents.length" class="text-[11px] text-gray-400">{{ $t('prompts.noManageableAgents') }}</div>
+            <template v-else>
+              <USelectMenu
+                v-model="agentIds"
+                :options="agentOptions"
+                option-attribute="name"
+                value-attribute="id"
+                multiple
+                size="xs"
+                class="text-xs w-72"
+                :placeholder="$t('prompts.selectAgentsPlaceholder')"
+                :ui="{ option: { base: 'text-xs py-1.5' } }"
+              >
+                <template #label>
+                  <span v-if="!agentIds.length" class="text-gray-400">{{ $t('prompts.selectAgentsPlaceholder') }}</span>
+                  <span v-else class="text-xs truncate">{{ $t('prompts.nAgentsSelected', { n: agentIds.length }) }}</span>
+                </template>
+                <template #option="{ option }">
+                  <DataSourceIcon v-if="option.type" :type="option.type" class="h-3.5 w-auto flex-shrink-0" />
+                  <span class="text-xs truncate">{{ option.name }}</span>
+                </template>
+              </USelectMenu>
+
+              <!-- Selected agents shown explicitly as named chips -->
+              <div v-if="selectedAgentChips.length" class="flex flex-wrap gap-1.5 mt-2">
+                <span
+                  v-for="a in selectedAgentChips"
+                  :key="a.id"
+                  class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
+                >
+                  <DataSourceIcon :type="a.type" class="h-3 w-auto" />
+                  {{ a.name }}
+                  <button type="button" class="hover:text-red-500" @click="removeAgent(a.id)">
+                    <UIcon name="heroicons-x-mark" class="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              </div>
+            </template>
           </div>
 
           <p v-if="audience === 'global'" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('prompts.globalHint') }}</p>
@@ -123,7 +157,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
-import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import ModeSelector from '@/components/prompt/ModeSelector.vue'
 import ModelSelector from '@/components/prompt/ModelSelector.vue'
 import { usePrompts } from '~/composables/usePrompts'
@@ -166,10 +199,10 @@ const form = reactive({
   model_id: null as string | null,
 })
 
-// Audience is a single explicit choice. 'agent' uses the DataSourceSelector.
+// Audience is a single explicit choice. 'agent' uses an explicit multiselect.
 const audience = ref<Audience>('private')
-// Selected agent objects from DataSourceSelector ({ id, name, type, ... }).
-const selectedAgents = ref<any[]>([])
+// Explicitly selected agent ids (never collapses to "all"/"auto").
+const agentIds = ref<string[]>([])
 
 // Parameters are derived from the prompt text — shown read-only as chips.
 const detectedParams = computed(() => extractParamNames(form.text))
@@ -195,11 +228,23 @@ const audienceOptions = computed(() => {
   return opts
 })
 
-// DataSourceSelector "auto"/empty selection means ALL agents. Reflect that.
-const agentSelectionHint = computed(() => {
-  if (!selectedAgents.value.length) return t('prompts.allAgentsHint')
-  return t('prompts.nAgentsSelected', { n: selectedAgents.value.length })
-})
+// Options for the agent multiselect (only agents the user can manage).
+const agentOptions = computed(() =>
+  manageableAgents.value.map(a => ({ id: a.id, name: a.name, type: a.type })),
+)
+
+// Selected agents resolved to { id, name, type } for the named chips. Always
+// explicit — never "Auto".
+const selectedAgentChips = computed(() =>
+  agentIds.value.map(id => {
+    const a = (props.agents || []).find(x => x.id === id)
+    return { id, name: a?.name || id, type: a?.type }
+  }),
+)
+
+function removeAgent(id: string) {
+  agentIds.value = agentIds.value.filter(x => x !== id)
+}
 
 function seed() {
   const p = props.prompt
@@ -213,13 +258,8 @@ function seed() {
   // Map scope → audience.
   const scope = (p?.scope as PromptScope) || 'private'
   audience.value = (scope === 'global' ? 'global' : scope === 'agent' ? 'agent' : 'private')
-  // Seed selected agents from the prompt's data_source_ids (map to objects the
-  // selector knows; it re-aligns by id once it loads its own list).
-  const ids = p?.data_source_ids || []
-  selectedAgents.value = ids.map(id => {
-    const a = (props.agents || []).find(x => x.id === id)
-    return a ? { id: a.id, name: a.name, type: a.type } : { id }
-  })
+  // Seed explicitly selected agent ids from the prompt's data_source_ids.
+  agentIds.value = [...(p?.data_source_ids || [])]
 
   // Fall back to an audience the user is allowed to set.
   if (!audienceOptions.value.some(o => o.value === audience.value)) {
@@ -244,16 +284,14 @@ function insertParameterPrompt() {
   form.text = `${form.text || ''}{{${clean}}}`
 }
 
-// Resolve the agent ids to persist. Under 'agent' audience, an empty selection
-// (DataSourceSelector "auto") means ALL agents the user can manage.
-const resolvedAgentIds = computed<string[]>(() => {
-  if (audience.value !== 'agent') return []
-  if (selectedAgents.value.length) return selectedAgents.value.map((a: any) => a.id)
-  return manageableAgents.value.map(a => a.id)
-})
+// Agent ids to persist — always the explicit selection (no "auto == all").
+const resolvedAgentIds = computed<string[]>(() =>
+  audience.value === 'agent' ? [...agentIds.value] : [],
+)
 
 const canSave = computed(() => {
   if (!form.text.trim()) return false
+  // scope=agent requires at least one explicitly selected agent (backend enforces too).
   if (audience.value === 'agent' && resolvedAgentIds.value.length === 0) return false
   return true
 })

@@ -2554,6 +2554,7 @@
     "scopePublic": "Public",
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
-    "nAgentsSelected": "{n} selected"
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

@@ -103,7 +103,7 @@
     <PromptViewModal
       v-model="viewOpen"
       :prompt="activePrompt"
-      :agent-names="agentNames"
+      :agent-map="agentMap"
       :running="runningId === activePrompt?.id"
       @run="onRun"
       @edit="openEdit"

@@ -48,17 +48,17 @@
           </div>
         </div>
 
-        <!-- Agents / scope -->
-        <div v-if="prompt?.scope === 'agent' && agentNamesList.length">
+        <!-- Agents / scope: always explicit DataSourceIcon + name -->
+        <div v-if="prompt?.scope === 'agent' && agentChips.length">
           <div class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">{{ $t('prompts.viewAgents') }}</div>
           <div class="flex flex-wrap gap-1.5">
             <span
-              v-for="(name, i) in agentNamesList"
-              :key="i"
+              v-for="a in agentChips"
+              :key="a.id"
               class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
             >
-              <UIcon name="heroicons-cube" class="w-3 h-3" />
-              {{ name }}
+              <DataSourceIcon :type="a.type" class="h-3 w-auto" />
+              {{ a.name }}
             </span>
           </div>
         </div>
@@ -123,7 +123,8 @@ const { extractParamNames } = usePromptFill()
 const props = defineProps<{
   modelValue: boolean
   prompt: Prompt | null
-  agentNames?: Record<string, string>
+  // id → { name, type } for the agent chips' DataSourceIcon.
+  agentMap?: Record<string, { name: string; type?: string }>
   authorNames?: Record<string, string>
   running?: boolean
 }>()
@@ -152,9 +153,9 @@ function placeholder(name: string): string {
   return '{{' + name + '}}'
 }
 
-const agentNamesList = computed(() => {
+const agentChips = computed(() => {
   const ids = props.prompt?.data_source_ids || []
-  return ids.map(id => props.agentNames?.[id] || id)
+  return ids.map(id => ({ id, name: props.agentMap?.[id]?.name || id, type: props.agentMap?.[id]?.type }))
 })
 
 const authorName = computed(() => {
