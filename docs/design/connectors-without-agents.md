@@ -161,13 +161,25 @@ be `kind="connector"` + `owner_user_id == current_user` + `is_public=False`). Vi
 usability filtering already handled by `filter_user_visible_data_sources` /
 `filter_user_usable_data_sources` in `data_source_service.py`.
 
-### 3. Credentials / OAuth
+### 3. Credentials / OAuth (incl. OBO for org connectors)
 
-No new code. A connector's connection uses `auth_policy="user_required"` → the existing
-per-user OAuth flow (`/connections/{id}/oauth/authorize` → callback → `UserConnectionCredentials`)
-handles "Connect your Gmail." Global system connectors use `auth_policy="system_only"` with
-org creds on the `Connection`. `construct_clients` / `resolve_credentials_for_connection`
-already pick the right path per user.
+No new credential code. A connector's connection uses `auth_policy="user_required"` → the
+existing per-user OAuth flow (`/connections/{id}/oauth/authorize` → callback →
+`UserConnectionCredentials`) handles "Connect your Gmail." Global system connectors use
+`auth_policy="system_only"` with org creds on the `Connection`.
+`construct_clients` / `resolve_credentials_for_connection` already pick the right path per user.
+
+**Org connector that requires per-user identity (OBO).** A common case (confirmed): an
+**org-level Agent requires Monday tools**, but each member must act as *themselves* on Monday.
+This is exactly today's **On-Behalf-Of** path: a global/org connector with
+`auth_policy="user_required"`, and each user's token resolved per-run via
+`connection_oauth_service` (`maybe_refresh_oauth_credentials`, OBO token exchange in
+`auto_provision_connection_credentials`). `resolve_credentials(db, connection, current_user)`
+already: returns the user's token when present, refreshes if near expiry, falls back to the
+admin "service_account vs self" identity preference, and 403s a user with no token when the
+policy demands self-identity. So **the same connector is shared org-wide but executes with each
+member's own Monday identity** — no new work beyond surfacing the "Connect" prompt when a
+user hits an org connector they haven't authorized yet (the selector already has this state).
 
 ### 4. PromptBoxV2 + selectors (frontend)
 
@@ -216,7 +228,38 @@ Keep: planner loop, `ToolRunner`, observation feedback, block/SSE streaming. Thi
 **guarding existing calls** behind a `self._connector_only` flag in `main_execution`, not new
 infrastructure — `ToolRegistry` + `ToolRunner` are already standalone.
 
-### 7. execute_mcp / search_mcps allow-list
+### 7. Public MCP catalog (marketplace) — *new component*
+
+We want a **browsable catalog of public MCPs** (Monday, Gmail, Linear, Notion, Slack, …) that
+an admin (org-wide) or a member (private) can enable in a couple of clicks, rather than typing
+a server URL into a raw form. This mirrors the existing **data source registry** pattern.
+
+- **Catalog source = a curated registry of connector templates.** Each entry is a
+  pre-configured connector: `key`, display `title`, `icon`, `description`, MCP `server_url`,
+  `transport`, `auth_type` (`oauth_app` / `bearer` / `api_key` / `none`), default `scopes`,
+  and (for OAuth) `authorize_url` / `token_url` / `audience`. Model it like
+  `data_source_registry.REGISTRY` — a static dict the API serves (e.g.
+  `backend/app/schemas/connector_catalog.py` + `GET /connectors/catalog`). Versionable,
+  ships with the app, and (later) augmentable by org-defined entries.
+- **"Enable" = instantiate a connector from a template.** Picking an entry creates a
+  `kind="connector"` DataSource + an `mcp` `Connection` seeded from the template's
+  `server_url`/`transport`/`auth_type`, then runs `refresh-tools` to populate `ConnectionTool`
+  rows. Scope at creation: admin → `is_public=True`; member → `owner_user_id=self`,
+  `is_public=False`. OAuth entries then send the user through the existing connect flow.
+- **Auth per entry.** OAuth catalog entries default to `auth_policy="user_required"` (each
+  user signs in — incl. the OBO org-connector case in §3). API-key/bearer entries can be
+  `system_only` (admin pastes one org key) or `user_required` (each user pastes their own),
+  chosen at enable time.
+- **Frontend.** A "Connectors" gallery (cards with icons) — admin version under
+  `settings/integrations`, member version reachable from the prompt box "Add connector".
+  Reuse `MCPConnectionForm.vue` as the *advanced/custom* path for anything not in the catalog.
+- **Tool granularity follows from the catalog.** Once an MCP is enabled, its tools are the
+  discovered `ConnectionTool` rows. Start by routing them through the shipped
+  `execute_mcp` + `search_mcps` path (cheap, validated); promote to first-class per-tool
+  `ToolDescriptor`s later (§5) for a sharper planner UX. The catalog is the *discovery/enable*
+  layer; it is orthogonal to how tools are presented to the planner.
+
+### 8. execute_mcp / search_mcps allow-list
 
 Because connectors are data sources, `report.data_sources → connections` already includes
 them, so `execute_mcp`'s allow-list (`execute_mcp.py:110-131`) and `search_mcps`' discovery
@@ -241,18 +284,27 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 
 ---
 
-## Open questions / decisions for product
+## Resolved decisions
 
-1. **Tool granularity to the planner:** expose each `ConnectionTool` as a first-class tool
-   (richer, more tokens) vs keep the generic `execute_mcp` + `search_mcps` discovery (cheaper,
-   already shipped)? Recommendation: start with `execute_mcp`, iterate to first-class tools.
-2. **Member self-serve scope:** do we allow members to create private connectors at all, or is
-   connector creation admin-only with users only *connecting their identity* to admin-enabled
-   global connectors? (Affects whether we add `create_private_connector`.)
-3. **Mixed conversations:** can a turn use both an analytical Agent *and* connectors? (Design
-   supports it; the lightweight path only triggers when there is *no* analytical source.)
-4. **Confirmation policy:** honour `ConnectionTool.policy = confirm` for write-ish connector
-   actions (Gmail send, Monday create) at prompt time?
+1. **Member self-serve: YES.** Members may create their **own private** connectors
+   (`create_private_connector` permission; gated to `kind="connector"` +
+   `owner_user_id == self` + `is_public=False`). Admin retains org-wide (`is_public=True`).
+2. **Connectors attach to Agents too (OBO).** An org-level Agent can *require* connector tools
+   (e.g. Monday) while each member executes with their own identity via the existing OBO /
+   `user_required` flow (§3). Connectors are therefore both *standalone* and *co-attachable to
+   Agents* — the reuse-`DataSource` design gives this for free.
+3. **Tool discovery: a catalog of public MCPs** (§7). Curated registry of connector templates;
+   one-click enable (org or private). Tools presented to the planner via the shipped
+   `execute_mcp`/`search_mcps` path first, first-class per-tool exposure later.
+4. **Mixed conversations: YES.** A turn may use an analytical Agent *and* connectors together;
+   the lightweight loop (§6) only triggers when there is *no* analytical source.
+
+## Still to confirm
+
+- **Confirmation policy:** honour `ConnectionTool.policy = confirm` for write-ish connector
+  actions (Gmail send, Monday create) with an at-prompt confirmation step?
+- **Catalog ownership of entries:** ship a static curated catalog only, or also let admins add
+  org-private catalog entries (custom MCPs promoted into the gallery)?
 
 ---
 
@@ -264,13 +316,18 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 - **Phase 1 — lightweight run path:** `_connector_only` detection in `agent_v2.main_execution`;
   guard schema/Judge/knowledge-harness; add the connector system-prompt branch in
   `prompt_builder_v3`.
-- **Phase 2 — admin global connectors:** admin create flow (reuse `MCPConnectionForm`),
-  `is_public=True`, org/system creds; appears for everyone in the selector.
-- **Phase 3 — private connectors + OAuth connect:** `create_private_connector` permission;
-  member "Connect your Gmail" via existing per-user OAuth; private/shared toggle.
-- **Phase 4 — PromptBoxV2 selection + tool picker:** connectors group in the selector;
-  optional per-prompt `ConnectionTool` enable/policy.
-- **Phase 5 (optional) — first-class connector tools** to the planner instead of `execute_mcp`.
+- **Phase 2 — public MCP catalog (backend):** `connector_catalog` registry + `GET
+  /connectors/catalog` + "enable from template" endpoint (creates connector DataSource +
+  `mcp` Connection + refresh-tools).
+- **Phase 3 — admin global connectors (UX):** connectors gallery in `settings/integrations`;
+  enable org-wide (`is_public=True`); system or OBO/`user_required` auth.
+- **Phase 4 — private connectors + member self-serve:** `create_private_connector` permission;
+  member "Add connector" from the prompt box; "Connect your Gmail" via existing per-user OAuth;
+  private/shared toggle in `MCPConnectionForm` (custom path).
+- **Phase 5 — PromptBoxV2 selection + tool picker:** connectors group in the selector;
+  per-user "Connect" affordance for unauthorized org connectors (OBO); optional per-prompt
+  `ConnectionTool` enable/policy.
+- **Phase 6 (optional) — first-class connector tools** to the planner instead of `execute_mcp`.
 
 ---
 
@@ -279,7 +336,9 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 **Backend**
 - `backend/app/models/data_source.py` — add `kind`; `owner_user_id`, `is_public`, `publish_status` already present.
 - `backend/app/models/connection.py` — `auth_policy`, `allowed_user_auth_modes`, `ConnectionTool` (reuse).
-- `backend/app/schemas/data_source_registry.py` — `mcp`/`custom_api` tool-provider entries (`:878`, `:920`), `tool_provider_types()` (`:1030`).
+- `backend/app/schemas/data_source_registry.py` — `mcp`/`custom_api` tool-provider entries (`:878`, `:920`), `tool_provider_types()` (`:1030`); template for the new `connector_catalog`.
+- `backend/app/schemas/connector_catalog.py` *(new)* — curated public-MCP catalog; served by `GET /connectors/catalog`.
+- `backend/app/services/connection_oauth_service.py` — OBO / per-user token resolve + refresh (reuse for org connectors).
 - `backend/app/services/data_source_service.py` — `construct_clients` (`:1806`), visibility/usability filters (`:1715`).
 - `backend/app/ai/agent_v2.py` — catalog build + `available_capabilities` (`:315-361`); `main_execution` lightweight guards (`:1825`).
 - `backend/app/ai/agents/planner/planner_v3.py` + `prompt_builder_v3.py` — connector prompt branch / first-class tools.
