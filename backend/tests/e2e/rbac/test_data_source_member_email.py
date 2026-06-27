@@ -1,9 +1,13 @@
 """E2E coverage for: data sources are private by default, and adding a member
-schedules a delayed "you've been added" email only when SMTP is configured.
+schedules a delayed "you've been added" notification.
 
-Exercises the real HTTP routes end to end. The delayed-email send itself is not
-driven here (it fires minutes later via APScheduler); we assert the scheduling
-decision, which is where the "only if SMTP configured" rule lives.
+Notify-first: the delayed job delivers a durable in-app notification regardless
+of SMTP, and additionally sends an email when SMTP is configured. So the job is
+scheduled whenever a genuinely new member is added; the SMTP setting only gates
+the email channel at send time, not the scheduling decision.
+
+Exercises the real HTTP routes end to end. The delayed send itself is not driven
+here (it fires minutes later via APScheduler); we assert the scheduling decision.
 """
 
 import uuid
@@ -129,10 +133,13 @@ def test_update_members_emails_only_newly_added(
     assert add_job.call_args.kwargs["args"][1] == m2["user_id"]
 
 
-def test_member_add_does_not_schedule_email_without_smtp(
+def test_member_add_schedules_notification_without_smtp(
     monkeypatch, restore_email_client, test_client, bootstrap_admin,
     invite_user_to_org, sqlite_data_source,
 ):
+    """Notify-first: even without SMTP, adding a member schedules the delayed job
+    because it delivers the in-app "added to agent" notification. (The email
+    channel is skipped at send time when SMTP is absent.)"""
     admin = bootstrap_admin("ds_nosmtp")
     member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
     ds = sqlite_data_source(
@@ -148,4 +155,8 @@ def test_member_add_does_not_schedule_email_without_smtp(
 
     resp = _add_member(test_client, admin, ds, member)
     assert resp.status_code == 200, resp.json()
-    add_job.assert_not_called()
+    add_job.assert_called_once()
+    kwargs = add_job.call_args.kwargs
+    assert kwargs["trigger"] == "date"
+    assert kwargs["args"][0] == ds["id"]
+    assert kwargs["args"][1] == member["user_id"]
