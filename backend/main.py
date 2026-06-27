@@ -61,6 +61,7 @@ from app.routes import (
     data_source,
     agent_reliability,
     review,
+    notification,
     demo_data_source,
     text_widget,
     user_profile,
@@ -220,6 +221,7 @@ app.include_router(demo_data_source.router, prefix="/api")  # Must be before dat
 app.include_router(data_source.router, prefix="/api")
 app.include_router(agent_reliability.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
+app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")

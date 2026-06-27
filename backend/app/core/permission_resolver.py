@@ -382,6 +382,43 @@ async def get_ds_ids_with_permission(
     return False, matching
 
 
+async def get_user_ids_with_permission(
+    db: AsyncSession, org_id: str, permission: str, data_source_id: str | None = None,
+) -> list[str]:
+    """Inverse of ``get_ds_ids_with_permission``: the user ids in an org who hold
+    ``permission`` — full admins always, plus (when ``data_source_id`` is given)
+    anyone with that permission on that specific agent/data source.
+
+    ``data_source_id=None`` => full admins only (a "global" item's audience).
+
+    Implemented by enumerating org members and reusing the forward resolver, so
+    it stays consistent with per-request permission checks. O(members) — fine for
+    the notification fan-out fired on discrete events; revisit with a set-based
+    query if it ever runs on a hot path.
+    """
+    from app.models.membership import Membership
+
+    rows = (await db.execute(
+        select(Membership.user_id).where(and_(
+            Membership.organization_id == str(org_id),
+            Membership.user_id.isnot(None),
+            Membership.deleted_at.is_(None),
+        ))
+    )).all()
+    out: list[str] = []
+    seen: set[str] = set()
+    target = str(data_source_id) if data_source_id is not None else None
+    for (uid,) in rows:
+        uid = str(uid)
+        if uid in seen:
+            continue
+        is_admin, ds_ids = await get_ds_ids_with_permission(db, uid, str(org_id), permission)
+        if is_admin or (target is not None and target in set(ds_ids)):
+            out.append(uid)
+            seen.add(uid)
+    return out
+
+
 async def user_can_access_data_source(
     db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
 ) -> bool:
