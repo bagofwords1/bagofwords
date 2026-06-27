@@ -58,7 +58,7 @@
           class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all cursor-pointer"
           @click="openTask(task)"
         >
-          <div class="flex items-start justify-between gap-3">
+          <div class="group flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 mb-1">
                 <span
@@ -82,6 +82,18 @@
                 </NuxtLink>
                 <span v-if="task.user_name" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
+            </div>
+            <div class="shrink-0">
+              <UTooltip :text="$t('scheduled.delete')">
+                <button
+                  @click.stop="deleteTask(task)"
+                  :disabled="deletingId === task.id"
+                  class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all disabled:opacity-50"
+                >
+                  <Spinner v-if="deletingId === task.id" class="w-3.5 h-3.5 animate-spin" />
+                  <UIcon v-else name="heroicons-trash" class="w-3.5 h-3.5" />
+                </button>
+              </UTooltip>
             </div>
           </div>
         </div>
@@ -141,6 +153,7 @@ const showModal = ref(false)
 const modalReportId = ref<string | null>(null)
 const editingTask = ref<any | null>(null)
 const creatingTask = ref(false)
+const deletingId = ref<string | null>(null)
 
 const openTask = (task: any) => {
   editingTask.value = task
@@ -177,6 +190,27 @@ const onTaskSaved = () => {
   showModal.value = false
   currentPage.value = 1
   fetchTasks(1, searchTerm.value)
+}
+
+const deleteTask = async (task: any) => {
+  if (deletingId.value) return
+  if (!confirm(t('scheduled.deleteConfirm'))) return
+  deletingId.value = task.id
+  try {
+    const response = await useMyFetch(`/reports/${task.report_id}/scheduled-prompts/${task.id}`, {
+      method: 'DELETE',
+    })
+    if ((response as any).error?.value) throw new Error('Delete failed')
+    // Drop it locally so the list updates without a full refetch.
+    tasks.value = tasks.value.filter((t: any) => t.id !== task.id)
+    pagination.value.total = Math.max(0, (pagination.value.total || 1) - 1)
+    toast.add({ title: t('scheduled.toastDeleted'), color: 'green' })
+  } catch (error) {
+    console.error('Error deleting scheduled task:', error)
+    toast.add({ title: t('common.error'), description: t('scheduled.deleteFailed'), color: 'red' })
+  } finally {
+    deletingId.value = null
+  }
 }
 
 const fetchTasks = async (page: number = 1, search: string = '') => {
