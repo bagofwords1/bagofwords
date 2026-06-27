@@ -765,6 +765,7 @@ import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
+import NotifyTool from '~/components/tools/NotifyTool.vue'
 import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
 import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
 import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
@@ -1620,6 +1621,8 @@ function getToolComponent(toolName: string) {
 			return EditInstructionTool
 		case 'send_email':
 			return SendEmailTool
+		case 'notify':
+			return NotifyTool
 		case 'create_scheduled_task':
 			return CreateScheduledTaskTool
 		case 'cancel_scheduled_task':
