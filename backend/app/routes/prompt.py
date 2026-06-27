@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.schemas.prompt_schema import (
     PromptCreate, PromptUpdate, PromptResponse, PromptListResponse,
+    PromptRunRequest, PromptRunResponse, PromptRunForRequest, PromptRunForResponse,
 )
 from app.services.prompt_service import prompt_service
 from app.core.auth import current_user
@@ -19,6 +20,9 @@ async def list_prompts(
     category: Optional[str] = None,
     starters_only: bool = False,
     data_source_id: Optional[str] = None,
+    created_by: Optional[str] = None,
+    scope: Optional[str] = None,
+    search: Optional[str] = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -26,6 +30,7 @@ async def list_prompts(
     return await prompt_service.list_prompts(
         db, current_user, organization,
         category=category, starters_only=starters_only, data_source_id=data_source_id,
+        created_by=created_by, scope=scope, search=search,
     )
 
 
@@ -71,3 +76,35 @@ async def delete_prompt(
 ):
     await prompt_service.delete_prompt(db, prompt_id, current_user, organization)
     return {"ok": True}
+
+
+@router.post("/prompts/{prompt_id}/run", response_model=PromptRunResponse)
+async def run_prompt(
+    prompt_id: str,
+    data: PromptRunRequest = Body(default=PromptRunRequest()),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Run a prompt as the caller → a new report the caller owns. Returns
+    { report_id } so the client can navigate to the streaming report."""
+    return await prompt_service.run_prompt(
+        db, prompt_id, current_user, organization, parameters=data.parameters,
+    )
+
+
+@router.post("/prompts/{prompt_id}/run-for", response_model=PromptRunForResponse)
+async def run_prompt_for(
+    prompt_id: str,
+    data: PromptRunForRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Admin run-on-behalf. Fans out to eligible targets, each getting a private
+    report. Returns { ran, skipped, skipped_user_ids }."""
+    return await prompt_service.run_prompt_for(
+        db, prompt_id, current_user, organization,
+        principal_type=data.principal_type, user_ids=data.user_ids,
+        group_id=data.group_id, parameters=data.parameters,
+    )

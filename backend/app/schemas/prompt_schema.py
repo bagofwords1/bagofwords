@@ -58,3 +58,26 @@ class PromptResponse(BaseModel):
 class PromptListResponse(BaseModel):
     prompts: List[PromptResponse]
     meta: dict
+
+
+# ── run / run-for ──
+
+class PromptRunRequest(BaseModel):
+    parameters: Optional[dict] = None
+
+
+class PromptRunResponse(BaseModel):
+    report_id: str
+
+
+class PromptRunForRequest(BaseModel):
+    principal_type: str                       # 'users' | 'group'
+    user_ids: Optional[List[str]] = None      # when principal_type == 'users'
+    group_id: Optional[str] = None            # when principal_type == 'group'
+    parameters: Optional[dict] = None
+
+
+class PromptRunForResponse(BaseModel):
+    ran: int
+    skipped: int
+    skipped_user_ids: List[str] = []

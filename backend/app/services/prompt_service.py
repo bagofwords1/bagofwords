@@ -8,19 +8,24 @@ Authoring an agent prompt needs `manage` on its agents; global prompts are
 admin-only. No UI, scheduling, or delivery here — just the model.
 """
 import logging
+import re
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
 from app.models.prompt import Prompt
+from app.models.prompt_run import PromptRun
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.prompt_schema import PromptCreate, PromptUpdate
 from app.core.permission_resolver import resolve_permissions, ResolvedPermissions, FULL_ADMIN
+
+# Mirrors the frontend usePromptFill.substitute placeholder regex.
+_PLACEHOLDER_RE = re.compile(r"\{\{\s*([\w.-]+)\s*\}\}")
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +89,8 @@ class PromptService:
         self, db: AsyncSession, current_user: User, organization: Organization,
         category: Optional[str] = None, starters_only: bool = False,
         data_source_id: Optional[str] = None,
+        created_by: Optional[str] = None, scope: Optional[str] = None,
+        search: Optional[str] = None,
     ) -> dict:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
         q = (
@@ -95,6 +102,16 @@ class PromptService:
             q = q.filter(Prompt.is_starter == True)
         if data_source_id:
             q = q.join(Prompt.data_sources).filter(DataSource.id == data_source_id)
+        if created_by:
+            q = q.filter(Prompt.user_id == created_by)
+        if scope:
+            q = q.filter(Prompt.scope == scope)
+        if search:
+            term = f"%{search.strip().lower()}%"
+            q = q.filter(or_(
+                func.lower(func.coalesce(Prompt.title, '')).like(term),
+                func.lower(func.coalesce(Prompt.text, '')).like(term),
+            ))
         rows = await db.execute(q)
         prompts = list(rows.scalars().unique().all())
 
@@ -208,6 +225,273 @@ class PromptService:
             raise HTTPException(status_code=403, detail="manage permission required")
         p.deleted_at = datetime.utcnow()
         await db.commit()
+
+    # ── run-time parameter substitution ──
+
+    @staticmethod
+    def substitute(text: str, values: Optional[Dict[str, Any]]) -> str:
+        """Replace every `{{name}}` placeholder in `text` with the matching value.
+
+        Mirrors the frontend usePromptFill.substitute semantics:
+          - a date_range value {start, end} → "<start> to <end>"
+          - missing values (None / absent) collapse the placeholder to ''
+        """
+        if not text:
+            return ''
+        values = values or {}
+
+        def _replace(m: 're.Match') -> str:
+            name = m.group(1).strip()
+            v = values.get(name)
+            if v is None:
+                return ''
+            if isinstance(v, dict):
+                start = v.get('start') or ''
+                end = v.get('end') or ''
+                if not start and not end:
+                    return ''
+                return f"{start} to {end}"
+            return str(v)
+
+        return _PLACEHOLDER_RE.sub(_replace, text)
+
+    # ── run (self) ──
+
+    async def run_prompt(
+        self, db: AsyncSession, prompt_id: str, current_user: User,
+        organization: Organization, parameters: Optional[Dict[str, Any]] = None,
+    ) -> dict:
+        """Run a prompt as the caller: create a new report owned by the caller,
+        seed it with the prompt's data sources + mode, kick off the first
+        completion (substituted text), and record a prompt_runs row.
+
+        Authz: the caller must be able to RESOLVE (see) the prompt — enforced
+        by get_prompt_response which raises 403 otherwise.
+        """
+        from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
+        from app.schemas.report_schema import ReportCreate
+        from app.services.report_service import ReportService
+        from app.services.completion_service import CompletionService
+
+        # 403 if not visible to the caller.
+        await self.get_prompt_response(db, prompt_id, current_user, organization)
+        prompt = await self.get_prompt_or_404(db, prompt_id, organization)
+
+        text = self.substitute(prompt.text, parameters)
+
+        report = await self._create_report_for(
+            db, prompt, current_user, organization, ReportService(), ReportCreate
+        )
+
+        await CompletionService().create_completion(
+            db,
+            report.id,
+            CompletionCreate(prompt=PromptSchema(
+                content=text,
+                mentions=prompt.mentions,
+                mode=prompt.mode,
+                model_id=prompt.model_id,
+            )),
+            current_user=current_user,
+            organization=organization,
+            background=True,
+        )
+
+        await self._record_run(
+            db, prompt_id=prompt.id, user_id=current_user.id,
+            actor_id=current_user.id, report_id=report.id, parameters=parameters,
+        )
+        return {"report_id": str(report.id)}
+
+    async def _create_report_for(self, db, prompt, owner, organization, report_service, ReportCreate):
+        """Create a report owned by `owner`, seeded with the prompt's data sources
+        and mode. New reports are owner-private (artifact_visibility='none') by
+        default — see Step-0 privacy invariant — which we rely on for run-for."""
+        report = await report_service.create_report(
+            db,
+            ReportCreate(
+                title=(prompt.title or (prompt.text or '')[:60] or 'Prompt run'),
+                data_sources=self._ds_ids(prompt),
+            ),
+            owner,
+            organization,
+        )
+        # ReportCreate has no `mode`; set it from the prompt on the ORM row.
+        if getattr(prompt, 'mode', None):
+            from app.models.report import Report
+            row = (await db.execute(select(Report).filter(Report.id == report.id))).scalar_one_or_none()
+            if row is not None:
+                row.mode = prompt.mode
+                await db.commit()
+        return report
+
+    async def _record_run(self, db, *, prompt_id, user_id, actor_id, report_id, parameters):
+        run = PromptRun(
+            prompt_id=str(prompt_id), user_id=str(user_id), actor_id=str(actor_id),
+            report_id=str(report_id) if report_id else None,
+            parameters=parameters or None,
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        return run
+
+    # ── run for (admin: run-on-behalf) ──
+
+    async def run_prompt_for(
+        self, db: AsyncSession, prompt_id: str, current_user: User,
+        organization: Organization, principal_type: str,
+        user_ids: Optional[List[str]] = None, group_id: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> dict:
+        """Admin run-on-behalf. For each eligible target user, create a report
+        owned by + private to that target, run as that target, record a
+        prompt_runs row (actor=admin), and notify the target.
+
+        Authz: full_admin OR `manage` on ALL the prompt's agents.
+        Eligibility: each target must be able to RESOLVE the prompt; the rest
+        are reported as skipped.
+        """
+        from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
+        from app.schemas.report_schema import ReportCreate
+        from app.services.report_service import ReportService
+        from app.services.completion_service import CompletionService
+        from app.services.inbox_service import inbox_service
+        from app.models.notification import SOURCE_SCHEDULE
+        from app.ee.audit.service import audit_service
+
+        prompt = await self.get_prompt_or_404(db, prompt_id, organization)
+
+        actor_resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not self._can_manage_all(actor_resolved, self._ds_ids(prompt)):
+            raise HTTPException(status_code=403, detail="manage permission required on the prompt's agents")
+
+        target_ids = await self._expand_principal(
+            db, organization, principal_type, user_ids, group_id
+        )
+
+        report_service = ReportService()
+        completion_service = CompletionService()
+        active_ds_ids = self._active_ds_ids(prompt)
+
+        ran: List[str] = []
+        skipped: List[str] = []
+        actor_name = getattr(current_user, 'name', None) or getattr(current_user, 'email', None) or 'An admin'
+        prompt_title = prompt.title or (prompt.text or '')[:60] or 'a prompt'
+        text = self.substitute(prompt.text, parameters)
+
+        for tid in target_ids:
+            target = await db.get(User, tid)
+            if target is None:
+                skipped.append(str(tid))
+                continue
+            t_resolved = await resolve_permissions(db, str(tid), str(organization.id))
+            if not self._is_visible(t_resolved, prompt, str(tid), active_ds_ids):
+                skipped.append(str(tid))
+                continue
+
+            report = await self._create_report_for(
+                db, prompt, target, organization, report_service, ReportCreate
+            )
+
+            await completion_service.create_completion(
+                db,
+                report.id,
+                CompletionCreate(prompt=PromptSchema(
+                    content=text,
+                    mentions=prompt.mentions,
+                    mode=prompt.mode,
+                    model_id=prompt.model_id,
+                )),
+                current_user=target,
+                organization=organization,
+                background=True,
+            )
+
+            await self._record_run(
+                db, prompt_id=prompt.id, user_id=tid,
+                actor_id=current_user.id, report_id=report.id, parameters=parameters,
+            )
+
+            # Transparency: tell the target an admin ran a prompt for them.
+            try:
+                await inbox_service.notify_users(
+                    db,
+                    organization_id=str(organization.id),
+                    user_ids=[str(tid)],
+                    source=SOURCE_SCHEDULE,
+                    type="prompt_run_for",
+                    title=f"{actor_name} ran '{prompt_title}' for you",
+                    body=f"{actor_name} ran the prompt '{prompt_title}' for you. Open the report to see the results.",
+                    actor_user_id=str(current_user.id),
+                    link=f"/reports/{report.id}",
+                    subject={"kind": "report", "report_id": str(report.id), "prompt_id": str(prompt.id)},
+                    group_key=f"prompt_run_for:{report.id}",
+                )
+            except Exception:
+                logger.exception("run-for: inbox notification failed for user=%s", tid)
+
+            ran.append(str(tid))
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="prompt.run_for",
+                user_id=str(current_user.id),
+                resource_type="prompt",
+                resource_id=str(prompt.id),
+                details={
+                    "principal_type": principal_type,
+                    "group_id": str(group_id) if group_id else None,
+                    "ran": ran,
+                    "skipped": skipped,
+                },
+            )
+        except Exception:
+            logger.exception("run-for: audit log failed for prompt=%s", prompt.id)
+
+        return {"ran": len(ran), "skipped": len(skipped), "skipped_user_ids": skipped}
+
+    async def _expand_principal(
+        self, db, organization, principal_type, user_ids, group_id,
+    ) -> List[str]:
+        """Resolve a principal spec into a de-duplicated list of org user ids."""
+        from app.models.membership import Membership
+
+        if principal_type == 'users':
+            ids = [str(u) for u in (user_ids or [])]
+        elif principal_type == 'group':
+            if not group_id:
+                raise HTTPException(status_code=400, detail="group_id is required for principal_type 'group'")
+            from app.models.group_membership import GroupMembership
+            rows = await db.execute(
+                select(GroupMembership.user_id)
+                .filter(GroupMembership.group_id == group_id)
+                .filter(GroupMembership.user_id != None)
+                .filter(GroupMembership.deleted_at == None)
+            )
+            ids = [str(r[0]) for r in rows.all() if r[0]]
+        else:
+            raise HTTPException(status_code=400, detail="principal_type must be 'users' or 'group'")
+
+        if not ids:
+            return []
+
+        # Restrict to current org members and de-dup.
+        member_rows = await db.execute(
+            select(Membership.user_id)
+            .filter(Membership.organization_id == organization.id)
+            .filter(Membership.user_id.in_(ids))
+        )
+        org_member_ids = {str(r[0]) for r in member_rows.all()}
+        seen = set()
+        out = []
+        for i in ids:
+            if i in org_member_ids and i not in seen:
+                seen.add(i)
+                out.append(i)
+        return out
 
     # ── conversation-starter absorption (helper for the next phase) ──
 
