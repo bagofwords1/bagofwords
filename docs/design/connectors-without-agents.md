@@ -108,6 +108,54 @@ prompt box).
 
 ---
 
+## Scoping model: type-agnostic, two orthogonal axes
+
+A "connector" is **not a type** (it is not MCP-only) and **not a scope** — it is any
+`Connection` (Postgres, MCP, Gmail, …) made usable without the heavyweight Agent wrapper.
+Three independent concerns must not be conflated:
+
+1. **Type / execution shape** — `Connection.type` + registry `data_shape`. Tool-providers
+   (`mcp`, `custom_api`, Gmail-style APIs, `data_shape="tools"`) have no schema → lightweight
+   loop. Data sources (`postgres`, `data_shape="tables"`) carry a schema → analytical loop
+   (possibly trimmed). This is what `DataSource.kind` is about.
+2. **Visibility** — *who can see/use it*: `private` (`owner_user_id=U`, `is_public=False`) ·
+   `org-wide` (`is_public=True`) · `granted` (`DataSourceMembership`). Type-agnostic; already
+   enforced by `permission_resolver` for every data source today.
+3. **Execution identity** — *whose credentials run it*: `auth_policy` =
+   `system_only` (one shared credential set on the `Connection`) vs `user_required` (each
+   user's own creds, via `UserConnectionCredentials` / OBO). For delegated/OAuth connections an
+   admin "query identity" preference picks **service_account ↔ self**, with fallback.
+
+> **Visibility ⟂ identity.** These are separate columns, so any combination is already
+> expressible — including for a non-MCP connector like Postgres.
+
+### Answering "a Postgres connector that is BOTH single-user and global / global with user_required"
+
+| Scenario | Visibility | Identity (`auth_policy`) | Notes |
+| --- | --- | --- | --- |
+| **Served to a single user** | `owner_user_id=U`, `is_public=False` | `system_only` (creds on the connection) *or* `user_required` (U supplies their own) | Only U sees it. The "personal Postgres". |
+| **Served globally, shared login** | `is_public=True` | `system_only` | Everyone uses the same stored org credentials. |
+| **Served globally, each as themselves** | `is_public=True` | `user_required` | Everyone sees it; each runs with their **own** Postgres login. Users who haven't connected get the existing "Connect" prompt (selector already has this state). This is the OBO pattern. |
+| **BOTH at once** (shared by default, personal when connected) | `is_public=True` | `user_required` **+ service_account fallback** | `resolve_credentials` already does this: a user *with* personal creds runs as self; a user *without* falls back to the shared service account (admin "query identity" preference). One connector, two behaviours, decided per-user at runtime. |
+
+So "BOTH" is **not** one row trying to be two things — it is one connector whose **identity axis
+resolves per user at run time**. A genuinely separate "private copy just for me" is a distinct
+`DataSource` instance (different `owner_user_id`); the same person can have their private
+connector *and* use the org's global one — they are different rows, and both surface in the
+selector.
+
+**Per-user *catalog* for data connectors.** A global Postgres with `user_required` may show
+different tables per user. That is the existing `catalog_ownership` axis:
+`shared` (admin indexes once, `UserDataSourceTable/Column` overlays mask per user) vs
+`per_user` (each user indexes only what their creds can see — already used by personal
+OneDrive/Drive). No new mechanism; pick the entry's `catalog_ownership`.
+
+**Net:** nothing new is required to express any of these combinations — they are points in the
+(visibility × identity × catalog_ownership) space the model already has. The connector work is
+about (a) letting these exist **without** an Agent wrapper and (b) the lightweight run path —
+not about new scoping primitives. The one genuinely new model is the per-user *tool policy*
+overlay (decision §5), which is orthogonal again.
+
 ## Proposed design
 
 ### Core decision: a Connector is a **tools-only DataSource**, plus a lightweight run path
@@ -211,9 +259,79 @@ Changes:
   battle-tested execution/validation path while giving the model precise tools.
   (If simpler first: keep `execute_mcp` + `search_mcps` and just make sure the allow-list
   includes connector data sources — see §7.)
-- Add a lighter **system prompt** variant (e.g. a new `mode="connector"` or a prompt branch in
-  `prompt_builder_v3.py`) that drops the analyst framing and schema sections when the
-  conversation has no analytical data source.
+- Add a lighter **system prompt** variant (`mode="connector"`) — see below.
+
+### 5a. What `prompt_builder_v3` looks like for connectors
+
+The current `_build_system` (`prompt_builder_v3.py:81-326`) is ~250 lines of *analyst* framing:
+schema grounding, the clarify-business-term protocol, the dashboard-ask policy, analytical
+standards. **None of that applies to a Gmail/Monday connector turn** — there is no schema, no
+KPI, no dashboard. So we branch at the top of `_build_system` on the mode rather than threading
+flags through every section:
+
+```python
+@staticmethod
+def _build_system(planner_input: PlannerInput) -> str:
+    if (planner_input.mode or "").lower() == "connector":
+        return PromptBuilderV3._build_connector_system(planner_input)
+    # ... existing analyst system prompt unchanged ...
+```
+
+The connector system prompt is small. Tools are still sent natively as `ToolSpec`s (the
+`tools` request param built by `_tool_specs_from_catalog`), so the prompt only needs framing +
+safety, not a tool list. It keeps the bits that still apply — output protocol, one-tool-per-turn,
+error handling, platform directives (`_platform_system_directives` already works for
+Slack/Teams/etc.), and the `confirm`-policy rule — and drops everything schema/analytics:
+
+```text
+SYSTEM
+Mode: Connector
+You are {organization_ai_analyst_name}, an assistant for {organization_name}.
+You help the user get things done through their connected tools.
+
+- You have a set of connected tools (provided to you as callable tools). Each comes from a
+  connector the user or an admin enabled — e.g. Gmail, Monday, Linear.
+- Constraints: call AT MOST ONE tool per turn; follow each tool's input_schema exactly;
+  never invent arguments, IDs, recipients, or credentials.
+- Ground every statement in tool results. If a required argument is unknown (an address, an
+  item id, a board, a date), ask the user with clarify — do NOT guess, especially for actions
+  that send, create, modify, or delete.
+
+OUTPUT PROTOCOL (native tool calling — no JSON envelope)
+- To act, emit exactly ONE tool_use block. To finish, reply in plain text (becomes your
+  message to the user). A short (≤2 sentence) message before a tool call is allowed.
+
+TOOL-USE LOOP
+1) Understand the goal and the conversation so far.
+2) Pick the single best next tool; call it with valid arguments.
+3) Read the observation; either continue with the next tool or give the final answer.
+
+SAFETY & CONFIRMATION
+- A tool may carry policy=confirm (e.g. send email, create/modify a record). For those:
+  state exactly what you are about to do and the key arguments, and only call the tool after
+  the user confirms in their next message.
+- Never call a tool the user has set to policy=deny; say it is disabled and offer alternatives.
+
+ERROR HANDLING
+- If a tool errored, open your message with: "The previous attempt failed: <specific error>."
+- Verify tool name + arguments against the schema before retrying; change something meaningful;
+  never repeat the exact failing call; after 2 failures, ask the user via clarify.
+
+{platform_directives}     # reused as-is (Slack brevity, Teams no-inline-charts, etc.)
+COMMUNICATION
+- Be concise. Report what you did and the result. Don't surface internal IDs unless useful.
+```
+
+The per-turn **user message** reuses `_build_user_message` almost verbatim but with the
+schema/files/resources/dashboard blocks empty (they will be in connector mode). A
+`<connected_tools>` summary (connector name + one-line tool descriptions + each tool's
+effective policy) can be rendered into the existing **`planner_input.tools_context`** slot —
+which `_build_user_message` already appends (`prompt_builder_v3.py:451-452`) — so the model
+sees *which connector* each tool belongs to and which are `confirm`/`deny`, without bloating the
+cached system prefix.
+
+Net diff: one branch in `_build_system`, one new `_build_connector_system`, and populate
+`tools_context`. No change to the v3 event loop, `ToolSpec` translation, or dispatch.
 
 ### 6. agent_v2 — lightweight loop
 
