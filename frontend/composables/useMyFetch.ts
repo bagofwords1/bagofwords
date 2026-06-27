@@ -4,10 +4,17 @@
 // in-flight API call gets a 401 at once, but we only want a single redirect.
 let redirectingToSignIn = false
 
+// Circuit breaker against a hard-reload loop: if clearing the cookie ever fails
+// to take, a blind window.location reload would spin forever. We record the last
+// forced sign-out and refuse to do another within this window; a successful
+// request clears it so a genuine later expiry still redirects.
+const FORCED_SIGNOUT_KEY = 'bow:forcedSignOutAt'
+const FORCED_SIGNOUT_COOLDOWN_MS = 15000
+
 export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const config = useRuntimeConfig()
   const { token } = useAuth()
-  const { rawToken } = useAuthState()
+  const { rawToken, data: authData } = useAuthState()
   const { organization, ensureOrganization } = useOrganization()
   const route = useRoute()
 
@@ -22,13 +29,29 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
     // Don't loop on the auth/public pages that legitimately run unauthenticated.
     const publicPrefixes = ['/users/', '/organizations/', '/onboarding', '/r/', '/c/', '/not_found']
     if (publicPrefixes.some(p => route.path.startsWith(p))) return
+    // Circuit breaker: if we already forced a sign-out very recently and are
+    // STILL getting 401s on a protected page, the cookie clear didn't take —
+    // stop reloading so the user isn't trapped in a refresh loop.
+    try {
+      const last = Number(sessionStorage.getItem(FORCED_SIGNOUT_KEY) || 0)
+      if (last && Date.now() - last < FORCED_SIGNOUT_COOLDOWN_MS) return
+      sessionStorage.setItem(FORCED_SIGNOUT_KEY, String(Date.now()))
+    } catch {}
     redirectingToSignIn = true
-    // Clear the rejected token, then HARD-redirect. A SPA navigateTo gets
-    // bounced right back by the sign-in page's `unauthenticatedOnly` guard while
-    // nuxt-auth still derives status from the (now invalid) token, producing a
-    // loop. A full reload re-evaluates auth from the cleared cookie and lands on
-    // sign-in cleanly. No flag reset needed — the page is reloading.
+    // Clear every trace of the rejected session, then HARD-redirect. rawToken
+    // alone is not enough: this app pins @sidebase/nuxt-auth 0.9.3, which does
+    // not honor the nested token.cookie config in nuxt.config, so the token
+    // actually lives in the default `auth.token` cookie. If that cookie
+    // survives, nuxt-auth keeps reporting status 'authenticated', the sign-in
+    // page's `unauthenticatedOnly` guard bounces back to /, and every API call
+    // 401s again — an infinite loop. So drop the cached session data and
+    // hard-delete the cookie by name before a full reload, which re-evaluates
+    // auth from the now-absent cookie and lands on sign-in cleanly.
     rawToken.value = null
+    if (authData) authData.value = null
+    for (const name of ['auth.token', 'auth_token']) {
+      document.cookie = `${name}=; Max-Age=0; path=/`
+    }
     const redirect = route.fullPath && route.fullPath !== '/'
       ? `?redirect=${encodeURIComponent(route.fullPath)}`
       : ''
@@ -79,6 +102,9 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
         baseURL: config.public.baseURL,
         ...opts
       })
+      // A successful authenticated request means the session is healthy again;
+      // reset the forced-sign-out breaker so a future expiry can redirect.
+      try { sessionStorage.removeItem(FORCED_SIGNOUT_KEY) } catch {}
       return {
         data: ref(data),
         error: ref(null),
