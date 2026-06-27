@@ -2,7 +2,7 @@ import os
 import hashlib
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from typing import Optional
 from pydantic import BaseModel, Field
 from PIL import Image
@@ -41,10 +41,18 @@ async def _get_current_membership(
     return result.scalars().first()
 
 @router.get("/users/whoami", response_model=UserProfileSchema)
-async def get_user_profile(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
+async def get_user_profile(response: Response, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
+    # whoami drives the client's auth status. The browser will otherwise
+    # heuristically disk-cache this GET, so after a token is invalidated the
+    # client keeps reading a stale 200 (old user + orgs) and believes it is
+    # still authenticated while every other API call 401s — an unrecoverable
+    # auth loop. Forbid caching so session state is always validated live.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+
     # Fetch organizations for the current user
     organizations = await organization_service.get_user_organizations(db, current_user)
-    
+
     # Convert current_user to a dictionary
     user_data = current_user.dict() if hasattr(current_user, 'dict') else vars(current_user)
     
