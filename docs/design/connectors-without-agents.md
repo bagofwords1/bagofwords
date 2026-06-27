@@ -1,646 +1,356 @@
 # Connectors without Agents
 
-**Status:** Design / investigation (no implementation)
+**Status:** Design (no implementation yet)
 **Branch:** `claude/connectors-without-agents-tnoa6p`
 
 ## Goal
 
-Let an **admin** enable a connector (e.g. Monday, Gmail) globally for the org, and let a
-**regular user** connect their *own private* connector with their own credentials, pick
-the tools they want exposed, and use them directly in a conversation — **without having to
-build a full analytical Agent (fka "data source")**.
+Let an **admin** enable a connector (Monday, Gmail, …) for the org, and let a **regular member**
+connect their *own private* connector with their own credentials, choose the tools, and use them
+in a conversation — **without having to stand up a full analytical Agent** (schema, instructions,
+publishing). The mainstream-AI-platform experience: "Connect Gmail → pick tools → chat."
 
-This is the pattern every mainstream AI platform ships: "Connect Gmail → choose tools →
-chat." Today this product can only reach connector tools by wrapping an MCP / Custom-API
-connection inside a data source ("Agent"), attaching that Agent to a report, and running the
-full heavyweight analysis loop. We want connector tools to be a first-class, lightweight
-thing.
+**Key scoping decision (this revision): no custom run loop.** Connectors run through the
+**existing agent loop**, exactly like OneDrive/GDrive do today. "Without agents" means *without the
+user configuring a full analytical agent* — **not** a separate execution engine. There is no
+lightweight loop, no connector-mode planner prompt, no `_connector_only` branch.
 
 ---
 
-## Terminology (important — the rename)
+## Terminology
 
-The product recently renamed **"data source" → "Agent"** in the UI
-(`frontend/pages/old_agents/`, commit `feat(roles): … "Agent" rename`). So:
+"data source" was renamed **"Agent"** in the UI (`frontend/pages/old_agents/`, `'Agent' rename`).
 
 | Concept | Code entity | What it is |
 | --- | --- | --- |
-| **Agent** | `DataSource` (`backend/app/models/data_source.py`) | A configured analytical entity: a *container* of connections + a schema/file catalog + instructions + memberships + publish status + per-user creds. **No `type` column** — it is type-agnostic; the type lives on each `Connection`. |
-| **Connection** | `Connection` (`backend/app/models/connection.py`) | The actual wire to a system (postgres, snowflake, google_drive, **mcp**, **custom_api**…). Org-owned. Attached to data sources M:N via `domain_connection`. |
-| **Tool provider** | registry entries with `is_connection=False` | `mcp` and `custom_api`. `data_shape="tools"`, `catalog_ownership="none"`. Already a distinct concept in `backend/app/schemas/data_source_registry.py` (`tool_provider_types()`, `list_registry(include_tool_providers=…)`). |
+| **Agent / data source** | `DataSource` (`backend/app/models/data_source.py`) | A *container* of connections + (optionally) a catalog + instructions + memberships + scoping. **No `type` column** — type lives on each `Connection`. Already **polymorphic** across `data_shape` = `tables \| files \| objects \| tools` and `catalog_ownership` = `shared \| per_user \| none`. |
+| **Connection** | `Connection` (`backend/app/models/connection.py`) | The wire to a system (postgres, google_drive, **mcp**, **custom_api**…). Org-owned. M:N to data sources via `domain_connection`. Holds `type`, `config`, encrypted `credentials`, `auth_policy`, and `ConnectionTool` children. |
+| **Connector** | a `DataSource` whose connection(s) are **tool providers** | i.e. `data_shape="tools"` (`mcp`/`custom_api`/Gmail-style). Private or org-wide, self-serve. Runs through the normal agent. |
 
-So "**connectors without agents**" = **tool-provider connections that are usable on their own,
-not buried inside an analytical Agent, and runnable without the full agent loop.**
-
----
-
-## How it works today (and why a connector needs an Agent)
-
-1. A **report** has attached data sources via `report_data_source_association` (M:N).
-2. `DataSourceService.construct_clients(db, ds, user)` builds a client per connection,
-   enforcing per-user access (403 if no access) and resolving per-user credentials by
-   `auth_policy` (`backend/app/services/data_source_service.py:1806`).
-3. `AgentV2.__init__` computes `available_capabilities` by walking
-   `report.data_sources → connections → client_class.capabilities`
-   (`backend/app/ai/agent_v2.py:315-343`).
-4. The planner is handed a tool catalog filtered by capability / mode / platform
-   (`ToolRegistry.get_catalog_for_plan_type`, `backend/app/ai/registry.py:100`).
-5. The main loop (`AgentV2.main_execution`, `agent_v2.py:1825`) primes schema context,
-   scores with the Judge, runs the planner, dispatches tools via `ToolRunner`, and runs the
-   post-analysis **knowledge harness** — all the heavyweight machinery.
-6. Connector tools specifically:
-   - `search_mcps` discovers tools from connections **linked to the report's data sources**.
-   - `execute_mcp` validates the `connection_id` is in the allow-list built from
-     `report.data_sources → connections` (`execute_mcp.py:110-131`).
-
-**The hard coupling:** every step keys off `report.data_sources`. To use a connector you must
-(a) create a Connection, (b) attach it to a DataSource/Agent, (c) attach that Agent to the
-report, (d) run the full agent. There is no way to attach a connector directly, and no
-lightweight execution path.
+So a **connector is just a tools-only, (usually) private, self-serve data source** — not a new
+entity and not a new engine.
 
 ---
 
-## What already exists that we can reuse (a lot)
+## The proven pattern we build on: OneDrive / GDrive
 
-The credential/identity/permission substrate for "private vs global connectors" is **already
-built** — it was built for per-user database auth and OAuth data sources:
+OneDrive and Google Drive are **already** per-user connectors that work end-to-end, and they are
+the template. From the registry (`data_source_registry.py:677-737`):
 
-- **Per-user credentials + OAuth:** `UserConnectionCredentials`
-  (`backend/app/models/user_connection_credentials.py`), `Connection.auth_policy ∈
-  {system_only, user_required}`, `allowed_user_auth_modes`, and full OAuth flows for Google /
-  Microsoft / generic MCP `oauth_app` in `connection_oauth_service.py` +
-  `routes/connection_oauth.py`. Encrypted with Fernet (`bow_config.encryption_key`).
-- **Per-tool enable/policy:** `ConnectionTool` rows (discovered from the MCP server) with a
-  per-data-source overlay (`is_enabled`, `policy ∈ allow|confirm|deny`); surfaced by
-  `frontend/components/datasources/ToolsSelector.vue` via `GET/PUT /data_sources/{id}/tools`.
-- **Global vs private scoping on the Agent already:** `DataSource.owner_user_id`,
-  `DataSource.is_public` (private by default!), `DataSourceMembership` (user/group grants),
-  `publish_status`. Access enforced by `permission_resolver.user_can_access_data_source`.
-- **Tool-provider concept in the registry:** `is_connection=False`, `data_shape="tools"`.
-- **Decoupled execution primitives:** `ToolRegistry` and `ToolRunner`
-  (`backend/app/ai/runner/tool_runner.py`) have **no dependency on AgentV2 / ContextHub /
-  Planner** — given `(tool, args, runtime_ctx, emit)` they run a tool standalone.
-- **`execute_mcp` / `search_mcps` are `requires_capability=None`** — always in the catalog,
-  so they survive even when there are no analytical capabilities.
-- **The agent already tolerates "no analytical data source":** `report` is optional and
-  `data_sources` may be empty; tools that need schema degrade gracefully.
+> **OneDrive:** *"Agent-attachable data source whose catalog is per-user-owned: each user's
+> OneDrive is fully independent… Admin save just registers the OAuth app; per-user catalog is
+> fetched after each user signs in."* — `data_shape="files"`, `catalog_ownership="per_user"`,
+> `ui_form="integration"`, auth variants `service_principal` (`scopes=["system","user"]`) +
+> `oauth` delegated (`scopes=["user"]`).
 
-**Conclusion:** we are *not* building a new credential, OAuth, permission, or per-tool system.
-We are mostly **decoupling** the connector from the Agent container and adding a **lightweight
-run path** + the **product UX** (enable global / connect private / pick tools / select in the
-prompt box).
+What they prove is **exactly the model we want**, and it already runs through the normal agent:
+
+1. **Admin registers the OAuth app once** → app credentials (`client_id`/`secret`) at the
+   connection level.
+2. **Each user signs in individually** (delegated `oauth`) → per-user token in
+   `UserConnectionCredentials`.
+3. **Per-user catalog** (`catalog_ownership="per_user"`) — each user's content is independent,
+   fetched after they sign in.
+
+Connectors = the same machinery, extended from `data_shape="files"` to `data_shape="tools"`
+(MCP / Gmail / Monday), plus member self-serve and the catalog UX.
 
 ---
 
-## The gaps (what actually has to change)
+## What already exists (reuse — do not rebuild)
 
-1. **A connector cannot stand alone.** Tool-provider connections must be attached to an
-   analytical DataSource; there is no "connector" entity the UI/agent can branch on.
-2. **No member-facing "connect my own connector" flow.** Creating a data source requires the
-   `create_data_source` permission and the create UI is the heavyweight Agent builder.
-3. **PromptBoxV2 only selects analytical data sources** (`DataSourceSelector`), not connectors,
-   and has no per-tool picker at prompt time.
-4. **No lightweight execution path** — even a connector-only conversation runs the full
-   schema-priming / Judge / knowledge-harness loop with an analysis-oriented system prompt.
-5. **Connector tools reach the planner only via the generic `execute_mcp` wrapper.** For an
-   "AI platform" feel we want the *specific* connector tools (each `ConnectionTool`) presented
-   to the planner as first-class tools.
+- **Per-user credentials + delegated OAuth + OBO:** `UserConnectionCredentials`,
+  `Connection.auth_policy ∈ {system_only, user_required}`, `allowed_user_auth_modes`, Google /
+  Microsoft / generic-MCP OAuth in `connection_oauth_service.py` (+ refresh, OBO auto-provision).
+  Fernet-encrypted.
+- **Global vs private scoping:** `DataSource.owner_user_id`, `is_public` (private by default),
+  `DataSourceMembership`, enforced by `permission_resolver.user_can_access_data_source`.
+- **Per-tool enable/policy:** `ConnectionTool` (`is_enabled`, `policy ∈ allow|confirm|deny`) +
+  per-DS overlay, surfaced by `ToolsSelector.vue` (`GET/PUT /data_sources/{id}/tools`).
+- **Tool execution through the agent:** `execute_mcp` / `search_mcps` (both
+  `requires_capability=None`, always in the catalog) resolve + run tools against connections
+  attached to `report.data_sources` (`execute_mcp.py:110-131`). The agent already tolerates a
+  data source with no schema.
+- **Registry polymorphism:** `data_shape="tools"`, `catalog_ownership="none"`, `is_connection`,
+  `tool_provider_types()` already distinguish tool providers from analytical sources.
 
 ---
 
-## Scoping model: type-agnostic, two orthogonal axes
+## Scoping model: three orthogonal axes
 
-A "connector" is **not a type** (it is not MCP-only) and **not a scope** — it is any
-`Connection` (Postgres, MCP, Gmail, …) made usable without the heavyweight Agent wrapper.
-Three independent concerns must not be conflated:
+A connector's behaviour is fully described by three **independent** columns — no new primitives:
 
-1. **Type / execution shape** — `Connection.type` + registry `data_shape`. Tool-providers
-   (`mcp`, `custom_api`, Gmail-style APIs, `data_shape="tools"`) have no schema → lightweight
-   loop. Data sources (`postgres`, `data_shape="tables"`) carry a schema → analytical loop
-   (possibly trimmed). This is what `DataSource.kind` is about.
-2. **Visibility** — *who can see/use it*: `private` (`owner_user_id=U`, `is_public=False`) ·
-   `org-wide` (`is_public=True`) · `granted` (`DataSourceMembership`). Type-agnostic; already
-   enforced by `permission_resolver` for every data source today.
-3. **Execution identity** — *whose credentials run it*: `auth_policy` =
-   `system_only` (one shared credential set on the `Connection`) vs `user_required` (each
-   user's own creds, via `UserConnectionCredentials` / OBO). For delegated/OAuth connections an
-   admin "query identity" preference picks **service_account ↔ self**, with fallback.
+1. **Shape** — `data_shape` of the connection(s). `tools` → connector (no schema); `tables/files`
+   → analytical. Drives UI/config, **not** a separate loop.
+2. **Visibility** — who can see/use it: `private` (`owner_user_id=U`, `is_public=False`) ·
+   `org-wide` (`is_public=True`) · `granted` (`DataSourceMembership`).
+3. **Execution identity** — whose credentials run it: `auth_policy =`
+   `system_only` (one shared credential set on the connection) **or** `user_required` (each user's
+   own token, delegated OAuth / OBO).
 
-> **Visibility ⟂ identity.** These are separate columns, so any combination is already
-> expressible — including for a non-MCP connector like Postgres.
+> **Visibility ⟂ identity.** "Globally available **and** per-user identity" is the OneDrive case:
+> `is_public=True` (or memberships) + `auth_policy="user_required"` — the **admin registers the
+> app once, each user signs in**. (Note: in `user_required`/`self` mode there is **no silent
+> service-account fallback** — a user with no token gets the "Connect" prompt;
+> `connection_service.py:1005-1011`. `service_account` mode means everyone shares one identity.)
 
-### Answering "a Postgres connector that is BOTH single-user and global / global with user_required"
+Per-user **catalog** for data connectors uses the existing `catalog_ownership` axis (`shared` with
+`UserDataSourceTable/Column` overlays, or `per_user`). For tool connectors the discovered
+`ConnectionTool` set is the "catalog."
 
-| Scenario | Visibility | Identity (`auth_policy`) | Notes |
+---
+
+## Auth onboarding tiers (how a connector first gets OAuth)
+
+All three converge on the **same per-user delegated-token storage** OneDrive uses. They differ only
+in *how the OAuth client app comes to exist*. A registry/catalog entry declares which tier it uses.
+
+| Tier | Who registers the OAuth app | Admin setup? | Example |
 | --- | --- | --- | --- |
-| **Served to a single user** | `owner_user_id=U`, `is_public=False` | `system_only` (creds on the connection) *or* `user_required` (U supplies their own) | Only U sees it. The "personal Postgres". |
-| **Served globally, shared login** | `is_public=True` | `system_only` | Everyone uses the same stored org credentials. |
-| **Served globally, each as themselves** | `is_public=True` | `user_required` | Everyone sees it; each runs with their **own** Postgres login. Users who haven't connected get the existing "Connect" prompt (selector already has this state). This is the OBO pattern. |
-| **BOTH at once** (shared by default, personal when connected) | `is_public=True` | `user_required` **+ service_account fallback** | `resolve_credentials` already does this: a user *with* personal creds runs as self; a user *without* falls back to the shared service account (admin "query identity" preference). One connector, two behaviours, decided per-user at runtime. |
-
-So "BOTH" is **not** one row trying to be two things — it is one connector whose **identity axis
-resolves per user at run time**. A genuinely separate "private copy just for me" is a distinct
-`DataSource` instance (different `owner_user_id`); the same person can have their private
-connector *and* use the org's global one — they are different rows, and both surface in the
-selector.
-
-**Per-user *catalog* for data connectors.** A global Postgres with `user_required` may show
-different tables per user. That is the existing `catalog_ownership` axis:
-`shared` (admin indexes once, `UserDataSourceTable/Column` overlays mask per user) vs
-`per_user` (each user indexes only what their creds can see — already used by personal
-OneDrive/Drive). No new mechanism; pick the entry's `catalog_ownership`.
-
-**Net:** nothing new is required to express any of these combinations — they are points in the
-(visibility × identity × catalog_ownership) space the model already has. The connector work is
-about (a) letting these exist **without** an Agent wrapper and (b) the lightweight run path —
-not about new scoping primitives. The one genuinely new model is the per-user *tool policy*
-overlay (decision §5), which is orthogonal again.
-
-## Walkthroughs (user stories)
-
-Mapping to **DataSource(`kind`, visibility) + Connection(`type`, `auth_policy`) + creds**. Only
-story 3 needs the new connector run-path; 1/2 work today; 4/5/6 mostly need member self-serve.
-
-1. **Admin connects Snowflake (service account) → revenue agent for specific users.** Snowflake
-   has a schema → an **Agent** (`kind="agent"`). `Connection.type=snowflake`,
-   `auth_policy="system_only"` (service-account creds on the connection). `is_public=False` +
-   `DataSourceMembership` to those users; schema indexed once. Granted users run the full
-   analytical loop; **all query through the one service account**. *Exists today.*
-
-2. **Admin connects Fabric (user-required) for specific users.** Fabric = data source →
-   **Agent**, `auth_policy="user_required"` (Entra OBO). `is_public=False` + memberships. Each
-   granted user authorizes once (selector shows "Connect"); token in
-   `UserConnectionCredentials`; queries run **as that user's identity**. *Exists today (OBO).*
-
-3. **User connects their Gmail.** Gmail = tool provider (`data_shape="tools"`) → **Connector**
-   (`kind="connector"`). Self-serve: `owner_user_id=user`, `is_public=False` (private);
-   `auth_policy="user_required"`; OAuth (catalog + **DCR**) → per-user token. Tools discovered;
-   **user sets their own per-tool policy**. In chat → **lightweight connector loop** (no
-   schema/Judge/harness); planner picks Gmail tools; `execute_mcp` runs them with the user's
-   token. *🆕 Core new work.*
-
-4. **User connects their own Snowflake.** Has a schema → a **private Agent** (`kind="agent"`,
-   `owner_user_id=user`, `is_public=False`) with the user's own creds; `catalog_ownership=per_user`.
-   Full analytical loop, scoped to them; they can add their own instructions. *Model exists —
-   needs **member self-serve create** (today `create_data_source` is admin-gated).*
-
-5. **User's own Snowflake + admin's Snowflake agent with sub-agents.** **Two independent
-   `DataSource` rows** — admin's (public/granted, sub-agents) and the user's private one — with
-   separate connections, catalogs, creds, scoping. Both show in the user's selector; usable
-   separately or **together in one conversation**. Identity resolves per data source.
-   ⚠️ Data sources are **unique by name per org** → the two need different names. *Model exists +
-   self-serve.*
-
-6. **Admin's agent has Monday (user-required); the user *also* self-service-connects their own
-   Monday with a specific tools policy.** Two **different** `Connection` rows: the agent's
-   Monday (owned by the agent) and the user's personal Monday connector.
-   - **Does connecting their personal Monday satisfy the agent? → No, by default.** Tokens are
-     keyed `(connection_id, user_id, auth_mode)` (`user_connection_credentials.py:17`), so a
-     token for the personal connection does **not** apply to the agent's connection — the user
-     authorizes the agent's Monday separately (the selector shows "Connect" on it).
-   - **The tool policy does not carry over either.** The user's "specific tools policy" is the
-     per-user overlay on *their* connector. Inside the admin's agent, the **agent owner's**
-     policy governs (decision §5). Same provider, but different connection → different identity
-     slot *and* different policy source.
-   - **Decided behaviour — connect once per provider (see decision §6 / §3a).** The user
-     authorizes Monday **once**; that identity satisfies *every* connection to the same Monday
-     issuer, **provided the connections require the same scope set**. So here the user does
-     **not** reconnect — the agent's Monday reuses the token from their self-service Monday
-     (same issuer, same scopes). (The *tool policy* still does not transfer: in-agent uses the
-     agent owner's policy; standalone uses the user's own.)
-
-## Proposed design
-
-### Core decision: a Connector is a **tools-only DataSource**, plus a lightweight run path
-
-Reuse the `DataSource` row as the connector container (so attachment, per-user creds, access
-control, `execute_mcp` allow-list, and `ConnectionTool` overlays all keep working unchanged),
-but mark it as tools-only and skip the analytical machinery.
-
-Add a discriminator so UI + agent can branch:
-
-```python
-# backend/app/models/data_source.py
-kind = Column(String, nullable=False, default="agent")   # "agent" | "connector"
-```
-
-A `kind="connector"` data source:
-- has only tool-provider connections (`mcp` / `custom_api`),
-- has **no** schema catalog, instructions, Judge scoring, or knowledge harness,
-- can be **global** (`is_public=True`, admin-created) or **private**
-  (`owner_user_id=<user>`, `is_public=False`) — *exact same fields already used for Agents*,
-- exposes its `ConnectionTool`s directly to the planner.
-
-> Why reuse `DataSource` rather than invent a parallel `Connector` table + a new
-> report↔connector attachment + new access checks: nearly every relevant code path
-> (`construct_clients`, `available_capabilities`, `execute_mcp` allow-list,
-> `report_data_source_association`, `user_can_access_data_source`, `ToolsSelector`) is keyed on
-> `report.data_sources`. A discriminator rides all of that for free; a parallel entity would
-> mean re-plumbing each of those. The alternative is recorded below.
-
-### 1. Data model
-
-- `DataSource.kind` discriminator (above). Default `"agent"` keeps every existing row a fully
-  analytical agent — zero behavioural change for current data.
-- Derive a helper `DataSource.is_connector` (all connections are tool providers) for safety,
-  but store `kind` explicitly so an empty connector still classifies correctly.
-- No new tables. `report_data_source_association`, `Connection`, `ConnectionTool`,
-  `UserConnectionCredentials`, `DataSourceMembership` are all reused as-is.
-
-### 2. Access & ownership (global vs private)
-
-Reuse the existing model verbatim:
-
-| Scenario | Fields | Created by |
-| --- | --- | --- |
-| **Global connector** (admin enables Monday for everyone) | `kind="connector"`, `is_public=True`, `auth_policy="system_only"` (org creds) **or** `"user_required"` (each user signs in) | admin (`create_data_source` / `manage_connections`) |
-| **Private connector** (user connects their own Gmail) | `kind="connector"`, `owner_user_id=<user>`, `is_public=False`, `auth_policy="user_required"` | the user |
-
-Add a lighter permission so members can create **private connectors only** without the full
-`create_data_source` governance permission, e.g. `create_private_connector` (gate: result must
-be `kind="connector"` + `owner_user_id == current_user` + `is_public=False`). Visibility +
-usability filtering already handled by `filter_user_visible_data_sources` /
-`filter_user_usable_data_sources` in `data_source_service.py`.
-
-### 3. Credentials / OAuth (incl. OBO for org connectors)
-
-No new credential code. A connector's connection uses `auth_policy="user_required"` → the
-existing per-user OAuth flow (`/connections/{id}/oauth/authorize` → callback →
-`UserConnectionCredentials`) handles "Connect your Gmail." Global system connectors use
-`auth_policy="system_only"` with org creds on the `Connection`.
-`construct_clients` / `resolve_credentials_for_connection` already pick the right path per user.
-
-**Org connector that requires per-user identity (OBO).** A common case (confirmed): an
-**org-level Agent requires Monday tools**, but each member must act as *themselves* on Monday.
-This is exactly today's **On-Behalf-Of** path: a global/org connector with
-`auth_policy="user_required"`, and each user's token resolved per-run via
-`connection_oauth_service` (`maybe_refresh_oauth_credentials`, OBO token exchange in
-`auto_provision_connection_credentials`). `resolve_credentials(db, connection, current_user)`
-already: returns the user's token when present, refreshes if near expiry, falls back to the
-admin "service_account vs self" identity preference, and 403s a user with no token when the
-policy demands self-identity. So **the same connector is shared org-wide but executes with each
-member's own Monday identity** — no new work beyond surfacing the "Connect" prompt when a
-user hits an org connector they haven't authorized yet (the selector already has this state).
-
-### 3a. Connect once per provider (linked identity)
-
-Decision §6: a user connects a provider **once** and that identity serves every connection to
-the same provider, **if the required scope matches**. Today creds are keyed
-`(connection_id, user_id, auth_mode)` (`user_connection_credentials.py:17`), so the token for
-one Monday connection is invisible to another. To get "connect once":
-
-- **Key the user's grant by provider identity, not by connection.** Provider identity =
-  the OAuth **issuer** (from discovery / catalog entry) + the canonical **scope set**. Two
-  connections to the same Monday MCP share an issuer; if they also declare the same scopes they
-  share one grant.
-- **Resolution order** when running a connection's tool for a user:
-  per-connection token (legacy/explicit) → **provider-identity token (same issuer + same
-  scope)** → otherwise prompt "Connect". This slots into
-  `resolve_credentials(db, connection, user)` as one extra lookup before the 403.
-- **Same-scope rule (your call).** Connect-once holds only when the connections **require the
-  same scope set**. Catalog entries for a given provider therefore declare a *canonical* scope
-  list so all connectors to that provider are scope-compatible by construction. A connection
-  asking for a *different/broader* scope is its own authorization (re-consent).
-- **Storage options:** (a) a new `UserProviderCredential(user_id, issuer, scope_hash,
-  encrypted_token, …)` that connections reference — cleanest, one token, one refresh owner; or
-  (b) keep `UserConnectionCredentials` and add an issuer+scope lookup that reuses a sibling
-  connection's row. Recommend (a) — single refresh owner avoids divergent token copies.
-- **Caveats to honour:** audience binding (RFC 8707) — if a provider issues tokens bound to a
-  specific connection/resource, connect-once only works when the audience is the shared provider,
-  not the connection; and **revocation cascade** — disconnecting the provider identity drops
-  access for *all* connections that rely on it (surface this in the disconnect UI).
-
-### 4. PromptBoxV2 + selectors (frontend)
-
-- Surface connectors in the prompt box. Two viable UX:
-  - **(preferred)** extend `DataSourceSelector` to list connectors in a separate "Connectors /
-    Tools" group (it already filters by `usePermissions` and distinguishes connected vs
-    needs-credentials states, incl. a "Connect" affordance for `user_required`); or
-  - a dedicated `ConnectorSelector` rendered next to it.
-- Selected connector IDs flow into the same `data_sources: [...ids]` array PromptBoxV2 already
-  sends on report create (`PromptBoxV2.vue:1388`) and persists via `PUT /reports/{id}`
-  (`DataSourceSelector.vue:479`). No new report wiring.
-- Optional per-prompt **tool picker**: reuse `ToolsSelector.vue`'s `ConnectionTool` overlay
-  (enable/policy) so a user can scope which of a connector's tools are active.
-- A member-facing **"Add connector"** entry point: a slimmed `MCPConnectionForm.vue`
-  (already supports `auth_type: none|bearer|api_key|oauth_app` and per-user OAuth) with a
-  "Private (only me)" vs "Shared (org-wide, admin)" toggle.
-
-### 5. Planner
-
-The planner stays — letting the LLM pick *which* connector tool and *with what arguments* is
-exactly the "AI platform" experience; we are not building a deterministic tool-runner UI.
-Changes:
-
-- **Expose connector tools as first-class tools** to the planner instead of the single
-  `execute_mcp` wrapper. Build `ToolDescriptor`s from each enabled `ConnectionTool`
-  (name, description, `input_schema`) and add them to the catalog handed to PlannerV3
-  (`tool_catalog` in `agent_v2.py:336-361`). At dispatch, route those tool names through the
-  existing `execute_mcp` implementation (resolve connection + tool, run). This keeps the
-  battle-tested execution/validation path while giving the model precise tools.
-  (If simpler first: keep `execute_mcp` + `search_mcps` and just make sure the allow-list
-  includes connector data sources — see §7.)
-- Add a lighter **system prompt** variant (`mode="connector"`) — see below.
-
-### 5a. What `prompt_builder_v3` looks like for connectors
-
-The current `_build_system` (`prompt_builder_v3.py:81-326`) is ~250 lines of *analyst* framing:
-schema grounding, the clarify-business-term protocol, the dashboard-ask policy, analytical
-standards. **None of that applies to a Gmail/Monday connector turn** — there is no schema, no
-KPI, no dashboard. So we branch at the top of `_build_system` on the mode rather than threading
-flags through every section:
-
-```python
-@staticmethod
-def _build_system(planner_input: PlannerInput) -> str:
-    if (planner_input.mode or "").lower() == "connector":
-        return PromptBuilderV3._build_connector_system(planner_input)
-    # ... existing analyst system prompt unchanged ...
-```
-
-The connector system prompt is small. Tools are still sent natively as `ToolSpec`s (the
-`tools` request param built by `_tool_specs_from_catalog`), so the prompt only needs framing +
-safety, not a tool list. It keeps the bits that still apply — output protocol, one-tool-per-turn,
-error handling, platform directives (`_platform_system_directives` already works for
-Slack/Teams/etc.), and the `confirm`-policy rule — and drops everything schema/analytics:
-
-```text
-SYSTEM
-Mode: Connector
-You are {organization_ai_analyst_name}, an assistant for {organization_name}.
-You help the user get things done through their connected tools.
-
-- You have a set of connected tools (provided to you as callable tools). Each comes from a
-  connector the user or an admin enabled — e.g. Gmail, Monday, Linear.
-- Constraints: call AT MOST ONE tool per turn; follow each tool's input_schema exactly;
-  never invent arguments, IDs, recipients, or credentials.
-- Ground every statement in tool results. If a required argument is unknown (an address, an
-  item id, a board, a date), ask the user with clarify — do NOT guess, especially for actions
-  that send, create, modify, or delete.
-
-OUTPUT PROTOCOL (native tool calling — no JSON envelope)
-- To act, emit exactly ONE tool_use block. To finish, reply in plain text (becomes your
-  message to the user). A short (≤2 sentence) message before a tool call is allowed.
-
-TOOL-USE LOOP
-1) Understand the goal and the conversation so far.
-2) Pick the single best next tool; call it with valid arguments.
-3) Read the observation; either continue with the next tool or give the final answer.
-
-SAFETY & CONFIRMATION
-- A tool may carry policy=confirm (e.g. send email, create/modify a record). For those:
-  state exactly what you are about to do and the key arguments, and only call the tool after
-  the user confirms in their next message.
-- Never call a tool the user has set to policy=deny; say it is disabled and offer alternatives.
-
-ERROR HANDLING
-- If a tool errored, open your message with: "The previous attempt failed: <specific error>."
-- Verify tool name + arguments against the schema before retrying; change something meaningful;
-  never repeat the exact failing call; after 2 failures, ask the user via clarify.
-
-{platform_directives}     # reused as-is (Slack brevity, Teams no-inline-charts, etc.)
-COMMUNICATION
-- Be concise. Report what you did and the result. Don't surface internal IDs unless useful.
-```
-
-The per-turn **user message** reuses `_build_user_message` almost verbatim but with the
-schema/files/resources/dashboard blocks empty (they will be in connector mode). A
-`<connected_tools>` summary (connector name + one-line tool descriptions + each tool's
-effective policy) can be rendered into the existing **`planner_input.tools_context`** slot —
-which `_build_user_message` already appends (`prompt_builder_v3.py:451-452`) — so the model
-sees *which connector* each tool belongs to and which are `confirm`/`deny`, without bloating the
-cached system prefix.
-
-Net diff: one branch in `_build_system`, one new `_build_connector_system`, and populate
-`tools_context`. No change to the v3 event loop, `ToolSpec` translation, or dispatch.
-
-### 6. agent_v2 — lightweight loop
-
-Detect "connector-only" turns: `report.data_sources` all `kind="connector"` (or no analytical
-source). When so, skip:
-- schema priming / top-k schema / `schemas_combined`,
-- Judge scoring (`_run_early_scoring_background` / `_run_late_scoring_background`),
-- knowledge harness (`_run_knowledge_harness`),
-- `available_steps` / artifact-continuation context.
-
-Keep: planner loop, `ToolRunner`, observation feedback, block/SSE streaming. This is mostly
-**guarding existing calls** behind a `self._connector_only` flag in `main_execution`, not new
-infrastructure — `ToolRegistry` + `ToolRunner` are already standalone.
-
-### 7. Public MCP catalog (marketplace) — *new component*
-
-We want a **browsable catalog of public MCPs** (Monday, Gmail, Linear, Notion, Slack, …) that
-an admin (org-wide) or a member (private) can enable in a couple of clicks, rather than typing
-a server URL into a raw form. This mirrors the existing **data source registry** pattern.
-
-- **Catalog source = a curated registry of connector templates.** Each entry is a
-  pre-configured connector: `key`, display `title`, `icon`, `description`, MCP `server_url`,
-  `transport`, `auth_type` (`oauth_app` / `bearer` / `api_key` / `none`), default `scopes`,
-  and (for OAuth) `authorize_url` / `token_url` / `audience`. Model it like
-  `data_source_registry.REGISTRY` — a static dict the API serves (e.g.
-  `backend/app/schemas/connector_catalog.py` + `GET /connectors/catalog`). Versionable,
-  ships with the app, and (later) augmentable by org-defined entries.
-- **"Enable" = instantiate a connector from a template.** Picking an entry creates a
-  `kind="connector"` DataSource + an `mcp` `Connection` seeded from the template's
-  `server_url`/`transport`/`auth_type`, then runs `refresh-tools` to populate `ConnectionTool`
-  rows. Scope at creation: admin → `is_public=True`; member → `owner_user_id=self`,
-  `is_public=False`. OAuth entries then send the user through the existing connect flow.
-- **Auth per entry.** OAuth catalog entries default to `auth_policy="user_required"` (each
-  user signs in — incl. the OBO org-connector case in §3). API-key/bearer entries can be
-  `system_only` (admin pastes one org key) or `user_required` (each user pastes their own),
-  chosen at enable time.
-- **Frontend.** A "Connectors" gallery (cards with icons) — admin version under
-  `settings/integrations`, member version reachable from the prompt box "Add connector".
-  Reuse `MCPConnectionForm.vue` as the *advanced/custom* path for anything not in the catalog.
-- **Tool granularity follows from the catalog.** Once an MCP is enabled, its tools are the
-  discovered `ConnectionTool` rows. Start by routing them through the shipped
-  `execute_mcp` + `search_mcps` path (cheap, validated); promote to first-class per-tool
-  `ToolDescriptor`s later (§5) for a sharper planner UX. The catalog is the *discovery/enable*
-  layer; it is orthogonal to how tools are presented to the planner.
-
-### 7a. DCR (Dynamic Client Registration) for catalog MCPs — *required for "paste-URL" connect*
-
-Most modern remote MCP servers don't hand out a `client_id`/`client_secret`; they expect the
-client to **discover** their OAuth metadata and **dynamically register** itself (RFC 7591).
-This is what makes "paste a server URL → connect" work and is what a catalog of public MCPs
-needs. **It is not implemented today.**
-
-**Current state (two OAuth directions — don't conflate them):**
-- **Inbound — BagOfWords *is* the Authorization Server.** `oauth_server_service.py` +
-  `routes/oauth_server.py` issue tokens to external MCP clients (Claude Desktop, Cursor)
-  connecting *to* the `/mcp` endpoint. Has `.well-known/oauth-authorization-server` and
-  `.well-known/oauth-protected-resource`, PKCE, refresh. **But client onboarding is manual CRUD
-  (`/api/oauth/clients`) — no RFC 7591 `/register` endpoint.**
-- **Outbound — BagOfWords *is* the OAuth client.** `connection_oauth_service.py` for
-  `conn_type == "mcp"` (`:136-153`) **requires** `authorize_url` + `token_url` + `client_id` +
-  `client_secret` pre-stored in the connection. No discovery, no DCR.
-
-**What DCR adds on the outbound side (the catalog use-case):**
-
-1. **Discovery.** From the MCP `server_url`: fetch `/.well-known/oauth-protected-resource`
-   (RFC 9728) → find the `authorization_servers`; fetch that AS's
-   `/.well-known/oauth-authorization-server` (RFC 8414) → `authorization_endpoint`,
-   `token_endpoint`, and `registration_endpoint`.
-2. **Register once per connection (app-level, not per-user).** If the connection has no
-   `client_id`, POST client metadata to the `registration_endpoint` (RFC 7591):
-   `redirect_uris=[<BOW callback>]`, `grant_types=[authorization_code, refresh_token]`,
-   `token_endpoint_auth_method`, `scope`. Store the returned `client_id` (+ `client_secret` if
-   confidential, + `registration_access_token` / `registration_client_uri` for RFC 7592
-   management) **encrypted on the `Connection`** — same two-tier split we already use: registered
-   app creds live on the connection (org-level), per-user tokens in `UserConnectionCredentials`.
-3. **Authorize per user.** Then run the **existing** PKCE authorization-code flow per user
-   (`/connections/{id}/oauth/authorize` → callback → `UserConnectionCredentials`). DCR changes
-   *who registers the app*, not *who logs in* — `auth_policy="user_required"` still governs
-   identity, so OBO/per-user identity (§3) is unchanged.
-4. **Resource binding.** MCP requires the access token be audience-bound to the server — pass
-   the `resource` parameter (RFC 8707) on authorize + token requests (the existing code already
-   notes audience-binding intent).
-
-**Where it slots in:**
-- A new `mcp_oauth_discovery` helper + DCR call in `connection_oauth_service.py` (or a small
-  `mcp_dcr_service.py`), invoked lazily the first time an `mcp` connection with OAuth and no
-  `client_id` starts its authorize flow.
-- `Connection.credentials` gains optional `client_id` / `client_secret` /
-  `registration_access_token` / discovered endpoints (cached so we discover once).
-- **Catalog entries need only `server_url`** (+ optional default scopes). With DCR, the catalog
-  stops baking in client secrets — that's the whole point. Entries for providers that *don't*
-  support DCR can still pin `client_id`/`client_secret` (the existing path), so the catalog
-  supports both.
-
-**Security guardrails (DCR connects to arbitrary servers):**
-- Restrict DCR targets to **catalog entries** (or an admin allowlist of hostnames) to avoid
-  SSRF / rogue-server registration; don't DCR against a raw user-typed URL without admin opt-in.
-- Validate the discovered endpoints are HTTPS and same-site/expected issuer; encrypt all stored
-  client creds (Fernet, as today); honour RFC 7592 to rotate/delete the registration when the
-  connector is deleted.
-
-**Optional, symmetric:** add an RFC 7591 `/register` endpoint to the *inbound* AS so external
-MCP clients can auto-register with BagOfWords (today they need manual `/api/oauth/clients`).
-Separate effort; mentioned for completeness.
-
-### 8. execute_mcp / search_mcps allow-list
-
-Because connectors are data sources, `report.data_sources → connections` already includes
-them, so `execute_mcp`'s allow-list (`execute_mcp.py:110-131`) and `search_mcps`' discovery
-keep working with **no change**. (This is the single biggest win of reusing `DataSource`.)
+| **A — Admin app** | Admin pre-registers a client at the provider; `client_id`/`secret` stored on the connection | yes, once | OneDrive / GDrive today |
+| **B — Catalog app** | A BagOfWords-registered app ships with the catalog entry | no | curated "Google"/"Monday" catalog entry |
+| **C — True DCR** | **BagOfWords self-registers dynamically** (RFC 7591) against the server's `/register` | **no** | any DCR-capable remote MCP |
+
+**Tier C / DCR is what unlocks true zero-admin self-serve** (paste/pick an MCP → discover → self
+register → sign in). DCR removes the *app registration* step, **not** the per-user *sign-in* step.
+Detail in the DCR section below.
 
 ---
 
-## Alternative considered (and rejected): a separate `Connector` entity
+## Auth reuse — connect once per provider
 
-Model connectors as their own table with a new `report_connector_association`, new access
-checks, and a new per-prompt selection path.
+**Decision:** a user connects a provider **once**; that identity then serves **every** connection
+to the same provider, **provided the connections require the same scope set**. So when an Agent is
+created/used with **Monday** or **BOW**, it **reuses the token the user already has** for that
+provider instead of re-prompting.
 
-- ➖ Re-implements attachment, visibility/usability filtering, per-user credentials wiring, the
-  `execute_mcp` allow-list, and the `ConnectionTool` overlay — each of which is currently
-  `DataSource`-keyed.
-- ➖ Two parallel "thing you attach to a conversation" systems to keep in sync (RBAC, channels,
-  serializers, monitoring).
-- ➕ Cleaner conceptual separation; `DataSource` stops being overloaded.
+Today credentials are keyed `(connection_id, user_id, auth_mode)`
+(`user_connection_credentials.py:17`), so a token for one connection is invisible to another. To
+get "connect once":
 
-Rejected for v1 because the reuse path ships the same UX with a fraction of the surface area
-and risk. The `kind` discriminator leaves the door open to split later if the overload hurts.
+- **Key the grant by provider identity, not connection.** Provider identity = OAuth **issuer**
+  (from discovery / catalog entry) + canonical **scope set** (+ resource/audience for MCP, see
+  caveat). Connections to the same provider with the same scope share one grant.
+- **Resolution order** in `resolve_credentials(db, connection, user)`: per-connection token →
+  **provider-identity token (same issuer + scope)** → otherwise "Connect" prompt.
+- **Same-scope rule (your call).** Connect-once applies only when scopes match; catalog entries
+  for a provider declare a *canonical* scope list so all connectors to that provider are
+  scope-compatible by construction. A connection requesting different/broader scope is its own
+  authorization.
+- **Storage:** a per-user provider-identity record (`UserProviderCredential(user_id, issuer,
+  scope_hash, encrypted_token, …)`) that connections resolve against — one token, one refresh
+  owner.
+- **Caveats:** **audience binding** (RFC 8707) — if a provider mints tokens bound to a specific
+  resource, reuse only works when both connections target the *same* server/resource;
+  **revocation cascade** — disconnecting the provider drops every connection relying on it (surface
+  in the disconnect UI).
 
 ---
 
-## Resolved decisions
+## Per-tool policy (allow / confirm / deny)
 
-1. **Member self-serve: YES.** Members may create their **own private** connectors
-   (`create_private_connector` permission; gated to `kind="connector"` +
-   `owner_user_id == self` + `is_public=False`). Admin retains org-wide (`is_public=True`).
-2. **Connectors attach to Agents too (OBO).** An org-level Agent can *require* connector tools
-   (e.g. Monday) while each member executes with their own identity via the existing OBO /
-   `user_required` flow (§3). Connectors are therefore both *standalone* and *co-attachable to
-   Agents* — the reuse-`DataSource` design gives this for free.
-3. **Tool discovery: a catalog of public MCPs** (§7). Curated registry of connector templates;
-   one-click enable (org or private). Tools presented to the planner via the shipped
-   `execute_mcp`/`search_mcps` path first, first-class per-tool exposure later.
-4. **Mixed conversations: YES.** A turn may use an analytical Agent *and* connectors together;
-   the lightweight loop (§6) only triggers when there is *no* analytical source.
-6. **Connect once per provider (linked identity), gated on identical scope.** A user authorizes
-   a provider (Monday, Gmail) **once**; that grant satisfies *every* connection to the same
-   provider/issuer **as long as those connections require the same scope set**. Connections
-   whose required scope differs are a *separate* authorization. Credential *identity* is shared
-   per provider; tool *policy* is not (decision §5). Design in §3a.
-5. **Per-tool policy ownership: depends on context.**
-   - **Standalone connector use → the *user* sets their own per-tool policy** (allow / confirm /
-     deny) and enable/disable. For a *private* connector this is trivial (the DataSource is the
-     user's, so the existing per-DS `ConnectionTool` overlay already *is* per-user). For a
-     *shared/org* connector used standalone, we need a **per-user tool overlay** —
-     a new `UserConnectionToolPreference(user_id, connection_tool_id, is_enabled, policy)`
-     row, resolved at runtime as: user pref → connection default. (Mirrors how
-     `UserConnectionCredentials` overlays org credentials.)
-   - **Connector attached to an Agent → the *Agent owner* sets the policy** via the existing
-     per-DS `ConnectionTool` overlay (`ToolsSelector.vue` / `PUT /data_sources/{id}/tools`).
-     Members using that Agent inherit it.
-   - Runtime resolution order when a tool runs: **Agent overlay (if in-agent) → user pref (if
-     standalone) → connection default.** `confirm` triggers an at-prompt confirmation step
-     before the tool executes.
+- **Standalone connector → the user sets their own per-tool policy.** For a *private* connector
+  this is automatic (the DataSource is theirs → the existing per-DS `ConnectionTool` overlay *is*
+  per-user). For a *shared/org* connector used standalone, add a per-user overlay
+  `UserConnectionToolPreference(user_id, connection_tool_id, is_enabled, policy)`.
+- **Connector inside an Agent → the Agent owner sets the policy** via the existing per-DS
+  `ConnectionTool` overlay (`ToolsSelector.vue`). Members inherit it.
+- **Resolution at run time:** Agent overlay (in-agent) → user pref (standalone) → connection
+  default. `policy=confirm` triggers an at-prompt confirmation before the tool runs; `deny` blocks.
 
-## Still to confirm
+Credential *identity* is shared per provider (connect-once); tool *policy* is **not** — it follows
+the context above.
 
-- **Catalog ownership of entries:** ship a static curated catalog only, or also let admins add
-  org-private catalog entries (custom MCPs promoted into the gallery)?
-- **DCR target scope:** allow DCR only against curated catalog entries, or also admin-allowlisted
-  custom URLs?
+---
+
+## Public MCP catalog
+
+A browsable gallery of public MCPs (Monday, Gmail, Linear, Notion, …) for one-click enable, modeled
+on the existing `data_source_registry` and the `ui_form="integration"` flow.
+
+- **Catalog = curated registry of connector templates.** Each entry: `key`, `title`, `icon`,
+  `description`, `server_url`, `transport`, **onboarding tier (A/B/C)**, canonical `scopes`, and
+  (tier B) baked app creds. New `backend/app/schemas/connector_catalog.py` + `GET /connectors/catalog`.
+- **"Enable" = instantiate from a template:** create a tools-only `DataSource` + an `mcp`
+  `Connection` seeded from the entry, run `refresh-tools` to populate `ConnectionTool`. Scope at
+  creation: admin → `is_public=True`; member → `owner_user_id=self`, `is_public=False`.
+- **Custom path:** `MCPConnectionForm.vue` remains for anything not in the catalog.
+
+---
+
+## DCR (Dynamic Client Registration) — tier C detail
+
+Outbound DCR is **not implemented today**. (`connection_oauth_service.py` for `conn_type=="mcp"`,
+`:136-153`, *requires* pre-stored `authorize_url`/`token_url`/`client_id`/`client_secret`.) Don't
+confuse with the **inbound** AS (`oauth_server_service.py`, BagOfWords *as* server for Claude
+Desktop/Cursor) — that exists but is a different direction.
+
+Outbound DCR flow:
+
+1. **Discovery** — from `server_url`: `/.well-known/oauth-protected-resource` (RFC 9728) → AS;
+   that AS's `/.well-known/oauth-authorization-server` (RFC 8414) → `authorization_endpoint`,
+   `token_endpoint`, `registration_endpoint`.
+2. **Register (app-level, once per connection)** — POST client metadata to `registration_endpoint`
+   (RFC 7591): `redirect_uris=[BOW callback]`, `grant_types`, `token_endpoint_auth_method`,
+   `scope`. Store returned `client_id` (+ secret, + `registration_access_token`/`…client_uri` for
+   RFC 7592) **encrypted on the Connection**.
+3. **Authorize per user** — existing PKCE flow → `UserConnectionCredentials` (and the provider
+   identity record for connect-once). DCR changes *who registers the app*, not *who signs in*.
+4. **Resource binding** — pass `resource` (RFC 8707) so the token is audience-bound to the server.
+
+New `mcp_dcr_service.py` (or in `connection_oauth_service.py`), invoked lazily on first authorize
+when an `mcp` OAuth connection has no `client_id`.
+
+**Guardrail:** DCR only against **catalog entries or an admin host-allowlist** (SSRF / rogue
+server); HTTPS + expected issuer; encrypt creds; honour RFC 7592 on connector delete.
+
+---
+
+## What actually changes (gaps over reuse)
+
+Because there's no custom loop and we anchor on OneDrive, the net work is small:
+
+1. **Classify a tools-only data source as a connector** (derive `is_connector` from its
+   connections' `data_shape="tools"`; optional thin marker for UX/self-serve gating). **Not an
+   execution fork.**
+2. **Member self-serve create** of a connector: `create_private_connector` permission
+   (gated to tools-only + `owner_user_id=self` + `is_public=False`), and a self-serve create UI
+   (catalog gallery + slim `MCPConnectionForm`).
+3. **Surface connectors in PromptBoxV2** (`DataSourceSelector` group + "Connect" affordance for
+   `user_required`); selected IDs ride the existing `data_sources:[...]` payload.
+4. **Connect-once / provider identity** (`UserProviderCredential` + resolution fallback).
+5. **Per-user tool policy** for shared connectors used standalone (`UserConnectionToolPreference`).
+6. **Catalog** (`connector_catalog` + endpoint + gallery).
+7. **DCR** (tier C) for true self-serve.
+
+Everything else — attachment, access control, credential resolution, `execute_mcp`/`search_mcps`,
+the agent loop, the planner — is reused unchanged.
 
 ---
 
 ## Phased plan
 
-- **Phase 0 — plumbing (no UX):** add `DataSource.kind` (+ migration, default `"agent"`);
-  classify tool-provider-only sources as connectors; confirm `execute_mcp`/`search_mcps` work
-  for a connector attached directly to a report.
-- **Phase 1 — lightweight run path:** `_connector_only` detection in `agent_v2.main_execution`;
-  guard schema/Judge/knowledge-harness; add the connector system-prompt branch in
-  `prompt_builder_v3`.
-- **Phase 2 — public MCP catalog (backend):** `connector_catalog` registry + `GET
-  /connectors/catalog` + "enable from template" endpoint (creates connector DataSource +
-  `mcp` Connection + refresh-tools).
-- **Phase 2a — outbound DCR + discovery (§7a):** `.well-known` discovery (RFC 9728 + 8414) +
-  RFC 7591 dynamic client registration for `mcp` OAuth connections, with resource-binding
-  (RFC 8707) and a catalog/allowlist guardrail. Unlocks "paste-URL / one-click" catalog
-  connect without baked-in client secrets. (Optional symmetric: RFC 7591 `/register` on the
-  inbound AS.)
-- **Phase 3 — admin global connectors (UX):** connectors gallery in `settings/integrations`;
-  enable org-wide (`is_public=True`); system or OBO/`user_required` auth.
-- **Phase 4 — private connectors + member self-serve:** `create_private_connector` permission;
-  member "Add connector" from the prompt box; "Connect your Gmail" via existing per-user OAuth;
-  private/shared toggle in `MCPConnectionForm` (custom path).
-- **Phase 4a — connect-once / linked identity (§3a):** provider-identity credential
-  (`UserProviderCredential`, keyed issuer + scope); resolution fallback in
-  `resolve_credentials`; canonical per-provider scopes on catalog entries; revocation-cascade
-  surfaced in the disconnect UI.
-- **Phase 5 — PromptBoxV2 selection + per-tool policy:** connectors group in the selector;
-  per-user "Connect" affordance for unauthorized org connectors (OBO). Add the **per-user tool
-  overlay** (`UserConnectionToolPreference`) so standalone users set their own enable/policy;
-  in-agent keeps the Agent-owner overlay. Runtime resolution: Agent overlay → user pref →
-  connection default; `confirm` → at-prompt confirmation step.
-- **Phase 6 (optional) — first-class connector tools** to the planner instead of `execute_mcp`.
+- **Phase 0 — connector classification + self-serve create.** Tools-only data source recognized as
+  a connector; `create_private_connector`; member create via slim `MCPConnectionForm` (tier A/B
+  manual OAuth/bearer). Runs through the existing agent. Delivers stories 3/4/5 minimally.
+- **Phase 1 — PromptBoxV2 surfacing.** Connectors group in the selector; "Connect" affordance for
+  unauthorized `user_required` connectors. No new report wiring.
+- **Phase 2 — connect-once / provider identity.** `UserProviderCredential` + resolution fallback;
+  canonical per-provider scopes. Delivers story 6 (no reconnect).
+- **Phase 3 — public MCP catalog.** `connector_catalog` + `GET /connectors/catalog` + enable
+  endpoint + gallery (admin org-wide / member private).
+- **Phase 4 — DCR (tier C).** `.well-known` discovery + RFC 7591 + resource binding + allowlist;
+  true zero-admin self-serve.
+- **Phase 5 — per-tool policy refinements.** `UserConnectionToolPreference` for shared standalone;
+  `confirm` at-prompt step.
+- **Phase 6 (optional) — first-class connector tools** to the planner instead of generic
+  `execute_mcp` (richer planner UX).
+
+---
+
+## Open decisions
+
+- **Catalog entry ownership:** static curated only, or admins can add org-private catalog entries?
+- **DCR target scope:** catalog entries only, or also admin-allowlisted custom URLs?
+- **Connector marker:** derive `is_connector` purely from `data_shape`, or store an explicit flag?
 
 ---
 
 ## Key files
 
 **Backend**
-- `backend/app/models/data_source.py` — add `kind`; `owner_user_id`, `is_public`, `publish_status` already present.
-- `backend/app/models/connection.py` — `auth_policy`, `allowed_user_auth_modes`, `ConnectionTool` (reuse).
-- `backend/app/schemas/data_source_registry.py` — `mcp`/`custom_api` tool-provider entries (`:878`, `:920`), `tool_provider_types()` (`:1030`); template for the new `connector_catalog`.
-- `backend/app/schemas/connector_catalog.py` *(new)* — curated public-MCP catalog; served by `GET /connectors/catalog`.
-- `backend/app/services/connection_oauth_service.py` — OBO / per-user token resolve + refresh (reuse for org connectors); add MCP `.well-known` discovery + RFC 7591 DCR for `conn_type=="mcp"` (`:136-153`).
-- `backend/app/services/oauth_server_service.py` + `routes/oauth_server.py` — inbound AS (BOW as server); optional RFC 7591 `/register` for external client auto-onboarding.
-- `backend/app/models/connection_tool.py` — per-DS tool overlay (Agent-owner policy, reuse).
-- `backend/app/models/user_connection_tool_preference.py` *(new)* — per-user enable/policy overlay for standalone connector use.
-- `backend/app/models/user_provider_credential.py` *(new)* — per-user provider identity (issuer + scope) for connect-once (§3a); resolution fallback in `connection_service.resolve_credentials`.
-- `backend/app/services/data_source_service.py` — `construct_clients` (`:1806`), visibility/usability filters (`:1715`).
-- `backend/app/ai/agent_v2.py` — catalog build + `available_capabilities` (`:315-361`); `main_execution` lightweight guards (`:1825`).
-- `backend/app/ai/agents/planner/planner_v3.py` + `prompt_builder_v3.py` — connector prompt branch / first-class tools.
-- `backend/app/ai/tools/implementations/execute_mcp.py` (`:110-131`) + `search_mcps.py` — allow-list (works once connector is a data source).
-- `backend/app/core/permission_resolver.py` — add `create_private_connector`.
+- `backend/app/models/data_source.py` — `owner_user_id`/`is_public`/`publish_status` (reuse); optional connector marker.
+- `backend/app/models/connection.py`, `connection_tool.py` — `auth_policy`, tool overlay (reuse).
+- `backend/app/schemas/data_source_registry.py` — OneDrive/GDrive entries (`:677-737`) as the template; tool-provider entries (`:878`,`:920`).
+- `backend/app/schemas/connector_catalog.py` *(new)* + `GET /connectors/catalog`.
+- `backend/app/services/connection_oauth_service.py` — delegated OAuth/OBO (reuse); add `.well-known` discovery + RFC 7591 DCR for `conn_type=="mcp"` (`:136-153`).
+- `backend/app/services/connection_service.py` — `resolve_credentials` (`:970-1084`): add provider-identity (connect-once) fallback.
+- `backend/app/models/user_provider_credential.py` *(new)* — connect-once identity (issuer+scope).
+- `backend/app/models/user_connection_tool_preference.py` *(new)* — per-user standalone tool policy.
+- `backend/app/services/data_source_service.py` — `construct_clients` (`:1806`), visibility/usability filters (`:1715`) (reuse).
+- `backend/app/ai/tools/implementations/execute_mcp.py` (`:110-131`) + `search_mcps.py` — allow-list (reuse; works once connector is a data source).
+- `backend/app/core/permission_resolver.py` — `create_private_connector`.
 
 **Frontend**
-- `frontend/components/prompt/PromptBoxV2.vue`, `DataSourceSelector.vue` — surface connectors + selection payload.
+- `frontend/components/prompt/PromptBoxV2.vue`, `DataSourceSelector.vue` — surface connectors + "Connect".
 - `frontend/components/datasources/ToolsSelector.vue` — per-tool enable/policy (reuse).
-- `frontend/components/MCPConnectionForm.vue` — member create + private/shared toggle.
+- `frontend/components/MCPConnectionForm.vue` — member create + private/shared toggle + catalog gallery.
 - `frontend/composables/usePermissions.ts` — gate connector create/use.
-- `frontend/pages/settings/integrations/index.vue` — admin global connector management.
+- `frontend/pages/settings/integrations/index.vue` — admin global connector management + gallery.
+
+---
+
+## Test cases (the scenarios we discussed)
+
+Given/when/then for the six stories. These drive both automated e2e and manual verification.
+
+1. **Admin Snowflake (service account) → revenue agent for specific users.**
+   *Given* a `snowflake` connection `auth_policy="system_only"` on a private Agent with memberships
+   to users A,B. *When* A and B query. *Then* both run via the one service account; user C (no
+   membership) cannot see the Agent. *Identity:* shared.
+
+2. **Admin Fabric (user-required) for specific users.**
+   *Given* a `ms_fabric` Agent, `auth_policy="user_required"`, members A,B. *When* A has signed in,
+   B has not. *Then* A queries as themselves; B sees a "Connect" prompt (no silent fallback).
+
+3. **User connects their Gmail (private connector).**
+   *Given* member M with `create_private_connector`. *When* M enables Gmail from the catalog and
+   signs in. *Then* a tools-only `DataSource` (`owner_user_id=M`, `is_public=False`) exists, M's
+   token is stored, Gmail tools are selectable in PromptBoxV2, and the **normal agent** runs them.
+   No other user sees it.
+
+4. **User connects their own Snowflake (private agent).**
+   *Given* member M. *When* M self-serve-creates a private `snowflake` data source with their own
+   creds. *Then* it's `owner_user_id=M`, `is_public=False`, per-user catalog; only M sees/uses it.
+
+5. **User's own Snowflake + admin's Snowflake agent (with sub-agents).**
+   *Given* both exist (different names — `uq_data_sources_org_name`). *When* M opens the selector.
+   *Then* both appear; M can use either or both in one conversation; identity/catalog resolve per
+   data source independently.
+
+6. **Admin agent with Monday (user-required) + user's self-service Monday — connect once.**
+   *Given* an org Agent's Monday connection and M's private Monday connector, same issuer + same
+   canonical scope. *When* M has signed in to *either*. *Then* M does **not** reconnect for the
+   other — the provider-identity token is reused. **But** tool policy does not transfer: in-agent
+   uses the agent owner's policy; standalone uses M's own. *(If scopes differ → separate auth.)*
+
+**Additional assertions**
+- `policy=confirm` tool → agent asks for confirmation before executing; `deny` → never called.
+- Revoking the provider identity drops access for all connections relying on it.
+
+---
+
+## Verification plan (mocks + sandbox feedback loop + manual)
+
+We validate in a fresh cloud sandbox using a `sandbox-feedback-loop-*.md` runbook (same format as
+the existing `sandbox-feedback-loop*.md` files), driving **custom connector mocks** end-to-end and
+then **manually** confirming in the running app.
+
+**Extend the existing mocks** (`backend/tests/mocks/`):
+- `mock_mcp_server.py` — already provides `MockToolProviderClient` with `echo` / `get_records` /
+  `search_docs`. Add tools that exercise policy + write semantics (e.g. `send_message` →
+  `policy=confirm`) and tabular output.
+- `mock_oauth_provider.py` — already mocks Microsoft/Google delegated + OBO. Add:
+  - **A "regular" connector mock (tier A/B):** pre-set `client_id`/`secret`, standard
+    authorize/token, so we test the OneDrive-style admin-app + per-user sign-in path.
+  - **A "true DCR" connector mock (tier C):** advertise `/.well-known/oauth-protected-resource`
+    (RFC 9728) and `/.well-known/oauth-authorization-server` (RFC 8414) **including a
+    `registration_endpoint`**, accept an RFC 7591 `POST /register` returning a fresh
+    `client_id`, then run authorize/token. Assert BagOfWords self-registers (no pre-set client),
+    binds `resource` (RFC 8707), and stores the per-user token + provider identity.
+
+**Two custom mock connectors to spin up:**
+1. **`mock_regular`** — bearer/admin-app MCP (tier A/B): exercises enable → per-user connect →
+   tool call through the agent → per-tool `confirm`.
+2. **`mock_dcr`** — DCR MCP (tier C): exercises discovery → dynamic registration → per-user
+   connect → connect-once reuse across a second connection to the same mock issuer.
+
+**Runbook (`sandbox-feedback-loop-connectors.md`, to be written alongside implementation):**
+- Env setup (Python 3.12, `uv sync --extra dev`, `BOW_DATABASE_URL=sqlite:///db/app.db`) — mirror
+  the existing runbooks.
+- Seed: org, admin, member; the two mock connectors.
+- Scripted e2e per test case above (extend `tests/e2e/test_oauth_mcp.py`,
+  `test_mcp_tools.py`, `test_custom_api_tools.py`).
+- **Manual pass:** run the app, connect each mock as admin and as member, confirm the selector,
+  the "Connect" prompts, the confirm-policy step, connect-once (no second prompt), and a tool call
+  end-to-end — and make sure it works before merging.
