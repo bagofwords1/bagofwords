@@ -430,6 +430,21 @@ def _digest_notification_tool(tool_execution) -> str:
         if rj.get('error'):
             parts.append(f"error: {rj.get('error')}")
         return "; ".join(parts)
+    if name == 'notify':
+        parts = []
+        results = rj.get('results') or []
+        reached = [r for r in results if r.get('delivered')]
+        if reached:
+            who = ", ".join(r.get('email', '?') for r in reached[:5])
+            parts.append(f"notified: {who}")
+        if rj.get('subject'):
+            subj = str(rj.get('subject'))
+            parts.append(f"subject: {subj[:80]}{'…' if len(subj) > 80 else ''}")
+        if rj.get('rejected'):
+            parts.append(f"skipped_non_members: {', '.join(rj.get('rejected'))}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts) if parts else "notified"
     return ""
 
 
@@ -875,7 +890,7 @@ class MessageContextBuilder:
                                     digest = _digest_scheduled_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('send_email', 'notify') and tool_execution.result_json:
                                     digest = _digest_notification_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
@@ -1471,7 +1486,7 @@ class MessageContextBuilder:
                                 digest = _digest_scheduled_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('send_email', 'notify') and tool_execution.result_json:
                                 digest = _digest_notification_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
