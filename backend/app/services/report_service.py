@@ -689,6 +689,24 @@ class ReportService:
             from app.settings.config import settings as app_settings
             from app.dependencies import _locale_from_org
             report_url = f"{app_settings.bow_config.base_url}/r/{report_id}"
+            # notify-first: durable in-app row for user subscribers (collapsed per
+            # report so repeated runs refresh one entry). Email follows.
+            try:
+                from app.services.inbox_service import inbox_service
+                user_ids = [str(s.get("id")) for s in report_orm.notification_subscribers
+                            if s.get("type") == "user" and s.get("id")]
+                if user_ids:
+                    await inbox_service.notify_users(
+                        db, organization_id=str(report_orm.organization_id), user_ids=user_ids,
+                        source="schedule", type="scheduled_run",
+                        title=f'"{report_orm.title or "Untitled"}" ran',
+                        body="Your scheduled report ran.",
+                        link=f"/reports/{report_id}",
+                        subject={"kind": "report", "report_id": str(report_id)},
+                        group_key=f"schedule:{report_id}",
+                    )
+            except Exception:
+                logger.warning("scheduled-report in-app notification failed", exc_info=True)
             asyncio.create_task(
                 notification_service.send_scheduled_report_results(
                     report_id=report_id,

@@ -346,10 +346,14 @@ class ReviewService:
         rows = (await db.execute(
             select(ReviewItem).where(and_(*clauses)).limit(limit)
         )).scalars().all()
-        # Sort by severity then recency (in Python — small N).
+        # Sort by severity then recency (in Python — small N). Guard a null
+        # timestamp: datetime.min.timestamp() raises on Linux and would 500 the
+        # feed, so treat a missing time as the epoch instead.
+        def _ts(dt):
+            return dt.timestamp() if dt else 0.0
         rows.sort(key=lambda r: (
             SEVERITY_RANK.get(r.severity, 9),
-            -((r.last_seen_at or r.created_at or datetime.min).timestamp()),
+            -_ts(r.last_seen_at or r.created_at),
         ))
         unread = sum(1 for r in rows if r.read_at is None and r.status in (STATUS_OPEN, STATUS_IN_PROGRESS))
         # Gate run_eval/run_training on whether the agent actually has evals.

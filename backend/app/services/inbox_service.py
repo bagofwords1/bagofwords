@@ -242,10 +242,15 @@ class InboxService:
             select(Notification).where(and_(*clauses))
             .order_by(Notification.created_at.desc()).limit(limit)
         )).scalars().all()
-        # Severity-first, then recency.
+        # Severity-first, then recency. Guard against rows with a null timestamp:
+        # datetime.min.timestamp() raises ("year 0 is out of range") on Linux, which
+        # would 500 the whole list (while count_unread stays fine) — so treat a
+        # missing created_at as the epoch instead.
+        def _ts(dt):
+            return dt.timestamp() if dt else 0.0
         rows.sort(key=lambda r: (
             SEVERITY_RANK.get(r.severity, 9),
-            -((r.created_at or datetime.min).timestamp()),
+            -_ts(r.created_at),
         ))
         unread_n = sum(1 for r in rows if r.read_at is None)
         return {
