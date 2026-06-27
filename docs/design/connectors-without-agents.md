@@ -156,6 +156,59 @@ about (a) letting these exist **without** an Agent wrapper and (b) the lightweig
 not about new scoping primitives. The one genuinely new model is the per-user *tool policy*
 overlay (decision §5), which is orthogonal again.
 
+## Walkthroughs (user stories)
+
+Mapping to **DataSource(`kind`, visibility) + Connection(`type`, `auth_policy`) + creds**. Only
+story 3 needs the new connector run-path; 1/2 work today; 4/5/6 mostly need member self-serve.
+
+1. **Admin connects Snowflake (service account) → revenue agent for specific users.** Snowflake
+   has a schema → an **Agent** (`kind="agent"`). `Connection.type=snowflake`,
+   `auth_policy="system_only"` (service-account creds on the connection). `is_public=False` +
+   `DataSourceMembership` to those users; schema indexed once. Granted users run the full
+   analytical loop; **all query through the one service account**. *Exists today.*
+
+2. **Admin connects Fabric (user-required) for specific users.** Fabric = data source →
+   **Agent**, `auth_policy="user_required"` (Entra OBO). `is_public=False` + memberships. Each
+   granted user authorizes once (selector shows "Connect"); token in
+   `UserConnectionCredentials`; queries run **as that user's identity**. *Exists today (OBO).*
+
+3. **User connects their Gmail.** Gmail = tool provider (`data_shape="tools"`) → **Connector**
+   (`kind="connector"`). Self-serve: `owner_user_id=user`, `is_public=False` (private);
+   `auth_policy="user_required"`; OAuth (catalog + **DCR**) → per-user token. Tools discovered;
+   **user sets their own per-tool policy**. In chat → **lightweight connector loop** (no
+   schema/Judge/harness); planner picks Gmail tools; `execute_mcp` runs them with the user's
+   token. *🆕 Core new work.*
+
+4. **User connects their own Snowflake.** Has a schema → a **private Agent** (`kind="agent"`,
+   `owner_user_id=user`, `is_public=False`) with the user's own creds; `catalog_ownership=per_user`.
+   Full analytical loop, scoped to them; they can add their own instructions. *Model exists —
+   needs **member self-serve create** (today `create_data_source` is admin-gated).*
+
+5. **User's own Snowflake + admin's Snowflake agent with sub-agents.** **Two independent
+   `DataSource` rows** — admin's (public/granted, sub-agents) and the user's private one — with
+   separate connections, catalogs, creds, scoping. Both show in the user's selector; usable
+   separately or **together in one conversation**. Identity resolves per data source.
+   ⚠️ Data sources are **unique by name per org** → the two need different names. *Model exists +
+   self-serve.*
+
+6. **Admin's agent has Monday (user-required); the user *also* self-service-connects their own
+   Monday with a specific tools policy.** Two **different** `Connection` rows: the agent's
+   Monday (owned by the agent) and the user's personal Monday connector.
+   - **Does connecting their personal Monday satisfy the agent? → No, by default.** Tokens are
+     keyed `(connection_id, user_id, auth_mode)` (`user_connection_credentials.py:17`), so a
+     token for the personal connection does **not** apply to the agent's connection — the user
+     authorizes the agent's Monday separately (the selector shows "Connect" on it).
+   - **The tool policy does not carry over either.** The user's "specific tools policy" is the
+     per-user overlay on *their* connector. Inside the admin's agent, the **agent owner's**
+     policy governs (decision §5). Same provider, but different connection → different identity
+     slot *and* different policy source.
+   - **Recommended enhancement — per-provider linked identity** (avoids the double-connect):
+     resolve creds by provider/issuer, not just connection. When the agent's Monday has no
+     per-connection token for the user, fall back to any active token the user holds for the
+     **same Monday issuer/server** if its scopes cover the agent's needs (the "Connected
+     accounts" pattern). Must handle scope coverage, audience binding (RFC 8707), and
+     revocation cascade (disconnecting personal Monday would drop the agent's access too).
+
 ## Proposed design
 
 ### Core decision: a Connector is a **tools-only DataSource**, plus a lightweight run path
@@ -495,6 +548,12 @@ and risk. The `kind` discriminator leaves the door open to split later if the ov
 
 - **Catalog ownership of entries:** ship a static curated catalog only, or also let admins add
   org-private catalog entries (custom MCPs promoted into the gallery)?
+- **Per-provider linked identity (story 6):** do we want "connect Monday/Gmail once" to satisfy
+  *every* connection to that provider (a user-level "Connected accounts" identity), or keep
+  credentials strictly per-connection (a separate authorize per connection)? Affects whether we
+  add provider/issuer-keyed credential reuse on top of `UserConnectionCredentials`.
+- **DCR target scope:** allow DCR only against curated catalog entries, or also admin-allowlisted
+  custom URLs?
 
 ---
 
