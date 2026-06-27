@@ -767,6 +767,7 @@ import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
 import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
 import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
+import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
@@ -1613,6 +1614,8 @@ function getToolComponent(toolName: string) {
 			return CreateScheduledTaskTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
+		case 'edit_scheduled_task':
+			return EditScheduledTaskTool
 		case 'list_agent_executions':
 			return ListAgentExecutionsTool
 		case 'search_instructions':
