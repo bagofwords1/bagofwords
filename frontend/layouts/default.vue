@@ -152,7 +152,7 @@
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
       <div v-if="!isCollapsed" class="flex-1 min-h-0 flex flex-col mt-4">
         <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
-          <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('nav.reports') }}</span>
+          <NuxtLink to="/reports" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
           <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
             {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
           </NuxtLink>
@@ -521,7 +521,8 @@
   const creatingReport = ref(false)
 
   // Recent reports list shown in the sidebar. The backend already orders
-  // these `is_starred DESC, created_at DESC`, so pinned reports come first.
+  // these `is_starred DESC, last_activity_at DESC`, so pinned reports come
+  // first and the rest sort by most recent conversation activity.
   const recentReports = ref<any[]>([])
   const fetchRecentReports = async () => {
     try {
