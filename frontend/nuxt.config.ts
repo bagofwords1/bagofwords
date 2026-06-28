@@ -81,6 +81,14 @@ export default defineNuxtConfig({
   },
 
   icon: {
+    // Render icons as true inline <svg> instead of the default CSS mask-image
+    // ('css') mode. CSS mode rasterizes the icon's mask at the element's
+    // device-pixel resolution, so on Retina/HiDPI displays (DPR 2-3) icons look
+    // crisp, but on DPR 1 monitors and fractional OS scaling (125%/150%) the
+    // mask is sampled at too low a resolution and the heroicons (bug-ant,
+    // thumbs up/down, etc.) appear pixelated. SVG mode lets the browser
+    // rasterize the vector per-frame at the real composited resolution.
+    mode: 'svg',
     localApiEndpoint: '/_nuxt_icon',
     serverBundle: {
       collections: ['heroicons'],
