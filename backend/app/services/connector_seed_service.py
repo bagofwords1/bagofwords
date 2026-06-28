@@ -27,6 +27,53 @@ def _conn_server_url(conn: Connection) -> str:
         return ""
 
 
+async def backfill_org_connectors(session_maker) -> int:
+    """Seed default DCR integrations for EXISTING organizations that don't have
+    them yet (idempotent). Runs once at startup in the leader worker. Picks each
+    org's admin (or any member) as the owner of the seeded public agents."""
+    from app.settings.config import settings
+    if not getattr(settings.bow_config.features, "seed_default_connectors", True):
+        return 0
+
+    from app.models.organization import Organization
+    from app.models.membership import Membership
+    from app.models.user import User
+
+    total = 0
+    try:
+        async with session_maker() as db:
+            orgs = (await db.execute(select(Organization))).scalars().all()
+            for org in orgs:
+                try:
+                    m = (await db.execute(
+                        select(Membership).where(
+                            Membership.organization_id == org.id,
+                            Membership.role == "admin",
+                            Membership.user_id.isnot(None),
+                        ).limit(1)
+                    )).scalar_one_or_none()
+                    if not m:
+                        m = (await db.execute(
+                            select(Membership).where(
+                                Membership.organization_id == org.id,
+                                Membership.user_id.isnot(None),
+                            ).limit(1)
+                        )).scalar_one_or_none()
+                    if not m:
+                        continue
+                    user = await db.get(User, m.user_id)
+                    if not user:
+                        continue
+                    total += await seed_org_connectors(db, org, user)
+                except Exception as e:
+                    logger.warning("backfill_org_connectors: org %s failed: %s", getattr(org, "id", "?"), e)
+    except Exception as e:
+        logger.warning("backfill_org_connectors: aborted: %s", e)
+    if total:
+        logger.info("backfill_org_connectors: seeded %d connector agent(s) across existing orgs", total)
+    return total
+
+
 async def seed_org_connectors(db, organization, user) -> int:
     """Create ghost connections + public integration agents for auto-seed catalog
     entries the org doesn't already have. Returns the number seeded."""
