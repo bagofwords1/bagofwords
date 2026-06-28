@@ -104,12 +104,18 @@ guard). The set of seeded/enabled connectors *is* the allowlist.
 - `AddConnectionModal.vue` — buckets integrations vs data sources (`is_connection`), routes by `ui_form`.
 - `useConnectionSignIn.ts` + `needsSignIn()` + "Connect" badge — per-user OAuth redirect (now triggers DCR).
 
-**To build (reduced to the real gaps):**
-1. **DCR auth option in `MCPConnectionForm`** — a "Sign in (auto-register / DCR)" choice that needs only `server_url` (no client creds); backend already handles it.
-2. **Per-provider catalog tiles** — named registry-style entries (preset `server_url` + icon + `default_auth="oauth"`) for the default DCR connectors below.
-3. **Org-creation auto-seed** (+ backfill) of the default DCR connectors → ghost connections + public integration agents.
-4. **`data_shape`-scoped license gate** — free per-user auth for `tools`/`files`/`objects`, Enterprise for `tables`.
-5. (later) SSRF allowlist for non-seeded URLs; admin governance policy + Enterprise role scoping/audit.
+**Built this pass:**
+1. ✅ **`connector_catalog` + `GET /connectors/catalog`** — curated catalog (the seed set below + GitHub/Gmail/Supabase on-demand) with `auth` / `ready_out_of_box` / `auto_seed`.
+2. ✅ **Org-creation auto-seed** (`connector_seed_service`, wired into `organization_service.create_organization`) — seeds the DCR set as public ghost integration agents. Gated by `features.seed_default_connectors` (default on; off in the e2e test session). Idempotent. *Verified: new org gets 5 integration agents (9/9), seeded→Connect→DCR vs real Notion (7/7).*
+3. ✅ **`data_shape`-scoped license gate** (`_user_auth_needs_enterprise`) — per-user auth free for `tools`/`files`/`objects`, Enterprise only for `tables`. *Verified (unit).*
+4. ✅ **DCR SSRF guard** — `ensure_mcp_oauth_config` restricts discovery/registration to catalog hosts. *Verified (non-catalog host blocked).*
+5. ✅ **Post-connect tool discovery** — OAuth callback refreshes a tool-provider's tools with the user's token so seeded agents get callable tools after Connect.
+6. ✅ **DCR auth option in `MCPConnectionForm`** — "Sign in (auto-register / DCR)" choice needing only `server_url` (adds a custom DCR MCP; per-user OAuth).
+
+**Remaining (optional / follow-up):**
+- **Catalog-tile gallery** in `AddConnectionModal` — surface non-seeded catalog entries (GitHub/Gmail/Supabase) as one-click tiles. Backend (`GET /connectors/catalog`) is ready; the DCR set already appears via auto-seed, so this is secondary discovery UI. *(Frontend not runnable in this sandbox → not verified here.)*
+- Consolidate `is_connector` with the registry's `ui_form="integration"` (one source of truth).
+- Admin governance policy (member self-serve allowlist) + Enterprise role-scoping/audit; admin host-allowlist for non-catalog DCR URLs.
 
 ### Default DCR connectors (seed set)
 Auto-seeded on org creation as ghost connections (`auth_policy="user_required"`,
