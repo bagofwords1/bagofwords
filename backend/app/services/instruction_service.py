@@ -1237,15 +1237,89 @@ class InstructionService:
                 return set()
             cand_stmt = cand_stmt.where(BuildContent.instruction_id.in_([str(i) for i in candidate_ids]))
 
-        cand_rows = (await db.execute(cand_stmt)).all()
+        cand_ids = [str(iid) for (iid,) in (await db.execute(cand_stmt)).all()]
+        if not cand_ids:
+            return set()
+
+        from app.models.instruction_version import InstructionVersion as _IV
+        from app.services.text_hunks import rebased_hunks_against_main
+
+        # Batched equivalent of looping review_hunks() per instruction. Same
+        # per-hunk rule (a suggestion build counts only if it yields a hunk that
+        # isn't rejected and actually changes current main), but resolved with a
+        # fixed handful of bulk queries + an in-memory diff pass instead of
+        # O(instructions × builds) serialized round-trips.
+
+        # (1) Live main text per candidate (authoritative is_main build content),
+        #     with a fallback to the live instruction row for legacy instructions
+        #     that predate main-build content — mirrors _main_text_of().
+        main_text: dict = {}
+        for iid, t in (await db.execute(
+            select(BuildContent.instruction_id, _IV.text)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .join(_IV, _IV.id == BuildContent.instruction_version_id)
+            .where(and_(
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.deleted_at.is_(None),
+                BuildContent.instruction_id.in_(cand_ids),
+            ))
+        )).all():
+            main_text[str(iid)] = t or ""
+        missing_main = [i for i in cand_ids if i not in main_text]
+        if missing_main:
+            for iid, txt in (await db.execute(
+                select(Instruction.id, Instruction.text).where(Instruction.id.in_(missing_main))
+            )).all():
+                main_text[str(iid)] = txt or ""
+
+        # (2) Every pending suggestion build for all candidates, with its proposed
+        #     text and build metadata (rejected_hunks + base_build_id come from the
+        #     ORM row — both are already-loaded columns, no lazy load).
+        sug_rows = (await db.execute(
+            select(BuildContent.instruction_id, InstructionBuild, _IV.text)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .join(_IV, _IV.id == BuildContent.instruction_version_id)
+            .where(and_(
+                InstructionBuild.is_main.is_(False),
+                InstructionBuild.organization_id == org_id,
+                InstructionBuild.deleted_at.is_(None),
+                InstructionBuild.status.in_(["draft", "pending_approval"]),
+                InstructionBuild.source.in_(["user", "ai", "git"]),
+                BuildContent.instruction_id.in_(cand_ids),
+            ))
+        )).all()
+
+        # (3) Base text for each (base_build_id, instruction_id) pair the
+        #     suggestions forked from — what _build_base_text() resolves per build.
+        base_pairs = {(str(b.base_build_id), str(iid)) for iid, b, _ in sug_rows if b.base_build_id}
+        base_text: dict = {}
+        if base_pairs:
+            base_bids = {bid for bid, _ in base_pairs}
+            base_iids = {iid for _, iid in base_pairs}
+            for bid, iid, txt in (await db.execute(
+                select(BuildContent.build_id, BuildContent.instruction_id, _IV.text)
+                .join(_IV, _IV.id == BuildContent.instruction_version_id)
+                .where(and_(
+                    BuildContent.build_id.in_(base_bids),
+                    BuildContent.instruction_id.in_(base_iids),
+                ))
+            )).all():
+                base_text[(str(bid), str(iid))] = txt or ""
+
+        # (4) Pure-Python pass — no awaits in the loop.
         pending: set = set()
-        for (iid,) in cand_rows:
-            try:
-                r = await self.review_hunks(db, str(iid), organization=organization, current_user=current_user)
-                if r and r.get("suggestions"):
-                    pending.add(str(iid))
-            except Exception:
-                pass
+        for iid, build, proposed in sug_rows:
+            iid = str(iid)
+            if iid in pending:
+                continue
+            rejected = self._rejected_keys(build, iid)
+            bt = base_text.get((str(build.base_build_id), iid), "") if build.base_build_id else ""
+            if any(
+                h["key"] not in rejected
+                for h in rebased_hunks_against_main(bt, proposed or "", main_text.get(iid, ""))
+            ):
+                pending.add(iid)
         return pending
 
     async def accept_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
