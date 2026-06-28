@@ -130,6 +130,8 @@ const { t } = useI18n()
 const props = defineProps<{
   editConnection?: any
   existingConnections?: any[]
+  // Prefill the create form from a catalog entry (name/server_url/transport/auth).
+  prefill?: { name?: string; server_url?: string; transport?: string; auth_type?: string } | null
 }>()
 const emit = defineEmits<{
   (e: 'saved', connection: any): void
@@ -192,6 +194,16 @@ watch(() => props.editConnection, async (conn) => {
     form.name = conn.name || ''
     form.auth_type = 'none'
   }
+}, { immediate: true })
+
+// Apply catalog prefill in create mode (no edit connection). Runs immediately so
+// the form opens populated; the user only needs to click Connect.
+watch(() => props.prefill, (p) => {
+  if (!p || props.editConnection) return
+  if (p.name) form.name = p.name
+  if (p.server_url) form.server_url = p.server_url
+  if (p.transport) form.transport = p.transport
+  if (p.auth_type) form.auth_type = p.auth_type
 }, { immediate: true })
 
 const testing = ref(false)

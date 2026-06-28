@@ -9,6 +9,9 @@ import { computed, ref, watch } from 'vue';
 // Props to accept the type of data source and class
 const props = defineProps<{
     type: string | null | undefined;
+    // Optional catalog key for a known connector (e.g. "notion", "monday"). When
+    // set, the provider's brand icon is preferred over the generic type icon.
+    connectorKey?: string | null;
     class?: string;
 }>();
 
@@ -33,8 +36,18 @@ const normalizeType = (raw: string) => {
     return t
 }
 
+// Known connector catalog keys with a brand icon under /connector_icons.
+const CONNECTOR_ICON_KEYS = new Set([
+    'monday', 'notion', 'atlassian', 'linear', 'sentry', 'github', 'gmail', 'supabase',
+]);
+
 // Computed property to generate the icon path
 const iconPath = computed(() => {
+    // Prefer the provider brand icon for known catalog connectors.
+    const ck = props.connectorKey ? normalizeType(props.connectorKey) : '';
+    if (ck && CONNECTOR_ICON_KEYS.has(ck)) {
+        return `/connector_icons/${ck}.svg`;
+    }
     if (!props.type) {
         return FALLBACK_ICON;
     }

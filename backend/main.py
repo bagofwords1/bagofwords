@@ -386,17 +386,6 @@ async def startup_event():
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
-    # Backfill default DCR integrations for existing orgs (idempotent; leader only;
-    # background so it never blocks boot). New orgs are seeded at create time.
-    if is_scheduler_leader:
-        try:
-            import asyncio as _asyncio
-            from app.services.connector_seed_service import backfill_org_connectors
-            from app.dependencies import async_session_maker
-            _asyncio.create_task(backfill_org_connectors(async_session_maker))
-        except Exception as e:
-            logger.error(f"Failed to schedule connector backfill: {e}")
-
     # Register daily maintenance jobs
     if is_scheduler_leader:
         try:

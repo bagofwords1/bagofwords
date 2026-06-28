@@ -1,10 +1,9 @@
 """Curated catalog of pre-built MCP integrations.
 
 Distinct from the data_source *type* registry: these are named **instances**
-(preset server_url + icon + default auth) an org can enable. The popular
-DCR-capable ones are auto-seeded on org creation. Used by
-`GET /connectors/catalog`, the org-creation seeding step, and the DCR SSRF
-allowlist.
+(preset server_url + icon + default auth) an org can enable. An admin adds them
+from the "Add connection" catalog; nothing is seeded automatically. Used by
+`GET /connectors/catalog` (the catalog tiles) and the DCR SSRF allowlist.
 
 All `auth="oauth"` entries connect via **per-user OAuth with Dynamic Client
 Registration** (no admin setup) — verified DCR-capable by live probe (2026-06).
@@ -25,7 +24,7 @@ class ConnectorCatalogEntry:
     transport: str = "streamable_http"     # "streamable_http" | "sse"
     auth: str = "oauth"                     # oauth(DCR) | oauth_app | bearer | api_key | none
     data_shape: str = "tools"
-    auto_seed: bool = False                 # seed on org creation
+    auto_seed: bool = False                 # marks the recommended zero-setup DCR set
     ready_out_of_box: bool = True           # no admin action before a user can connect
     description: str = ""
 

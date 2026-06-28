@@ -28,12 +28,19 @@ One **shared connection + shared integration agent** per provider (NOT one per u
   → their own token in `UserConnectionCredentials` keyed by `(connection, user)`. The agent runs
   tools as whoever is asking (OBO). Only the *app registration* is "global"; *identity* is per-user.
 
-### Auto-seed on org creation
-When an org is created (and backfilled for existing orgs), auto-seed the **popular, ready-out-of-box
-(DCR)** integrations as ghost connections (URL only) + public integration agents, immediately
-usable — users just "Connect". Seed set (all verified DCR-capable, zero admin setup):
-**Monday, Notion, Jira/Atlassian, Linear, Sentry.** Admin can disable any; non-seeded entries are
-available on demand from the catalog.
+### Admin adds from the catalog (no auto-seed)
+Nothing is seeded automatically. An **admin** adds connectors from the "Add connection" catalog —
+the modal surfaces the curated set as named one-click tiles. Picking a tile opens the MCP form
+**prefilled** with the provider's server URL + auth, so the admin just clicks **Connect**. The
+popular **ready-out-of-box (DCR)** set — **Monday, Notion, Jira/Atlassian, Linear, Sentry** (all
+verified DCR-capable, zero admin setup) — needs no client/secret; a "No setup" badge marks them and
+the form shows a note that the connector self-registers (DCR) and each user signs in with their own
+account. Non-DCR entries (GitHub/Gmail = `oauth_app`, Supabase = `bearer`) are also in the catalog
+but require a client/token.
+
+> Earlier iterations auto-seeded the DCR set on org creation (`connector_seed_service`, a startup
+> backfill, and a `seed_default_connectors` flag). That was **removed** — admins add connectors
+> explicitly. The catalog, DCR machinery, and per-user OAuth are unchanged.
 
 ### Per-entry catalog descriptor
 Each catalog/registry entry declares:
@@ -105,24 +112,28 @@ guard). The set of seeded/enabled connectors *is* the allowlist.
 - `useConnectionSignIn.ts` + `needsSignIn()` + "Connect" badge — per-user OAuth redirect (now triggers DCR).
 
 **Built this pass:**
-1. ✅ **`connector_catalog` + `GET /connectors/catalog`** — curated catalog (the seed set below + GitHub/Gmail/Supabase on-demand) with `auth` / `ready_out_of_box` / `auto_seed`.
-2. ✅ **Org-creation auto-seed** (`connector_seed_service`, wired into `organization_service.create_organization`) — seeds the DCR set as public ghost integration agents. Gated by `features.seed_default_connectors` (default on; off in the e2e test session). Idempotent. *Verified: new org gets 5 integration agents (9/9), seeded→Connect→DCR vs real Notion (7/7).*
+1. ✅ **`connector_catalog` + `GET /connectors/catalog`** — curated catalog (the DCR set below + GitHub/Gmail/Supabase on-demand) with `auth` / `ready_out_of_box` / `auto_seed` (the last is now just a "recommended zero-setup" marker).
+2. ✅ **Catalog tiles in `AddConnectionModal`** — a "Connectors" section renders the catalog as named one-click tiles with provider icons; picking one opens `MCPConnectionForm` **prefilled** (server URL + DCR/oauth_app/bearer). DCR tiles show a "No setup" badge and the form shows a "registers itself (DCR)" note. Provider icons flow end-to-end via `connector_key` (connection `config.catalog_key` → list serializer → `DataSourceIcon :connector-key`).
 3. ✅ **`data_shape`-scoped license gate** (`_user_auth_needs_enterprise`) — per-user auth free for `tools`/`files`/`objects`, Enterprise only for `tables`. *Verified (unit).*
 4. ✅ **DCR SSRF guard** — `ensure_mcp_oauth_config` restricts discovery/registration to catalog hosts. *Verified (non-catalog host blocked).*
-5. ✅ **Post-connect tool discovery** — OAuth callback refreshes a tool-provider's tools with the user's token so seeded agents get callable tools after Connect.
+5. ✅ **Post-connect tool discovery** — OAuth callback refreshes a tool-provider's tools with the user's token so integration agents get callable tools after Connect.
 6. ✅ **DCR auth option in `MCPConnectionForm`** — "Sign in (auto-register / DCR)" choice needing only `server_url` (adds a custom DCR MCP; per-user OAuth).
 
+**Removed this pass:**
+- ❌ **Org-creation auto-seed** + startup **backfill** + the `seed_default_connectors` flag
+  (`connector_seed_service.py` deleted). Admins now add connectors explicitly from the catalog.
+
 **Remaining (optional / follow-up):**
-- **Catalog-tile gallery** in `AddConnectionModal` — surface non-seeded catalog entries (GitHub/Gmail/Supabase) as one-click tiles. Backend (`GET /connectors/catalog`) is ready; the DCR set already appears via auto-seed, so this is secondary discovery UI. *(Frontend not runnable in this sandbox → not verified here.)*
+- Bundle real brand SVGs (current `connector_icons/*.svg` are monogram placeholders).
 - Consolidate `is_connector` with the registry's `ui_form="integration"` (one source of truth).
 - Admin governance policy (member self-serve allowlist) + Enterprise role-scoping/audit; admin host-allowlist for non-catalog DCR URLs.
 
-### Default DCR connectors (seed set)
-Auto-seeded on org creation as ghost connections (`auth_policy="user_required"`,
+### Default DCR connectors (recommended zero-setup set)
+Added from the catalog as ghost connections (`auth_policy="user_required"`,
 `allowed_user_auth_modes=["oauth"]`, no client → DCR), public `integration` agents, `data_shape="tools"`,
 per-user auth **free**. All verified DCR-capable (live probe, 2026-06):
 
-| key | title | server_url | registration_endpoint | default_auth | auto_seed |
+| key | title | server_url | registration_endpoint | default_auth | DCR set |
 | --- | --- | --- | --- | --- | --- |
 | `monday` | Monday | `https://mcp.monday.com/mcp` | `https://mcp.monday.com/register` | `oauth` (DCR) | ✅ |
 | `notion` | Notion | `https://mcp.notion.com/mcp` | `https://mcp.notion.com/register` | `oauth` (DCR) | ✅ |
@@ -130,7 +141,7 @@ per-user auth **free**. All verified DCR-capable (live probe, 2026-06):
 | `linear` | Linear | `https://mcp.linear.app/mcp` | `https://mcp.linear.app/register` | `oauth` (DCR) | ✅ |
 | `sentry` | Sentry | `https://mcp.sentry.dev/mcp` | `https://mcp.sentry.dev/oauth/register` | `oauth` (DCR) | ✅ |
 
-Not auto-seeded (need a client/token — available on demand): **GitHub** (`oauth_app`, bundled or admin
+Not in the DCR set (need a client/token — available on demand): **GitHub** (`oauth_app`, bundled or admin
 app), **Gmail** (`oauth_app` + Google verification/Workspace approval), **Supabase** (`bearer`/PAT).
 
 ---

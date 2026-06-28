@@ -63,9 +63,6 @@ class FeatureFlags(BaseModel):
     allow_uninvited_signups: bool = False
     allow_multiple_organizations: bool = False
     verify_emails: bool = False
-    # Auto-seed the default DCR integrations (Monday/Notion/Jira/Linear/Sentry)
-    # as public connector agents when an organization is created.
-    seed_default_connectors: bool = True
 
 class OTELConfig(BaseModel):
     model_config = ConfigDict(

@@ -47,18 +47,11 @@ def _e2e_force_enterprise_license():
     ee_license._cached_license = fake
     ee_license._cache_initialized = True
 
-    # Disable default-connector seeding for the e2e session so org-creation
-    # baselines (data-source counts) stay stable. Tests that exercise seeding
-    # re-enable it locally.
-    from app.settings.config import settings as _settings
-    saved_seed = getattr(_settings.bow_config.features, "seed_default_connectors", True)
-    _settings.bow_config.features.seed_default_connectors = False
     try:
         yield fake
     finally:
         ee_license._cached_license = saved_cached
         ee_license._cache_initialized = saved_initialized
-        _settings.bow_config.features.seed_default_connectors = saved_seed
 
 
 @pytest.fixture(autouse=True)

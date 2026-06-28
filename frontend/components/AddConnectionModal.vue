@@ -40,10 +40,39 @@
           />
         </div>
 
+        <!-- Connectors catalog — named one-click app integrations (Notion, Linear…) -->
+        <div v-if="!loadingDataSources && filteredCatalog.length > 0" class="mb-4">
+          <div class="text-xs text-gray-400 mb-2">{{ $t('data.connectorsSection') }}</div>
+          <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            <button
+              v-for="entry in filteredCatalog"
+              :key="`catalog-${entry.key}`"
+              type="button"
+              @click="selectCatalogEntry(entry)"
+              class="group rounded-lg p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-all w-full"
+            >
+              <div class="flex flex-col items-center text-center">
+                <div class="p-1">
+                  <DataSourceIcon class="h-6" type="mcp" :connector-key="entry.key" />
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ entry.title }}</div>
+                <span
+                  v-if="entry.ready_out_of_box"
+                  class="mt-1 text-[9px] font-medium uppercase tracking-wide text-green-600 bg-green-100 dark:bg-green-950 px-1.5 py-0.5 rounded"
+                >
+                  {{ $t('data.connectorNoSetup') }}
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+
         <!-- Loading state -->
         <div v-if="loadingDataSources" class="flex items-center justify-center py-12">
           <Spinner class="h-4 w-4 text-gray-400" />
         </div>
+
+        <div v-if="!loadingDataSources && filteredCatalog.length > 0" class="text-xs text-gray-400 mb-2">{{ $t('data.dataSourcesSection') }}</div>
 
         <!-- Data source grid -->
         <div v-else class="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto">
@@ -91,15 +120,25 @@
           <button type="button" @click="backToSelect" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
             <UIcon name="heroicons-chevron-left" class="w-5 h-5" />
           </button>
-          <DataSourceIcon :type="selectedDataSource?.type" class="h-5" />
+          <DataSourceIcon :type="selectedDataSource?.type" :connector-key="selectedDataSource?.connector_key" class="h-5" />
           <h3 class="text-lg font-semibold">{{ selectedDataSource?.title }}</h3>
           <button @click="isOpen = false" class="ms-auto text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
 
+        <!-- DCR catalog connector: no admin setup required. -->
+        <div
+          v-if="selectedDataSource?.is_dcr"
+          class="mb-4 flex items-start gap-2 text-xs text-green-800 dark:text-green-300 border border-green-200 dark:border-green-500/30 rounded-md p-3 bg-green-50 dark:bg-green-950/40"
+        >
+          <UIcon name="i-heroicons-sparkles" class="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{{ $t('data.connectorDcrNote') }}</span>
+        </div>
+
         <MCPConnectionForm
           v-if="selectedDataSource?.type === 'mcp'"
+          :prefill="mcpPrefill"
           @saved="handleToolProviderSaved"
           @cancel="backToSelect"
         />
@@ -227,6 +266,11 @@ const dataSources = ref<any[]>([])
 const demos = ref<any[]>([])
 const loadingDataSources = ref(true)
 const selectedDataSource = ref<any>(null)
+// Curated connector catalog (Notion, Linear, …) — named one-click tiles that
+// prefill the MCP form. Populated from GET /connectors/catalog.
+const catalog = ref<any[]>([])
+// Prefill passed to MCPConnectionForm when a catalog tile is chosen.
+const mcpPrefill = ref<any | null>(null)
 const installingDemo = ref<string | null>(null)
 const createdConnection = ref<any | null>(null)
 const indexingState = ref<ConnectionIndexing | null>(null)
@@ -273,15 +317,19 @@ const filteredDataSources = computed(() => {
 async function fetchDataSources() {
   loadingDataSources.value = true
   try {
-    const [availableRes, demosRes] = await Promise.all([
+    const [availableRes, demosRes, catalogRes] = await Promise.all([
       useMyFetch('/available_data_sources', { method: 'GET' }),
-      useMyFetch('/data_sources/demos', { method: 'GET' })
+      useMyFetch('/data_sources/demos', { method: 'GET' }),
+      useMyFetch('/connectors/catalog', { method: 'GET' })
     ])
     if (availableRes.data.value) {
       dataSources.value = availableRes.data.value as any[]
     }
     if (demosRes.data.value) {
       demos.value = demosRes.data.value as any[]
+    }
+    if (catalogRes.data.value) {
+      catalog.value = catalogRes.data.value as any[]
     }
   } finally {
     loadingDataSources.value = false
@@ -332,6 +380,41 @@ const SKIP_INDEXING_TYPES = computed(() =>
 
 function selectType(ds: any) {
   selectedDataSource.value = ds
+  mcpPrefill.value = null
+  step.value = 'form'
+}
+
+// Filter the connector catalog by the same search box.
+const filteredCatalog = computed(() => {
+  const all = catalog.value || []
+  if (!searchQuery.value.trim()) return all
+  const q = searchQuery.value.toLowerCase()
+  return all.filter((c: any) =>
+    c.title?.toLowerCase().includes(q) || c.key?.toLowerCase().includes(q)
+  )
+})
+
+// A catalog tile opens the MCP form prefilled (server URL + DCR/OAuth) so the
+// user just clicks Connect. Rendered as the "mcp" form with provider branding.
+function selectCatalogEntry(entry: any) {
+  // Catalog auth → MCP form auth_type. In the catalog, auth="oauth" means
+  // per-user OAuth via Dynamic Client Registration (no admin setup) — the form
+  // calls that "dcr". oauth_app needs an admin-registered client; bearer is a
+  // per-user token.
+  const isDcr = entry.auth === 'oauth'
+  const authType = isDcr ? 'dcr' : (entry.auth === 'oauth_app' ? 'oauth_app' : 'bearer')
+  selectedDataSource.value = {
+    type: 'mcp',
+    title: entry.title,
+    connector_key: entry.key,
+    is_dcr: isDcr,
+  }
+  mcpPrefill.value = {
+    name: entry.title,
+    server_url: entry.server_url,
+    transport: entry.transport === 'sse' ? 'sse' : 'streamable_http',
+    auth_type: authType,
+  }
   step.value = 'form'
 }
 
@@ -349,6 +432,7 @@ function handleToolProviderSaved(connection: any) {
 
 function backToSelect() {
   selectedDataSource.value = null
+  mcpPrefill.value = null
   step.value = 'select'
 }
 
@@ -443,6 +527,7 @@ function reset() {
   step.value = 'select'
   searchQuery.value = ''
   selectedDataSource.value = null
+  mcpPrefill.value = null
   createdConnection.value = null
   indexingState.value = null
   retrying.value = false

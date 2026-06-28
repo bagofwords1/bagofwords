@@ -79,15 +79,6 @@ class OrganizationService:
         # Create RBAC role_assignment for the admin system role
         await self._assign_system_role(db, organization.id, str(current_user.id), "admin")
 
-        # Seed default DCR integrations (Monday/Notion/Jira/Linear/Sentry) as
-        # public connector agents users can Connect to. Best-effort — never block
-        # org creation.
-        try:
-            from app.services.connector_seed_service import seed_org_connectors
-            await seed_org_connectors(db, organization, current_user)
-        except Exception as e:
-            logger.warning("Failed to seed default connectors for org %s: %s", organization.id, e)
-
         return OrganizationSchema.from_orm(organization)
 
     async def _assign_system_role(self, db: AsyncSession, org_id: str, user_id: str, role_name: str) -> None:
