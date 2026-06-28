@@ -60,7 +60,11 @@
     "expandSidebar": "توسيع الشريط الجانبي",
     "collapseSidebar": "طيّ الشريط الجانبي",
     "version": "الإصدار",
-    "loggedInAs": "تم تسجيل الدخول باسم {name}"
+    "loggedInAs": "تم تسجيل الدخول باسم {name}",
+    "prompts": "المطالبات",
+    "starOnGithub": "Star our GitHub",
+    "admin": "الإدارة",
+    "notifications": "الإشعارات"
   },
   "auth": {
     "signIn": "تسجيل الدخول",
@@ -132,7 +136,18 @@
     "connectYourLLM": "اربط نموذج اللغة الكبير الخاص بك",
     "setupComplete": "اكتمل الإعداد — يمكنك الآن البدء بطرح الأسئلة باللغة الطبيعية.",
     "manageIntegrations": "إدارة التكاملات",
-    "viewIntegrations": "عرض التكاملات"
+    "viewIntegrations": "عرض التكاملات",
+    "greeting": {
+      "morning": "صباح الخير, {name}!",
+      "afternoon": "مساء الخير, {name}!",
+      "evening": "مساء الخير, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "صباح الخير!",
+      "afternoon": "مساء الخير!",
+      "evening": "مساء الخير!"
+    },
+    "whatCanIHelpWith": "بماذا يمكنني المساعدة؟"
   },
   "prompt": {
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
@@ -278,7 +293,20 @@
     "columnUser": "المستخدم",
     "emptyTitle": "اطرح سؤالًا للبدء.",
     "emptyTipLabel": "تلميح:",
-    "emptyTipBody": "لست متأكدًا مما يجب طرحه؟ يمكنك أن تطلب من محلل الذكاء الاصطناعي اقتراح أسئلة حول موضوع محدد."
+    "emptyTipBody": "لست متأكدًا مما يجب طرحه؟ يمكنك أن تطلب من محلل الذكاء الاصطناعي اقتراح أسئلة حول موضوع محدد.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "تنفيذ الوكيل",
@@ -674,6 +702,7 @@
     "placeholder": "اكتب {'@'} للإشارة...",
     "loading": "جارٍ التحميل…",
     "noResults": "لا توجد نتائج",
+    "allCategories": "جميع الفئات",
     "tables": "الجداول",
     "noTables": "لا توجد جداول.",
     "tools": "الأدوات",
@@ -686,7 +715,10 @@
       "dataSources": "الوكلاء",
       "queries": "الاستعلامات",
       "files": "الملفات",
-      "tables": "الجداول"
+      "tables": "الجداول",
+      "prompts": "المطالبات",
+      "instructions": "التعليمات",
+      "skills": "المهارات"
     },
     "time": {
       "justNow": "الآن",
@@ -1618,7 +1650,11 @@
     "dayWed": "الأربعاء",
     "dayThu": "الخميس",
     "dayFri": "الجمعة",
-    "daySat": "السبت"
+    "daySat": "السبت",
+    "delete": "حذف",
+    "deleteConfirm": "هل تريد حذف هذه المهمة المجدولة؟ لا يمكن التراجع عن هذا الإجراء.",
+    "toastDeleted": "تم حذف المهمة المجدولة",
+    "deleteFailed": "فشل حذف المهمة"
   },
   "files": {
     "title": "الملفات",
@@ -2331,7 +2367,15 @@
     "toastUpdated": "تم تحديث الطلب المُجدوَل",
     "toastScheduled": "تمت جدولة الطلب",
     "toastError": "خطأ",
-    "toastSaveFailed": "تعذّر حفظ الطلب المُجدوَل"
+    "toastSaveFailed": "تعذّر حفظ الطلب المُجدوَل",
+    "delete": "حذف",
+    "deleteConfirm": "هل تريد حذف هذه المهمة المجدولة؟ لا يمكن التراجع عن هذا الإجراء.",
+    "toastDeleted": "تم حذف المهمة المجدولة",
+    "toastDeleteFailed": "فشل حذف المهمة المجدولة",
+    "runNow": "تشغيل الآن",
+    "runNeedsPrompt": "أضف موجهًا قبل التشغيل",
+    "toastRunStarted": "بدأ التشغيل",
+    "toastRunFailed": "فشل بدء التشغيل"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2458,107 @@
       "toastDeleted": "تم حذف مفتاح API",
       "toastDeleteFailed": "فشل حذف مفتاح API"
     }
+  },
+  "commandPalette": {
+    "prompts": "المطالبات"
+  },
+  "promptParams": {
+    "title": "املأ المعلمات — {title}",
+    "untitled": "مطالبة",
+    "selectOption": "اختر…",
+    "to": "إلى",
+    "noParams": "لا تحتوي هذه المطالبة على أي معلمات.",
+    "cancel": "إلغاء",
+    "confirm": "استخدام المطالبة"
+  },
+  "prompts": {
+    "title": "المطالبات",
+    "newPrompt": "مطالبة جديدة",
+    "createFirst": "أنشئ مطالبتك الأولى",
+    "searchPlaceholder": "البحث في المطالبات…",
+    "loading": "جارٍ تحميل المطالبات…",
+    "emptyTitle": "لا توجد مطالبات بعد",
+    "emptyHint": "احفظ مطالبات قابلة لإعادة الاستخدام يمكن لفريقك تشغيلها عند الطلب.",
+    "noMatches": "لا توجد مطالبات تطابق عوامل التصفية",
+    "noMatchesHint": "حاول تعديل البحث أو عوامل التصفية.",
+    "filterAll": "الكل",
+    "allAgents": "جميع الوكلاء",
+    "allUsers": "جميع المستخدمين",
+    "untitled": "مطالبة بلا عنوان",
+    "run": "تشغيل",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "required": "مطلوب",
+    "nParams": "{n} معلمة",
+    "scopeGlobal": "عام",
+    "scopeAgent": "وكيل",
+    "scopePrivate": "خاص",
+    "byAuthor": "بواسطة {name}",
+    "viewText": "المطالبة",
+    "viewParameters": "المعلمات",
+    "viewAgents": "الوكلاء",
+    "runFor": "تشغيل لـ…",
+    "newTitle": "مطالبة جديدة",
+    "editTitle": "تعديل المطالبة",
+    "sectionPrompt": "المطالبة",
+    "sectionParameters": "المعلمات",
+    "sectionAudience": "الجمهور",
+    "sectionAdvanced": "إعدادات متقدمة",
+    "titlePlaceholder": "العنوان (اختياري)",
+    "textPlaceholder": "اكتب مطالبتك. استخدم {'@'} للإشارات و{'{'}{'{'}name{'}'}{'}'} للمعلمات…",
+    "insertParam": "إدراج معلمة",
+    "insertParamHint": "استخدم العناصر النائبة {'{'}{'{'}name{'}'}{'}'} للقيم التي تُملأ عند التشغيل.",
+    "insertParamPromptLabel": "اسم المعلمة:",
+    "addParam": "إضافة معلمة",
+    "removeParam": "إزالة",
+    "noParamsYet": "لا توجد معلمات. أضف واحدة لجمع القيم عند التشغيل.",
+    "paramName": "الاسم",
+    "paramLabel": "التسمية",
+    "paramRequired": "مطلوب",
+    "paramOptions": "الخيارات (مفصولة بفواصل)",
+    "typeText": "نص",
+    "typeNumber": "رقم",
+    "typeEnum": "اختيار",
+    "typeDate": "تاريخ",
+    "typeDateRange": "نطاق زمني",
+    "selectAgents": "الوكلاء الذين تنتمي إليهم هذه المطالبة",
+    "noManageableAgents": "أنت لا تدير أي وكلاء.",
+    "globalHint": "مرئي للجميع في المؤسسة.",
+    "privateHint": "مرئي لك فقط.",
+    "mode": "الوضع",
+    "modeChat": "محادثة",
+    "modeDeep": "عميق",
+    "modeTraining": "تدريب",
+    "model": "النموذج",
+    "modelDefault": "النموذج الافتراضي",
+    "cancel": "إلغاء",
+    "create": "إنشاء",
+    "update": "تحديث",
+    "toastCreated": "تم إنشاء المطالبة",
+    "toastUpdated": "تم تحديث المطالبة",
+    "toastSaveFailed": "تعذر حفظ المطالبة",
+    "toastDeleted": "تم حذف المطالبة",
+    "toastDeleteFailed": "تعذر حذف المطالبة",
+    "deleteConfirm": "هل تريد حذف “{title}”؟ لا يمكن التراجع عن هذا الإجراء.",
+    "toastRunFailed": "تعذر تشغيل المطالبة",
+    "runForTitle": "تشغيل “{title}” لـ…",
+    "targetMembers": "الأعضاء",
+    "targetGroup": "المجموعة",
+    "searchMembers": "البحث عن الأعضاء…",
+    "selectGroup": "اختر مجموعة…",
+    "nMembers": "{n} أعضاء",
+    "paramsNeeded": "تحتوي هذه المطالبة على معلمات — املأها مرة واحدة للجميع.",
+    "paramsReady": "تم ضبط المعلمات.",
+    "fillParams": "ملء المعلمات",
+    "editParams": "تعديل المعلمات",
+    "runForConfirm": "تشغيل “{title}” لـ {n} أعضاء؟ تُرسَل النتائج إلى كل منهم بشكل خاص.",
+    "runForAction": "تشغيل للأعضاء",
+    "runForResult": "تم التشغيل لـ {ran}، وتم تخطي {skipped}.",
+    "toastRunForFailed": "تعذر التشغيل للأعضاء المحددين",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

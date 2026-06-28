@@ -535,6 +535,11 @@ class CompletionService:
 
             try:
                 db.add(head_completion)
+                # Bump conversation activity so the report sorts to the top of the
+                # list on a new message. `report` is already attached; the write
+                # piggybacks this commit. The agent turn bumps it again on finish.
+                report.last_activity_at = datetime.utcnow()
+                db.add(report)
                 await db.commit()
                 await db.refresh(head_completion)
             except Exception as e:
@@ -668,6 +673,10 @@ class CompletionService:
                                 step=step_obj,
                                 clients=clients,
                                 platform=resolved_platform,
+                                # Honor an explicitly requested mode (chat/deep) so API/scheduled/
+                                # webhook runs aren't forced to default. Falls back to prior
+                                # behavior (None) when the caller didn't specify one.
+                                mode=(completion_data.prompt.mode if completion_data.prompt else None),
                                 platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 build_id=resolved_build_id,
                             )
@@ -734,6 +743,10 @@ class CompletionService:
                         step=step,
                         clients=clients,
                         platform=resolved_platform,
+                        # Honor an explicitly requested mode (chat/deep) so API/scheduled/
+                        # webhook runs aren't forced to default. Falls back to prior
+                        # behavior (None) when the caller didn't specify one.
+                        mode=(completion_data.prompt.mode if completion_data.prompt else None),
                         platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                         build_id=resolved_build_id,
                     )

@@ -82,7 +82,7 @@
       <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
     </div>
 
-    <div v-else class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-14">
+    <div v-else class="flex flex-col justify-center p-4 flex-grow md:w-2/3 text-center md:mx-auto">
       <div v-if="showSetupComplete" class="mb-10">
         <div class="mx-auto max-w-xl bg-green-50 dark:bg-green-950 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
           <span class="me-2 flex items-center">
@@ -91,16 +91,13 @@
           <span class="flex items-center">{{ $t('home.setupComplete') }}</span>
         </div>
       </div>
-      <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-12 max-w-[180px] object-contain mx-auto" />
-      <h1 class="text-5xl mt-5 font-bold">
-        {{ orgAIAnalystName || $t('home.title') }}
-      </h1>
-      <div class="w-full mx-auto mt-2 space-x-3 space-y-3 bg-red-100 dark:bg-red-900/50">
+      <div class="w-full md:w-full mx-auto text-center mt-5 px-4">
+        <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="h-14 max-w-[140px] object-contain mx-auto" />
+        <h1 class="text-3xl mt-8 font-normal text-gray-900 dark:text-white">
+          {{ greeting }} {{ $t('home.whatCanIHelpWith') }}
+        </h1>
       </div>
-      <p class="text-lg mt-5 font-light text-gray-500 dark:text-gray-400">
-          {{ $t('home.subtitle') }}
-      </p>
-      <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
+      <div class="w-full md:w-4/5 mx-auto mt-5 rounded-lg relative z-10">
           <PromptBoxV2
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
@@ -113,10 +110,6 @@
             :data_sources="selectedDataSources"
             @update-content="updateTextarea"
         />
-      </div>
-
-      <div class="w-full mx-auto mt-4">
-        <RecentReports />
       </div>
 
     </div>
@@ -201,7 +194,6 @@ import { useExcel } from '~/composables/useExcel';
 import { onMounted, nextTick } from 'vue';
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
-import RecentReports from '~/components/home/RecentReports.vue';
 import McpModal from '~/components/McpModal.vue';
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue';
 import LibraryIcon from '~/components/icons/LibraryIcon.vue';
@@ -264,11 +256,22 @@ const orgIconUrl = computed(() => {
   return org?.icon_url || null
 })
 
+const greeting = computed(() => {
+  const firstName = ((currentUser.value as any)?.name || '').trim().split(' ')[0]
+  const hour = new Date().getHours()
+  let timeOfDay = 'evening'
+  if (hour < 12) timeOfDay = 'morning'
+  else if (hour < 18) timeOfDay = 'afternoon'
+  return firstName
+    ? t(`home.greeting.${timeOfDay}`, { name: firstName })
+    : t(`home.greetingNoName.${timeOfDay}`)
+})
+
 const orgAIAnalystName = computed(() => {
   const orgId = organization.value?.id
   const orgs = (currentUser.value as any)?.organizations || []
   const org = orgs.find((o: any) => o.id === orgId) || orgs[0]
-  return org?.ai_analyst_name || "AI Analyst"
+  return org?.ai_analyst_name || t('home.title')
 })
 
 definePageMeta({

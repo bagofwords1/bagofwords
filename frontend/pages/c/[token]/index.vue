@@ -89,7 +89,7 @@
                             <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
                                 <Icon name="heroicons-clock" class="w-3.5 h-3.5" />
                                 <span class="font-medium text-gray-500 dark:text-gray-400">Scheduled run</span>
-                                <span class="text-gray-300 dark:text-gray-600">{{ new Date(m.created_at).toLocaleString() }}</span>
+                                <span class="text-gray-300 dark:text-gray-600">{{ formatDateTime(m.created_at) }}</span>
                             </div>
                         </div>
                         <div v-else class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
@@ -281,18 +281,16 @@ definePageMeta({
     auth: false,
 })
 
+// Render stored-UTC timestamps in the org timezone (falls back to the viewer's
+// browser timezone when org settings aren't loaded, e.g. anonymous share view).
+const _fd = useFormatDate()
 function formatDate(dateString: string | null): string {
     if (!dateString) return ''
-    try {
-        const date = new Date(dateString)
-        return date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        })
-    } catch {
-        return ''
-    }
+    return _fd.formatDate(dateString)
+}
+function formatDateTime(dateString: string | null): string {
+    if (!dateString) return ''
+    return _fd.formatDateTime(dateString)
 }
 
 function toggleReasoning(blockId: string) {

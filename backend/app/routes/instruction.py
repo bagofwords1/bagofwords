@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from pydantic import BaseModel
 
+from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
 from app.models.user import User
@@ -79,6 +80,7 @@ async def get_instructions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     status: Optional[InstructionStatus] = Query(None),
+    kind: Optional[str] = Query(None, description="Filter by instruction kind: 'instruction' or 'skill'"),
     category: Optional[InstructionCategory] = Query(None, description="Single category filter (deprecated, use categories)"),
     categories: Optional[str] = Query(None, description="Comma-separated categories"),
     include_own: bool = Query(True),
@@ -139,6 +141,7 @@ async def get_instructions(
         db, organization, current_user,
         skip=skip, limit=limit,
         status=status.value if status else None,
+        kind=kind,
         categories=parsed_categories,
         include_own=include_own,
         include_drafts=include_drafts,
@@ -160,14 +163,25 @@ async def get_instructions(
 @requires_permission('manage_instructions')
 async def bulk_update_instructions(
     bulk_update: InstructionBulkUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Bulk update multiple instructions (admin only)"""
-    return await instruction_service.bulk_update_instructions(
+    result = await instruction_service.bulk_update_instructions(
         db, bulk_update, current_user, organization
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.bulk_updated",
+            user_id=current_user.id, resource_type="instruction",
+            details={"ids": list(getattr(bulk_update, "ids", []) or [])},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 # BULK DELETE
@@ -175,14 +189,25 @@ async def bulk_update_instructions(
 @requires_permission('manage_instructions')
 async def bulk_delete_instructions(
     bulk_delete: InstructionBulkDelete,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Bulk delete multiple instructions (admin only)"""
-    return await instruction_service.bulk_delete_instructions(
+    result = await instruction_service.bulk_delete_instructions(
         db, bulk_delete.ids, current_user, organization
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.bulk_deleted",
+            user_id=current_user.id, resource_type="instruction",
+            details={"ids": list(bulk_delete.ids or [])},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 # ENHANCE INSTRUCTION (kept - not part of suggestion workflow)
@@ -253,12 +278,23 @@ async def list_instruction_labels(
 @requires_permission('manage_instructions')
 async def create_instruction_label(
     label: InstructionLabelCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new instruction label."""
-    return await instruction_label_service.create_label(db, label, organization, current_user)
+    created = await instruction_label_service.create_label(db, label, organization, current_user)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_label.created",
+            user_id=current_user.id, resource_type="instruction_label",
+            resource_id=str(getattr(created, "id", "") or ""),
+            details={"name": getattr(created, "name", None)}, request=request,
+        )
+    except Exception:
+        pass
+    return created
 
 
 @router.patch("/instructions/labels/{label_id}", response_model=InstructionLabelSchema)
@@ -266,18 +302,29 @@ async def create_instruction_label(
 async def update_instruction_label(
     label_id: str,
     label: InstructionLabelUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     """Update an instruction label."""
-    return await instruction_label_service.update_label(db, label_id, label, organization, current_user)
+    updated = await instruction_label_service.update_label(db, label_id, label, organization, current_user)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_label.updated",
+            user_id=current_user.id, resource_type="instruction_label", resource_id=str(label_id),
+            details={"fields": list(label.dict(exclude_unset=True).keys())}, request=request,
+        )
+    except Exception:
+        pass
+    return updated
 
 
 @router.delete("/instructions/labels/{label_id}")
 @requires_permission('manage_instructions')
 async def delete_instruction_label(
     label_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -286,6 +333,14 @@ async def delete_instruction_label(
     success = await instruction_label_service.delete_label(db, label_id, organization, current_user)
     if not success:
         raise AppError.not_found(ErrorCode.INSTRUCTION_LABEL_NOT_FOUND, "Instruction label not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction_label.deleted",
+            user_id=current_user.id, resource_type="instruction_label", resource_id=str(label_id),
+            request=request,
+        )
+    except Exception:
+        pass
     return {"message": "Label deleted successfully"}
 
 
@@ -474,6 +529,7 @@ async def update_instruction(
 @requires_permission('manage_instructions', model=Instruction, owner_only=False, resource_scoped=True)
 async def delete_instruction(
     instruction_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -491,6 +547,14 @@ async def delete_instruction(
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.deleted",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            request=request,
+        )
+    except Exception:
+        pass
     return {"message": "Instruction deleted successfully"}
 
 
@@ -666,6 +730,7 @@ class ResolveSuggestionRequest(BaseModel):
 async def resolve_instruction_suggestion(
     instruction_id: str,
     body: ResolveSuggestionRequest,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -697,6 +762,14 @@ async def resolve_instruction_suggestion(
     )
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.suggestion_resolved",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"build_id": getattr(body, "build_id", None)}, request=request,
+        )
+    except Exception:
+        pass
     return resolved
 
 
@@ -739,6 +812,7 @@ class RejectHunkRequest(BaseModel):
 async def accept_instruction_hunk(
     instruction_id: str,
     body: AcceptHunkRequest,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -762,6 +836,15 @@ async def accept_instruction_hunk(
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.hunk_accepted",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"hunk_key": getattr(body, "hunk_key", None), "build_id": getattr(body, "build_id", None)},
+            request=request,
+        )
+    except Exception:
+        pass
     return resolved
 
 
@@ -770,6 +853,7 @@ async def accept_instruction_hunk(
 async def reject_instruction_hunk(
     instruction_id: str,
     body: RejectHunkRequest,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -790,6 +874,15 @@ async def reject_instruction_hunk(
     )
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.hunk_rejected",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"hunk_key": getattr(body, "hunk_key", None), "build_id": getattr(body, "build_id", None)},
+            request=request,
+        )
+    except Exception:
+        pass
     return resolved
 
 
@@ -801,6 +894,7 @@ class AcceptAllRequest(BaseModel):
 @requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
 async def accept_all_instruction_hunks(
     instruction_id: str,
+    request: Request,
     body: AcceptAllRequest = AcceptAllRequest(),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -821,6 +915,14 @@ async def accept_all_instruction_hunks(
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.hunks_accepted_all",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            request=request,
+        )
+    except Exception:
+        pass
     return resolved
 
 
@@ -828,6 +930,7 @@ async def accept_all_instruction_hunks(
 @requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
 async def reject_all_instruction_hunks(
     instruction_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -844,6 +947,14 @@ async def reject_all_instruction_hunks(
     )
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="instruction.hunks_rejected_all",
+            user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            request=request,
+        )
+    except Exception:
+        pass
     return resolved
 
 

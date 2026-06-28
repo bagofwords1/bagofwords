@@ -7,7 +7,7 @@
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Configure your agents and the data, tools, skills and instructions they reason with.</p>
       </div>
       <div class="flex items-center gap-2.5">
-        <button v-if="reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors" @click="openReview(null)">
+        <button v-if="false && reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors" @click="openReview(null)">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ reviewCount }} to review
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
@@ -70,16 +70,13 @@
             <EmptyHint v-if="skillCount === 0" text="No skills yet." />
             <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
           </TreeGroup>
-          <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0"
-                  style="padding-left:6px;padding-right:8px"
-                  :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
-                  @click="openReview(null)">
+          <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
+          <button v-if="canManageEvals" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'global-evals' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:6px;padding-right:8px" @click="openGlobalEvals()">
             <span class="w-3 shrink-0"></span>
-            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-            <span class="flex-1 text-left truncate">Review</span>
-            <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 tabular-nums">{{ reviewCount }}</span>
+            <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="flex-1 text-left truncate">Global Evals</span>
+            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100" />
           </button>
-
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
@@ -93,7 +90,7 @@
           </div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : (agent.publish_status === 'disabled' ? 'Disabled' : (agent.is_connector ? 'Connector' : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="instrLoading ? undefined : agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : (agent.publish_status === 'disabled' ? 'Disabled' : (agent.is_connector ? 'Connector' : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
@@ -133,9 +130,12 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-left:48px">Uploading…</div>
               </TreeGroup>
 
-              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
-                <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
+              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="instrLoading ? undefined : listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+                <div v-if="instrLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-left:48px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
+                <template v-else>
+                  <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
+                  <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
+                </template>
               </TreeGroup>
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
@@ -317,10 +317,10 @@
                 <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Conversation starters</span>
                 <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
               </div>
-              <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
-                <button v-for="(cs, i) in agentDetail.conversation_starters" :key="i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, cs, i)">
+              <div v-if="starterPrompts.length" class="flex flex-wrap gap-2">
+                <button v-for="(p, i) in starterPrompts" :key="p.id || i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, p.text, i)">
                   <Spinner v-if="startingReport && startingStarterIdx === i" class="w-3 h-3 animate-spin shrink-0" />
-                  <span>{{ starterTitle(cs) }}</span>
+                  <span>{{ starterTitle(p.text) }}</span>
                 </button>
               </div>
               <p v-else class="text-[11px] text-gray-300 dark:text-gray-600 italic">No conversation starters.</p>
@@ -333,18 +333,26 @@
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Open agent" @click="openAgent(panelView.agentId)">
-                <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
-                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || 'Agent' }}</span>
-              </button>
-              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />
-              <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
-              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">read-only</span>
+              <template v-if="panelView.kind === 'global-evals'">
+                <UIcon name="i-heroicons-check-circle" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">Global Evals</span>
+                <span class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">all agents</span>
+              </template>
+              <template v-else>
+                <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Open agent" @click="openAgent(panelView.agentId)">
+                  <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
+                  <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || 'Agent' }}</span>
+                </button>
+                <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />
+                <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
+                <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">read-only</span>
+              </template>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
               <TablesSelector
@@ -829,6 +837,10 @@ const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingM
 
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
+// True until the first /api/instructions load resolves. Drives a Spinner on the
+// Instructions tree nodes so they don't read as "0 / No instructions yet" while
+// the list is still in flight (the rows arrive late on large orgs).
+const instrLoading = ref(true)
 const agents = ref<any[]>([])
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
@@ -944,9 +956,9 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings' } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings', 'global-evals': 'Global Evals' } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
@@ -956,6 +968,11 @@ const openPanel = (kind: 'tables' | 'tools' | 'evals' | 'settings', agentId: str
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
+}
+// Org-wide evals view — not bound to any agent.
+const openGlobalEvals = () => {
+  clearRightPane()
+  panelView.value = { kind: 'global-evals', agentId: '' }
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
@@ -982,10 +999,22 @@ const creatingPrimary = ref(false); const editingPrimary = ref(false)
 const showEditStarters = ref(false); const editStarters = ref<{ title: string; prompt: string }[]>([]); const savingStarters = ref(false)
 
 const agentDetailLoading = ref(false)
-const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false }
+// Conversation starters are sourced from agent-scoped starter Prompts (not the
+// legacy data_source.conversation_starters JSON). Each prompt's `text` is the
+// "title\nprompt" string.
+const starterPrompts = ref<any[]>([])
+const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false; starterPrompts.value = [] }
+const refreshStarterPrompts = async () => {
+  const id = agentView.value?.agentId; if (!id) { starterPrompts.value = []; return }
+  try {
+    const { data } = await useMyFetch<any>(`/prompts?data_source_id=${id}`)
+    if (agentView.value?.agentId === id) starterPrompts.value = (data.value as any)?.prompts || []
+  } catch { if (agentView.value?.agentId === id) starterPrompts.value = [] }
+}
 const refreshAgentDetail = async () => {
   const id = agentView.value?.agentId; if (!id) return
   try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {} finally { if (agentView.value?.agentId === id) agentDetailLoading.value = false }
+  refreshStarterPrompts()
 }
 const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
@@ -1007,7 +1036,7 @@ const setAgentPublic = async (val: boolean) => {
 }
 const openAgent = async (id: string) => {
   clearRightPane()
-  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
+  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true; starterPrompts.value = []
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
 }
@@ -1108,10 +1137,11 @@ const startReportWithStarter = async (agentId: string, cs: any, idx: number) => 
   } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { startingReport.value = false; startingStarterIdx.value = null }
 }
 const openEditStarters = () => {
-  const arr = agentDetail.value?.conversation_starters || []
-  editStarters.value = arr.map((s: any) => typeof s === 'string'
-    ? { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
-    : { title: s.title || '', prompt: s.prompt || '' })
+  // Build the editor from the agent's starter Prompts (text = "title\nprompt").
+  editStarters.value = starterPrompts.value.map((p: any) => {
+    const s = String(p?.text ?? '')
+    return { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
+  })
   if (!editStarters.value.length) editStarters.value = [{ title: '', prompt: '' }]
   showEditStarters.value = true
 }
@@ -1122,7 +1152,21 @@ const saveStarters = async () => {
   savingStarters.value = true
   const id = agentView.value?.agentId
   const conversation_starters = editStarters.value.map(s => `${(s.title || '').trim()}${s.prompt?.trim() ? '\n' + s.prompt.trim() : ''}`).filter(s => s.trim().length > 0)
-  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { conversation_starters } }); await refreshAgentDetail(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' }) }
+  try {
+    // Back the starters with the Prompt model (agent-scoped starter Prompts).
+    // Replace-all: drop this agent's existing starter prompts, recreate from the editor.
+    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
+    for (const p of ((existing.value as any)?.prompts || [])) {
+      await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
+    }
+    for (const text of conversation_starters) {
+      await useMyFetch(`/prompts`, { method: 'POST', body: {
+        text, title: (text.split('\n')[0] || '').slice(0, 60),
+        scope: 'agent', is_starter: true, data_source_ids: [id],
+      } })
+    }
+    await refreshStarterPrompts(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' })
+  }
   catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
 }
 // reload tables / tools from the tree
@@ -1352,6 +1396,8 @@ const usesServiceAccount = (a: any) => {
 }
 // Editing tables/tools requires manage on the data source (org-wide or on this resource).
 const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || useCan('update_data_source', { type: 'data_source', id })) : false
+// Global Evals is an org-admin surface, gated by the org-level manage_evals perm.
+const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
@@ -1807,7 +1853,7 @@ const expand = (key: string, force?: boolean) => {
 
 // ── Fetching ────────────────────────────────────────────
 const fetchAll = async () => {
-  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) } finally { instrLoading.value = false }
 }
 // Refresh BOTH the instruction list and the pending-builds map so the left tree
 // (Pending review count, top "N pending" badge, per-row amber dots) stays in
@@ -1823,7 +1869,7 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, status: d.status, publish_status: d.publish_status, description: d.description, conversation_starters: d.conversation_starters || [], auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
@@ -2277,8 +2323,13 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  // Render the tree as soon as agents + instructions are in. fetchPendingMap()
+  // only feeds the decorative amber "pending" dots / "N pending" badge, so it's
+  // fired without blocking — the dots fill in a beat later instead of gating the
+  // whole tree on the heaviest call.
+  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   restoreFromRoute()
+  fetchPendingMap()
 })
 </script>
 

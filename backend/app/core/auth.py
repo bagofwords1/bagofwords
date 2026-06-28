@@ -383,6 +383,28 @@ class UserManager(BaseUserManager[User, str]):
             # Auto-create organization for the first uninvited user
             await self._ensure_org_for_first_uninvited_user(session, user)
 
+            # Audit the signup against each org the user now belongs to.
+            try:
+                from app.ee.audit.service import audit_service
+                memberships = (
+                    await session.execute(
+                        select(Membership).where(Membership.user_id == user.id)
+                    )
+                ).scalars().all()
+                for m in memberships:
+                    await audit_service.log(
+                        db=session,
+                        organization_id=str(m.organization_id),
+                        action="user.registered",
+                        user_id=str(user.id),
+                        resource_type="user",
+                        resource_id=str(user.id),
+                        details={"email": user.email},
+                        request=request,
+                    )
+            except Exception:
+                pass
+
         # Welcome email (best-effort, non-blocking): summarizes the agents the
         # user can access + a CTA. Fired after commit so memberships are visible.
         self._fire_welcome_email(user.id)

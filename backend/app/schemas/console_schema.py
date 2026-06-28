@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, List
 from datetime import datetime
 
+from app.schemas.base import UTCDatetime
+
 class MetricsQueryParams(BaseModel):
     start_date: Optional[datetime] = Field(None, description="Start date for metrics query")
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
@@ -176,7 +178,7 @@ class RecentNegativeFeedbackData(BaseModel):
     user_id: str
     completion_id: str
     prompt: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
     trace: Optional[str] = None  # For diagnosis link
 
 class RecentNegativeFeedbackMetrics(BaseModel):
@@ -191,13 +193,13 @@ class DiagnosisStepData(BaseModel):
     step_status: str
     step_code: Optional[str] = None
     step_data_model: Optional[Dict] = None
-    created_at: datetime
+    created_at: UTCDatetime
 
 class DiagnosisFeedbackData(BaseModel):
     feedback_id: str
     direction: int
     message: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
 
 class DiagnosisItemData(BaseModel):
     id: str
@@ -212,7 +214,7 @@ class DiagnosisItemData(BaseModel):
     issue_type: str  # "failed_step", "negative_feedback", or "both"
     step_info: Optional[DiagnosisStepData] = None
     feedback_info: Optional[DiagnosisFeedbackData] = None
-    created_at: datetime
+    created_at: UTCDatetime
     trace_url: Optional[str] = None
 
 class DiagnosisMetrics(BaseModel):
@@ -231,7 +233,7 @@ class TraceCompletionData(BaseModel):
     role: str
     content: Optional[str] = None
     reasoning: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
     status: Optional[str] = None
     has_issue: bool = False
     issue_type: Optional[str] = None
@@ -246,7 +248,7 @@ class TraceStepData(BaseModel):
     code: Optional[str] = None
     data_model: Optional[Dict] = None
     data: Optional[Dict] = None
-    created_at: datetime
+    created_at: UTCDatetime
     completion_id: str
     has_issue: bool = False
 
@@ -254,7 +256,7 @@ class TraceFeedbackData(BaseModel):
     feedback_id: str
     direction: int
     message: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
     completion_id: str
 
 class TraceData(BaseModel):
@@ -271,7 +273,7 @@ class TraceData(BaseModel):
 # Compact issues (completion-anchored)
 class CompactIssueItem(BaseModel):
     completion_id: str
-    created_at: datetime
+    created_at: UTCDatetime
     issue_type: str
     summary_text: str
     full_message: Optional[str] = None
@@ -291,7 +293,7 @@ class CompactIssuesResponse(BaseModel):
 # Tool executions table (diagnosis)
 class ToolExecutionDiagnosisItem(BaseModel):
     id: str
-    created_at: datetime
+    created_at: UTCDatetime
     tool_name: str
     tool_action: Optional[str] = None
     status: str
@@ -316,7 +318,7 @@ class ToolExecutionsDiagnosisResponse(BaseModel):
 # Agent executions summary
 class AgentExecutionSummaryItem(BaseModel):
     agent_execution_id: str
-    created_at: datetime
+    created_at: UTCDatetime
     completion_id: Optional[str] = None
     prompt: Optional[str] = None
     agent_execution_status: str

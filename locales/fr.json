@@ -60,7 +60,11 @@
     "expandSidebar": "Développer la barre latérale",
     "collapseSidebar": "Réduire la barre latérale",
     "version": "Version",
-    "loggedInAs": "Connecté en tant que {name}"
+    "loggedInAs": "Connecté en tant que {name}",
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Administration",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Connexion",
@@ -132,7 +136,18 @@
     "connectYourLLM": "Connectez votre LLM",
     "setupComplete": "Configuration terminée — vous pouvez maintenant poser des questions en langage naturel.",
     "manageIntegrations": "Gérer les intégrations",
-    "viewIntegrations": "Voir les intégrations"
+    "viewIntegrations": "Voir les intégrations",
+    "greeting": {
+      "morning": "Bonjour, {name}!",
+      "afternoon": "Bonjour, {name}!",
+      "evening": "Bonsoir, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Bonjour!",
+      "afternoon": "Bonjour!",
+      "evening": "Bonsoir!"
+    },
+    "whatCanIHelpWith": "Comment puis-je vous aider ?"
   },
   "prompt": {
     "placeholderDefault": "Demandez des données, un tableau de bord ou une analyse approfondie",
@@ -278,7 +293,20 @@
     "columnUser": "Utilisateur",
     "emptyTitle": "Posez une question pour commencer.",
     "emptyTipLabel": "Astuce :",
-    "emptyTipBody": "Vous ne savez pas quoi demander ? Vous pouvez demander à l'Analyste IA de suggérer des questions sur un sujet spécifique."
+    "emptyTipBody": "Vous ne savez pas quoi demander ? Vous pouvez demander à l'Analyste IA de suggérer des questions sur un sujet spécifique.",
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Exécution de l'agent",
@@ -674,6 +702,7 @@
     "placeholder": "Tapez {'@'} pour mentionner...",
     "loading": "Chargement…",
     "noResults": "Aucun résultat trouvé",
+    "allCategories": "Toutes les catégories",
     "tables": "Tables",
     "noTables": "Aucune table.",
     "tools": "Outils",
@@ -686,7 +715,10 @@
       "dataSources": "Agents",
       "queries": "Requêtes",
       "files": "Fichiers",
-      "tables": "Tables"
+      "tables": "Tables",
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Compétences"
     },
     "time": {
       "justNow": "à l'instant",
@@ -1618,7 +1650,11 @@
     "dayWed": "Mer",
     "dayThu": "Jeu",
     "dayFri": "Ven",
-    "daySat": "Sam"
+    "daySat": "Sam",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer cette tâche planifiée ? Cette action est irréversible.",
+    "toastDeleted": "Tâche planifiée supprimée",
+    "deleteFailed": "Échec de la suppression de la tâche"
   },
   "files": {
     "title": "Fichiers",
@@ -2331,7 +2367,15 @@
     "toastUpdated": "Requête planifiée mise à jour",
     "toastScheduled": "Requête planifiée",
     "toastError": "Erreur",
-    "toastSaveFailed": "Échec de l'enregistrement de la requête planifiée"
+    "toastSaveFailed": "Échec de l'enregistrement de la requête planifiée",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer cette tâche planifiée ? Cette action est irréversible.",
+    "toastDeleted": "Tâche planifiée supprimée",
+    "toastDeleteFailed": "Échec de la suppression de la tâche planifiée",
+    "runNow": "Exécuter maintenant",
+    "runNeedsPrompt": "Ajoutez une instruction avant d'exécuter",
+    "toastRunStarted": "Exécution lancée",
+    "toastRunFailed": "Échec du lancement de l'exécution"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2414,5 +2458,107 @@
       "toastDeleted": "Clé API supprimée",
       "toastDeleteFailed": "Échec de la suppression de la clé API"
     }
+  },
+  "commandPalette": {
+    "prompts": "Prompts"
+  },
+  "promptParams": {
+    "title": "Renseignez les paramètres — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Sélectionner…",
+    "to": "à",
+    "noParams": "Ce prompt n'a aucun paramètre.",
+    "cancel": "Annuler",
+    "confirm": "Utiliser le prompt"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "newPrompt": "Nouveau prompt",
+    "createFirst": "Créez votre premier prompt",
+    "searchPlaceholder": "Rechercher des prompts…",
+    "loading": "Chargement des prompts…",
+    "emptyTitle": "Aucun prompt pour l'instant",
+    "emptyHint": "Enregistrez des prompts réutilisables que votre équipe peut exécuter à la demande.",
+    "noMatches": "Aucun prompt ne correspond à vos filtres",
+    "noMatchesHint": "Essayez d'ajuster votre recherche ou vos filtres.",
+    "filterAll": "Tous",
+    "allAgents": "Tous les agents",
+    "allUsers": "Tous les utilisateurs",
+    "untitled": "Prompt sans titre",
+    "run": "Exécuter",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "required": "obligatoire",
+    "nParams": "{n} paramètres",
+    "scopeGlobal": "Global",
+    "scopeAgent": "Agent",
+    "scopePrivate": "Privé",
+    "byAuthor": "par {name}",
+    "viewText": "Prompt",
+    "viewParameters": "Paramètres",
+    "viewAgents": "Agents",
+    "runFor": "Exécuter pour…",
+    "newTitle": "Nouveau prompt",
+    "editTitle": "Modifier le prompt",
+    "sectionPrompt": "Prompt",
+    "sectionParameters": "Paramètres",
+    "sectionAudience": "Audience",
+    "sectionAdvanced": "Avancé",
+    "titlePlaceholder": "Titre (facultatif)",
+    "textPlaceholder": "Écrivez votre prompt. Utilisez {'@'} pour les mentions et {'{'}{'{'}name{'}'}{'}'} pour les paramètres…",
+    "insertParam": "Insérer un paramètre",
+    "insertParamHint": "Utilisez des espaces réservés {'{'}{'{'}name{'}'}{'}'} pour les valeurs renseignées à l'exécution.",
+    "insertParamPromptLabel": "Nom du paramètre :",
+    "addParam": "Ajouter un paramètre",
+    "removeParam": "Supprimer",
+    "noParamsYet": "Aucun paramètre. Ajoutez-en un pour collecter des valeurs à l'exécution.",
+    "paramName": "nom",
+    "paramLabel": "Libellé",
+    "paramRequired": "Obligatoire",
+    "paramOptions": "Options (séparées par des virgules)",
+    "typeText": "Texte",
+    "typeNumber": "Nombre",
+    "typeEnum": "Choix",
+    "typeDate": "Date",
+    "typeDateRange": "Plage de dates",
+    "selectAgents": "Agents auxquels appartient ce prompt",
+    "noManageableAgents": "Vous ne gérez aucun agent.",
+    "globalHint": "Visible par tout le monde dans l'organisation.",
+    "privateHint": "Visible uniquement par vous.",
+    "mode": "Mode",
+    "modeChat": "Chat",
+    "modeDeep": "Approfondi",
+    "modeTraining": "Entraînement",
+    "model": "Modèle",
+    "modelDefault": "Modèle par défaut",
+    "cancel": "Annuler",
+    "create": "Créer",
+    "update": "Mettre à jour",
+    "toastCreated": "Prompt créé",
+    "toastUpdated": "Prompt mis à jour",
+    "toastSaveFailed": "Impossible d'enregistrer le prompt",
+    "toastDeleted": "Prompt supprimé",
+    "toastDeleteFailed": "Impossible de supprimer le prompt",
+    "deleteConfirm": "Supprimer « {title} » ? Cette action est irréversible.",
+    "toastRunFailed": "Impossible d'exécuter le prompt",
+    "runForTitle": "Exécuter « {title} » pour…",
+    "targetMembers": "Membres",
+    "targetGroup": "Groupe",
+    "searchMembers": "Rechercher des membres…",
+    "selectGroup": "Sélectionner un groupe…",
+    "nMembers": "{n} membres",
+    "paramsNeeded": "Ce prompt a des paramètres — renseignez-les une fois pour tous.",
+    "paramsReady": "Paramètres définis.",
+    "fillParams": "Renseigner les paramètres",
+    "editParams": "Modifier les paramètres",
+    "runForConfirm": "Exécuter « {title} » pour {n} membres ? Les résultats sont envoyés à chacun en privé.",
+    "runForAction": "Exécuter pour les membres",
+    "runForResult": "Exécuté pour {ran}, ignorés {skipped}.",
+    "toastRunForFailed": "Impossible d'exécuter pour les membres sélectionnés",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

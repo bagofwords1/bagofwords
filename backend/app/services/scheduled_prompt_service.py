@@ -240,12 +240,18 @@ class ScheduledPromptService:
 
     # ---- Execution (called by APScheduler, no HTTP context) ----
 
-    async def scheduled_run_prompt(self, scheduled_prompt_id: str):
-        """Execute a scheduled prompt. Called by APScheduler cron trigger."""
+    async def scheduled_run_prompt(self, scheduled_prompt_id: str, force: bool = False):
+        """Execute a scheduled prompt. Called by APScheduler cron trigger.
+
+        ``force=True`` bypasses the cross-worker claim and is used for manual
+        "Run now" triggers: a single request initiated by one user should always
+        run, even if a cron fire for the same job landed in the current claim
+        window.
+        """
         # Every uvicorn worker/replica runs its own scheduler against the shared
         # job store, so this fires once per worker. Claim the run so exactly one
         # worker proceeds — otherwise subscribers get one email per worker.
-        if not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
+        if not force and not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
             return
         from app.dependencies import async_session_maker
         from app.services.completion_service import CompletionService
@@ -255,7 +261,9 @@ class ScheduledPromptService:
 
         async with async_session_maker() as db:
             sp = await db.get(ScheduledPrompt, scheduled_prompt_id)
-            if not sp or sp.deleted_at or not sp.is_active:
+            # A manual "Run now" (force) runs even while the schedule is paused;
+            # an automated cron fire respects the is_active flag.
+            if not sp or sp.deleted_at or (not sp.is_active and not force):
                 return
 
             user = await db.get(User, sp.user_id)
@@ -300,6 +308,26 @@ class ScheduledPromptService:
                 from app.dependencies import _locale_from_org
                 base_url = getattr(settings.bow_config, 'base_url', 'http://localhost:3000') if settings.bow_config else 'http://localhost:3000'
                 report_url = f"{base_url}/reports/{report.id}"
+                # notify-first: durable in-app row for user subscribers (collapsed
+                # per report so repeated runs refresh one entry). Email follows.
+                try:
+                    from app.services.inbox_service import inbox_service
+                    user_ids = [str(s.get("id")) for s in sp.notification_subscribers
+                                if s.get("type") == "user" and s.get("id")]
+                    if user_ids:
+                        es = exec_summary or {}
+                        await inbox_service.notify_users(
+                            db, organization_id=str(report.organization_id), user_ids=user_ids,
+                            source="schedule", type="scheduled_run",
+                            title=f'"{report.title or "Untitled"}" ran',
+                            body=(f"Your scheduled report ran — {es.get('iterations', 0)} steps, "
+                                  f"{es.get('queries', 0)} queries, {es.get('artifacts', 0)} artifacts."),
+                            link=f"/reports/{report.id}",
+                            subject={"kind": "report", "report_id": str(report.id)},
+                            group_key=f"schedule:{report.id}",
+                        )
+                except Exception:
+                    logger.warning("scheduled-run in-app notification failed", exc_info=True)
                 asyncio.create_task(
                     notification_service.send_scheduled_prompt_results(
                         report_id=report.id,

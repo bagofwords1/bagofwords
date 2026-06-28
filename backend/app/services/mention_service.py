@@ -82,6 +82,17 @@ class MentionService:
                     object_id=str(entity_mention.get("id"))
                 )
                 db_mentions.append(await self.create_mention(db, m, completion))
+
+            # INSTRUCTIONS (instructions + skills — kind lives on the row)
+            for instruction_mention in groups.get("INSTRUCTIONS", []):
+                m = MentionCreate(
+                    completion_id=completion.id,
+                    report_id=completion.report_id,
+                    type=MentionType.INSTRUCTION,
+                    mention_content=instruction_mention.get("name") or instruction_mention.get("title") or "",
+                    object_id=str(instruction_mention.get("id"))
+                )
+                db_mentions.append(await self.create_mention(db, m, completion))
         except Exception as e:
             raise e
 

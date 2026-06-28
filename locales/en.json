@@ -13,7 +13,8 @@
     "agents": "Agents",
     "instructions": "Instructions",
     "emptyLabel": "Start typing to search",
-    "emptyQueryLabel": "No results found"
+    "emptyQueryLabel": "No results found",
+    "prompts": "Prompts"
   },
   "smoke": {
     "hello": "Hello",
@@ -79,7 +80,11 @@
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
     "version": "Version",
-    "loggedInAs": "Logged in as {name}"
+    "loggedInAs": "Logged in as {name}",
+    "prompts": "Prompts",
+    "starOnGithub": "Star our GitHub",
+    "admin": "Admin",
+    "notifications": "Notifications"
   },
   "auth": {
     "signIn": "Login",
@@ -151,7 +156,18 @@
     "connectYourLLM": "Connect your LLM",
     "setupComplete": "Setup complete — you can now start asking questions in natural language.",
     "manageIntegrations": "Manage integrations",
-    "viewIntegrations": "View integrations"
+    "viewIntegrations": "View integrations",
+    "greeting": {
+      "morning": "Good morning, {name}!",
+      "afternoon": "Good afternoon, {name}!",
+      "evening": "Good evening, {name}!"
+    },
+    "greetingNoName": {
+      "morning": "Good morning!",
+      "afternoon": "Good afternoon!",
+      "evening": "Good evening!"
+    },
+    "whatCanIHelpWith": "What can I help with?"
   },
   "prompt": {
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
@@ -337,7 +353,20 @@
       "dashboard": "Dashboard",
       "slides": "Slides",
       "deep": "Deep Analytics"
-    }
+    },
+    "untitled": "Untitled",
+    "menu": {
+      "share": "Share",
+      "rename": "Rename",
+      "star": "Add to favorites",
+      "unstar": "Remove from favorites",
+      "delete": "Delete"
+    },
+    "renameTitle": "Rename report",
+    "renamePlaceholder": "Report title",
+    "deleteTitle": "Delete report?",
+    "deleteBody": "This will permanently delete this report. This action cannot be undone.",
+    "viewAll": "View all"
   },
   "traceModal": {
     "title": "Agent Execution",
@@ -764,6 +793,7 @@
     "placeholder": "Type {'@'} to mention...",
     "loading": "Loading…",
     "noResults": "No results found",
+    "allCategories": "All categories",
     "tables": "Tables",
     "noTables": "No tables.",
     "tools": "Tools",
@@ -777,7 +807,10 @@
       "queries": "Queries",
       "files": "Files",
       "tables": "Tables",
-      "tools": "Tools"
+      "tools": "Tools",
+      "prompts": "Prompts",
+      "instructions": "Instructions",
+      "skills": "Skills"
     },
     "time": {
       "justNow": "just now",
@@ -1816,7 +1849,11 @@
     "dayWed": "Wed",
     "dayThu": "Thu",
     "dayFri": "Fri",
-    "daySat": "Sat"
+    "daySat": "Sat",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this scheduled task? This cannot be undone.",
+    "toastDeleted": "Scheduled task deleted",
+    "deleteFailed": "Failed to delete task"
   },
   "files": {
     "title": "Files",
@@ -2605,7 +2642,15 @@
     "toastScheduled": "Prompt scheduled",
     "toastError": "Error",
     "toastSaveFailed": "Failed to save scheduled prompt",
-    "viewReport": "View report"
+    "viewReport": "View report",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this scheduled task? This cannot be undone.",
+    "toastDeleted": "Scheduled task deleted",
+    "toastDeleteFailed": "Failed to delete scheduled task",
+    "runNow": "Run now",
+    "runNeedsPrompt": "Add a prompt before running",
+    "toastRunStarted": "Run started",
+    "toastRunFailed": "Failed to start run"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -2615,7 +2660,7 @@
     "goHome": "Go home"
   },
   "profile": {
-    "menuItem": "Profile",
+    "menuItem": "Account Settings",
     "nav": {
       "general": "General",
       "instructions": "Custom Instructions",
@@ -2703,5 +2748,104 @@
       "fileUploadFailed": "Failed to upload file",
       "fileRemoveFailed": "Failed to remove file"
     }
+  },
+  "promptParams": {
+    "title": "Fill in parameters — {title}",
+    "untitled": "Prompt",
+    "selectOption": "Select…",
+    "to": "to",
+    "noParams": "This prompt has no parameters.",
+    "cancel": "Cancel",
+    "confirm": "Use prompt"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "newPrompt": "New prompt",
+    "createFirst": "Create your first prompt",
+    "searchPlaceholder": "Search prompts…",
+    "loading": "Loading prompts…",
+    "emptyTitle": "No prompts yet",
+    "emptyHint": "Save reusable prompts your team can run on demand.",
+    "noMatches": "No prompts match your filters",
+    "noMatchesHint": "Try adjusting your search or filters.",
+    "filterAll": "All",
+    "allAgents": "All agents",
+    "allUsers": "All users",
+    "untitled": "Untitled prompt",
+    "run": "Run",
+    "edit": "Edit",
+    "delete": "Delete",
+    "required": "required",
+    "nParams": "{n} params",
+    "scopeGlobal": "Global",
+    "scopeAgent": "Agent",
+    "scopePrivate": "Private",
+    "byAuthor": "by {name}",
+    "viewText": "Prompt",
+    "viewParameters": "Parameters",
+    "viewAgents": "Agents",
+    "runFor": "Run for…",
+    "newTitle": "New prompt",
+    "editTitle": "Edit prompt",
+    "sectionPrompt": "Prompt",
+    "sectionParameters": "Parameters",
+    "sectionAudience": "Audience",
+    "sectionAdvanced": "Advanced",
+    "titlePlaceholder": "Title (optional)",
+    "textPlaceholder": "Write your prompt. Use {'@'} for mentions and {'{'}{'{'}name{'}'}{'}'} for parameters…",
+    "insertParam": "Insert parameter",
+    "insertParamHint": "Use {'{'}{'{'}name{'}'}{'}'} placeholders for values filled at run time.",
+    "insertParamPromptLabel": "Parameter name:",
+    "addParam": "Add parameter",
+    "removeParam": "Remove",
+    "noParamsYet": "No parameters. Add one to collect values at run time.",
+    "paramName": "name",
+    "paramLabel": "Label",
+    "paramRequired": "Required",
+    "paramOptions": "Options (comma separated)",
+    "typeText": "Text",
+    "typeNumber": "Number",
+    "typeEnum": "Choice",
+    "typeDate": "Date",
+    "typeDateRange": "Date range",
+    "selectAgents": "Agents this prompt belongs to",
+    "noManageableAgents": "You don't manage any agents.",
+    "globalHint": "Visible to everyone in the organization.",
+    "privateHint": "Only visible to you.",
+    "mode": "Mode",
+    "modeChat": "Chat",
+    "modeDeep": "Deep",
+    "modeTraining": "Training",
+    "model": "Model",
+    "modelDefault": "Default model",
+    "cancel": "Cancel",
+    "create": "Create",
+    "update": "Update",
+    "toastCreated": "Prompt created",
+    "toastUpdated": "Prompt updated",
+    "toastSaveFailed": "Could not save prompt",
+    "toastDeleted": "Prompt deleted",
+    "toastDeleteFailed": "Could not delete prompt",
+    "deleteConfirm": "Delete “{title}”? This cannot be undone.",
+    "toastRunFailed": "Could not run prompt",
+    "runForTitle": "Run “{title}” for…",
+    "targetMembers": "Members",
+    "targetGroup": "Group",
+    "searchMembers": "Search members…",
+    "selectGroup": "Select a group…",
+    "nMembers": "{n} members",
+    "paramsNeeded": "This prompt has parameters — fill them once for everyone.",
+    "paramsReady": "Parameters set.",
+    "fillParams": "Fill parameters",
+    "editParams": "Edit parameters",
+    "runForConfirm": "Run “{title}” for {n} members? Results go to each privately.",
+    "runForAction": "Run for members",
+    "runForResult": "Ran for {ran}, skipped {skipped}.",
+    "toastRunForFailed": "Could not run for the selected members",
+    "scopePublic": "Public",
+    "detectedParams": "Parameters:",
+    "allAgentsHint": "All agents",
+    "nAgentsSelected": "{n} selected",
+    "selectAgentsPlaceholder": "Select agents…"
   }
 }

@@ -166,12 +166,12 @@
                   <MDC :value="agentDetails.description" class="markdown-content" />
                 </div>
 
-                <!-- Sample Questions -->
-                <div v-if="agentDetails?.conversation_starters?.length">
+                <!-- Sample Questions (sourced from agent-scoped starter Prompts) -->
+                <div v-if="starterTexts.length">
                   <div class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-2">{{ $t('agentFlyout.sampleQuestions') }}</div>
                   <div class="space-y-1.5">
                     <button
-                      v-for="(starter, idx) in agentDetails.conversation_starters.slice(0, 6)"
+                      v-for="(starter, idx) in starterTexts.slice(0, 6)"
                       :key="idx"
                       @click.stop.prevent="startReportWithQuestion(starter, Number(idx))"
                       :disabled="creatingReport"
@@ -187,16 +187,16 @@
                       <span class="flex-1">{{ starter.split('\n')[0] }}</span>
                     </button>
                     <div
-                      v-if="agentDetails.conversation_starters.length > 6"
+                      v-if="starterTexts.length > 6"
                       class="text-[11px] text-gray-400 dark:text-gray-500"
                     >
-                      {{ $t('agentFlyout.moreCount', { n: agentDetails.conversation_starters.length - 6 }) }}
+                      {{ $t('agentFlyout.moreCount', { n: starterTexts.length - 6 }) }}
                     </div>
                   </div>
                 </div>
 
                 <div
-                  v-if="!agentDetails?.primary_instruction && !agentDetails?.description && !agentDetails?.conversation_starters?.length"
+                  v-if="!agentDetails?.primary_instruction && !agentDetails?.description && !starterTexts.length"
                   class="text-xs text-gray-400 dark:text-gray-500 italic py-6 text-center"
                 >
                   {{ $t('agentFlyout.noDetails') }}
@@ -417,7 +417,9 @@ function refreshDetails() {
   const id = props.agentId
   if (!id) return
   delete detailsCache.value[id]
+  delete startersCache.value[id]
   fetchAgentDetails(id)
+  fetchStartersForAgent(id)
 }
 defineExpose({ refreshDetails })
 
@@ -442,6 +444,13 @@ const instructionsError = ref<string | null>(null)
 const queriesCache = ref<Record<string, any[]>>({})
 const queriesLoading = ref(false)
 const queriesError = ref<string | null>(null)
+
+// Starter Prompts (agent-scoped) — source of the Sample Questions list.
+const startersCache = ref<Record<string, string[]>>({})
+const starterTexts = computed<string[]>(() => {
+  if (!props.agentId) return []
+  return startersCache.value[props.agentId] || []
+})
 
 // Report creation state
 const creatingReport = ref(false)
@@ -496,6 +505,18 @@ const fetchAgentDetails = async (agentId: string) => {
     console.error('Failed to load agent details:', e)
   } finally {
     loadingDetails.value = false
+  }
+}
+
+const fetchStartersForAgent = async (agentId: string) => {
+  if (!agentId || startersCache.value[agentId]) return
+  try {
+    const { data, error } = await useMyFetch(`/prompts?data_source_id=${agentId}`, { method: 'GET' })
+    if (error?.value) return
+    const prompts = (data?.value as any)?.prompts || []
+    startersCache.value[agentId] = prompts.map((p: any) => String(p?.text ?? '')).filter((t: string) => t.trim().length > 0)
+  } catch (e) {
+    console.error('Failed to load agent starters:', e)
   }
 }
 
@@ -633,6 +654,7 @@ watch(() => props.agentId, async (newId, oldId) => {
 
     // Only fetch overview on hover; other tabs load on demand
     await fetchAgentDetails(newId)
+    fetchStartersForAgent(newId)
   }
 }, { immediate: true })
 

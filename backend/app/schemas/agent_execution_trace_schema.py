@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional, Any, Dict
 
+from .base import OptionalUTCDatetime
 from .agent_execution_schema import AgentExecutionSchema, ContextSnapshotSchema
 from .completion_v2_schema import CompletionBlockV2Schema
 from .completion_feedback_schema import CompletionFeedbackSchema
@@ -70,7 +71,7 @@ class ConversationTurnSchema(BaseModel):
     # scores above when present). None when the judge didn't run.
     judge: Optional[Dict[str, Any]] = None
     total_duration_ms: Optional[float] = None
-    created_at: Optional[datetime] = None
+    created_at: OptionalUTCDatetime = None
 
     # Rendered blocks for the chat-style left pane (same shape the report chat
     # uses). Empty for turns still in progress / without blocks.

@@ -20,6 +20,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.agent_manifest_schema import ApplyResult, ApplyStatus, ApplyError, ApplyErrorCode
 from app.services.agent_yaml_service import AgentYamlService
+from app.ee.audit.service import audit_service
 
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -59,9 +60,22 @@ async def apply_agent(
                 )
             ],
         )
-    return await service.apply(
+    result = await service.apply(
         db, organization, user, yaml_text, dry_run=dry_run
     )
+    if not dry_run and getattr(result, "status", None) not in (ApplyStatus.ERROR, ApplyStatus.DRY_RUN):
+        try:
+            await audit_service.log(
+                db=db, organization_id=organization.id, action="agent.applied",
+                user_id=user.id, resource_type="agent",
+                resource_id=str(getattr(result, "id", None) or ""),
+                details={"name": getattr(result, "name", None),
+                         "status": str(getattr(result, "status", None))},
+                request=request,
+            )
+        except Exception:
+            pass
+    return result
 
 
 @router.get("/{name}.yaml", response_class=PlainTextResponse)
