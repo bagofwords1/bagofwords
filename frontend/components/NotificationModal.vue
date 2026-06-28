@@ -120,9 +120,13 @@ function iconFor(n: BowNotification): string {
   return TYPE_ICONS[n.type] || SOURCE_ICONS[n.source] || 'i-heroicons-bell'
 }
 
+const { format: formatTs, toDate } = useFormatDate()
+
 function relativeTime(iso?: string): string {
   if (!iso) return ''
-  const then = new Date(iso).getTime()
+  // toDate treats marker-less timestamps as UTC, so the "ago" math isn't thrown
+  // off by the viewer's offset; the >7d fallback renders in the org timezone.
+  const then = toDate(iso).getTime()
   if (Number.isNaN(then)) return ''
   const s = Math.max(0, Math.floor((Date.now() - then) / 1000))
   if (s < 60) return 'just now'
@@ -132,7 +136,7 @@ function relativeTime(iso?: string): string {
   if (h < 24) return `${h}h ago`
   const d = Math.floor(h / 24)
   if (d < 7) return `${d}d ago`
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatTs(iso, { month: 'short', day: 'numeric' })
 }
 
 function onRowClick(n: BowNotification) {
