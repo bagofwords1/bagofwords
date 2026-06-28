@@ -169,6 +169,16 @@ async def oauth_authorize(
     await _ensure_connection_access(db, user, connection)
     _ensure_oauth_policy(connection)
 
+    # For MCP connections with no preconfigured OAuth client, discover the
+    # server's authorization server and dynamically register a client (RFC
+    # 9728/8414/7591) before building the authorize URL. Idempotent.
+    if connection.type == "mcp":
+        try:
+            from app.services.mcp_dcr_service import ensure_mcp_oauth_config
+            await ensure_mcp_oauth_config(db, connection)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"MCP OAuth discovery/registration failed: {e}")
+
     # Get OAuth params for this connection type
     try:
         oauth_params = get_oauth_params(connection)
@@ -189,12 +199,17 @@ async def oauth_authorize(
         "response_type": "code",
         "client_id": oauth_params["client_id"],
         "redirect_uri": redirect_uri,
-        "scope": oauth_params["scopes"],
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
         "access_type": "offline",  # Google-specific, ignored by others
     }
+    # Only send a scope when we actually have one (Notion DCR issues no scopes).
+    if oauth_params.get("scopes"):
+        params["scope"] = oauth_params["scopes"]
+    # RFC 8707 resource indicator — audience-bind the token to the MCP server.
+    if oauth_params.get("audience"):
+        params["resource"] = oauth_params["audience"]
     authorization_url = f"{oauth_params['authorize_url']}?{urlencode(params)}"
 
     response = JSONResponse({"authorization_url": authorization_url})

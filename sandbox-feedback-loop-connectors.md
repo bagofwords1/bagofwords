@@ -118,10 +118,34 @@ DCR 201 + authorize→code + token; unauth MCP rejected, DCR-authed connects, to
 - A **second member** cannot see the first member's private connector.
 - Admin can create an **org-wide** connector (public) the same way.
 
-## Notes / scope
+## Outbound DCR (tier C) — implemented + verified vs REAL Notion
 
-- DCR (tier C) is verified **at the protocol level** against `mock_mcp_dcr.py`; the
-  backend *outbound* DCR client (discovery + RFC 7591) is design Phase 4 and not yet
-  wired into the connect flow. Tiers A/B (admin-app / bearer / api-key) work today.
+The backend now performs **outbound** OAuth discovery + Dynamic Client Registration
+for `type=mcp` connections with no preconfigured client:
+- `app/services/mcp_dcr_service.py` — `discover_mcp_oauth` (RFC 9728→8414) +
+  `register_client` (RFC 7591) + `ensure_mcp_oauth_config` (persist on the connection).
+- `app/routes/connection_oauth.py` — the authorize route runs `ensure_mcp_oauth_config`
+  before building the consent URL; adds RFC 8707 `resource`; omits empty scope.
+- `app/services/connection_oauth_service.py` — `client_secret` is now optional
+  (public clients / `token_endpoint_auth_method=none`) in `get_oauth_params`,
+  `exchange_code_for_tokens`, `refresh_access_token`.
+
+Verify (hits live Notion):
+```bash
+cd backend && source .env.sandbox
+uv run python ../tools/sandbox/connector-mocks/verify_dcr_notion.py    # direct funcs — 13/13
+BOW_TEST_NOTION_DCR=1 uv run pytest tests/e2e/test_dcr_notion.py -q     # app route — 1 passed
+uv run python ../tools/sandbox/connector-mocks/verify_dcr.py           # mock full token+tools — 11/11
+```
+Results: discovery → live DCR (real Notion `client_id`, public client) → config
+persisted (idempotent) → authorize URL targets `mcp.notion.com` with client_id +
+PKCE + `resource`. **Interactive consent + token exchange is the manual step**
+(open the printed authorize URL, approve → callback stores the per-user token).
+
+Notes:
+- `user_required` connections (per-user OAuth) require an **enterprise license**
+  (`BOW_LICENSE_KEY`); the e2e harness force-enables it. DCR itself is license-agnostic.
+- DCR targets should be restricted to catalog entries / an admin host-allowlist (SSRF)
+  — guardrail noted in the design doc; not yet enforced in this slice.
 - `BOW_ENCRYPTION_KEY` is generated per sandbox; persist it if you want stored
   credentials to survive restarts.
