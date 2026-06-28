@@ -83,6 +83,11 @@ observation, held one iteration, then compacted — `read_artifact.py:268`):
    survives the deeper minify.
 5. **`prompt_builder_v3.py`** — planner guidance: previews may be partial; trust
    `row_count`, don't treat a sample/truncated preview as the full result.
+6. **`read_query.py`** — reuse `build_data_preview` instead of `rows[:5]`, so
+   reading a prior result returns the full budgeted set (e.g. all 30 rows of a
+   "Top 30" result) rather than 5. `read_query` is added to the observation
+   compaction loop (single result + each `results_summary` entry) so its now-full
+   preview is sampled after one iteration like create_data.
 
 ---
 
@@ -146,13 +151,14 @@ true total — over data already sitting in `step.data["rows"]`.
 
 ## Deferred — read_query pagination (not in this change)
 
-A follow-up to add `step_id` + `offset`/`limit` paging to the existing
-`read_query` tool (so the planner can scroll the full persisted rows on demand)
-was scoped but **left out** — the budgeted latest window + labeled sample
-already resolve the reported bug, and the paging path may not be needed. If
-revisited: `read_query` already loads the full `step.data` into `output.data`;
-the change is additive (single `step_id`, optional `offset`/`limit`; `query_ids`
-/`visualization_ids` stay multi-id batch reference).
+`read_query` now shares the budgeted preview and the compaction loop (above), so
+it reads the **full** result under the same cap. Only explicit **paging**
+(`step_id` + `offset`/`limit` to scroll beyond the byte budget) was left out — the
+budgeted read covers results that fit ~48 KB, which is the common case, and the
+paging path may not be needed. If revisited it's additive: `read_query` already
+loads the full `step.data` into `output.data`; add a single `step_id` +
+optional `offset`/`limit` while `query_ids`/`visualization_ids` stay multi-id
+batch reference.
 
 ## Rollout / safety
 
