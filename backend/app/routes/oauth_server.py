@@ -24,6 +24,7 @@ from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.services.oauth_server_service import OAuthServerService
+from app.ee.audit.service import audit_service
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -315,13 +316,23 @@ async def create_client(
     redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
 
     service = OAuthServerService()
-    return await service.create_client(
+    client = await service.create_client(
         db=db,
         organization_id=organization.id,
         name=name,
         scopes=scopes,
         redirect_uris=redirect_uris,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="oauth_client.created",
+            user_id=current_user.id, resource_type="oauth_client", resource_id=client.get("id"),
+            details={"name": name, "client_id": client.get("client_id"), "scopes": scopes},
+            request=request,
+        )
+    except Exception:
+        pass
+    return client
 
 
 def _validate_redirect_uris(redirect_uris):
@@ -370,6 +381,15 @@ async def update_client(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="oauth_client.updated",
+            user_id=current_user.id, resource_type="oauth_client", resource_id=client_db_id,
+            details={"name": name, "redirect_uris_changed": redirect_uris is not None},
+            request=request,
+        )
+    except Exception:
+        pass
     return updated
 
 
@@ -390,6 +410,7 @@ async def get_client_info(
 @requires_permission("manage_settings")
 async def delete_client(
     client_db_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
@@ -399,6 +420,14 @@ async def delete_client(
     deleted = await service.delete_client(db, client_db_id, organization.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="oauth_client.deleted",
+            user_id=current_user.id, resource_type="oauth_client", resource_id=client_db_id,
+            request=request,
+        )
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -406,6 +435,7 @@ async def delete_client(
 @requires_permission("manage_settings")
 async def rotate_client_secret(
     client_db_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
@@ -415,4 +445,12 @@ async def rotate_client_secret(
     result = await service.rotate_client_secret(db, client_db_id, organization.id)
     if not result:
         raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="oauth_client.secret_rotated",
+            user_id=current_user.id, resource_type="oauth_client", resource_id=client_db_id,
+            request=request,
+        )
+    except Exception:
+        pass
     return result

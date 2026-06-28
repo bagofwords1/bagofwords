@@ -368,13 +368,26 @@ class ExternalUserMappingService:
                 f"Your account has been verified! You can now use the {platform_name} integration.",
             )
 
+        try:
+            from app.ee.audit.service import audit_service
+            await audit_service.log(
+                db=db, organization_id=str(mapping.organization_id),
+                action="external_user_mapping.verified",
+                user_id=str(current_user.id), resource_type="external_user_mapping",
+                resource_id=str(mapping.id),
+                details={"platform_type": mapping.platform_type,
+                         "external_user_id": mapping.external_user_id},
+            )
+        except Exception:
+            pass
+
         return {
             "success": True,
             "mapping_id": mapping.id,
             "external_user_id": mapping.external_user_id,
             "platform_type": mapping.platform_type
         }
-    
+
     async def get_user_by_id(self, db: AsyncSession, user_id: str) -> Optional[User]:
         """Get user by ID"""
         stmt = select(User).where(User.id == user_id)
