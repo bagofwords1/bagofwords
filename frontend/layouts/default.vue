@@ -165,7 +165,10 @@
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
                 <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                <span class="flex-1 truncate">{{ report.title || $t('reports.untitled') }}</span>
+                <span
+                  class="flex-1 truncate"
+                  :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
+                >{{ report.title || $t('reports.untitled') }}</span>
                 <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400 group-hover/report:opacity-0 transition-opacity" />
               </NuxtLink>
               <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
@@ -540,6 +543,40 @@
     if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()
   })
 
+  // Live title updates: the open report page (pages/reports/[id]) dispatches
+  // `report:updated` after it reloads, which is when the server-generated title
+  // first becomes available. Patch the matching sidebar item in place — no route
+  // change happens, so the route watcher above wouldn't catch it — and fade the
+  // new title in. ids in `titledReportIds` get the `.report-title-fade` class.
+  const titledReportIds = ref<Set<string>>(new Set())
+  const onReportUpdated = (e: Event) => {
+    const detail = (e as CustomEvent).detail || {}
+    const id = detail.id
+    const title = detail.title
+    if (!id) return
+    const item = recentReports.value.find((r: any) => r.id === id)
+    if (!item) {
+      // Report isn't in the recent list yet (e.g. freshly created) — pull it in.
+      fetchRecentReports()
+      return
+    }
+    // Only animate when the title actually changed (e.g. placeholder → real title).
+    if (title && item.title !== title) {
+      item.title = title
+      const next = new Set(titledReportIds.value)
+      next.add(id)
+      titledReportIds.value = next
+      // Clear after the animation so a later list re-render doesn't replay it.
+      setTimeout(() => {
+        const after = new Set(titledReportIds.value)
+        after.delete(id)
+        titledReportIds.value = after
+      }, 800)
+    }
+  }
+  onMounted(() => window.addEventListener('report:updated', onReportUpdated))
+  onBeforeUnmount(() => window.removeEventListener('report:updated', onReportUpdated))
+
   // ── Per-report hover menu: share / rename / star / delete ──────────────
   // Rendered via Teleport (see template) so it escapes the sidebar's
   // transform + overflow clipping; positioned at the click coordinates.
@@ -797,3 +834,18 @@ const createNewReport = async () => {
   }
 
   </script>
+
+<style scoped>
+/* Fade the report title in when it transitions from the "untitled report"
+   placeholder to the server-generated title (see onReportUpdated). */
+@keyframes report-title-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.report-title-fade {
+  animation: report-title-fade 0.45s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-title-fade { animation: none; }
+}
+</style>
