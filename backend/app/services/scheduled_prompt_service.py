@@ -240,12 +240,18 @@ class ScheduledPromptService:
 
     # ---- Execution (called by APScheduler, no HTTP context) ----
 
-    async def scheduled_run_prompt(self, scheduled_prompt_id: str):
-        """Execute a scheduled prompt. Called by APScheduler cron trigger."""
+    async def scheduled_run_prompt(self, scheduled_prompt_id: str, force: bool = False):
+        """Execute a scheduled prompt. Called by APScheduler cron trigger.
+
+        ``force=True`` bypasses the cross-worker claim and is used for manual
+        "Run now" triggers: a single request initiated by one user should always
+        run, even if a cron fire for the same job landed in the current claim
+        window.
+        """
         # Every uvicorn worker/replica runs its own scheduler against the shared
         # job store, so this fires once per worker. Claim the run so exactly one
         # worker proceeds — otherwise subscribers get one email per worker.
-        if not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
+        if not force and not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
             return
         from app.dependencies import async_session_maker
         from app.services.completion_service import CompletionService
@@ -255,7 +261,9 @@ class ScheduledPromptService:
 
         async with async_session_maker() as db:
             sp = await db.get(ScheduledPrompt, scheduled_prompt_id)
-            if not sp or sp.deleted_at or not sp.is_active:
+            # A manual "Run now" (force) runs even while the schedule is paused;
+            # an automated cron fire respects the is_active flag.
+            if not sp or sp.deleted_at or (not sp.is_active and not force):
                 return
 
             user = await db.get(User, sp.user_id)

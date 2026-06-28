@@ -2371,7 +2371,11 @@
     "delete": "حذف",
     "deleteConfirm": "هل تريد حذف هذه المهمة المجدولة؟ لا يمكن التراجع عن هذا الإجراء.",
     "toastDeleted": "تم حذف المهمة المجدولة",
-    "toastDeleteFailed": "فشل حذف المهمة المجدولة"
+    "toastDeleteFailed": "فشل حذف المهمة المجدولة",
+    "runNow": "تشغيل الآن",
+    "runNeedsPrompt": "أضف موجهًا قبل التشغيل",
+    "toastRunStarted": "بدأ التشغيل",
+    "toastRunFailed": "فشل بدء التشغيل"
   },
   "errorPage": {
     "notFoundTitle": "404",

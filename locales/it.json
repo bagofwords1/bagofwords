@@ -2371,7 +2371,11 @@
     "delete": "Elimina",
     "deleteConfirm": "Eliminare questa attività pianificata? L'operazione non può essere annullata.",
     "toastDeleted": "Attività pianificata eliminata",
-    "toastDeleteFailed": "Impossibile eliminare l'attività pianificata"
+    "toastDeleteFailed": "Impossibile eliminare l'attività pianificata",
+    "runNow": "Esegui ora",
+    "runNeedsPrompt": "Aggiungi un prompt prima di eseguire",
+    "toastRunStarted": "Esecuzione avviata",
+    "toastRunFailed": "Impossibile avviare l'esecuzione"
   },
   "errorPage": {
     "notFoundTitle": "404",

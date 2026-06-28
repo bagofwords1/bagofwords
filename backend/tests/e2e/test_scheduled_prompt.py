@@ -371,6 +371,115 @@ def test_non_owner_cannot_delete_scheduled_prompt(
 
 
 @pytest.mark.e2e
+def test_trigger_scheduled_prompt(
+    create_scheduled_prompt,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+    monkeypatch,
+):
+    """Owner can manually trigger ("Run now") a scheduled prompt.
+
+    The run is launched in the background, so we stub the executor to keep the
+    test fast and assert only the endpoint contract (202-style ack).
+    """
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    report = create_report(title="SP Trigger Report", user_token=user_token, org_id=org_id)
+    sp = create_scheduled_prompt(
+        report_id=report["id"],
+        prompt={"content": "Run me now"},
+        cron_schedule="0 8 * * *",
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    from app.services.scheduled_prompt_service import scheduled_prompt_service
+
+    async def fake_run(sp_id, force=False):
+        # Manual triggers must force past the cross-worker claim / paused check.
+        assert force is True
+        assert sp_id == sp["id"]
+
+    monkeypatch.setattr(scheduled_prompt_service, "scheduled_run_prompt", fake_run)
+
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+    response = test_client.post(
+        f"/api/reports/{report['id']}/scheduled-prompts/{sp['id']}/trigger",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["status"] == "triggered"
+    assert body["scheduled_prompt_id"] == sp["id"]
+
+
+@pytest.mark.e2e
+def test_trigger_nonexistent_scheduled_prompt_returns_404(
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Triggering a missing scheduled prompt returns 404 rather than a silent no-op."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    report = create_report(title="SP Trigger 404", user_token=user_token, org_id=org_id)
+
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+    response = test_client.post(
+        f"/api/reports/{report['id']}/scheduled-prompts/{uuid.uuid4()}/trigger",
+        headers=headers,
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.e2e
+def test_non_owner_cannot_trigger_scheduled_prompt(
+    create_scheduled_prompt,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Test that a non-owner cannot trigger a scheduled prompt on someone else's report."""
+    owner_token, member_token, org_id = _setup_owner_and_member(create_user, login_user, whoami, test_client)
+
+    report = create_report(title="Owner's Report", user_token=owner_token, org_id=org_id)
+    sp = create_scheduled_prompt(
+        report_id=report["id"],
+        prompt={"content": "Owner only"},
+        cron_schedule="0 8 * * *",
+        user_token=owner_token,
+        org_id=org_id,
+    )
+
+    headers = {
+        "Authorization": f"Bearer {member_token}",
+        "X-Organization-Id": str(org_id),
+    }
+    response = test_client.post(
+        f"/api/reports/{report['id']}/scheduled-prompts/{sp['id']}/trigger",
+        headers=headers,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.e2e
 def test_non_owner_cannot_list_scheduled_prompts(
     create_scheduled_prompt,
     create_report,

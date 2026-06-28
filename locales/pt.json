@@ -2371,7 +2371,11 @@
     "delete": "Excluir",
     "deleteConfirm": "Excluir esta tarefa agendada? Esta ação não pode ser desfeita.",
     "toastDeleted": "Tarefa agendada excluída",
-    "toastDeleteFailed": "Falha ao excluir a tarefa agendada"
+    "toastDeleteFailed": "Falha ao excluir a tarefa agendada",
+    "runNow": "Executar agora",
+    "runNeedsPrompt": "Adicione um prompt antes de executar",
+    "toastRunStarted": "Execução iniciada",
+    "toastRunFailed": "Falha ao iniciar a execução"
   },
   "errorPage": {
     "notFoundTitle": "404",
