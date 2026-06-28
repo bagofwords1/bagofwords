@@ -1,8 +1,6 @@
 import json
 import logging
-import os
 import sys
-from logging.handlers import RotatingFileHandler
 
 from app.settings.config import settings
 
@@ -37,9 +35,6 @@ class JsonFormatter(logging.Formatter):
 
 def setup_logging():
     """Configure application-wide logging"""
-    # Create logs directory if it doesn't exist
-    os.makedirs("logs", exist_ok=True)
-    
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO if settings.ENVIRONMENT == "production" else logging.DEBUG)
@@ -67,15 +62,6 @@ def setup_logging():
     stderr_handler.setFormatter(formatter)
     stderr_handler.setLevel(logging.ERROR)
     root_logger.addHandler(stderr_handler)
-    
-    # File handler with rotation
-    file_handler = RotatingFileHandler(
-        "logs/app.log",
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
     
     # Set levels for third-party loggers to reduce noise
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
