@@ -4,6 +4,7 @@ import logging
 import os
 import time as _time
 import uuid as _uuid_mod
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
 from pydantic import ValidationError
@@ -130,7 +131,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
@@ -3567,6 +3568,20 @@ class AgentV2:
                 agent_execution=self.current_execution,
                 status=status,
             )
+            # Bump conversation activity so the finalized turn re-floats the report
+            # to the top of the list. Targeted UPDATE by id (not a mutation of
+            # self.report, which may be detached from self.db here — see the title
+            # generation note below) and best-effort so it never fails the turn.
+            try:
+                if self.report is not None:
+                    await self.db.execute(
+                        sa_update(Report)
+                        .where(Report.id == str(self.report.id))
+                        .values(last_activity_at=datetime.utcnow())
+                    )
+                    await self.db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to bump report last_activity_at: {e}")
             # Telemetry: agent execution completed
             try:
                 await telemetry.capture(

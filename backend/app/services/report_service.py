@@ -1240,7 +1240,13 @@ class ReportService:
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
                 selectinload(Report.artifacts)
-            ).order_by(is_starred_order.desc(), Report.created_at.desc()).offset(offset).limit(limit)
+            ).order_by(
+                is_starred_order.desc(),
+                # Sort by real conversation activity (new message / finalized agent
+                # turn), not creation time. Coalesce so reports that predate the
+                # column — or have no activity yet — fall back to created_at.
+                func.coalesce(Report.last_activity_at, Report.created_at).desc(),
+            ).offset(offset).limit(limit)
 
             result = await db.execute(query)
             span.add_event("query executed")

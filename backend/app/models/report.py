@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import Column, String, ForeignKey, Boolean, JSON, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -27,6 +28,12 @@ class Report(BaseSchema):
 
     cron_schedule = Column(String, nullable=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
+    # Last conversation activity: bumped when a new user message is created and
+    # when an agent turn finalizes. Distinct from `updated_at` (which bumps on any
+    # report-row metadata edit) so the report list can sort by real chat activity.
+    # See ReportService.get_reports ordering and the bump points in
+    # completion_service / agent_v2.
+    last_activity_at = Column(DateTime, nullable=True, default=datetime.utcnow, index=True)
     # Subscribers notified after each scheduled rerun
     # Format: [{"type": "user", "id": "..."}, {"type": "email", "address": "..."}]
     notification_subscribers = Column(JSON, nullable=True, default=None)
