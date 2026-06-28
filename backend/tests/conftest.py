@@ -3,6 +3,7 @@ import pytest
 import os
 import sys
 import atexit
+import shutil
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Generator, AsyncGenerator
@@ -290,6 +291,57 @@ def _reset_postgres_schema(alembic_config):
     engine.dispose()
 
 
+def _sqlite_db_file(alembic_config):
+    """Filesystem path of the SQLite test DB from the alembic url."""
+    return alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
+
+
+def _remove_sqlite_files(db_file):
+    """Remove a SQLite DB file and any WAL/SHM sidecars."""
+    for path in (db_file, db_file + "-wal", db_file + "-shm"):
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def _build_sqlite_template(db_file):
+    """Build the per-session SQLite template DB and return its path.
+
+    The sqlite leg used to replay the entire alembic history (150+ revisions)
+    on a file DB for *every* test via upgrade→head / downgrade→base. That
+    per-test cost grew with each new migration until the suite stopped
+    finishing inside the CI timeout and was cancelled mid-run.
+
+    We can't just `create_all` from the ORM models: several revisions are data
+    migrations (e.g. default RBAC roles/permissions, connection backfills) that
+    a schema-only build would skip, breaking permission-dependent tests. So we
+    run the real migration chain exactly once per session into a template file,
+    then each test clones that file (a millisecond filesystem copy) for full
+    fidelity with no per-test replay. The postgres leg still replays migrations
+    per test, keeping the migration chain under CI coverage there.
+    """
+    template_file = db_file + ".template"
+    _remove_sqlite_files(template_file)
+    template_url = f"sqlite:///{template_file}"
+    template_cfg = Config("alembic.ini")
+    template_cfg.set_main_option("sqlalchemy.url", template_url)
+    # alembic/env.py resolves the URL via get_db_url() -> settings.TEST_DATABASE_URL
+    # under TESTING (it ignores the alembic config url), so point that at the
+    # template for the duration of the build, then restore.
+    saved_setting = settings.TEST_DATABASE_URL
+    saved_env = os.environ.get("TEST_DATABASE_URL")
+    settings.TEST_DATABASE_URL = template_url
+    os.environ["TEST_DATABASE_URL"] = template_url
+    try:
+        command.upgrade(template_cfg, "head")
+    finally:
+        settings.TEST_DATABASE_URL = saved_setting
+        if saved_env is not None:
+            os.environ["TEST_DATABASE_URL"] = saved_env
+        else:
+            os.environ.pop("TEST_DATABASE_URL", None)
+    return template_file
+
+
 def _dispose_async_engine():
     """Dispose of the async engine to release all SQLite connections."""
     from app.dependencies import engine
@@ -317,23 +369,51 @@ def _dispose_async_engine():
     time.sleep(0.1)
 
 
+@pytest.fixture(scope="session")
+def sqlite_template(db_backend, alembic_config):
+    """Build the SQLite template DB once per session (see `_build_sqlite_template`).
+
+    Yields the template path for the sqlite backend, or None otherwise.
+    """
+    if db_backend != "sqlite":
+        yield None
+        return
+    template_file = _build_sqlite_template(_sqlite_db_file(alembic_config))
+    yield template_file
+    _remove_sqlite_files(template_file)
+
+
 @pytest.fixture(scope="function", autouse=True)
-def run_migrations(alembic_config, db_backend):
-    """Run migrations per test function for isolation."""
-    
-    if db_backend in ("postgres", "external"):
-        # PostgreSQL (testcontainer or external): reset schema BEFORE test to
-        # avoid stale async connections and to start each test from a clean slate.
-        # Also dispose the engine so the in-memory pool drops any connections
-        # that the prior test left in a closed/aborted state — without this,
-        # the next test inherits half-dead conns and gets "underlying connection
-        # is closed" on first rollback.
-        print("Resetting PostgreSQL schema...")
+def run_migrations(alembic_config, db_backend, sqlite_template):
+    """Build a fresh schema per test for isolation.
+
+    SQLite clones a session-built template DB (fast — see
+    `_build_sqlite_template`); PostgreSQL/external replay the alembic migration
+    chain so that leg still exercises the migrations end-to-end in CI.
+    """
+    if db_backend == "sqlite":
+        # SQLite: dispose engine to release stale connections, then clone the
+        # session template instead of replaying the full migration history.
         _dispose_async_engine()
-        _reset_postgres_schema(alembic_config)
-    elif db_backend == "sqlite":
-        # SQLite: dispose engine before migrations to release any stale connections
+        db_file = _sqlite_db_file(alembic_config)
+        _remove_sqlite_files(db_file)
+        shutil.copyfile(sqlite_template, db_file)
+
+        yield
+
         _dispose_async_engine()
+        _remove_sqlite_files(db_file)
+        return
+
+    # PostgreSQL (testcontainer or external): reset schema BEFORE test to
+    # avoid stale async connections and to start each test from a clean slate.
+    # Also dispose the engine so the in-memory pool drops any connections
+    # that the prior test left in a closed/aborted state — without this,
+    # the next test inherits half-dead conns and gets "underlying connection
+    # is closed" on first rollback.
+    print("Resetting PostgreSQL schema...")
+    _dispose_async_engine()
+    _reset_postgres_schema(alembic_config)
 
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
@@ -341,13 +421,4 @@ def run_migrations(alembic_config, db_backend):
 
     yield
 
-    # Cleanup after test
-    if db_backend == "sqlite":
-        # SQLite: dispose engine first to release connections, then downgrade and remove file
-        print("Cleaning up SQLite...")
-        _dispose_async_engine()
-        command.downgrade(alembic_config, "base")
-        db_file = alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
-        if os.path.exists(db_file):
-            os.remove(db_file)
     # PostgreSQL cleanup happens at START of next test (or container shutdown)
