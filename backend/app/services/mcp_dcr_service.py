@@ -137,6 +137,17 @@ async def ensure_mcp_oauth_config(db, connection) -> bool:
     if not server_url:
         raise ValueError(f"MCP connection {connection.id} has no server_url to discover")
 
+    # SSRF guard: only run discovery + dynamic registration against known catalog
+    # hosts (their resource + authorization-server hosts). Custom/admin URLs that
+    # aren't in the catalog must supply a client manually rather than DCR.
+    from app.schemas.connector_catalog import allowed_dcr_hosts
+    host = urlsplit(server_url).netloc
+    if host not in allowed_dcr_hosts():
+        raise ValueError(
+            f"DCR is not allowed for host '{host}'. Use a catalog connector, or "
+            "configure an OAuth client manually for this connection."
+        )
+
     meta = await discover_mcp_oauth(server_url)
     if not meta.get("registration_endpoint"):
         raise ValueError(

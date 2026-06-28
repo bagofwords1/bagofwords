@@ -370,6 +370,16 @@ async def oauth_callback(
 
     logger.info(f"OAuth credentials saved for user {user.id} on connection {connection_id}")
 
+    # For tool-provider connections (mcp/custom_api), discover tools now using the
+    # user's freshly-stored token so the integration agent has callable tools.
+    try:
+        from app.schemas.data_source_registry import tool_provider_types
+        if connection.type in tool_provider_types():
+            from app.services.connection_service import ConnectionService as _ToolCS
+            await _ToolCS().refresh_tools(db, connection, user)
+    except Exception as e:
+        logger.warning(f"Tool refresh after OAuth sign-in failed: {e}")
+
     # Trigger overlay sync (best-effort)
     try:
         from app.services.data_source_service import DataSourceService

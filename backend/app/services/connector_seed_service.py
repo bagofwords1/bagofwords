@@ -1,0 +1,89 @@
+"""Seed an organization with the default DCR integrations.
+
+On org creation (and via backfill) we create, for each auto-seed catalog entry,
+a "ghost" MCP connection (per-user OAuth / DCR — no admin client) and a public
+integration agent that links it. Users then click "Connect" to sign in with
+their own account; tools are discovered per-user after they connect.
+
+Idempotent: skips an entry whose server_url is already connected for the org.
+Never raises — a seeding failure must not break org creation.
+"""
+import json
+import logging
+
+from sqlalchemy import select
+
+from app.models.connection import Connection
+from app.schemas.connector_catalog import auto_seed_entries
+
+logger = logging.getLogger(__name__)
+
+
+def _conn_server_url(conn: Connection) -> str:
+    try:
+        cfg = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+        return (cfg or {}).get("server_url") or ""
+    except Exception:
+        return ""
+
+
+async def seed_org_connectors(db, organization, user) -> int:
+    """Create ghost connections + public integration agents for auto-seed catalog
+    entries the org doesn't already have. Returns the number seeded."""
+    from app.settings.config import settings
+    if not getattr(settings.bow_config.features, "seed_default_connectors", True):
+        return 0
+
+    from app.services.connection_service import ConnectionService
+    from app.services.data_source_service import DataSourceService
+    from app.schemas.data_source_schema import DataSourceCreate
+
+    entries = auto_seed_entries()
+    if not entries:
+        return 0
+
+    # Existing MCP server_urls for idempotency.
+    existing_urls = set()
+    try:
+        rows = (await db.execute(
+            select(Connection).where(
+                Connection.organization_id == organization.id,
+                Connection.type == "mcp",
+            )
+        )).scalars().all()
+        existing_urls = {_conn_server_url(c) for c in rows}
+    except Exception as e:
+        logger.warning("seed_org_connectors: could not read existing connections: %s", e)
+
+    conn_svc = ConnectionService()
+    ds_svc = DataSourceService()
+    seeded = 0
+    for e in entries:
+        if not e.server_url or e.server_url in existing_urls:
+            continue
+        try:
+            conn = await conn_svc.create_connection(
+                db, organization, user,
+                name=e.title, type="mcp",
+                config={"server_url": e.server_url, "transport": e.transport},
+                credentials={},
+                auth_policy="user_required",
+                allowed_user_auth_modes=["oauth"],
+            )
+            await ds_svc.create_data_source(
+                db, organization, user,
+                DataSourceCreate(
+                    name=e.title,
+                    connection_id=str(conn.id),
+                    is_public=True,
+                    generate_summary=False,
+                    generate_conversation_starters=False,
+                    generate_ai_rules=False,
+                ),
+            )
+            existing_urls.add(e.server_url)
+            seeded += 1
+            logger.info("seed_org_connectors: seeded %s for org %s", e.key, organization.id)
+        except Exception as ex:
+            logger.warning("seed_org_connectors: failed to seed %s: %s", e.key, ex)
+    return seeded
