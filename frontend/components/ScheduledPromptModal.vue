@@ -435,9 +435,33 @@ function buildNotificationSubscribers(): Subscriber[] | null {
     return null
 }
 
+// Scheduled runs execute against the report, so the agents/data sources the run
+// will use come from `report.data_sources` — not the prompt. Keep them in sync
+// with what's selected in the modal so the run hits the chosen data sources.
+// (model + mode live on the prompt; files are uploaded to the report already.)
+async function syncReportDataSources() {
+    const box = promptBoxRef.value
+    const ids = ((box?.getDataSources?.() as any[]) || []).map((d: any) => d?.id).filter(Boolean)
+    // Guard against the modal's async data-source hydration: an empty list here
+    // usually means "not loaded yet", so don't wipe the report's data sources.
+    if (ids.length === 0) return
+    try {
+        await useMyFetch(`/api/reports/${props.reportId}`, {
+            method: 'PUT',
+            body: { data_sources: ids },
+        })
+    } catch {
+        // Best-effort: the scheduled prompt still saves; surface nothing here.
+    }
+}
+
 // Persist the current form state (create or update) and return the raw fetch
 // response. Side-effect free so both the Save button and Run now can reuse it.
 async function persistScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string }) {
+    // Apply data-source selection to the report first so an immediate "Run now"
+    // (which reads report.data_sources at trigger time) uses the chosen agents.
+    await syncReportDataSources()
+
     const body: any = {
         prompt,
         cron_schedule: computeCronSchedule(),

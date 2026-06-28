@@ -668,6 +668,10 @@ class CompletionService:
                                 step=step_obj,
                                 clients=clients,
                                 platform=resolved_platform,
+                                # Honor an explicitly requested mode (chat/deep) so API/scheduled/
+                                # webhook runs aren't forced to default. Falls back to prior
+                                # behavior (None) when the caller didn't specify one.
+                                mode=(completion_data.prompt.mode if completion_data.prompt else None),
                                 platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 build_id=resolved_build_id,
                             )
@@ -734,6 +738,10 @@ class CompletionService:
                         step=step,
                         clients=clients,
                         platform=resolved_platform,
+                        # Honor an explicitly requested mode (chat/deep) so API/scheduled/
+                        # webhook runs aren't forced to default. Falls back to prior
+                        # behavior (None) when the caller didn't specify one.
+                        mode=(completion_data.prompt.mode if completion_data.prompt else None),
                         platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                         build_id=resolved_build_id,
                     )

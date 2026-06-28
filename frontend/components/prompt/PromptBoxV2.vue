@@ -1364,6 +1364,7 @@ defineExpose({
     getMode: () => mode.value,
     getModel: () => selectedModel.value,
     getMentions: () => inlineMentions.value,
+    getDataSources: () => selectedDataSources.value,
 })
 
 // Keep local text in sync with parent-provided content (landing page)
