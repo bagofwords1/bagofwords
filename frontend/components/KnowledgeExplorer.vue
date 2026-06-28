@@ -83,7 +83,7 @@
           </div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : (agent.publish_status === 'disabled' ? 'Disabled' : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="instrLoading ? undefined : agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : (agent.publish_status === 'disabled' ? 'Disabled' : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
@@ -123,9 +123,12 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-left:48px">Uploading…</div>
               </TreeGroup>
 
-              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
-                <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
+              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="instrLoading ? undefined : listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+                <div v-if="instrLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-left:48px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
+                <template v-else>
+                  <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
+                  <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
+                </template>
               </TreeGroup>
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
@@ -819,6 +822,10 @@ const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingM
 
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
+// True until the first /api/instructions load resolves. Drives a Spinner on the
+// Instructions tree nodes so they don't read as "0 / No instructions yet" while
+// the list is still in flight (the rows arrive late on large orgs).
+const instrLoading = ref(true)
 const agents = ref<any[]>([])
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
@@ -1824,7 +1831,7 @@ const expand = (key: string, force?: boolean) => {
 
 // ── Fetching ────────────────────────────────────────────
 const fetchAll = async () => {
-  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) } finally { instrLoading.value = false }
 }
 // Refresh BOTH the instruction list and the pending-builds map so the left tree
 // (Pending review count, top "N pending" badge, per-row amber dots) stays in
@@ -2294,8 +2301,13 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  // Render the tree as soon as agents + instructions are in. fetchPendingMap()
+  // only feeds the decorative amber "pending" dots / "N pending" badge, so it's
+  // fired without blocking — the dots fill in a beat later instead of gating the
+  // whole tree on the heaviest call.
+  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   restoreFromRoute()
+  fetchPendingMap()
 })
 </script>
 
