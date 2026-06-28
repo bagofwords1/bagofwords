@@ -2957,6 +2957,17 @@ async function loadReport() {
 	}
 	report.value = data.value
 	reportLoaded.value = true
+	// Notify the sidebar (layouts/default.vue) so it can refresh this report's
+	// title in its recent-reports list without a route change. The title is
+	// generated server-side after the agent finishes, so loadReport() (called
+	// on [DONE]) is the moment the fresh title becomes available here.
+	try {
+		if (data.value?.id) {
+			window.dispatchEvent(new CustomEvent('report:updated', {
+				detail: { id: data.value.id, title: data.value.title }
+			}))
+		}
+	} catch {}
 }
 
 async function loadVisualizations() {

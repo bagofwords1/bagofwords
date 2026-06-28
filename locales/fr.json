@@ -2371,7 +2371,11 @@
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer cette tâche planifiée ? Cette action est irréversible.",
     "toastDeleted": "Tâche planifiée supprimée",
-    "toastDeleteFailed": "Échec de la suppression de la tâche planifiée"
+    "toastDeleteFailed": "Échec de la suppression de la tâche planifiée",
+    "runNow": "Exécuter maintenant",
+    "runNeedsPrompt": "Ajoutez une instruction avant d'exécuter",
+    "toastRunStarted": "Exécution lancée",
+    "toastRunFailed": "Échec du lancement de l'exécution"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -2646,7 +2646,11 @@
     "delete": "Delete",
     "deleteConfirm": "Delete this scheduled task? This cannot be undone.",
     "toastDeleted": "Scheduled task deleted",
-    "toastDeleteFailed": "Failed to delete scheduled task"
+    "toastDeleteFailed": "Failed to delete scheduled task",
+    "runNow": "Run now",
+    "runNeedsPrompt": "Add a prompt before running",
+    "toastRunStarted": "Run started",
+    "toastRunFailed": "Failed to start run"
   },
   "errorPage": {
     "notFoundTitle": "404",

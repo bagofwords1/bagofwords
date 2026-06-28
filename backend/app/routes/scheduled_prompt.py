@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -155,8 +157,17 @@ async def trigger_scheduled_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Manually trigger a scheduled prompt execution (for testing / on-demand runs)."""
-    await scheduled_prompt_service.scheduled_run_prompt(sp_id)
+    """Manually trigger a scheduled prompt execution (for testing / on-demand runs).
+
+    The run is launched in the background so the request returns immediately —
+    the agent run can take a while, and the caller (e.g. the "Run now" button)
+    should not block on it. ``force=True`` bypasses the cross-worker claim and
+    the paused check so a manual run always executes.
+    """
+    # Validate existence/visibility before kicking off the background run so the
+    # caller gets a clean 404 instead of a silent no-op.
+    await scheduled_prompt_service.get_scheduled_prompt(db, sp_id)
+    asyncio.create_task(scheduled_prompt_service.scheduled_run_prompt(sp_id, force=True))
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="scheduled_prompt.triggered",

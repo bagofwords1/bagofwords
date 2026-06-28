@@ -2371,7 +2371,11 @@
     "delete": "Ta bort",
     "deleteConfirm": "Ta bort den här schemalagda uppgiften? Detta kan inte ångras.",
     "toastDeleted": "Schemalagd uppgift borttagen",
-    "toastDeleteFailed": "Det gick inte att ta bort den schemalagda uppgiften"
+    "toastDeleteFailed": "Det gick inte att ta bort den schemalagda uppgiften",
+    "runNow": "Kör nu",
+    "runNeedsPrompt": "Lägg till en prompt innan du kör",
+    "toastRunStarted": "Körning startad",
+    "toastRunFailed": "Det gick inte att starta körningen"
   },
   "errorPage": {
     "notFoundTitle": "404",

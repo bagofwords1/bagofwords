@@ -2371,7 +2371,11 @@
     "delete": "Löschen",
     "deleteConfirm": "Diese geplante Aufgabe löschen? Dies kann nicht rückgängig gemacht werden.",
     "toastDeleted": "Geplante Aufgabe gelöscht",
-    "toastDeleteFailed": "Geplante Aufgabe konnte nicht gelöscht werden"
+    "toastDeleteFailed": "Geplante Aufgabe konnte nicht gelöscht werden",
+    "runNow": "Jetzt ausführen",
+    "runNeedsPrompt": "Füge einen Prompt hinzu, bevor du ausführst",
+    "toastRunStarted": "Ausführung gestartet",
+    "toastRunFailed": "Ausführung konnte nicht gestartet werden"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -2449,7 +2449,11 @@
     "delete": "מחיקה",
     "deleteConfirm": "למחוק את המשימה המתוזמנת הזו? לא ניתן לבטל פעולה זו.",
     "toastDeleted": "המשימה המתוזמנת נמחקה",
-    "toastDeleteFailed": "מחיקת המשימה המתוזמנת נכשלה"
+    "toastDeleteFailed": "מחיקת המשימה המתוזמנת נכשלה",
+    "runNow": "הרץ עכשיו",
+    "runNeedsPrompt": "הוסף הנחיה לפני ההרצה",
+    "toastRunStarted": "ההרצה החלה",
+    "toastRunFailed": "ההרצה נכשלה"
   },
   "errorPage": {
     "notFoundTitle": "404",
