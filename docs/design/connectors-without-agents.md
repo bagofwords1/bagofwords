@@ -1,7 +1,104 @@
 # Connectors without Agents
 
-**Status:** Design (no implementation yet)
+**Status:** Design — partially implemented (DCR + tools-only data source shipped; see "Build status").
 **Branch:** `claude/connectors-without-agents-tnoa6p`
+
+> **Read this first — FINAL MODEL (authoritative).** The sections below "Final model"
+> are earlier investigation/iterations kept for history; where they conflict (e.g.
+> "members create their own connections", the `is_connector` boolean), the **Final
+> model** wins.
+
+## Final model (authoritative)
+
+### Concept: Integrations vs Agents
+- **Agent** — a custom, analytical data source (DB/files) the org builds: schema, instructions,
+  evals, publishing. Unchanged.
+- **Integration** — a pre-built **app connector** (Monday, Notion, Jira, Linear, Gmail, …):
+  shared/public, **per-user identity**, runs through the **same agent loop**, but marked as a
+  distinct `kind` and shown in its own UI category. No eval/publish/sub-agent surfaces; no shared
+  instruction layer in v1.
+
+A data source gets a discriminator **`kind = "agent" | "integration"`** (replaces the earlier
+`is_connector` boolean — keep the same idea, better name; UI label **"Integrations"**).
+
+### How an Integration is set up (OneDrive pattern)
+One **shared connection + shared integration agent** per provider (NOT one per user):
+- The connection is the shared **OAuth client / app shell** — carries no user data.
+- `auth_policy="user_required"`: **each user clicks "Connect" and signs in with their own account**
+  → their own token in `UserConnectionCredentials` keyed by `(connection, user)`. The agent runs
+  tools as whoever is asking (OBO). Only the *app registration* is "global"; *identity* is per-user.
+
+### Auto-seed on org creation
+When an org is created (and backfilled for existing orgs), auto-seed the **popular, ready-out-of-box
+(DCR)** integrations as ghost connections (URL only) + public integration agents, immediately
+usable — users just "Connect". Seed set (all verified DCR-capable, zero admin setup):
+**Monday, Notion, Jira/Atlassian, Linear, Sentry.** Admin can disable any; non-seeded entries are
+available on demand from the catalog.
+
+### Per-entry catalog descriptor
+Each catalog/registry entry declares:
+- `auth`: `dcr` | `oauth_app` | `bearer` | `api_key` | `none`
+- **`ready_out_of_box`** (derived): true when no admin action is needed before a user can connect —
+  `dcr`, user-supplied `bearer`/`api_key`, or `oauth_app` whose client creds are **bundled** in the
+  catalog. False for `admin_oauth`/`system_only` (admin must configure first). Drives UI:
+  **"Connect"** vs **"Set up required (admin)"**.
+- `auto_seed`: seed on org creation (only the popular ready-out-of-box set).
+- governance: `enabled_for_members`, `allowed_auth`, optional role/group scope.
+
+### Auth support (all via the same per-user flow)
+- **MCP DCR** — discover (RFC 9728/8414) + dynamically register (RFC 7591); zero admin. *Built + verified vs Notion.*
+- **MCP OAuth (admin/bundled app)** — preconfigured/bundled `client_id`; `ensure_mcp_oauth_config` no-ops and uses it. *Supported (same path).*
+- **Bearer / API key** — user (or admin) supplies a token/PAT.
+- **None** — public MCP.
+Shared app/client per connection; per-user token (OBO). `client_secret` optional (public clients).
+
+### Provider / auth matrix (probed live, 2026-06)
+| Provider | Auth | Admin setup? |
+| --- | --- | --- |
+| Monday | DCR (`mcp.monday.com/register`) | none — auto-seed |
+| Notion | DCR (`mcp.notion.com/register`) | none — auto-seed |
+| Jira / Atlassian | DCR (`cf.mcp.atlassian.com/v1/register`, AS = `auth.atlassian.com`) | none — auto-seed |
+| Linear | DCR (`mcp.linear.app/register`) | none — auto-seed |
+| Sentry | DCR (`mcp.sentry.dev/oauth/register`) | none — auto-seed |
+| Gmail | `oauth_app` — Google Cloud OAuth client (no official remote DCR MCP) | admin registers, or bundle in catalog |
+| Supabase | `bearer`/PAT (no DCR at root) | user supplies a personal access token |
+| GitHub | OAuth (no root AS metadata; needs app) | admin/app |
+
+### Licensing — scoped by `data_shape`
+Per-user auth (`user_required` / OAuth / OBO) is:
+- **Free** for `data_shape ∈ {tools, files, objects}` — integrations (MCP, OneDrive/GDrive,
+  popular apps). "Connect your own app" is table-stakes.
+- **Enterprise** for `data_shape == "tables"` — per-user identity / OBO on warehouses/DBs
+  (Snowflake, Postgres, Fabric, PowerBI, BigQuery). Plus **governance** (member allowlist,
+  role/group scoping, audit) is Enterprise.
+Gate change: require the enterprise license for `user_required` **only when `data_shape == "tables"`**
+(the two checks in `connection_service.py`).
+
+### Governance (admin decides what/how)
+Org-level connector policy (Enterprise for the controls; the basic connect is free):
+`member_self_serve: off | catalog_only(default) | allowlisted | any_url`; per-catalog-entry
+`enabled_for_members` + `allowed_auth` + optional role scope; host allowlist (also the DCR SSRF
+guard). The set of seeded/enabled connectors *is* the allowlist.
+
+### Per-tool policy & isolation
+- Integrations are shared (public) but per-user identity → no cross-user data leak (each user's
+  token + per-user catalog). Any instructions on a shared integration are org-level guidance only;
+  **no personal data on the agent**. (v1: no shared instruction layer on integrations.)
+- Tool enable/policy (`allow|confirm|deny`) via `ConnectionTool`; `confirm` → at-prompt confirmation.
+
+### Build status (current branch)
+- ✅ Outbound MCP **DCR** (discover + RFC 7591) wired into the authorize route; public-client
+  support; verified live vs **Notion** (direct 13/13, app-route 6/6, mock 11/11).
+- ✅ tools-only data source runs through the agent (real Claude e2e 13/13); auto tool-discovery on
+  create; schema-introspection skip for tool providers.
+- ✅ `is_connector` flag + "/agents" badge (to be **renamed `kind="integration"`** per this model).
+- ✅ `create_private_connector` permission (becomes the *secondary* "custom connector" path).
+- ⬜ **To build:** org-creation **auto-seed** of popular DCR integrations (+ backfill); catalog
+  registry + `ready_out_of_box`/`auto_seed` flags; `data_shape`-scoped license gate; rename to
+  `kind="integration"` + UI "Integrations" category; SSRF allowlist for non-seeded URLs; admin
+  governance policy + (Enterprise) role scoping/audit.
+
+---
 
 ## Goal
 
