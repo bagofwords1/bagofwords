@@ -22,6 +22,32 @@ def _ds_is_connector(d) -> bool:
     tps = tool_provider_types()
     conns = getattr(d, "connections", None) or []
     return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
+
+
+def _ds_connector_key(d):
+    """The catalog key (e.g. 'notion', 'monday') for a seeded/known connector so
+    the UI can render the provider's icon. Read from a connection's
+    config.catalog_key, else matched by server_url against the catalog. None if
+    not a known catalog connector."""
+    import json as _json
+    try:
+        from app.schemas.connector_catalog import CATALOG
+        by_url = {e.server_url: e.key for e in CATALOG if getattr(e, "server_url", None)}
+    except Exception:
+        by_url = {}
+    for c in (getattr(d, "connections", None) or []):
+        cfg = c.config
+        if isinstance(cfg, str):
+            try:
+                cfg = _json.loads(cfg)
+            except Exception:
+                cfg = {}
+        cfg = cfg or {}
+        if cfg.get("catalog_key"):
+            return cfg["catalog_key"]
+        if cfg.get("server_url") in by_url:
+            return by_url[cfg["server_url"]]
+    return None
 from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
@@ -1082,6 +1108,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
+                connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
@@ -1226,6 +1253,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
+                connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
@@ -1312,6 +1340,7 @@ class DataSourceService:
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
+                connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
                 user_status=connections_list[0].user_status if connections_list else None,

@@ -210,6 +210,9 @@ class DataSourceListItemSchema(BaseModel):
     # data_shape="tools"). Lets /agents surface these as "connectors" — a
     # lightweight, often private, tools-only data source — vs analytical agents.
     is_connector: bool = False
+    # Catalog key for a known connector (e.g. "notion", "monday"), so the UI can
+    # render the provider's icon instead of the generic MCP glyph. None otherwise.
+    connector_key: Optional[str] = None
 
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None

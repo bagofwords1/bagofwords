@@ -112,7 +112,9 @@ async def seed_org_connectors(db, organization, user) -> int:
             conn = await conn_svc.create_connection(
                 db, organization, user,
                 name=e.title, type="mcp",
-                config={"server_url": e.server_url, "transport": e.transport},
+                # catalog_key lets the UI render the provider's icon (the
+                # connection type is just "mcp" for all of them).
+                config={"server_url": e.server_url, "transport": e.transport, "catalog_key": e.key},
                 credentials={},
                 auth_policy="user_required",
                 allowed_user_auth_modes=["oauth"],
