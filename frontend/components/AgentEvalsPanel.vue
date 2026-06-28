@@ -3,7 +3,7 @@
         <div class="px-6 py-5">
             <!-- Inline stat row -->
             <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-4">
-                <span class="inline-flex items-center gap-1.5">
+                <span v-if="!isGlobal" class="inline-flex items-center gap-1.5">
                     Status:
                     <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', reliabilityBadgeClass]">
                         <UIcon :name="reliabilityIcon" class="w-3 h-3" />{{ reliabilityLabel }}
@@ -27,7 +27,7 @@
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
-                    <button v-if="canManage" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
+                    <button v-if="canManage && !isGlobal" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
                     <input
                         v-if="activeTab === 'tests'"
                         v-model="searchTerm"
@@ -113,12 +113,12 @@
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-xs text-gray-500 dark:text-gray-400">Every eval run — manual checks and automation.</div>
-                    <UButton v-if="canManage && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
+                    <UButton v-if="canManage && !isGlobal && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
                         :loading="triggering" @click="runAutomationNow">
                         Run evals now
                     </UButton>
                 </div>
-                <div v-if="canManage && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
+                <div v-if="canManage && !isGlobal && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
                     <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                         <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500 shrink-0" />
                         Self Learning is off — auto-run evals &amp; self-heal instructions when things change.
@@ -205,8 +205,11 @@ const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 
-const props = defineProps<{ agentId: string }>()
+const props = defineProps<{ agentId?: string; global?: boolean }>()
 const agentId = computed(() => props.agentId || '')
+// Global mode shows org-wide evals (cases not scoped to any data source/agent),
+// which apply to ALL agents. Admin-gated via the `manage_evals` org permission.
+const isGlobal = computed(() => !!props.global)
 
 interface TestCaseRow {
     id: string
@@ -246,13 +249,15 @@ const selectedCaseId = ref('')
 // Filter cases to this agent
 const agentCases = computed(() => {
     const id = agentId.value
-    if (!id) return []
+    if (!isGlobal.value && !id) return []
     const term = searchTerm.value.trim().toLowerCase()
     return allCases.value.filter(c => {
         // Auto / empty data sources => "all agents" (like a global instruction).
         const dsids = c.data_source_ids_json || []
-        const hasAgent = dsids.length === 0 || dsids.includes(id)
-        if (!hasAgent) return false
+        // Global view: only org-wide cases (no data-source scope). Agent view:
+        // org-wide cases + cases scoped to this agent.
+        const matches = isGlobal.value ? dsids.length === 0 : (dsids.length === 0 || dsids.includes(id))
+        if (!matches) return false
         if (term) return (c.prompt_json?.content || '').toLowerCase().includes(term)
         return true
     })
@@ -261,7 +266,7 @@ const agentCases = computed(() => {
 // Filter runs that contain any of this agent's cases
 const agentCaseIds = computed(() => new Set(agentCases.value.map(c => c.id)))
 const agentRuns = computed(() => {
-    if (!agentId.value) return []
+    if (!isGlobal.value && !agentId.value) return []
     return allRuns.value.filter(r => {
         const caseIds = runResultsCaseIds.value[r.id]
         if (!caseIds) return false
@@ -567,14 +572,16 @@ async function loadRuns() {
     }
 }
 
-watch(agentId, (id) => {
-    if (id) { loadSuites().then(loadCases); loadRuns() }
+watch(agentId, () => {
+    if (isGlobal.value || agentId.value) { loadSuites().then(loadCases); loadRuns() }
 }, { immediate: true })
 
 // ===== Reliability automation =====
 
 const canManage = computed(() =>
-    agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false,
+    isGlobal.value
+        ? useCan('manage_evals')
+        : (agentId.value ? useCan('manage', { type: 'data_source', id: agentId.value }) : false),
 )
 
 const autoEnabled = ref<boolean | null>(null)
