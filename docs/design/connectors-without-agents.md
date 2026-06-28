@@ -91,12 +91,41 @@ guard). The set of seeded/enabled connectors *is* the allowlist.
   support; verified live vs **Notion** (direct 13/13, app-route 6/6, mock 11/11).
 - ✅ tools-only data source runs through the agent (real Claude e2e 13/13); auto tool-discovery on
   create; schema-introspection skip for tool providers.
-- ✅ `is_connector` flag + "/agents" badge (to be **renamed `kind="integration"`** per this model).
-- ✅ `create_private_connector` permission (becomes the *secondary* "custom connector" path).
-- ⬜ **To build:** org-creation **auto-seed** of popular DCR integrations (+ backfill); catalog
-  registry + `ready_out_of_box`/`auto_seed` flags; `data_shape`-scoped license gate; rename to
-  `kind="integration"` + UI "Integrations" category; SSRF allowlist for non-seeded URLs; admin
-  governance policy + (Enterprise) role scoping/audit.
+- ✅ `is_connector` flag + "/agents" badge (consolidate with the registry's existing
+  `is_connection=false` / `ui_form="integration"` — one source of truth — when building).
+- ❌ **Removed (cleanup):** the `create_private_connector` permission + the dynamic
+  `create_data_source` route + its migration. The member-mints-own-connection path conflicted with
+  the seeded shared-integration model (per-user connection sprawl). Reverted to admin-only create;
+  members get integrations via **Connect** on seeded/admin agents (existing `IntegrationConnectionForm`
+  already auto-creates a public agent; `useConnectionSignIn` already does the per-user OAuth/DCR redirect).
+
+**Frontend already provides (reuse — discovered in KnowledgeExplorer audit):**
+- `IntegrationConnectionForm.vue` — admin registers an integration, `user_required`+`oauth`, **auto-creates a public agent**.
+- `AddConnectionModal.vue` — buckets integrations vs data sources (`is_connection`), routes by `ui_form`.
+- `useConnectionSignIn.ts` + `needsSignIn()` + "Connect" badge — per-user OAuth redirect (now triggers DCR).
+
+**To build (reduced to the real gaps):**
+1. **DCR auth option in `MCPConnectionForm`** — a "Sign in (auto-register / DCR)" choice that needs only `server_url` (no client creds); backend already handles it.
+2. **Per-provider catalog tiles** — named registry-style entries (preset `server_url` + icon + `default_auth="oauth"`) for the default DCR connectors below.
+3. **Org-creation auto-seed** (+ backfill) of the default DCR connectors → ghost connections + public integration agents.
+4. **`data_shape`-scoped license gate** — free per-user auth for `tools`/`files`/`objects`, Enterprise for `tables`.
+5. (later) SSRF allowlist for non-seeded URLs; admin governance policy + Enterprise role scoping/audit.
+
+### Default DCR connectors (seed set)
+Auto-seeded on org creation as ghost connections (`auth_policy="user_required"`,
+`allowed_user_auth_modes=["oauth"]`, no client → DCR), public `integration` agents, `data_shape="tools"`,
+per-user auth **free**. All verified DCR-capable (live probe, 2026-06):
+
+| key | title | server_url | registration_endpoint | default_auth | auto_seed |
+| --- | --- | --- | --- | --- | --- |
+| `monday` | Monday | `https://mcp.monday.com/mcp` | `https://mcp.monday.com/register` | `oauth` (DCR) | ✅ |
+| `notion` | Notion | `https://mcp.notion.com/mcp` | `https://mcp.notion.com/register` | `oauth` (DCR) | ✅ |
+| `atlassian` | Jira / Atlassian | `https://mcp.atlassian.com/v1/sse` | `https://cf.mcp.atlassian.com/v1/register` (AS `auth.atlassian.com`) | `oauth` (DCR) | ✅ |
+| `linear` | Linear | `https://mcp.linear.app/mcp` | `https://mcp.linear.app/register` | `oauth` (DCR) | ✅ |
+| `sentry` | Sentry | `https://mcp.sentry.dev/mcp` | `https://mcp.sentry.dev/oauth/register` | `oauth` (DCR) | ✅ |
+
+Not auto-seeded (need a client/token — available on demand): **GitHub** (`oauth_app`, bundled or admin
+app), **Gmail** (`oauth_app` + Google verification/Workspace approval), **Supabase** (`bearer`/PAT).
 
 ---
 
