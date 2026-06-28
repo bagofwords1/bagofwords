@@ -103,29 +103,39 @@ class Reporter:
             data_blocks += f"\n        Business context / instructions:\n        {instructions_context}\n"
 
         grounding_rule = (
-            "- Only suggest questions answerable from the available data above — reference dimensions, "
-            "metrics, segments, or time columns that actually exist. Never invent metrics the data can't support."
+            "- When a suggestion IS a data question, ground it in the available data above — reference "
+            "dimensions, metrics, segments, or time columns that actually exist, and never invent metrics the data can't support."
             if schemas_context else
-            "- Keep suggestions answerable from the kind of data discussed; do not invent specifics."
+            "- When a suggestion is a data question, keep it answerable from the kind of data discussed; do not invent specifics."
         )
 
         return f"""
-        You are helping a user explore their data with an analytics assistant.
-        Given the recent conversation and the available data context, propose up
-        to {max_suggestions} natural follow-up questions the user might ask next.
-        {data_blocks}
+        You are suggesting what a user might click to ask next in an assistant conversation.
+        The RECENT CONVERSATION is the primary driver: every suggestion must be a natural
+        continuation of what the user and assistant were just doing. Propose up to
+        {max_suggestions} follow-ups.
+
         Conversation so far:
         {messages_context}
+        {data_blocks}
+        First, read the conversation to decide what kind of follow-ups fit:
+        - If the last turn was a data/analytics question, suggest natural next data questions,
+          grounded in the available data above.
+        - If the last turn was NOT a data question (e.g. scheduling a task, sending an
+          email/notification, changing a setting, or another non-analytical request), suggest
+          follow-ups that continue THAT task. Do not pivot to unrelated data questions just
+          because data happens to be available — the available data is supporting context only.
 
         Rules:
-        - Each suggestion is a single, self-contained question the user could click to ask next.
+        - Each suggestion is a single, self-contained prompt the user could click to send next.
         - Keep them short (max ~12 words), specific, and genuinely useful given the conversation.
+        - Suggestions must follow from the recent conversation — never generic questions disconnected from it.
         {grounding_rule}
-        - Prefer drilling into dimensions, time trends, comparisons, or segments present in the data.
-        - Do not repeat questions already asked. Do not number them.
+        - Do not repeat questions or actions already done. Do not number them.
         - Write the suggestions in the SAME language the conversation above is in. Keep column names, identifiers, and metric names as-is.
         Return ONLY a JSON array of strings, nothing else.
-        Example: ["How did revenue trend last quarter?", "Which region grew fastest?"]
+        Example (data turn): ["How did revenue trend last quarter?", "Which region grew fastest?"]
+        Example (non-data turn, e.g. a scheduled email): ["Change the daily send time?", "Stop the daily email", "Also send it to my manager?"]
         """
 
     def _training_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions):
