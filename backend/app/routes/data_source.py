@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from typing import Optional, List, Union
+
+from app.ee.audit.service import audit_service
 
 from app.models.user import User
 from app.core.auth import current_user
@@ -215,11 +217,21 @@ async def get_data_source_full_schema(
 async def update_table_status_in_schema(
     data_source_id: str,
     tables: list[DataSourceTableSchema],
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.update_table_status_in_schema(db, data_source_id, tables, organization)
+    result = await data_source_service.update_table_status_in_schema(db, data_source_id, tables, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tables_updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"table_count": len(tables or [])}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.post("/data_sources/{data_source_id}/bulk_update_tables", response_model=DeltaUpdateTablesResponse)
@@ -227,17 +239,18 @@ async def update_table_status_in_schema(
 async def bulk_update_tables(
     data_source_id: str,
     request: BulkUpdateTablesRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
     """
     Bulk activate/deactivate tables matching filter criteria.
-    
+
     - action: "activate" or "deactivate"
     - filter: {"schema": ["schema1", "schema2"], "search": "pattern"}
     """
-    return await data_source_service.bulk_update_tables_status(
+    result = await data_source_service.bulk_update_tables_status(
         db=db,
         data_source_id=data_source_id,
         organization=organization,
@@ -245,6 +258,15 @@ async def bulk_update_tables(
         filter_params=request.filter,
         current_user=current_user,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tables_bulk_updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"action": request.action, "filter": request.filter}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.put("/data_sources/{data_source_id}/update_tables_status", response_model=DeltaUpdateTablesResponse)
@@ -252,17 +274,18 @@ async def bulk_update_tables(
 async def update_tables_status_delta(
     data_source_id: str,
     request: DeltaUpdateTablesRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
     """
     Update table is_active status using delta (efficient for large table counts).
-    
+
     - activate: list of table names to set is_active=True
     - deactivate: list of table names to set is_active=False
     """
-    return await data_source_service.update_tables_status_delta(
+    result = await data_source_service.update_tables_status_delta(
         db=db,
         data_source_id=data_source_id,
         organization=organization,
@@ -270,6 +293,16 @@ async def update_tables_status_delta(
         deactivate=request.deactivate,
         current_user=current_user,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tables_updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"activated": len(request.activate or []),
+                     "deactivated": len(request.deactivate or [])}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/data_sources/{data_source_id}/generate_items", response_model=dict)
@@ -287,11 +320,21 @@ async def generate_data_source_items(
 @requires_resource_permission('data_source', 'manage')
 async def llm_sync(
     data_source_id: str,
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.llm_sync(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+    result = await data_source_service.llm_sync(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.llm_synced",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.get("/data_sources/{data_source_id}/refresh_schema", response_model=list)
 @requires_resource_permission('data_source', 'view_schema')
@@ -317,19 +360,29 @@ async def get_metadata_resources(
 @requires_resource_permission('data_source', 'manage')
 async def update_metadata_resources(
     data_source_id: str,
+    http_request: Request,
     resources: list = Body(...),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
     """Update the active status of metadata resources for a data source"""
-    return await data_source_service.update_resources_status(
+    result = await data_source_service.update_resources_status(
         db=db,
         data_source_id=data_source_id,
         resources=resources,
         organization=organization,
         current_user=current_user
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.metadata_resources_updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"resource_count": len(resources or [])}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/data_sources/{data_source_id}/members", response_model=list[DataSourceMembershipSchema])
@@ -347,22 +400,42 @@ async def get_data_source_members(
 async def add_data_source_member(
     data_source_id: str,
     member: DataSourceMembershipCreate,
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.add_data_source_member(db, data_source_id, member, organization, current_user)
+    result = await data_source_service.add_data_source_member(db, data_source_id, member, organization, current_user)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.member_added",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"user_id": getattr(member, "user_id", None)}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.delete("/data_sources/{data_source_id}/members/{user_id}", status_code=204)
 @requires_resource_permission('data_source', 'manage')
 async def remove_data_source_member(
     data_source_id: str,
     user_id: str,
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.remove_data_source_member(db, data_source_id, user_id, organization, current_user)
+    result = await data_source_service.remove_data_source_member(db, data_source_id, user_id, organization, current_user)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.member_removed",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"user_id": str(user_id)}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 # ==================== Domain-Connection Routes ====================
@@ -393,13 +466,14 @@ async def get_domain_connections(
 async def add_connection_to_domain(
     data_source_id: str,
     connection_id: str,
+    http_request: Request,
     sync_tables: bool = True,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
     """Add a connection to an agent (M:N relationship)."""
-    return await data_source_service.add_connection_to_domain(
+    result = await data_source_service.add_connection_to_domain(
         db=db,
         data_source_id=data_source_id,
         connection_id=connection_id,
@@ -407,6 +481,15 @@ async def add_connection_to_domain(
         current_user=current_user,
         sync_tables=sync_tables,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.connection_linked",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"connection_id": str(connection_id)}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.delete("/data_sources/{data_source_id}/connections/{connection_id}")
@@ -414,15 +497,25 @@ async def add_connection_to_domain(
 async def remove_connection_from_domain(
     data_source_id: str,
     connection_id: str,
+    http_request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
     """Remove a connection from an agent."""
-    return await data_source_service.remove_connection_from_domain(
+    result = await data_source_service.remove_connection_from_domain(
         db=db,
         data_source_id=data_source_id,
         connection_id=connection_id,
         organization=organization,
         current_user=current_user,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.connection_unlinked",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"connection_id": str(connection_id)}, request=http_request,
+        )
+    except Exception:
+        pass
+    return result

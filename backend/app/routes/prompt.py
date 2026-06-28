@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -11,6 +11,7 @@ from app.core.auth import current_user
 from app.models.user import User
 from app.models.organization import Organization
 from app.dependencies import get_async_db, get_current_organization
+from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["prompts"])
 
@@ -47,11 +48,20 @@ async def get_prompt(
 @router.post("/prompts", response_model=PromptResponse)
 async def create_prompt(
     data: PromptCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     p = await prompt_service.create_prompt(db, data, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="prompt.created",
+            user_id=current_user.id, resource_type="prompt", resource_id=p.id,
+            details={"title": p.title, "scope": p.scope}, request=request,
+        )
+    except Exception:
+        pass
     return await prompt_service.get_prompt_response(db, p.id, current_user, organization)
 
 
@@ -59,28 +69,49 @@ async def create_prompt(
 async def update_prompt(
     prompt_id: str,
     data: PromptUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     p = await prompt_service.update_prompt(db, prompt_id, data, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="prompt.updated",
+            user_id=current_user.id, resource_type="prompt", resource_id=p.id,
+            details={"title": p.title, "scope": p.scope,
+                     "fields": list(data.dict(exclude_unset=True).keys())},
+            request=request,
+        )
+    except Exception:
+        pass
     return await prompt_service.get_prompt_response(db, p.id, current_user, organization)
 
 
 @router.delete("/prompts/{prompt_id}")
 async def delete_prompt(
     prompt_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     await prompt_service.delete_prompt(db, prompt_id, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="prompt.deleted",
+            user_id=current_user.id, resource_type="prompt", resource_id=prompt_id,
+            request=request,
+        )
+    except Exception:
+        pass
     return {"ok": True}
 
 
 @router.post("/prompts/{prompt_id}/run", response_model=PromptRunResponse)
 async def run_prompt(
     prompt_id: str,
+    request: Request,
     data: PromptRunRequest = Body(default=PromptRunRequest()),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -88,9 +119,18 @@ async def run_prompt(
 ):
     """Run a prompt as the caller → a new report the caller owns. Returns
     { report_id } so the client can navigate to the streaming report."""
-    return await prompt_service.run_prompt(
+    result = await prompt_service.run_prompt(
         db, prompt_id, current_user, organization, parameters=data.parameters,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="prompt.run",
+            user_id=current_user.id, resource_type="prompt", resource_id=prompt_id,
+            details={"report_id": result.get("report_id")}, request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.post("/prompts/{prompt_id}/run-for", response_model=PromptRunForResponse)
