@@ -176,7 +176,16 @@
                     <span v-else />
                     <div class="flex justify-end gap-2">
                         <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">{{ $t('scheduledPrompt.cancel') }}</UButton>
-                        <UButton color="blue" size="xs" :loading="isSaving" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
+                        <UButton
+                            color="gray"
+                            variant="soft"
+                            size="xs"
+                            icon="i-heroicons-play"
+                            :loading="isRunning"
+                            :disabled="isSaving"
+                            @click="runNow"
+                        >{{ $t('scheduledPrompt.runNow') }}</UButton>
+                        <UButton color="blue" size="xs" :loading="isSaving" :disabled="isRunning" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
                     </div>
                 </div>
             </template>
@@ -206,6 +215,7 @@ const emit = defineEmits(['saved', 'deleted'])
 
 const isOpen = defineModel<boolean>({ default: false })
 const isSaving = ref(false)
+const isRunning = ref(false)
 const isDeleting = ref(false)
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
@@ -349,15 +359,52 @@ async function handlePromptSubmit(payload: { text: string; mentions: any[]; mode
     })
 }
 
-async function saveFromCurrentState() {
+function getCurrentPrompt(): { content: string; mentions?: any[]; mode?: string; model_id?: string } {
     const box = promptBoxRef.value
     const fallback = props.scheduledPrompt?.prompt || {}
-    await saveScheduledPrompt({
+    return {
         content: box?.getText?.() || fallback.content || '',
         mentions: box?.getMentions?.() || fallback.mentions,
         mode: box?.getMode?.() || fallback.mode || 'chat',
         model_id: box?.getModel?.() || fallback.model_id,
-    })
+    }
+}
+
+async function saveFromCurrentState() {
+    await saveScheduledPrompt(getCurrentPrompt())
+}
+
+// Persist the current state (create or update) and run it once immediately.
+// We save first so the on-demand run uses the latest prompt/schedule, then hit
+// the trigger endpoint and take the user to the report to watch it run.
+async function runNow() {
+    if (isRunning.value || isSaving.value) return
+    const prompt = getCurrentPrompt()
+    if (!prompt.content?.trim()) {
+        toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.runNeedsPrompt') })
+        return
+    }
+    isRunning.value = true
+    try {
+        const response = await persistScheduledPrompt(prompt)
+        const saved = response.data.value as any
+        if (!saved?.id) {
+            toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastSaveFailed') })
+            return
+        }
+        const triggerRes = await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts/${saved.id}/trigger`, {
+            method: 'POST',
+        })
+        if ((triggerRes as any).error?.value) throw new Error('Trigger failed')
+        toast.add({ title: t('scheduledPrompt.toastRunStarted'), color: 'green' })
+        isOpen.value = false
+        emit('saved')
+        await navigateTo(`/reports/${props.reportId}`)
+    } catch {
+        toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastRunFailed') })
+    } finally {
+        isRunning.value = false
+    }
 }
 
 function computeCronSchedule(): string {
@@ -388,28 +435,32 @@ function buildNotificationSubscribers(): Subscriber[] | null {
     return null
 }
 
+// Persist the current form state (create or update) and return the raw fetch
+// response. Side-effect free so both the Save button and Run now can reuse it.
+async function persistScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string }) {
+    const body: any = {
+        prompt,
+        cron_schedule: computeCronSchedule(),
+        is_active: isActive.value,
+        notification_subscribers: buildNotificationSubscribers(),
+    }
+
+    if (isEditing.value) {
+        return await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts/${props.scheduledPrompt.id}`, {
+            method: 'PUT',
+            body,
+        })
+    }
+    return await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts`, {
+        method: 'POST',
+        body,
+    })
+}
+
 async function saveScheduledPrompt(prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string }) {
     isSaving.value = true
     try {
-        const body: any = {
-            prompt,
-            cron_schedule: computeCronSchedule(),
-            is_active: isActive.value,
-            notification_subscribers: buildNotificationSubscribers(),
-        }
-
-        let response
-        if (isEditing.value) {
-            response = await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts/${props.scheduledPrompt.id}`, {
-                method: 'PUT',
-                body,
-            })
-        } else {
-            response = await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts`, {
-                method: 'POST',
-                body,
-            })
-        }
+        const response = await persistScheduledPrompt(prompt)
 
         if (response.data.value) {
             toast.add({

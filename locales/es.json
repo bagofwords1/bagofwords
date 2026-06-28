@@ -2449,7 +2449,11 @@
     "delete": "Eliminar",
     "deleteConfirm": "¿Eliminar esta tarea programada? Esta acción no se puede deshacer.",
     "toastDeleted": "Tarea programada eliminada",
-    "toastDeleteFailed": "No se pudo eliminar la tarea programada"
+    "toastDeleteFailed": "No se pudo eliminar la tarea programada",
+    "runNow": "Ejecutar ahora",
+    "runNeedsPrompt": "Añade un prompt antes de ejecutar",
+    "toastRunStarted": "Ejecución iniciada",
+    "toastRunFailed": "No se pudo iniciar la ejecución"
   },
   "errorPage": {
     "notFoundTitle": "404",
