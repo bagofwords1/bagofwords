@@ -70,6 +70,13 @@
             <EmptyHint v-if="skillCount === 0" text="No skills yet." />
             <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
           </TreeGroup>
+          <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
+          <button v-if="canManageEvals" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'global-evals' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:6px;padding-right:8px" @click="openGlobalEvals()">
+            <span class="w-3 shrink-0"></span>
+            <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="flex-1 text-left truncate">Global Evals</span>
+            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100" />
+          </button>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
@@ -326,18 +333,26 @@
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Open agent" @click="openAgent(panelView.agentId)">
-                <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
-                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || 'Agent' }}</span>
-              </button>
-              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />
-              <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
-              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">read-only</span>
+              <template v-if="panelView.kind === 'global-evals'">
+                <UIcon name="i-heroicons-check-circle" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">Global Evals</span>
+                <span class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">all agents</span>
+              </template>
+              <template v-else>
+                <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Open agent" @click="openAgent(panelView.agentId)">
+                  <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
+                  <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || 'Agent' }}</span>
+                </button>
+                <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />
+                <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
+                <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">read-only</span>
+              </template>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
               <TablesSelector
@@ -941,9 +956,9 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings' } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings', 'global-evals': 'Global Evals' } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
@@ -953,6 +968,11 @@ const openPanel = (kind: 'tables' | 'tools' | 'evals' | 'settings', agentId: str
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
+}
+// Org-wide evals view — not bound to any agent.
+const openGlobalEvals = () => {
+  clearRightPane()
+  panelView.value = { kind: 'global-evals', agentId: '' }
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
@@ -1376,6 +1396,8 @@ const usesServiceAccount = (a: any) => {
 }
 // Editing tables/tools requires manage on the data source (org-wide or on this resource).
 const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || useCan('update_data_source', { type: 'data_source', id })) : false
+// Global Evals is an org-admin surface, gated by the org-level manage_evals perm.
+const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
