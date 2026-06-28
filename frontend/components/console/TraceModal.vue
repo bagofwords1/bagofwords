@@ -1,6 +1,6 @@
 <template>
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-7xl'}">
-        <UCard>
+        <UCard :ui="{ body: { padding: '' }, header: { padding: 'px-4 py-3' } }">
             <!-- Header: conversation identity + roll-up -->
             <template #header>
                 <div class="flex items-start justify-between gap-4">
@@ -39,7 +39,7 @@
             </template>
 
             <!-- Content: conversation rail + per-turn detail -->
-            <div class="h-[620px] flex -mx-4 -mb-2">
+            <div class="h-[620px] flex">
                 <!-- Pane A: whole conversation, rendered like the chat -->
                 <div class="w-[40%] flex-shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col min-h-0">
                     <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center justify-between">
