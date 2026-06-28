@@ -111,15 +111,48 @@ Route-level `audit_service.log(...)` (with `request` for IP/UA) added for:
 
 ---
 
-## Deferred (follow-up, lower risk)
+## Second pass — formerly-deferred tier (now implemented)
 
-Git repos, connection identity/tool/refresh ops, data-source members + table
-activation, instruction delete/bulk/hunk/label ops, LLM model CRUD, agent/eval
-YAML apply, auth signup. These mostly reconfigure already-audited resources or
-are low-sensitivity; they should be added in a follow-up pass following the same
-pattern. Per-user inbox/review read-state and onboarding are intentionally out
-of scope (per-user UI state, not org-audit material) — though `review.resolve`
-(spawns eval/training) is a reasonable future addition.
+The lower-risk tier has now been wired in the same best-effort pattern:
+
+### Git — `app/routes/git.py`
+`git_repository.created` / `.updated` / `.deleted` / `.indexed` / `.synced` /
+`.pushed` / `.published`. (sync/push/publish carry no `request` — that param
+name is the Pydantic body there, so those rows have no IP/UA.)
+
+### Instructions — `app/routes/instruction.py`
+`instruction.deleted`, `instruction.bulk_updated`, `instruction.bulk_deleted`,
+`instruction.suggestion_resolved`, `instruction.hunk_accepted` / `.hunk_rejected`
+/ `.hunks_accepted_all` / `.hunks_rejected_all`, and
+`instruction_label.created` / `.updated` / `.deleted`.
+
+### LLM models — `app/routes/llm.py`
+`llm_model.created` / `.updated` / `.deleted` (route-level).
+
+### Connections — `app/routes/connection.py`
+`connection.my_credentials_deleted`, `connection.query_identity_changed`,
+`connection.tools_batch_updated`, `connection.tool_updated`. (Schema/tool
+*refresh* were already audited in `connection_service.py`, so not duplicated.)
+
+### Data sources — `data_source.py` / `data_source_tools.py` / `demo_data_source.py`
+`data_source.tables_updated` / `.tables_bulk_updated`, `.llm_synced`,
+`.metadata_resources_updated`, `.member_added` / `.member_removed`,
+`.connection_linked` / `.connection_unlinked`, `.tool_overlay_updated` /
+`.tool_overlay_reset`, `.demo_installed`; plus `credentials.updated`
+(`user_data_source_credentials.py` PATCH — POST/DELETE were already audited).
+
+### Agent / Eval YAML — `app/routes/agent_yaml.py`, `eval_yaml.py`
+`agent.applied`, `eval.applied` (logged only on a non-error, non-dry-run result).
+
+### Auth signup — `app/core/auth.py`
+`user.registered`, emitted from `on_after_register` for each org the new user
+lands in (covers local + OAuth/OIDC registration).
+
+## Still out of scope (intentional)
+
+Per-user inbox/review read-state (`notification.py`, `review.py`) and onboarding
+status are per-user UI state, not org-audit material. `review.resolve` (spawns
+eval/training) remains a reasonable future addition.
 
 ---
 
@@ -151,6 +184,21 @@ not be driven E2E for environment reasons, not code reasons):
   and use the identical pattern.
 - `external_user_mapping.*` — needs a real Slack/Teams platform integration
   (token validated against the live provider API).
+
+**Second-pass actions confirmed landing** (curl → `audit_logs`):
+`instruction.deleted`, `instruction_label.created/updated/deleted`,
+`data_source.tables_updated`, `data_source.llm_synced`,
+`data_source.demo_installed`, `data_source.connection_linked`,
+`data_source.member_removed`.
+
+Second-pass actions not exercisable in this sandbox (need real infra; identical
+pattern to the above): `git_repository.*` (reachable git remote),
+`llm_model.*` (a configured provider), `agent.applied`/`eval.applied` (a fully
+valid manifest — the service raises on partial YAML before the audit point),
+`credentials.updated` + `connection.query_identity_changed`/`tool_updated`
+(a `user_required`/MCP connection), `data_source.member_added`/`tool_overlay_*`
+(non-owner member / a tool-bearing connection), `user.registered` (fires inside
+the registration hook).
 
 Note: the audit **viewing** UI (settings → audit) is itself `@require_enterprise`
 gated, so in an unlicensed sandbox it renders the upsell rather than the rows —

@@ -4,10 +4,11 @@ Demo Data Source Routes
 Endpoints for listing and installing demo data sources.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db
 from app.models.user import User
 from app.core.auth import current_user
@@ -47,20 +48,31 @@ async def list_demo_data_sources(
 @requires_permission("create_data_source")
 async def install_demo_data_source(
     demo_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     """
     Install a demo data source.
-    
+
     Creates a new data source from the demo template.
     If already installed, returns the existing data source ID.
     """
-    return await demo_service.install_demo_data_source(
+    result = await demo_service.install_demo_data_source(
         db=db,
         organization=organization,
         current_user=current_user,
         demo_id=demo_id,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.demo_installed",
+            user_id=current_user.id, resource_type="data_source",
+            resource_id=str(getattr(result, "data_source_id", None) or getattr(result, "id", "") or ""),
+            details={"demo_id": demo_id}, request=request,
+        )
+    except Exception:
+        pass
+    return result
 

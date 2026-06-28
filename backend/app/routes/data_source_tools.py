@@ -8,7 +8,7 @@ overlay table — ``data_source_connection_tool`` — and fall back to the
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_resource_permission
+from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization
 from app.models.connection import Connection
 from app.models.connection_tool import ConnectionTool
@@ -128,6 +129,7 @@ async def update_agent_tool(
     data_source_id: str,
     tool_id: str,
     data: AgentToolUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
@@ -174,6 +176,16 @@ async def update_agent_tool(
     await db.commit()
     await db.refresh(overlay)
 
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tool_overlay_updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"tool_id": str(tool_id), "is_enabled": overlay.is_enabled, "policy": overlay.policy},
+            request=request,
+        )
+    except Exception:
+        pass
+
     conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
     return AgentToolSchema(
         id=str(tool.id),
@@ -194,6 +206,7 @@ async def update_agent_tool(
 async def reset_agent_tool(
     data_source_id: str,
     tool_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
@@ -222,6 +235,15 @@ async def reset_agent_tool(
     if overlay is not None:
         await db.delete(overlay)
         await db.commit()
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tool_overlay_reset",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"tool_id": str(tool_id)}, request=request,
+        )
+    except Exception:
+        pass
 
     conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
     return AgentToolSchema(
