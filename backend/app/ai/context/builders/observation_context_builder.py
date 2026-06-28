@@ -7,6 +7,7 @@ from datetime import datetime
 
 
 from app.ai.context.sections.observations_section import ObservationsSection, ToolExecutionItem, WidgetUpdateItem, StepUpdateItem, VisualizationUpdateItem
+from app.ai.context.data_preview import SAMPLE_ROWS
 
 
 class ObservationContextBuilder:
@@ -63,10 +64,24 @@ class ObservationContextBuilder:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
                     prev_observation["code_compacted"] = f"{code_len} chars"
-            elif prev_obs["tool_name"] == "create_data":
-                if "data_preview" in prev_observation:
-                    del prev_observation["data_preview"]
-                    prev_observation["data_preview_compacted"] = True
+            elif prev_obs["tool_name"] in ("create_data", "read_query"):
+                # Keep a small labeled sample instead of dropping rows entirely,
+                # so older results stay referenceable. The latest observation
+                # still carries the full budgeted preview. read_query shares this
+                # path so its (now full) preview doesn't persist across the loop.
+                previews = []
+                dp = prev_observation.get("data_preview")
+                if isinstance(dp, dict):
+                    previews.append(dp)
+                for item in prev_observation.get("results_summary") or []:
+                    if isinstance(item, dict) and isinstance(item.get("data_preview"), dict):
+                        previews.append(item["data_preview"])
+                for dp in previews:
+                    if isinstance(dp.get("rows"), list) and len(dp["rows"]) > SAMPLE_ROWS:
+                        total = dp.get("row_count") or len(dp["rows"])
+                        dp["rows"] = dp["rows"][:SAMPLE_ROWS]
+                        dp["sampled"] = True
+                        dp["note"] = f"sample of {SAMPLE_ROWS}; {total} rows total"
                 if "code" in prev_observation:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
