@@ -204,11 +204,6 @@ class DataSourceRegistryEntry(BaseModel):
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
-    # Named instance presets of this type (e.g. the "mcp" entry carries Notion,
-    # Linear, Monday…). Each preset is the same `type`, differing only by
-    # server_url + default auth + icon. Surfaced as one-click catalog tiles.
-    presets: List["McpPreset"] = []
-
     class Config:
         arbitrary_types_allowed = True
 
@@ -216,10 +211,12 @@ class DataSourceRegistryEntry(BaseModel):
 class McpPreset(BaseModel):
     """A named, ready-to-connect MCP server preset (e.g. Notion, Linear).
 
-    All presets resolve to `type="mcp"`; they differ only by `server_url`,
-    default `auth`, and `icon`/`key` (the provider brand). `auth="oauth"` means
-    per-user OAuth via Dynamic Client Registration (no admin setup); `oauth_app`
-    needs a registered client; `bearer` takes a per-user token/PAT.
+    All presets resolve to `type="mcp"` — they are named *instances* of the mcp
+    type, not types of their own (the MCP runtime, DCR, and OAuth all gate on
+    `connection.type == "mcp"`). They differ only by `server_url`, default
+    `auth`, and `key`/`icon` (the provider brand). `auth="oauth"` means per-user
+    OAuth via Dynamic Client Registration (no admin setup); `oauth_app` needs a
+    registered client; `bearer` takes a per-user token/PAT.
     """
     key: str
     title: str
@@ -227,10 +224,6 @@ class McpPreset(BaseModel):
     transport: str = "streamable_http"   # streamable_http | sse
     auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer
     description: str = ""
-
-
-# Resolve the forward reference now that McpPreset exists.
-DataSourceRegistryEntry.model_rebuild()
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -942,27 +935,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="tools",
         catalog_ownership="none",
         ui_form="mcp",
-        # Named, ready-to-connect MCP servers surfaced as catalog tiles. The DCR
-        # set (auth="oauth") needs zero admin setup — verified DCR-capable by
-        # live probe (2026-06). github/gmail need an OAuth app; supabase a PAT.
-        presets=[
-            McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
-                      description="Boards, items and updates from monday.com."),
-            McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
-                      description="Pages, databases and search across your Notion workspace."),
-            McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
-                      transport="sse", description="Jira issues and Confluence pages."),
-            McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
-                      description="Issues, projects and cycles from Linear."),
-            McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
-                      description="Errors, issues and releases from Sentry."),
-            McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
-                      auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
-            McpPreset(key="gmail", title="Gmail", server_url="",
-                      auth="oauth_app", description="Gmail (needs a Google OAuth client + Workspace approval)."),
-            McpPreset(key="supabase", title="Supabase", server_url="https://mcp.supabase.com/mcp",
-                      auth="bearer", description="Supabase project access via a personal access token."),
-        ],
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",
@@ -997,6 +969,31 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="custom_api",
     ),
 }
+
+
+# Named, ready-to-connect MCP servers surfaced as one-click catalog tiles. These
+# are instances of the "mcp" type above (connection.type stays "mcp") — only the
+# server_url / default auth / brand differ. The DCR set (auth="oauth") needs zero
+# admin setup — verified DCR-capable by live probe (2026-06). github/gmail need
+# an OAuth app; supabase a personal access token.
+MCP_PRESETS: List[McpPreset] = [
+    McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
+              description="Boards, items and updates from monday.com."),
+    McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
+              description="Pages, databases and search across your Notion workspace."),
+    McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
+              transport="sse", description="Jira issues and Confluence pages."),
+    McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
+              description="Issues, projects and cycles from Linear."),
+    McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
+              description="Errors, issues and releases from Sentry."),
+    McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
+              auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
+    McpPreset(key="gmail", title="Gmail", server_url="",
+              auth="oauth_app", description="Gmail (needs a Google OAuth client + Workspace approval)."),
+    McpPreset(key="supabase", title="Supabase", server_url="https://mcp.supabase.com/mcp",
+              auth="bearer", description="Supabase project access via a personal access token."),
+]
 
 
 def get_entry(ds_type: str) -> DataSourceRegistryEntry:
@@ -1046,11 +1043,11 @@ _EXTRA_DCR_HOSTS = {"auth.atlassian.com", "cf.mcp.atlassian.com", "github.com"}
 def mcp_presets() -> list[dict]:
     """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
     `GET /connectors/catalog` and the connector tiles."""
-    return [p.model_dump() for p in REGISTRY["mcp"].presets]
+    return [p.model_dump() for p in MCP_PRESETS]
 
 
-def mcp_preset(key: str) -> Optional["McpPreset"]:
-    return next((p for p in REGISTRY["mcp"].presets if p.key == key), None)
+def mcp_preset(key: str) -> Optional[McpPreset]:
+    return next((p for p in MCP_PRESETS if p.key == key), None)
 
 
 def allowed_dcr_hosts() -> set:
@@ -1058,7 +1055,7 @@ def allowed_dcr_hosts() -> set:
     preset server_url host plus the known authorization-server hosts. Non-preset
     custom URLs require an explicit admin allowlist (not implemented here)."""
     hosts = set()
-    for p in REGISTRY["mcp"].presets:
+    for p in MCP_PRESETS:
         if p.server_url:
             h = urlsplit(p.server_url).netloc
             if h:
