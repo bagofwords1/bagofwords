@@ -87,6 +87,9 @@ def test_build_data_preview_hidden_omits_rows_and_gates_stats():
     blob = json.dumps(dp)
     assert "bob@secret.com" not in blob
     assert "310000" not in blob
+    # The planner must be told the rows are intentionally withheld.
+    assert dp["data_hidden"] is True
+    assert "allow_llm_see_data" in dp["note"]
 
 
 def test_build_data_preview_visible_includes_full_rows_and_stats():
