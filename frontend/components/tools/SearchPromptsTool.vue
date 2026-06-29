@@ -5,12 +5,12 @@
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Searching prompts for {{ queryLabel }}…</span>
+          <span>{{ $t('tools.searchPrompts.searching', { query: queryLabel }) }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span class="align-middle">Searched prompts for {{ queryLabel }}</span>
-          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? '1 match' : total + ' matches' }}</span>
+          <span class="align-middle">{{ $t('tools.searchPrompts.searched', { query: queryLabel }) }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? $t('tools.searchPrompts.matchSingular', { count: total }) : $t('tools.searchPrompts.matchPlural', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
@@ -29,7 +29,7 @@
               <Icon name="heroicons-bookmark-square" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ displayTitle(item) }}</div>
               <span v-if="item.scope" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.scope }}</span>
-              <span v-if="item.is_starter" class="ms-1 text-[9px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">starter</span>
+              <span v-if="item.is_starter" class="ms-1 text-[9px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">{{ $t('tools.searchPrompts.starter') }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2">
@@ -38,7 +38,7 @@
                 </div>
                 <button class="text-[10px] text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click="openPrompts">
                   <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                  <span>Open in Prompts</span>
+                  <span>{{ $t('tools.searchPrompts.open') }}</span>
                 </button>
               </div>
             </Transition>
@@ -49,13 +49,15 @@
 
     <!-- Empty state -->
     <div v-if="status !== 'running' && !prompts.length" class="text-xs text-gray-400 ms-1">
-      No matching prompts.
+      {{ $t('tools.searchPrompts.empty') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -79,10 +81,10 @@ const queryLabel = computed<string>(() => {
   } else if (typeof q === 'string' && q) {
     return `"${q}"`
   }
-  if (args.value.starters_only) return 'conversation starters'
-  if (args.value.scope) return `${args.value.scope} prompts`
-  if (args.value.data_source_id) return 'this agent'
-  return 'all prompts'
+  if (args.value.starters_only) return t('tools.searchPrompts.queryStarters')
+  if (args.value.scope) return t('tools.searchPrompts.queryScope', { scope: args.value.scope })
+  if (args.value.data_source_id) return t('tools.searchPrompts.queryThisAgent')
+  return t('tools.searchPrompts.queryAll')
 })
 
 const prompts = computed<any[]>(() => Array.isArray(result.value.prompts) ? result.value.prompts : [])
@@ -99,7 +101,7 @@ function displayTitle(item: any): string {
   if (item?.title) return item.title
   const text = String(item?.text || '').trim()
   const firstLine = text.split('\n')[0].replace(/^#+\s*/, '').trim()
-  return firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : (firstLine || 'Untitled')
+  return firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : (firstLine || t('tools.searchPrompts.untitled'))
 }
 function openPrompts() { navigateTo('/prompts') }
 </script>

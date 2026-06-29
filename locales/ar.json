@@ -893,6 +893,53 @@
       "running": "جارٍ التشغيل...",
       "success": "نجاح",
       "failed": "فشل"
+    },
+    "createPrompt": {
+      "savingPrefix": "جارٍ حفظ المطالبة: {title}",
+      "saving": "جارٍ حفظ المطالبة…",
+      "notSaved": "لم يتم حفظ المطالبة",
+      "failed": "فشل حفظ المطالبة",
+      "starter": "بادئة",
+      "paramsBadge": "{n} معلمات",
+      "scope": "النطاق",
+      "mode": "الوضع",
+      "conversationStarter": "بادئة محادثة",
+      "agentSingular": "وكيل {n}",
+      "agentPlural": "{n} وكلاء",
+      "parameters": "المعلمات:",
+      "live": "نشط",
+      "openInPrompts": "فتح في المطالبات"
+    },
+    "editPrompt": {
+      "updating": "جارٍ تحديث المطالبة…",
+      "updatedPrefix": "تم التحديث: {title}",
+      "notUpdated": "لم يتم تحديث المطالبة",
+      "failed": "فشل تحديث المطالبة",
+      "changed": "تم التغيير:",
+      "noFields": "لا حقول",
+      "live": "نشط",
+      "openInPrompts": "فتح في المطالبات",
+      "fieldText": "النص",
+      "fieldTitle": "العنوان",
+      "fieldScope": "النطاق",
+      "fieldMode": "الوضع",
+      "fieldStarter": "بادئة",
+      "fieldAgents": "الوكلاء",
+      "fieldParameters": "المعلمات"
+    },
+    "searchPrompts": {
+      "searching": "البحث عن مطالبات لـ {query}…",
+      "searched": "تم البحث عن مطالبات لـ {query}",
+      "matchSingular": "{count} نتيجة",
+      "matchPlural": "{count} نتائج",
+      "empty": "لا توجد مطالبات مطابقة.",
+      "open": "فتح في المطالبات",
+      "untitled": "بدون عنوان",
+      "starter": "بادئة",
+      "queryStarters": "بوادئ المحادثة",
+      "queryScope": "مطالبات {scope}",
+      "queryThisAgent": "هذا الوكيل",
+      "queryAll": "كل المطالبات"
     }
   },
   "entityCreate": {

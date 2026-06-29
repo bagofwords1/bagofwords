@@ -893,6 +893,53 @@
       "running": "Kör...",
       "success": "Klart",
       "failed": "Misslyckades"
+    },
+    "createPrompt": {
+      "savingPrefix": "Sparar prompt: {title}",
+      "saving": "Sparar prompt…",
+      "notSaved": "Prompten sparades inte",
+      "failed": "Det gick inte att spara prompten",
+      "starter": "startfras",
+      "paramsBadge": "{n} parametrar",
+      "scope": "Omfattning",
+      "mode": "Läge",
+      "conversationStarter": "konversationsstart",
+      "agentSingular": "{n} agent",
+      "agentPlural": "{n} agenter",
+      "parameters": "Parametrar:",
+      "live": "Aktiv",
+      "openInPrompts": "Öppna i Prompts"
+    },
+    "editPrompt": {
+      "updating": "Uppdaterar prompt…",
+      "updatedPrefix": "Uppdaterad: {title}",
+      "notUpdated": "Prompten uppdaterades inte",
+      "failed": "Det gick inte att uppdatera prompten",
+      "changed": "Ändrat:",
+      "noFields": "inga fält",
+      "live": "Aktiv",
+      "openInPrompts": "Öppna i Prompts",
+      "fieldText": "text",
+      "fieldTitle": "titel",
+      "fieldScope": "omfattning",
+      "fieldMode": "läge",
+      "fieldStarter": "startfras",
+      "fieldAgents": "agenter",
+      "fieldParameters": "parametrar"
+    },
+    "searchPrompts": {
+      "searching": "Söker prompter efter {query}…",
+      "searched": "Sökte prompter efter {query}",
+      "matchSingular": "{count} träff",
+      "matchPlural": "{count} träffar",
+      "empty": "Inga matchande prompter.",
+      "open": "Öppna i Prompts",
+      "untitled": "Namnlös",
+      "starter": "startfras",
+      "queryStarters": "konversationsstarter",
+      "queryScope": "{scope}-prompter",
+      "queryThisAgent": "den här agenten",
+      "queryAll": "alla prompter"
     }
   },
   "entityCreate": {

@@ -893,6 +893,53 @@
       "running": "In esecuzione...",
       "success": "Riuscito",
       "failed": "Non riuscito"
+    },
+    "createPrompt": {
+      "savingPrefix": "Salvataggio prompt: {title}",
+      "saving": "Salvataggio prompt…",
+      "notSaved": "Prompt non salvato",
+      "failed": "Impossibile salvare il prompt",
+      "starter": "iniziale",
+      "paramsBadge": "{n} parametri",
+      "scope": "Ambito",
+      "mode": "Modalità",
+      "conversationStarter": "avvio conversazione",
+      "agentSingular": "{n} agente",
+      "agentPlural": "{n} agenti",
+      "parameters": "Parametri:",
+      "live": "Attivo",
+      "openInPrompts": "Apri in Prompts"
+    },
+    "editPrompt": {
+      "updating": "Aggiornamento prompt…",
+      "updatedPrefix": "Aggiornato: {title}",
+      "notUpdated": "Prompt non aggiornato",
+      "failed": "Impossibile aggiornare il prompt",
+      "changed": "Modificato:",
+      "noFields": "nessun campo",
+      "live": "Attivo",
+      "openInPrompts": "Apri in Prompts",
+      "fieldText": "testo",
+      "fieldTitle": "titolo",
+      "fieldScope": "ambito",
+      "fieldMode": "modalità",
+      "fieldStarter": "iniziale",
+      "fieldAgents": "agenti",
+      "fieldParameters": "parametri"
+    },
+    "searchPrompts": {
+      "searching": "Ricerca di prompt per {query}…",
+      "searched": "Prompt cercati per {query}",
+      "matchSingular": "{count} corrispondenza",
+      "matchPlural": "{count} corrispondenze",
+      "empty": "Nessun prompt corrispondente.",
+      "open": "Apri in Prompts",
+      "untitled": "Senza titolo",
+      "starter": "iniziale",
+      "queryStarters": "avvii di conversazione",
+      "queryScope": "prompt {scope}",
+      "queryThisAgent": "questo agente",
+      "queryAll": "tutti i prompt"
     }
   },
   "entityCreate": {

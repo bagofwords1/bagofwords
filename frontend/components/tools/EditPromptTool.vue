@@ -8,23 +8,23 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-gray-400" />
-          <span>Updating prompt…</span>
+          <span>{{ $t('tools.editPrompt.updating') }}</span>
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-green-500" />
-          <span dir="auto" class="truncate max-w-[300px]">Updated: {{ promptTitle }}</span>
+          <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editPrompt.updatedPrefix', { title: promptTitle }) }}</span>
           <span v-if="changedFields.length" class="ms-1.5 text-[10px] text-gray-400 shrink-0">· {{ changedFields.join(', ') }}</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip" />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>Prompt not updated</span>
+          <span>{{ $t('tools.editPrompt.notUpdated') }}</span>
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 rtl-flip" />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>Failed to update prompt</span>
+          <span>{{ $t('tools.editPrompt.failed') }}</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 rtl-flip" />
         </span>
       </div>
@@ -38,16 +38,16 @@
             <MDC :value="newText" class="markdown-content" />
           </div>
           <div class="flex flex-wrap items-center gap-2 text-[10px] mb-1">
-            <span class="text-gray-500 dark:text-gray-400">Changed:</span>
+            <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editPrompt.changed') }}</span>
             <span v-for="f in changedFields" :key="f" class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ f }}</span>
-            <span v-if="!changedFields.length" class="text-gray-400">no fields</span>
+            <span v-if="!changedFields.length" class="text-gray-400">{{ $t('tools.editPrompt.noFields') }}</span>
           </div>
           <div v-if="isSuccess" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">Live</span>
+            <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editPrompt.live') }}</span>
             <button class="ms-auto text-[10px] text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-              <span>Open in Prompts</span>
+              <span>{{ $t('tools.editPrompt.openInPrompts') }}</span>
             </button>
           </div>
           <div v-if="errorMessage" class="text-[10px] text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
@@ -61,6 +61,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -82,10 +84,14 @@ const isRejected = computed(() => status.value === 'success' && result.value.suc
 
 const promptTitle = computed(() => result.value.title || args.value.title || 'prompt')
 const newText = computed(() => args.value.text || '')
+const FIELD_LABEL: Record<string, string> = {
+  text: 'fieldText', title: 'fieldTitle', scope: 'fieldScope', mode: 'fieldMode',
+  is_starter: 'fieldStarter', data_source_ids: 'fieldAgents', parameters: 'fieldParameters',
+}
 const changedFields = computed(() => {
   const keys = ['text', 'title', 'scope', 'mode', 'is_starter', 'data_source_ids', 'parameters']
   return keys.filter((k) => args.value[k] !== undefined && args.value[k] !== null)
-    .map((k) => (k === 'is_starter' ? 'starter' : k === 'data_source_ids' ? 'agents' : k))
+    .map((k) => t('tools.editPrompt.' + FIELD_LABEL[k]))
 })
 const rejectedReason = computed(() => result.value.rejected_reason || '')
 const errorMessage = computed(() => {

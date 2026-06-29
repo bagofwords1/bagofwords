@@ -903,6 +903,53 @@
       "running": "Ejecutando...",
       "success": "Éxito",
       "failed": "Falló"
+    },
+    "createPrompt": {
+      "savingPrefix": "Guardando prompt: {title}",
+      "saving": "Guardando prompt…",
+      "notSaved": "Prompt no guardado",
+      "failed": "Error al guardar el prompt",
+      "starter": "inicio",
+      "paramsBadge": "{n} parámetros",
+      "scope": "Alcance",
+      "mode": "Modo",
+      "conversationStarter": "iniciador de conversación",
+      "agentSingular": "{n} agente",
+      "agentPlural": "{n} agentes",
+      "parameters": "Parámetros:",
+      "live": "Activo",
+      "openInPrompts": "Abrir en Prompts"
+    },
+    "editPrompt": {
+      "updating": "Actualizando prompt…",
+      "updatedPrefix": "Actualizado: {title}",
+      "notUpdated": "Prompt no actualizado",
+      "failed": "Error al actualizar el prompt",
+      "changed": "Cambiado:",
+      "noFields": "sin campos",
+      "live": "Activo",
+      "openInPrompts": "Abrir en Prompts",
+      "fieldText": "texto",
+      "fieldTitle": "título",
+      "fieldScope": "alcance",
+      "fieldMode": "modo",
+      "fieldStarter": "inicio",
+      "fieldAgents": "agentes",
+      "fieldParameters": "parámetros"
+    },
+    "searchPrompts": {
+      "searching": "Buscando prompts de {query}…",
+      "searched": "Prompts buscados de {query}",
+      "matchSingular": "{count} coincidencia",
+      "matchPlural": "{count} coincidencias",
+      "empty": "No hay prompts coincidentes.",
+      "open": "Abrir en Prompts",
+      "untitled": "Sin título",
+      "starter": "inicio",
+      "queryStarters": "iniciadores de conversación",
+      "queryScope": "prompts de {scope}",
+      "queryThisAgent": "este agente",
+      "queryAll": "todos los prompts"
     }
   },
   "entityCreate": {

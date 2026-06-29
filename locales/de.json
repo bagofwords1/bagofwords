@@ -893,6 +893,53 @@
       "running": "Läuft ...",
       "success": "Erfolgreich",
       "failed": "Fehlgeschlagen"
+    },
+    "createPrompt": {
+      "savingPrefix": "Prompt wird gespeichert: {title}",
+      "saving": "Prompt wird gespeichert…",
+      "notSaved": "Prompt nicht gespeichert",
+      "failed": "Prompt konnte nicht gespeichert werden",
+      "starter": "Starter",
+      "paramsBadge": "{n} Parameter",
+      "scope": "Geltungsbereich",
+      "mode": "Modus",
+      "conversationStarter": "Gesprächseinstieg",
+      "agentSingular": "{n} Agent",
+      "agentPlural": "{n} Agenten",
+      "parameters": "Parameter:",
+      "live": "Aktiv",
+      "openInPrompts": "In Prompts öffnen"
+    },
+    "editPrompt": {
+      "updating": "Prompt wird aktualisiert…",
+      "updatedPrefix": "Aktualisiert: {title}",
+      "notUpdated": "Prompt nicht aktualisiert",
+      "failed": "Prompt konnte nicht aktualisiert werden",
+      "changed": "Geändert:",
+      "noFields": "keine Felder",
+      "live": "Aktiv",
+      "openInPrompts": "In Prompts öffnen",
+      "fieldText": "Text",
+      "fieldTitle": "Titel",
+      "fieldScope": "Bereich",
+      "fieldMode": "Modus",
+      "fieldStarter": "Starter",
+      "fieldAgents": "Agenten",
+      "fieldParameters": "Parameter"
+    },
+    "searchPrompts": {
+      "searching": "Suche nach Prompts für {query}…",
+      "searched": "Prompts gesucht für {query}",
+      "matchSingular": "{count} Treffer",
+      "matchPlural": "{count} Treffer",
+      "empty": "Keine passenden Prompts.",
+      "open": "In Prompts öffnen",
+      "untitled": "Ohne Titel",
+      "starter": "Starter",
+      "queryStarters": "Gesprächseinstiege",
+      "queryScope": "{scope}-Prompts",
+      "queryThisAgent": "dieser Agent",
+      "queryAll": "alle Prompts"
     }
   },
   "entityCreate": {
