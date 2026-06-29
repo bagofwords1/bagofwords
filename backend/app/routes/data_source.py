@@ -100,9 +100,13 @@ async def create_data_source(
     elif data_source.connection_id:
         connection_ids = [data_source.connection_id]
     if connection_ids:
+        # Building an agent on an existing connection requires per-connection
+        # `create_data_sources` (connection admins & manage_connections pass via
+        # implication). ALL-connections semantics: every attached connection
+        # must permit it.
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "connection", connection_ids, "manage_data_sources",
+            "connection", connection_ids, "create_data_sources",
         )
     return await data_source_service.create_data_source(db, organization, current_user, data_source)
 
