@@ -93,6 +93,7 @@
     "openFile": "Datei öffnen",
     "newInstructionHeader": "Neue Anweisung",
     "pendingReview": "Prüfung ausstehend",
+    "pendingApprovalHint": "Noch nicht aktiv – wartet auf Freigabe durch einen Administrator.",
     "saving": "Wird gespeichert…",
     "tipVersionHistory": "Versionsverlauf",
     "deleting": "Wird gelöscht…",

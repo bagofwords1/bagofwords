@@ -2303,7 +2303,8 @@ const InstrLeaf = defineComponent({
         onClick: () => openInstruction(ins),
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pendingInstrIds.value.has(ins.id) ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pendingInstrIds.value.has(ins.id) ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
-        createElement('span', { class: 'flex-1 text-start truncate' }, displayTitle(ins)),
+        createElement('span', { class: ['flex-1 text-start truncate', pendingInstrIds.value.has(ins.id) ? 'text-amber-700 dark:text-amber-300' : ''] }, displayTitle(ins)),
+        pendingInstrIds.value.has(ins.id) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
         createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),

@@ -93,6 +93,7 @@
     "openFile": "Abrir archivo",
     "newInstructionHeader": "Nueva instrucción",
     "pendingReview": "Pendiente de revisión",
+    "pendingApprovalHint": "Aún no activo: esperando la aprobación de un administrador.",
     "saving": "Guardando…",
     "tipVersionHistory": "Historial de versiones",
     "deleting": "Eliminando…",

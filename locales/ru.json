@@ -93,6 +93,7 @@
     "openFile": "Открыть файл",
     "newInstructionHeader": "Новая инструкция",
     "pendingReview": "Ожидает проверки",
+    "pendingApprovalHint": "Ещё не активно — ожидает одобрения администратора.",
     "saving": "Сохранение…",
     "tipVersionHistory": "История версий",
     "deleting": "Удаление…",

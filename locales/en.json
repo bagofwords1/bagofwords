@@ -93,6 +93,7 @@
     "openFile": "Open file",
     "newInstructionHeader": "New instruction",
     "pendingReview": "Pending review",
+    "pendingApprovalHint": "Not live yet — waiting for an admin to approve.",
     "saving": "Saving…",
     "tipVersionHistory": "Version history",
     "deleting": "Deleting…",

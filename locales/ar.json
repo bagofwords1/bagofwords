@@ -93,6 +93,7 @@
     "openFile": "فتح الملف",
     "newInstructionHeader": "تعليمة جديدة",
     "pendingReview": "بانتظار المراجعة",
+    "pendingApprovalHint": "غير مُفعّل بعد — بانتظار موافقة المسؤول.",
     "saving": "جارٍ الحفظ…",
     "tipVersionHistory": "سجل الإصدارات",
     "deleting": "جارٍ الحذف…",

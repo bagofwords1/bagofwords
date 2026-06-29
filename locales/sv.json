@@ -93,6 +93,7 @@
     "openFile": "Öppna fil",
     "newInstructionHeader": "Ny instruktion",
     "pendingReview": "Väntar på granskning",
+    "pendingApprovalHint": "Inte aktiv än – väntar på godkännande av en administratör.",
     "saving": "Sparar…",
     "tipVersionHistory": "Versionshistorik",
     "deleting": "Raderar…",
