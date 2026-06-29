@@ -79,6 +79,37 @@ class ResolvedPermissions:
         return key in self.resource_permissions
 
 
+async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
+    """Whether a principal is bound to an organization.
+
+    Humans are bound via a ``Membership`` row. Service accounts have no
+    ``Membership`` (so they consume no seat and never appear in member lists);
+    they are bound via a ``ServiceAccount`` row whose ``organization_id``
+    matches and which is not disabled/deleted.
+    """
+    from app.models.membership import Membership
+
+    if getattr(user, "is_service_account", False):
+        from app.models.service_account import ServiceAccount
+        result = await db.execute(
+            select(ServiceAccount).where(
+                ServiceAccount.user_id == str(user.id),
+                ServiceAccount.organization_id == str(org_id),
+                ServiceAccount.disabled_at.is_(None),
+                ServiceAccount.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == str(user.id),
+            Membership.organization_id == str(org_id),
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
 async def resolve_permissions(
     db: AsyncSession, user_id: str, org_id: str
 ) -> ResolvedPermissions:

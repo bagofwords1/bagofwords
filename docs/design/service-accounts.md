@@ -299,6 +299,85 @@ badge machine actions.
 
 ---
 
+## UX / Frontend
+
+### Placement: a "Service Accounts" sub-tab under Members
+
+Settings → Members (`frontend/pages/settings/members.vue`) already renders a
+sub-tab strip — **Members · Roles · Groups · Quotas · Signup** — each gated by a
+permission + feature flag (`members.vue:40-44`). Service accounts are an
+access-management concept, so they live beside Roles/Groups as a new tab rather
+than a new top-level settings page:
+
+```
+Members · Roles · Groups · Service Accounts · Quotas · Signup
+```
+
+The tab is gated by `manage_service_accounts` (covered by `full_admin_access`),
+**not** behind an enterprise feature flag — service accounts are a core,
+non-EE capability, so any full admin can CRUD them. Non-admins never see the
+tab. (Contrast: Roles/Groups sit behind the `custom_roles` EE feature.) It can
+graduate to its own page later if per-account usage/logs grow.
+
+Today personal API keys are managed only inside `frontend/components/McpModal.vue`
+(per-user, self-service, "runs as me"). Those stay where they are; the new tab
+is exclusively for org-managed machine identities.
+
+### The identity-vs-credential model in the UI
+
+A service account is the **identity**; API keys are **credentials** under it.
+The UI reflects this as a two-level structure (list → detail), never a single
+"create key" button:
+
+1. **Service Accounts list** — name, assigned role(s), status (active/disabled),
+   key count, last-used, created-by. Primary action: **New service account**.
+2. **Service account detail** — its keys (prefix · last used · expires) plus
+   role, status, and data-source/resource access.
+
+### Admin create flow
+
+1. **New service account** modal: `name`, `description`, and a **Role**
+   dropdown. The role list is the org's roles, **capped to the creator's own
+   effective permissions** (you can't mint an account more powerful than
+   yourself); selecting a `full_admin_access` role triggers an extra confirm.
+   On save the backend creates `ServiceAccount` + backing `users` row +
+   `RoleAssignment`.
+2. From the detail view, **Create key** → returns the `bow_…` token **once**,
+   reusing the copy-once pattern already in `McpModal` (`ApiKeyCreated` returns
+   the full key a single time). Subsequent visits show only the prefix.
+3. Detail actions: revoke key, rotate (create new + revoke old), change role,
+   grant data-source access (same picker as a member), **disable/enable** the
+   whole account (instantly kills all its keys), and delete (soft-disable;
+   blocked while it owns objects).
+
+### Personal key vs service-account key
+
+The UI must make the distinction explicit so users pick the right one:
+
+| | Personal API key | Service-account key |
+|---|---|---|
+| Identity | the user ("runs as you") | the SA (its own role) |
+| Who creates | any member, for themselves | a `manage_service_accounts` admin |
+| Location | profile / MCP modal | Settings → Members → Service Accounts |
+| Survives offboarding | no | yes |
+
+### RBAC editor
+
+`manage_service_accounts` is registered in `permissions_registry.py` under its
+own category (e.g. **"Members & Access"** merged group) so it appears as a
+checkbox in `frontend/components/RolesManager.vue` like any other org
+permission. Admins can therefore delegate service-account management to a custom
+role without granting full admin.
+
+### Guardrail (UI-level)
+
+A request authenticated *as* a service account can never reach this UI — service
+accounts have no browser session (they can't log in). The escalation guard
+(`forbid_service_account_principal`) enforces this at the API layer regardless,
+so a leaked key cannot mint more keys, accounts, or role assignments.
+
+---
+
 ## Alternatives considered
 
 - **A-pure (no backing `users` row).** Honors "not a user" literally but forces

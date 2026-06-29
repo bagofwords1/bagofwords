@@ -22,6 +22,7 @@
         <MembersComponent v-if="activeTab === 'members'" :organization="organization" />
         <RolesManager v-if="activeTab === 'roles'" :organization="organization" />
         <GroupsManager v-if="activeTab === 'groups'" :organization="organization" />
+        <ServiceAccountsManager v-if="activeTab === 'service_accounts'" :organization="organization" />
         <QuotaPoliciesManager v-if="activeTab === 'quotas'" :organization="organization" />
         <SignupPolicyManager v-if="activeTab === 'signup'" :organization="organization" />
     </div>
@@ -40,6 +41,8 @@ const tabs = computed(() => [
     { key: 'members', label: t('settings.membersTabs.members') },
     { key: 'roles', label: t('settings.membersTabs.roles'), permission: 'manage_roles', feature: 'custom_roles' },
     { key: 'groups', label: t('settings.membersTabs.groups'), permission: 'manage_groups', feature: 'custom_roles' },
+    // Service accounts are a core (non-EE) capability — no feature flag.
+    { key: 'service_accounts', label: t('settings.membersTabs.serviceAccounts'), permission: 'manage_service_accounts' },
     { key: 'quotas', label: t('settings.membersTabs.quotas'), permission: 'manage_settings', feature: 'usage_limits' },
     { key: 'signup', label: t('settings.membersTabs.signup'), permission: 'full_admin_access', feature: 'domain_signup' },
 ])

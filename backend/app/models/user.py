@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime
+from sqlalchemy import Column, String, DateTime, Boolean
 from typing import List
 from sqlalchemy.orm import relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable
@@ -19,6 +19,10 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     last_seen = Column(DateTime, nullable=True)
     scim_external_id = Column(String(255), nullable=True, index=True)  # IdP external identifier for SCIM provisioning
     ldap_dn = Column(String(512), nullable=True, index=True)  # LDAP distinguished name
+    # True for the backing row of a ServiceAccount (a non-human API principal).
+    # Such rows cannot log in interactively (is_active=False) and are filtered
+    # out of human-facing surfaces (member lists, people pickers, seat counts).
+    is_service_account = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
 
     reports = relationship("Report", back_populates="user")
     completions = relationship("Completion", back_populates="user")

@@ -7,7 +7,7 @@ from inspect import signature
 from app.models.membership import Membership
 from app.models.instruction import Instruction
 from app.settings.config import settings
-from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+from app.core.permission_resolver import resolve_permissions, principal_belongs_to_org, FULL_ADMIN
 
 _perm_logger = _logging.getLogger(__name__)
 
@@ -73,15 +73,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             if not all([user, organization, db]):
                 raise HTTPException(status_code=400, detail="Missing required parameters")
 
-            # Check user membership and role in organization
-            stmt = select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == organization.id
-            )
-            result = await db.execute(stmt)
-            membership = result.scalar_one_or_none()
-
-            if not membership:
+            # Check that the principal belongs to the organization. Humans bind
+            # via a Membership; service accounts bind via a ServiceAccount row.
+            if not await principal_belongs_to_org(db, user, organization.id):
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
@@ -219,14 +213,8 @@ def requires_resource_permission(resource_type: str, permission: str):
             if not user.is_verified and settings.bow_config.features.verify_emails:
                 raise HTTPException(status_code=403, detail="User is not verified")
 
-            # Org membership check
-            stmt = select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == organization.id,
-            )
-            result = await db.execute(stmt)
-            membership = result.scalar_one_or_none()
-            if not membership:
+            # Org membership check (Membership for humans, ServiceAccount for SAs)
+            if not await principal_belongs_to_org(db, user, organization.id):
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 

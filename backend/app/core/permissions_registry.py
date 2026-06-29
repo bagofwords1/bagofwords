@@ -39,6 +39,7 @@ PERMISSION_CATEGORIES = {
     ],
     "Members": [
         "manage_members",
+        "manage_service_accounts",
     ],
     "Settings": [
         "manage_settings",
