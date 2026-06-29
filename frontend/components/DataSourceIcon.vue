@@ -47,6 +47,7 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     sentry: 'sentry.png',
     github: 'github.svg',
     gmail: 'gmail.png',
+    google_drive: 'google_drive.png',
 };
 
 // Computed property to generate the icon path

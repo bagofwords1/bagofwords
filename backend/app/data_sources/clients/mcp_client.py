@@ -189,6 +189,11 @@ class McpClient(ToolProviderClient):
                             "byte_size": byte_size,
                             "mime_type": mime_type or "application/octet-stream",
                             "uri": c_uri,
+                            # Keep the base64 payload so callers can materialize the
+                            # file (e.g. read_mcp_resource → session File for
+                            # inspect_data/create_data). Not inlined into the
+                            # LLM-visible content — only used for materialization.
+                            "blob_b64": blob,
                         })
                     else:
                         contents.append({
@@ -226,6 +231,9 @@ class McpClient(ToolProviderClient):
                     "success": not is_error,
                     "data": data,
                     "content_type": content_type,
+                    # File blobs a tool returned (EmbeddedResource/blob), surfaced
+                    # so execute_mcp can materialize them into session files.
+                    "binaries": self._extract_binaries(result),
                     "error": error_msg,
                 }
         except BaseException as e:
@@ -266,6 +274,30 @@ class McpClient(ToolProviderClient):
             elif hasattr(content, "data"):
                 parts.append(content.data)
         return parts
+
+    @staticmethod
+    def _extract_binaries(result) -> List[Dict[str, Any]]:
+        """Pull file blobs out of a tool result's content blocks.
+
+        Tools return files as an EmbeddedResource whose `.resource` is a
+        BlobResourceContents (base64 `blob` + `mimeType` + `uri`), or — less
+        commonly — as a content block with a top-level `blob`. Returns a list of
+        {blob_b64, mime_type, uri} for execute_mcp to materialize.
+        """
+        out: List[Dict[str, Any]] = []
+        for c in (getattr(result, "content", None) or []):
+            res = getattr(c, "resource", None)
+            blob = getattr(res, "blob", None) if res is not None else getattr(c, "blob", None)
+            if not blob:
+                continue
+            mime = getattr(res, "mimeType", None) if res is not None else getattr(c, "mimeType", None)
+            uri = getattr(res, "uri", None) if res is not None else getattr(c, "uri", None)
+            out.append({
+                "blob_b64": blob,
+                "mime_type": mime or "application/octet-stream",
+                "uri": str(uri) if uri else None,
+            })
+        return out
 
     @staticmethod
     def _extract_error_message(data: Any) -> str:

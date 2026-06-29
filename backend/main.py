@@ -57,6 +57,7 @@ from app.routes import (
     completion,
     completion_feedback,
     file,
+    file_reference,
     organization,
     data_source,
     agent_reliability,
@@ -234,6 +235,7 @@ app.include_router(entity.router, prefix="/api")
 app.include_router(completion.router)
 app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
+app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")

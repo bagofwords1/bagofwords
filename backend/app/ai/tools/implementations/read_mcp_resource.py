@@ -129,7 +129,34 @@ Do not use for:
                             error=result.get("error") or "Failed to read resource.")
             return
 
-        content, mime_type, truncated = format_resource_contents(result.get("contents") or [])
+        contents = result.get("contents") or []
+        content, mime_type, truncated = format_resource_contents(contents)
+
+        # Binary resources (xlsx, pdf, exported Google Sheet/Doc, …) carry their
+        # bytes as base64; materialize them into a session File so the analysis
+        # stack (inspect_data / create_data / read_excel_as_csv) can use them,
+        # exactly like an uploaded file. Returns a session_file_id the agent can
+        # pass downstream. Non-attachable binaries are left as a summary only.
+        session_file_id = None
+        import base64
+        from ._file_tool_common import attach_drive_file_to_session, ext_for_mime
+        for c in contents:
+            if c.get("type") != "binary" or not c.get("blob_b64"):
+                continue
+            cmime = c.get("mime_type")
+            if not ext_for_mime(cmime):
+                continue  # not something the analysis tools understand
+            try:
+                raw = base64.b64decode(c["blob_b64"], validate=False)
+            except Exception as e:
+                logger.warning(f"read_mcp_resource: blob decode failed for {data.uri}: {e}")
+                continue
+            name = (str(c.get("uri") or data.uri).rstrip("/").split("/")[-1]) or "resource"
+            session_file_id = await attach_drive_file_to_session(
+                runtime_ctx, filename=name, content_bytes=raw, mime_type=cmime,
+            )
+            if session_file_id:
+                break  # one materialized file per read is enough for analysis
 
         # Audit — record metadata only; NEVER the content (it can carry sensitive data).
         await log_tool_audit(
@@ -149,11 +176,12 @@ Do not use for:
         yield self._end(
             True, uri=data.uri, connection_name=connection.name,
             content=content, mime_type=mime_type, truncated=truncated,
+            session_file_id=session_file_id,
         )
 
     @staticmethod
     def _end(success: bool, *, uri=None, connection_name=None, content=None, mime_type=None,
-             truncated=False, error=None) -> ToolEndEvent:
+             truncated=False, error=None, session_file_id=None) -> ToolEndEvent:
         output = {
             "success": success,
             "content": content,
@@ -162,12 +190,15 @@ Do not use for:
             "connection_name": connection_name,
             "truncated": truncated,
             "error_message": error,
+            "session_file_id": session_file_id,
         }
         if success:
             summary = f"Read resource {uri}"
             if connection_name:
                 summary += f" from {connection_name}"
             summary += f" ({len(content or '')} chars{', truncated' if truncated else ''})."
+            if session_file_id:
+                summary += f" Materialized as session file {session_file_id} — pass it to inspect_data / create_data to analyze."
             observation = {"summary": summary, "content": content, "uri": uri, "success": True}
         else:
             observation = {"summary": f"Failed to read resource {uri or ''}: {error}", "success": False}

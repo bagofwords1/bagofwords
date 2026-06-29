@@ -253,6 +253,29 @@ Do not use when:
             except Exception:
                 output["preview"] = str(result_data)[:3000]
 
+        # If the tool returned a file blob (e.g. a Drive download), materialize
+        # it into a session File so the analysis stack can use it — same path as
+        # read_mcp_resource / uploaded files. Sets session_file_id for the agent
+        # to pass to inspect_data / create_data.
+        if not output.get("file_id"):
+            import base64
+            from ._file_tool_common import attach_drive_file_to_session, ext_for_mime
+            for b in (result.get("binaries") or []):
+                if not b.get("blob_b64") or not ext_for_mime(b.get("mime_type")):
+                    continue
+                try:
+                    raw = base64.b64decode(b["blob_b64"], validate=False)
+                except Exception:
+                    continue
+                name = (str(b.get("uri") or data.tool_name).rstrip("/").split("/")[-1]) or data.tool_name
+                sid = await attach_drive_file_to_session(
+                    runtime_ctx, filename=name, content_bytes=raw, mime_type=b.get("mime_type"),
+                )
+                if sid:
+                    output["file_id"] = sid
+                    output["session_file_id"] = sid
+                    break
+
         # Audit
         await log_tool_audit(
             runtime_ctx,
@@ -375,6 +398,15 @@ Do not use when:
                     )
                 )
 
+        # Same-turn visibility: surface to inspect_data / create_data called
+        # later this run (excel_files is the init-time snapshot of report.files).
+        try:
+            ef = runtime_ctx.get("excel_files")
+            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
+                ef.append(file)
+        except Exception:
+            pass
+
         return file
 
     async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
@@ -420,6 +452,15 @@ Do not use when:
                         file_id=str(file.id),
                     )
                 )
+
+        # Same-turn visibility: surface to inspect_data / create_data called
+        # later this run (excel_files is the init-time snapshot of report.files).
+        try:
+            ef = runtime_ctx.get("excel_files")
+            if isinstance(ef, list) and all(getattr(x, "id", None) != file.id for x in ef):
+                ef.append(file)
+        except Exception:
+            pass
 
         return file
 
