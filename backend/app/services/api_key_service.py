@@ -43,16 +43,21 @@ class ApiKeyService:
         data: ApiKeyCreate,
         user: User,
         organization: Organization,
+        service_account_id: Optional[str] = None,
     ) -> ApiKeyCreated:
         """Create a new API key for a user within an organization.
-        
+
         The full key is only returned once upon creation. Store it securely.
+
+        When ``service_account_id`` is set, the key belongs to a service
+        account: ``user`` is its backing users row.
         """
         full_key, key_hash, key_prefix = self._generate_api_key()
-        
+
         api_key = ApiKey(
             user_id=user.id,
             organization_id=organization.id,
+            service_account_id=service_account_id,
             name=data.name,
             key_hash=key_hash,
             key_prefix=key_prefix,
@@ -144,11 +149,25 @@ class ApiKeyService:
         # Check expiration
         if api_key_obj.expires_at and api_key_obj.expires_at < datetime.utcnow():
             return None
-        
+
+        # Service-account keys: reject if the account is disabled or deleted so
+        # disabling an account instantly kills all of its keys.
+        if api_key_obj.service_account_id:
+            from app.models.service_account import ServiceAccount
+            sa_result = await db.execute(
+                select(ServiceAccount).where(
+                    ServiceAccount.id == api_key_obj.service_account_id,
+                    ServiceAccount.disabled_at.is_(None),
+                    ServiceAccount.deleted_at.is_(None),
+                )
+            )
+            if sa_result.scalar_one_or_none() is None:
+                return None
+
         # Update last_used_at
         api_key_obj.last_used_at = datetime.utcnow()
         await db.commit()
-        
+
         # Get the user
         user_result = await db.execute(
             select(User).where(User.id == api_key_obj.user_id)

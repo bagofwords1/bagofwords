@@ -604,6 +604,7 @@ const KNOWN_PERMISSION_KEYS = new Set([
     'manage_evals',
     'view_members',
     'manage_members',
+    'manage_service_accounts',
     'manage_settings',
     'manage_llm',
     'view_audit_logs',
