@@ -37,38 +37,67 @@ def run():
         page.wait_for_timeout(5000)
         page.screenshot(path=f"{OUT}/02_after_login.png")
 
+        # Skip onboarding if it intercepts (new org has no model/data source yet).
+        try:
+            page.get_by_text("Skip onboarding", exact=False).first.click(timeout=5000)
+            page.wait_for_timeout(2000)
+        except Exception as e:
+            print("no onboarding skip:", e)
+
         # 2. Service Accounts tab
         page.goto(f"{FRONTEND}/settings/members", wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(3000)
+        # if redirected back to onboarding, skip again then retry
+        if "members" not in page.url:
+            try:
+                page.get_by_text("Skip onboarding", exact=False).first.click(timeout=5000)
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+            page.goto(f"{FRONTEND}/settings/members", wait_until="networkidle", timeout=60000)
+            page.wait_for_timeout(3000)
+        page.screenshot(path=f"{OUT}/02b_members_page.png", full_page=True)
         try:
-            page.get_by_text("Service Accounts", exact=True).first.click(timeout=10000)
+            page.get_by_role("button", name="Service Accounts").first.click(timeout=10000)
         except Exception as e:
             print("tab click failed:", e)
+            try:
+                page.get_by_text("Service Accounts").first.click(timeout=5000)
+            except Exception as e2:
+                print("tab text click failed:", e2)
         page.wait_for_timeout(2500)
         page.screenshot(path=f"{OUT}/03_service_accounts_tab.png", full_page=True)
 
-        # 3. Open the detail/keys modal for the existing CI Pipeline account
+        # 3. Create a NEW service account via the UI
         try:
-            page.get_by_role("button", name="").first  # noop
-            # open the row action menu
-            menus = page.locator("button:has(.i-heroicons-ellipsis-horizontal)")
-            if menus.count():
-                menus.first.click()
-                page.wait_for_timeout(800)
-                page.get_by_text("Manage keys").first.click(timeout=5000)
-                page.wait_for_timeout(1500)
-                page.screenshot(path=f"{OUT}/04_keys_modal.png")
+            page.get_by_role("button", name="New service account").first.click(timeout=8000)
+            page.wait_for_timeout(1000)
+            page.fill("input[placeholder='CI Pipeline']", "Reporting Bot")
+            page.fill("input[placeholder='Automated report generation']", "Nightly dashboard refresh")
+            page.wait_for_timeout(300)
+            page.screenshot(path=f"{OUT}/04_create_modal.png")
+            # Leave role unset (backend defaults to member) for a reliable submit.
+            page.get_by_role("button", name="Create", exact=True).first.click(timeout=5000)
+            page.wait_for_timeout(2500)
+            # detail modal opens — mint a key
+            try:
+                page.get_by_role("button", name="Create key").first.click(timeout=5000)
+                page.wait_for_timeout(2000)
+            except Exception as e:
+                print("create key skipped:", e)
+            page.screenshot(path=f"{OUT}/05_key_minted.png")
         except Exception as e:
-            print("keys modal step skipped:", e)
+            print("create flow failed:", e)
 
-        # 4. Roles editor showing the permission
+        # 6. Final list state
+        page.goto(f"{FRONTEND}/settings/members", wait_until="networkidle", timeout=60000)
+        page.wait_for_timeout(2000)
         try:
-            page.goto(f"{FRONTEND}/settings/members", wait_until="networkidle", timeout=60000)
-            page.get_by_text("Roles", exact=True).first.click(timeout=8000)
+            page.get_by_role("button", name="Service Accounts").first.click(timeout=8000)
             page.wait_for_timeout(2000)
-            page.screenshot(path=f"{OUT}/05_roles_tab.png", full_page=True)
-        except Exception as e:
-            print("roles step skipped:", e)
+        except Exception:
+            pass
+        page.screenshot(path=f"{OUT}/06_final_list.png", full_page=True)
 
         browser.close()
         print("screenshots written to", OUT)

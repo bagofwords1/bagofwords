@@ -138,4 +138,13 @@ ALL PASSED
 - [x] App imports; `/api/service_accounts*` routes registered.
 - [x] Backend end-to-end script: 18/18 passing.
 - [x] Frontend tab + manager component + RolesManager permission wired.
-- [ ] UI screenshot (captured during this run — see PR).
+- [x] UI verified live: Service Accounts tab renders; created "Reporting Bot"
+      via the UI and minted an API key (`bow_…`); service accounts correctly do
+      NOT appear in the Members list. Screenshots captured.
+
+Note: the frontend dev install needed the yarn.lock registry rewritten to
+`registry.npmjs.org` (the sandbox proxy aborts `registry.yarnpkg.com` tarball
+fetches); `bun install` completed it reliably. Roles/Groups tabs are EE-gated
+(`custom_roles`), so the role-editor checkbox for `manage_service_accounts` is
+verified in code (RolesManager `KNOWN_PERMISSION_KEYS` + registry + en.json),
+not screenshotted in this OSS sandbox.
