@@ -92,7 +92,7 @@ async def discover_mcp_oauth(server_url: str) -> dict:
 
 
 async def register_client(
-    registration_endpoint: str, redirect_uri: str, client_name: str = "BagOfWords"
+    registration_endpoint: str, redirect_uri: str, client_name: str = "BOW"
 ) -> dict:
     """RFC 7591 Dynamic Client Registration. Returns the registered client doc."""
     body = {

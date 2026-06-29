@@ -40,77 +40,74 @@
           />
         </div>
 
-        <!-- Connectors catalog — named one-click app integrations (Notion, Linear…) -->
-        <div v-if="!loadingDataSources && filteredCatalog.length > 0" class="mb-4">
-          <div class="text-xs text-gray-400 mb-2">{{ $t('data.connectorsSection') }}</div>
-          <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-            <button
-              v-for="entry in filteredCatalog"
-              :key="`catalog-${entry.key}`"
-              type="button"
-              @click="selectCatalogEntry(entry)"
-              class="group rounded-lg p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-all w-full"
-            >
-              <div class="flex flex-col items-center text-center">
-                <div class="p-1">
-                  <DataSourceIcon class="h-6" type="mcp" :connector-key="entry.key" />
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ entry.title }}</div>
-                <span
-                  v-if="entry.ready_out_of_box"
-                  class="mt-1 text-[9px] font-medium uppercase tracking-wide text-green-600 bg-green-100 dark:bg-green-950 px-1.5 py-0.5 rounded"
-                >
-                  {{ $t('data.connectorNoSetup') }}
-                </span>
-              </div>
-            </button>
-          </div>
-        </div>
-
         <!-- Loading state -->
         <div v-if="loadingDataSources" class="flex items-center justify-center py-12">
           <Spinner class="h-4 w-4 text-gray-400" />
         </div>
 
-        <div v-if="!loadingDataSources && filteredCatalog.length > 0" class="text-xs text-gray-400 mb-2">{{ $t('data.dataSourcesSection') }}</div>
+        <!-- Scrollable region: connectors catalog + data source grid -->
+        <div v-else class="max-h-[340px] overflow-y-auto -mx-1 px-1">
+          <!-- Connectors catalog — named one-click app integrations (Notion, Linear…) -->
+          <div v-if="filteredCatalog.length > 0" class="mb-4">
+            <div class="text-xs text-gray-400 mb-2">{{ $t('data.connectorsSection') }}</div>
+            <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              <button
+                v-for="entry in filteredCatalog"
+                :key="`catalog-${entry.key}`"
+                type="button"
+                @click="selectCatalogEntry(entry)"
+                class="group rounded-lg p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-all w-full"
+              >
+                <div class="flex flex-col items-center text-center">
+                  <div class="p-1">
+                    <DataSourceIcon class="h-6" type="mcp" :connector-key="entry.key" />
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ entry.title }}</div>
+                </div>
+              </button>
+            </div>
+          </div>
 
-        <!-- Data source grid -->
-        <div v-else class="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto">
-          <button
-            v-for="ds in filteredDataSources"
-            :key="ds.type"
-            type="button"
-            :disabled="isLocked(ds)"
-            @click="!isLocked(ds) && selectType(ds)"
-            :class="[
-              'group rounded-lg p-3 bg-white dark:bg-gray-900 border transition-all w-full',
-              isLocked(ds)
-                ? 'opacity-60 cursor-not-allowed border-gray-200 dark:border-gray-700'
-                : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200'
-            ]"
-          >
-            <div class="flex flex-col items-center text-center">
-              <div class="p-1 relative">
-                <DataSourceIcon class="h-6" :type="ds.type" />
-                <div v-if="isLocked(ds)" class="absolute -top-1 -end-1">
-                  <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
-                  </svg>
+          <div v-if="filteredCatalog.length > 0 && filteredDataSources.length > 0" class="text-xs text-gray-400 mb-2">{{ $t('data.dataSourcesSection') }}</div>
+
+          <!-- Data source grid -->
+          <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            <button
+              v-for="ds in filteredDataSources"
+              :key="ds.type"
+              type="button"
+              :disabled="isLocked(ds)"
+              @click="!isLocked(ds) && selectType(ds)"
+              :class="[
+                'group rounded-lg p-3 bg-white dark:bg-gray-900 border transition-all w-full',
+                isLocked(ds)
+                  ? 'opacity-60 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200'
+              ]"
+            >
+              <div class="flex flex-col items-center text-center">
+                <div class="p-1 relative">
+                  <DataSourceIcon class="h-6" :type="ds.type" />
+                  <div v-if="isLocked(ds)" class="absolute -top-1 -end-1">
+                    <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ ds.title }}</div>
+                <div v-if="isLocked(ds)" class="mt-1">
+                  <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                    {{ $t('data.enterprise') }}
+                  </span>
                 </div>
               </div>
-              <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ ds.title }}</div>
-              <div v-if="isLocked(ds)" class="mt-1">
-                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
-                  {{ $t('data.enterprise') }}
-                </span>
-              </div>
-            </div>
-          </button>
-        </div>
+            </button>
+          </div>
 
-        <!-- No results -->
-        <div v-if="!loadingDataSources && filteredDataSources.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
-          {{ $t('data.noSourcesFound', { query: searchQuery }) }}
+          <!-- No results -->
+          <div v-if="filteredDataSources.length === 0 && filteredCatalog.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+            {{ $t('data.noSourcesFound', { query: searchQuery }) }}
+          </div>
         </div>
       </div>
 

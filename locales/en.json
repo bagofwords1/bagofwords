@@ -1579,7 +1579,6 @@
     "sampleTag": "sample",
     "connectorsSection": "Connectors",
     "dataSourcesSection": "Data sources",
-    "connectorNoSetup": "No setup",
     "connectorDcrNote": "No admin setup required — this connector registers itself automatically (DCR). Just click Connect and sign in with your own account.",
     "tables": "tables",
     "noDescription": "No description",
