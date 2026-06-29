@@ -342,6 +342,60 @@ async def _resolved_member_ds_ids(
     return list(ds_ids)
 
 
+def llm_access_control_active() -> bool:
+    """Whether per-model LLM access control is enforced.
+
+    This is an enterprise feature. When the license does not include it, the
+    enforcement path fails OPEN — every model behaves as unrestricted, exactly
+    like the community build. This keeps a billing lapse from locking an org
+    out of its own models.
+    """
+    try:
+        from app.ee.license import has_feature
+        return has_feature("llm_access_control")
+    except Exception:
+        return False
+
+
+async def get_accessible_model_ids(
+    db: AsyncSession, user_id: str, org_id: str,
+) -> tuple[bool, list[str]]:
+    """Returns (is_admin, model_ids_the_user_holds_a `use` grant for).
+
+    - is_admin=True means the user has full_admin_access; callers should not
+      filter (every model is accessible).
+    - model_ids are LLMModel ids granted directly, via group, or via role.
+      Unrestricted models and org defaults are NOT included here — callers
+      handle those via ``user_can_use_model`` / the restriction flag.
+    """
+    resolved = await resolve_permissions(db, str(user_id), str(org_id))
+    if FULL_ADMIN in resolved.org_permissions:
+        return True, []
+    return False, [
+        rid for (rtype, rid), perms in resolved.resource_permissions.items()
+        if rtype == "llm_model" and "use" in perms
+    ]
+
+
+async def user_can_use_model(
+    db: AsyncSession, user_id: str, org_id: str, model,
+) -> bool:
+    """Capability check for a single LLM model.
+
+    Order: feature off (fail open) → unrestricted → org default/small-default
+    (always available) → full admin → explicit `use` grant.
+    """
+    if not llm_access_control_active():
+        return True
+    if not getattr(model, "is_restricted", False):
+        return True
+    # Org default + small default are always available to every member (D3).
+    if getattr(model, "is_default", False) or getattr(model, "is_small_default", False):
+        return True
+    is_admin, granted = await get_accessible_model_ids(db, user_id, org_id)
+    return is_admin or str(model.id) in set(granted)
+
+
 async def get_ds_ids_with_permission(
     db: AsyncSession, user_id: str, org_id: str, permission: str
 ) -> tuple[bool, list[str]]:
@@ -357,6 +411,43 @@ async def get_ds_ids_with_permission(
         if rtype == "data_source" and permission in perms
     ]
     return False, matching
+
+
+async def get_user_ids_with_permission(
+    db: AsyncSession, org_id: str, permission: str, data_source_id: str | None = None,
+) -> list[str]:
+    """Inverse of ``get_ds_ids_with_permission``: the user ids in an org who hold
+    ``permission`` — full admins always, plus (when ``data_source_id`` is given)
+    anyone with that permission on that specific agent/data source.
+
+    ``data_source_id=None`` => full admins only (a "global" item's audience).
+
+    Implemented by enumerating org members and reusing the forward resolver, so
+    it stays consistent with per-request permission checks. O(members) — fine for
+    the notification fan-out fired on discrete events; revisit with a set-based
+    query if it ever runs on a hot path.
+    """
+    from app.models.membership import Membership
+
+    rows = (await db.execute(
+        select(Membership.user_id).where(and_(
+            Membership.organization_id == str(org_id),
+            Membership.user_id.isnot(None),
+            Membership.deleted_at.is_(None),
+        ))
+    )).all()
+    out: list[str] = []
+    seen: set[str] = set()
+    target = str(data_source_id) if data_source_id is not None else None
+    for (uid,) in rows:
+        uid = str(uid)
+        if uid in seen:
+            continue
+        is_admin, ds_ids = await get_ds_ids_with_permission(db, uid, str(org_id), permission)
+        if is_admin or (target is not None and target in set(ds_ids)):
+            out.append(uid)
+            seen.add(uid)
+    return out
 
 
 async def user_can_access_data_source(

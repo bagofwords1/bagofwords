@@ -253,13 +253,25 @@ from app.ai.tools.schemas.send_email import (  # noqa: E402
 class MCPSendEmailInput(BaseModel):
     """Input for the send_email MCP tool.
 
-    Sends a free-form email to the requesting user themselves. The recipient is
-    ALWAYS the authenticated user — it is not selectable, so the tool can never
-    email anyone else.
+    Sends a free-form email to the authenticated user, and optionally to other
+    members of their organization. The requesting user is ALWAYS included, and
+    every recipient also gets an in-app notification. ``recipients`` may only
+    name members (or pending invites) of the caller's org — outside addresses
+    are rejected.
     """
     subject: str = Field(..., min_length=1, max_length=300, description="A clear, specific subject line.")
     body: str = Field(..., min_length=1, description="The email body. Plain text by default; keep it short and natural.")
     body_format: str = Field(default="text", description="'text' (default) or 'html'. Use 'html' only when light structure genuinely helps.")
+    recipients: List[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Optional email addresses of OTHER organization members to also notify. "
+            "Each must belong to a member/invite of the caller's org; outside addresses "
+            "are rejected. You are always included automatically — leave empty to email "
+            "only yourself."
+        ),
+    )
     report_id: Optional[str] = Field(default=None, description="Report ID that owns any attachments. Required when 'attachments' is non-empty; attachments are scoped to this report.")
     attachments: List[EmailAttachmentSpec] = Field(
         default_factory=list,
@@ -272,6 +284,8 @@ class MCPSendEmailOutput(BaseModel):
     """Output for the send_email MCP tool."""
     success: bool
     recipient: Optional[str] = None
+    recipients: List[str] = Field(default_factory=list, description="All addresses reached (self + members).")
     subject: Optional[str] = None
     attachments: List[SendEmailAttachmentResult] = Field(default_factory=list)
+    rejected: List[str] = Field(default_factory=list, description="Requested addresses that are not org members and were skipped.")
     error: Optional[str] = None

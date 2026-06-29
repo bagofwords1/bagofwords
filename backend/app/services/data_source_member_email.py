@@ -32,17 +32,15 @@ def schedule_member_added_email(
     added_by_user_id: str,
     organization_id: str,
 ) -> None:
-    """Schedule a delayed member-added email.
+    """Schedule a delayed member-added notification (in-app + email).
 
-    No-ops (silently) when SMTP isn't configured, when there's no recipient, or
-    when the actor added themselves. Never raises into the caller — a member is
-    added regardless of whether the notification can be scheduled.
+    No-ops (silently) when there's no recipient or when the actor added
+    themselves. The delay is the whole point: if the add was a mistake and the
+    membership is removed within the window, the send path re-checks and skips.
+    The in-app notification is created regardless of SMTP; email is only sent when
+    SMTP is configured. Never raises into the caller — a member is added
+    regardless of whether the notification can be scheduled.
     """
-    from app.settings.config import settings
-
-    # "if smtp is configured, an email is sent" — otherwise don't even schedule.
-    if settings.email_client is None:
-        return
     if not user_id:
         return
     # Don't notify someone for adding themselves (e.g. the creator/owner).
@@ -97,8 +95,6 @@ async def send_member_added_email(
     from app.settings.config import settings
 
     fm = settings.email_client
-    if fm is None:
-        return
 
     from sqlalchemy import select
 
@@ -108,7 +104,7 @@ async def send_member_added_email(
     from app.models.user import User
 
     async with async_session_maker() as db:
-        # Undo safety: only mail if the membership still exists. If the add was a
+        # Undo safety: only notify if the membership still exists. If the add was a
         # mistake and was removed within the delay window, the row is gone.
         membership = await db.execute(
             select(DataSourceMembership).where(
@@ -119,7 +115,7 @@ async def send_member_added_email(
         )
         if membership.scalar_one_or_none() is None:
             logger.info(
-                "Membership user=%s data_source=%s no longer exists; skipping email",
+                "Membership user=%s data_source=%s no longer exists; skipping notification",
                 user_id, data_source_id,
             )
             return
@@ -129,14 +125,39 @@ async def send_member_added_email(
             return
 
         user = await db.get(User, user_id)
-        if user is None or not getattr(user, "email", None):
+        if user is None:
             return
-        recipient = user.email
+        recipient = getattr(user, "email", None)
         recipient_name = getattr(user, "name", None)
         ds_name = data_source.name
 
         added_by = await db.get(User, added_by_user_id) if added_by_user_id else None
         added_by_name = getattr(added_by, "name", None) if added_by else None
+
+        # notify-first: the durable in-app "added to agent" notification, created
+        # regardless of SMTP. Email (below) is the downstream channel.
+        try:
+            from app.services.inbox_service import inbox_service
+            if added_by_name:
+                body = f"{added_by_name} added you to {ds_name}. You can now chat with this agent and explore its data."
+            else:
+                body = f"You've been added to {ds_name}. You can now chat with this agent and explore its data."
+            await inbox_service.notify_users(
+                db, organization_id=str(organization_id), user_ids=[str(user_id)],
+                source="share", type="agent_access",
+                title=f"You were added to {ds_name}",
+                body=body,
+                actor_user_id=str(added_by_user_id) if added_by_user_id else None,
+                link=f"/agents/{data_source_id}",
+                subject={"kind": "data_source", "data_source_id": str(data_source_id)},
+                group_key=f"agent_access:{data_source_id}:{user_id}",
+            )
+        except Exception:
+            logger.warning("agent-access in-app notification failed", exc_info=True)
+
+    # Email channel: only when SMTP is configured and the user has an email.
+    if fm is None or not recipient:
+        return
 
     from fastapi_mail import MessageSchema
 

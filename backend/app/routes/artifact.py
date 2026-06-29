@@ -21,6 +21,7 @@ from app.models.organization import Organization
 from app.models.artifact import Artifact as ArtifactModel
 from app.models.visualization import Visualization
 from app.models.query import Query
+from app.models.report import Report as ReportModel
 from app.schemas.artifact_schema import (
     ArtifactSchema,
     ArtifactListSchema,
@@ -250,7 +251,7 @@ async def get_artifact(
 
 
 @router.get("/report/{report_id}", response_model=List[ArtifactListSchema])
-@requires_permission('view_reports')
+@requires_permission('view_reports', model=ReportModel)
 async def list_artifacts_by_report(
     report_id: str,
     current_user: User = Depends(current_user_dep),
@@ -258,7 +259,11 @@ async def list_artifacts_by_report(
     db: AsyncSession = Depends(get_async_db),
 ):
     """List all artifacts for a report."""
-    artifacts = await service.list_by_report(db, report_id)
+    artifacts = await service.list_by_report(
+        db,
+        report_id,
+        organization_id=str(organization.id) if organization else None,
+    )
     return [ArtifactListSchema.model_validate(a) for a in artifacts]
 
 

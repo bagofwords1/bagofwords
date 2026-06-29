@@ -28,8 +28,21 @@ export const useFormatDate = () => {
     () => (settings.value?.config?.timezone as string | undefined) || undefined,
   )
 
-  const toDate = (value: string | number | Date): Date =>
-    value instanceof Date ? value : new Date(value)
+  // A bare "YYYY-MM-DDTHH:mm[:ss[.fff]]" (or space-separated) string with no
+  // timezone designator. Some API responses still serialize naive UTC columns
+  // (datetime.utcnow) without a 'Z', and `new Date()` would parse those as the
+  // viewer's *local* time. Since storage is always UTC, we treat such strings
+  // as UTC so the conversion below starts from the right base. Strings that
+  // already carry a marker (Z or ±hh:mm) and date-only strings are left alone.
+  const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+
+  const toDate = (value: string | number | Date): Date => {
+    if (value instanceof Date) return value
+    if (typeof value === 'string' && NAIVE_DATETIME.test(value)) {
+      return new Date(value.replace(' ', 'T') + 'Z')
+    }
+    return new Date(value)
+  }
 
   /**
    * Low-level formatter: mirrors Intl.DateTimeFormat but injects the org
@@ -58,5 +71,5 @@ export const useFormatDate = () => {
   const formatTime = (v: any, o: Intl.DateTimeFormatOptions = {}, loc?: string) =>
     format(v, { hour: '2-digit', minute: '2-digit', ...o }, loc)
 
-  return { format, formatDate, formatDateTime, formatTime, timeZone }
+  return { format, formatDate, formatDateTime, formatTime, toDate, timeZone }
 }

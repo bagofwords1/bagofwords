@@ -24,6 +24,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.context.data_preview import build_data_preview
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
@@ -1438,17 +1439,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         formatted = streamer.format_df_for_widget(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
-        if allow_llm_see_data:
-            data_preview = {
-                "columns": formatted.get("columns", []),
-                "rows": formatted.get("rows", [])[:5],
-            }
-        else:
-            data_preview = {
-                "columns": [{"field": c.get("field")} for c in formatted.get("columns", [])],
-                "row_count": len(formatted.get("rows", [])),
-                "stats": info,
-            }
+        data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)
 
         # Optional: infer minimal visualization model (type + series) using the existing DataModel schema
         inferred_dm = None

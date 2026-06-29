@@ -18,7 +18,6 @@ from app.ai.tools.mcp.base import MCPTool
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.mcp import MCPSendEmailInput, MCPSendEmailOutput
-from app.services.email_send_service import EmailSendService
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -30,13 +29,14 @@ class SendEmailMCPTool(MCPTool):
 
     name = "send_email"
     description = (
-        "Send an email to the current user (yourself). The recipient is ALWAYS the "
-        "authenticated user — you cannot send to anyone else, so there is no recipient "
-        "argument. Use it when the user asks to be emailed something (a summary, a result, "
-        "an export). Keep the body short and natural; default to plain text. "
-        "Attachments (optional, up to 5) are generated from objects in a report — reference "
-        "a visualization_id / query_id (CSV/XLSX), artifact_id (PPTX/PDF), or file_id, and "
-        "pass the owning report_id."
+        "Send an email to the current user (yourself), and optionally to other members "
+        "of your organization via 'recipients' (their email addresses; outside addresses "
+        "are rejected). You are always included, and every recipient also gets an in-app "
+        "notification. Use it when the user asks to be emailed — or to notify a teammate — "
+        "something (a summary, a result, an export). Keep the body short and natural; "
+        "default to plain text. Attachments (optional, up to 5) are generated from objects "
+        "in a report — reference a visualization_id / query_id (CSV/XLSX), artifact_id "
+        "(PPTX/PDF), or file_id, and pass the owning report_id."
     )
 
     # Availability is decided per-org at request time (see is_available_for_org),
@@ -77,7 +77,6 @@ class SendEmailMCPTool(MCPTool):
                 error="Email is not configured for this organization.",
             ).model_dump()
 
-        # Recipient is always the authenticated user — never caller-controllable.
         recipient = getattr(user, "email", None)
         if not recipient:
             return MCPSendEmailOutput(
@@ -107,17 +106,32 @@ class SendEmailMCPTool(MCPTool):
                     success=False, subject=input_data.subject,
                     error="Report not found.",
                 ).model_dump()
+        elif input_data.report_id:
+            # No attachments but a report was named — used only for the in-app
+            # deep link; still verify org ownership before trusting it.
+            try:
+                report = await self._load_report(db, input_data.report_id)
+                if str(report.organization_id) != str(organization.id):
+                    report = None
+            except Exception:
+                report = None
 
+        # Resolve recipients (self always included; members validated; outsiders
+        # rejected) and fan out across in-app + email/chat via NotifyService —
+        # the same path the internal notify tool uses.
         try:
-            output = await EmailSendService().send(
+            from app.services.notify_service import notify_service
+
+            result = await notify_service.notify(
                 db,
-                recipient=recipient,
+                sender=user,
+                organization=organization,
+                report=report,
                 subject=input_data.subject,
                 body=input_data.body,
                 body_format=input_data.body_format,
                 attachment_specs=input_data.attachments,
-                report=report,
-                organization=organization,
+                recipient_emails=input_data.recipients,
             )
         except Exception as e:
             logger.exception("MCP send_email failed")
@@ -126,10 +140,12 @@ class SendEmailMCPTool(MCPTool):
                 error=f"Failed to send email: {e}",
             ).model_dump()
 
+        reached = [r["email"] for r in result["results"] if r["delivered"]]
         return MCPSendEmailOutput(
-            success=output.success,
-            recipient=output.recipient,
-            subject=output.subject,
-            attachments=output.attachments,
-            error=output.error,
+            success=result["success"],
+            recipient=recipient,
+            recipients=reached,
+            subject=input_data.subject,
+            rejected=result["rejected"],
+            error=None if result["success"] else "Notification could not be delivered.",
         ).model_dump()

@@ -26,6 +26,7 @@ class DruidClient(DataSourceClient):
         port: int = 8082,
         user: Optional[str] = None,
         password: Optional[str] = None,
+        token: Optional[str] = None,
         secure: bool = False,
         path: str = "/druid/v2/sql/",
         schema: Optional[str] = None,
@@ -35,6 +36,7 @@ class DruidClient(DataSourceClient):
         self.port = port
         self.user = user
         self.password = password
+        self.token = token
         self.secure = secure
         self.path = path
         self.schema = schema
@@ -59,10 +61,17 @@ class DruidClient(DataSourceClient):
             "scheme": ("https" if self.secure else "http"),
             "ssl_verify_cert": self.ssl_verify_cert,
         }
-        if self.user:
-            self._connect_kwargs["user"] = self.user
-        if self.password:
-            self._connect_kwargs["password"] = self.password
+        # Auth selection: a bearer token (e.g. Imply Polaris API token) maps to
+        # pydruid's ``jwt`` kwarg (Authorization: Bearer <token>). The driver
+        # prefers Basic over Bearer when ``user`` is set, so token auth must NOT
+        # also send user/password — they are mutually exclusive here, token wins.
+        if self.token:
+            self._connect_kwargs["jwt"] = self.token
+        else:
+            if self.user:
+                self._connect_kwargs["user"] = self.user
+            if self.password:
+                self._connect_kwargs["password"] = self.password
 
     @staticmethod
     def _quote_literal(value: str) -> str:

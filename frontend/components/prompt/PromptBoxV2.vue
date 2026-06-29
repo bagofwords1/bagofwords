@@ -193,6 +193,7 @@
             <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
                 <!-- Instructions -->
                 <button
+                class="hidden"
                     :class="props.compact
                         ? 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
                         : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
@@ -1114,7 +1115,8 @@ function submit() {
         data_sources: inlineMentions.value.filter(m => m.type === 'data_source'),
         tables: inlineMentions.value.filter(m => m.type === 'datasource_table'),
         files: inlineMentions.value.filter(m => m.type === 'file'),
-        entities: inlineMentions.value.filter(m => m.type === 'entity')
+        entities: inlineMentions.value.filter(m => m.type === 'entity'),
+        instructions: inlineMentions.value.filter(m => m.type === 'instruction')
     }
     // Get image files that have been successfully uploaded (for immediate display in chat)
     const imageFiles = successfullyUploadedFiles.value
@@ -1127,7 +1129,8 @@ function submit() {
             { name: 'DATA SOURCES', items: mentionsByType.data_sources },
             { name: 'TABLES', items: mentionsByType.tables },
             { name: 'FILES', items: mentionsByType.files },
-            { name: 'ENTITIES', items: mentionsByType.entities }
+            { name: 'ENTITIES', items: mentionsByType.entities },
+            { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
         ],
         mode: mode.value,                 // 'chat' | 'deep'
         model_id: selectedModel.value,    // backend model id from selector
@@ -1361,6 +1364,7 @@ defineExpose({
     getMode: () => mode.value,
     getModel: () => selectedModel.value,
     getMentions: () => inlineMentions.value,
+    getDataSources: () => selectedDataSources.value,
 })
 
 // Keep local text in sync with parent-provided content (landing page)
@@ -1404,13 +1408,15 @@ async function createReport() {
                 data_sources: inlineMentions.value.filter((m: any) => m.type === 'data_source'),
                 tables: inlineMentions.value.filter((m: any) => m.type === 'datasource_table'),
                 files: inlineMentions.value.filter((m: any) => m.type === 'file'),
-                entities: inlineMentions.value.filter((m: any) => m.type === 'entity')
+                entities: inlineMentions.value.filter((m: any) => m.type === 'entity'),
+                instructions: inlineMentions.value.filter((m: any) => m.type === 'instruction')
             }
             const mentions = [
                 { name: 'DATA SOURCES', items: mentionsByType.data_sources },
                 { name: 'TABLES', items: mentionsByType.tables },
                 { name: 'FILES', items: mentionsByType.files },
-                { name: 'ENTITIES', items: mentionsByType.entities }
+                { name: 'ENTITIES', items: mentionsByType.entities },
+                { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
             ]
 
             router.push({ 

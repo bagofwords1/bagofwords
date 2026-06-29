@@ -15,6 +15,7 @@ export const useAppSettings = () => {
 
   const fetchSettings = async () => {
     if (settings.value) return // already cached
+    if (loading.value) return // in-flight: dedupe concurrent callers on cold load
     loading.value = true
     try {
       const res = await useMyFetch('/api/settings')

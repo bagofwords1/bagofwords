@@ -183,6 +183,7 @@ class LLMModelSchema(LLMModelBase):
     is_preset: bool = False
     is_enabled: bool = True
     is_custom: bool = False
+    is_restricted: bool = False
 
     class Config:
         from_attributes = True

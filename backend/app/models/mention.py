@@ -12,6 +12,7 @@ class MentionType(enum.Enum):
     DATA_SOURCE = "DATA_SOURCE"
     TABLE = "TABLE"
     ENTITY = "ENTITY"
+    INSTRUCTION = "INSTRUCTION"
 
 class Mention(BaseSchema):
     __tablename__ = 'mentions'
@@ -35,4 +36,7 @@ async def object(self):
         return await DataSourceTable.get(self.object_id)
     elif self.type == MentionType.ENTITY:
         return await Entity.get(self.object_id)
+    elif self.type == MentionType.INSTRUCTION:
+        from app.models.instruction import Instruction
+        return await Instruction.get(self.object_id)
     return None

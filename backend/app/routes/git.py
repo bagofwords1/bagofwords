@@ -10,7 +10,7 @@ This router provides endpoints for:
 URL Pattern: /git/repositories for CRUD, /git/{repo_id}/... for operations
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from pydantic import BaseModel
@@ -22,6 +22,7 @@ from app.core.auth import current_user
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.permissions_decorator import requires_permission
+from app.ee.audit.service import audit_service
 
 
 router = APIRouter(prefix="/git", tags=["git-operations"])
@@ -91,22 +92,33 @@ async def list_repositories(
 @requires_permission('create_data_source')
 async def create_repository(
     git_repo: GitRepositoryCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Create a new Git repository integration for the organization.
-    
+
     The data_source_id is optional - if provided, instructions will be scoped
     to that domain. If omitted, instructions are org-wide.
     """
-    return await git_service.create_git_repository(
-        db, 
-        git_repo, 
-        current_user, 
+    repo = await git_service.create_git_repository(
+        db,
+        git_repo,
+        current_user,
         organization
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.created",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repo.id),
+            details={"provider": getattr(repo, "provider", None), "branch": getattr(repo, "branch", None)},
+            request=request,
+        )
+    except Exception:
+        pass
+    return repo
 
 
 @router.post("/repositories/test")
@@ -138,28 +150,49 @@ async def get_repository(
 async def update_repository(
     repository_id: str,
     git_repo: GitRepositoryUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Update an existing Git repository integration."""
-    return await git_service.update_git_repository(
+    repo = await git_service.update_git_repository(
         db, repository_id, git_repo, organization
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.updated",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repository_id),
+            details={"fields": list(git_repo.dict(exclude_unset=True).keys())},
+            request=request,
+        )
+    except Exception:
+        pass
+    return repo
 
 
 @router.delete("/repositories/{repository_id}")
 @requires_permission('create_data_source')
 async def delete_repository(
     repository_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Delete a Git repository and associated data."""
-    return await git_service.delete_git_repository(
+    result = await git_service.delete_git_repository(
         db, repository_id, organization, user_id=current_user.id
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.deleted",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repository_id),
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/repositories/{repository_id}/linked_instructions_count")
@@ -178,12 +211,22 @@ async def get_linked_instructions_count(
 @requires_permission('create_data_source')
 async def index_repository(
     repo_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Trigger indexing/re-indexing of a Git repository."""
-    return await git_service.index_git_repository(db, repo_id, organization)
+    result = await git_service.index_git_repository(db, repo_id, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.indexed",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repo_id),
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/{repo_id}/job_status")
@@ -229,7 +272,17 @@ async def sync_branch(
         organization=organization,
         user_id=current_user.id,
     )
-    
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.synced",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repo_id),
+            details={"branch": request.branch, "build_id": str(build.id),
+                     "build_number": build.build_number},
+        )
+    except Exception:
+        pass
+
     return SyncBranchResponse(
         build_id=str(build.id),
         build_number=build.build_number,
@@ -271,7 +324,17 @@ async def push_build(
         user_id=current_user.id,
         create_pr=request.create_pr,
     )
-    
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.pushed",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repo_id),
+            details={"build_id": request.build_id, "branch_name": result.get("branch_name"),
+                     "create_pr": request.create_pr, "pr_url": result.get("pr_url")},
+        )
+    except Exception:
+        pass
+
     return PushBuildResponse(
         build_id=result["build_id"],
         branch_name=result["branch_name"],
@@ -349,6 +412,15 @@ async def publish_build_via_git(
         raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
     
     result = await build_service.publish_build(db, build_id, current_user.id)
-    
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="git_repository.published",
+            user_id=current_user.id, resource_type="git_repository", resource_id=str(repo_id),
+            details={"build_id": str(build_id)},
+        )
+    except Exception:
+        pass
+
     return InstructionBuildSchema.model_validate(result["build"])
 

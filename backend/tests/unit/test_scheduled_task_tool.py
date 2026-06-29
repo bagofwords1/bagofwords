@@ -21,8 +21,10 @@ from app.ai.tools.implementations.create_scheduled_task import (
     _minute_field_is_single_value,
 )
 from app.ai.tools.implementations.cancel_scheduled_task import CancelScheduledTaskTool
+from app.ai.tools.implementations.edit_scheduled_task import EditScheduledTaskTool
 from app.ai.tools.schemas.create_scheduled_task import CreateScheduledTaskInput
 from app.ai.tools.schemas.cancel_scheduled_task import CancelScheduledTaskInput
+from app.ai.tools.schemas.edit_scheduled_task import EditScheduledTaskInput
 
 
 def _ctx(**overrides) -> dict:
@@ -88,6 +90,13 @@ def test_create_input_requires_fields():
 def test_cancel_input_requires_task_id():
     with pytest.raises(Exception):
         CancelScheduledTaskInput()
+
+
+def test_edit_input_requires_task_id():
+    with pytest.raises(Exception):
+        EditScheduledTaskInput()
+    # task_id alone is valid (the no-op guard lives in the tool, not the schema).
+    assert EditScheduledTaskInput(task_id="sp-1").task_id == "sp-1"
 
 
 # --- create: context guard --------------------------------------------------
@@ -195,6 +204,129 @@ async def test_cancel_rejects_other_report_task():
     assert out["success"] is False
 
 
+# --- edit: guards -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edit_requires_report_context():
+    tool = EditScheduledTaskTool()
+    events = await _collect(
+        tool,
+        {"task_id": "sp-1", "is_active": False},
+        _ctx(report=None),
+    )
+    out = _end_payload(events)["output"]
+    assert out["success"] is False
+    assert "report" in (out["error"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_edit_requires_at_least_one_field():
+    tool = EditScheduledTaskTool()
+    with patch(
+        "app.services.scheduled_prompt_service.scheduled_prompt_service.update_scheduled_prompt",
+        new=AsyncMock(),
+    ) as mock_update:
+        events = await _collect(tool, {"task_id": "sp-1"}, _ctx())
+        mock_update.assert_not_called()
+    out = _end_payload(events)["output"]
+    assert out["success"] is False
+    assert "at least one" in (out["error"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_edit_rejects_subhourly_cron():
+    tool = EditScheduledTaskTool()
+    with patch(
+        "app.services.scheduled_prompt_service.scheduled_prompt_service.update_scheduled_prompt",
+        new=AsyncMock(),
+    ) as mock_update:
+        events = await _collect(
+            tool,
+            {"task_id": "sp-1", "cron_schedule": "*/5 * * * *"},
+            _ctx(),
+        )
+        mock_update.assert_not_called()
+    out = _end_payload(events)["output"]
+    assert out["success"] is False
+    assert "hour" in (out["error"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_edit_rejects_other_report_task():
+    tool = EditScheduledTaskTool()
+    other = SimpleNamespace(id="sp-9", report_id="other-report", deleted_at=None, prompt={"content": "x"})
+    db = MagicMock()
+    db.get = AsyncMock(return_value=other)
+    with patch(
+        "app.services.scheduled_prompt_service.scheduled_prompt_service.update_scheduled_prompt",
+        new=AsyncMock(),
+    ) as mock_update:
+        events = await _collect(tool, {"task_id": "sp-9", "is_active": False}, _ctx(db=db))
+        mock_update.assert_not_called()
+    out = _end_payload(events)["output"]
+    assert out["success"] is False
+
+
+# --- edit: happy path -------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edit_happy_path_all_fields():
+    tool = EditScheduledTaskTool()
+    sp = SimpleNamespace(id="sp-1", report_id="report-1", deleted_at=None, prompt={"content": "old", "mode": "chat"})
+    updated = SimpleNamespace(id="sp-1", cron_schedule="0 7 * * 5", is_active=True)
+    db = MagicMock()
+    db.get = AsyncMock(return_value=sp)
+    with patch(
+        "app.services.scheduled_prompt_service.scheduled_prompt_service.update_scheduled_prompt",
+        new=AsyncMock(return_value=updated),
+    ) as mock_update:
+        events = await _collect(
+            tool,
+            {
+                "task_id": "sp-1",
+                "task_prompt": "new prompt",
+                "cron_schedule": "0 7 * * 5",
+                "is_active": True,
+            },
+            _ctx(db=db),
+        )
+        mock_update.assert_awaited_once()
+        kwargs = mock_update.await_args.kwargs
+        # The prompt patch preserves other prompt fields and swaps only content.
+        assert kwargs["data"].prompt == {"content": "new prompt", "mode": "chat"}
+        assert kwargs["data"].cron_schedule == "0 7 * * 5"
+        assert kwargs["data"].is_active is True
+
+    payload = _end_payload(events)
+    assert payload["output"]["success"] is True
+    assert payload["output"]["task_id"] == "sp-1"
+    assert payload["output"]["cron_schedule"] == "0 7 * * 5"
+    assert payload["output"]["is_active"] is True
+    assert payload["observation"]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_edit_prompt_only_leaves_other_fields_unset():
+    tool = EditScheduledTaskTool()
+    sp = SimpleNamespace(id="sp-2", report_id="report-1", deleted_at=None, prompt={"content": "old"})
+    updated = SimpleNamespace(id="sp-2", cron_schedule="0 9 * * 1", is_active=True)
+    db = MagicMock()
+    db.get = AsyncMock(return_value=sp)
+    with patch(
+        "app.services.scheduled_prompt_service.scheduled_prompt_service.update_scheduled_prompt",
+        new=AsyncMock(return_value=updated),
+    ) as mock_update:
+        events = await _collect(tool, {"task_id": "sp-2", "task_prompt": "just the prompt"}, _ctx(db=db))
+        kwargs = mock_update.await_args.kwargs
+        assert kwargs["data"].prompt == {"content": "just the prompt"}
+        # Omitted fields stay None so the service leaves them unchanged.
+        assert kwargs["data"].cron_schedule is None
+        assert kwargs["data"].is_active is None
+    assert _end_payload(events)["output"]["success"] is True
+
+
 # --- conversation-history digest -------------------------------------------
 
 
@@ -214,6 +346,13 @@ def test_digest_scheduled_tool():
         result_json={"success": True, "task_id": "sp-1"},
     )
     assert "task_id: sp-1" in _digest_scheduled_tool(cancelled)
+
+    edited = SimpleNamespace(
+        tool_name="edit_scheduled_task",
+        result_json={"success": True, "task_id": "sp-1", "cron_schedule": "0 7 * * 5", "is_active": False},
+    )
+    de = _digest_scheduled_tool(edited)
+    assert "task_id: sp-1" in de and "cron: 0 7 * * 5" in de and "active: False" in de
 
     # Non-scheduled tool falls through (empty -> caller tries next digest).
     other = SimpleNamespace(tool_name="create_data", result_json={"x": 1})

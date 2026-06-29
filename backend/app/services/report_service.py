@@ -1,7 +1,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, lazyload
+from sqlalchemy.orm import selectinload, lazyload, noload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.data_source_schema import DataSourceReportSchema
@@ -139,7 +139,17 @@ class ReportService:
                 report.conversation_share_enabled = False
 
         # Update shares list
+        newly_added_user_ids: list[str] = []
         if visibility == 'shared' and shared_user_ids is not None:
+            # Snapshot who already had this share so we only notify *new* recipients.
+            existing_rows = (await db.execute(
+                select(ReportShare.user_id).where(
+                    ReportShare.report_id == report_id,
+                    ReportShare.share_type == share_type,
+                    ReportShare.deleted_at.is_(None),
+                )
+            )).all()
+            existing_uids = {str(r[0]) for r in existing_rows}
             # Remove existing shares for this type
             await db.execute(
                 delete(ReportShare).where(
@@ -155,6 +165,7 @@ class ReportService:
                     share_type=share_type,
                 )
                 db.add(share)
+            newly_added_user_ids = [str(u) for u in shared_user_ids if str(u) not in existing_uids]
         elif visibility != 'shared':
             # Clear shares if moving away from shared mode
             await db.execute(
@@ -166,6 +177,19 @@ class ReportService:
 
         await db.commit()
         await db.refresh(report)
+
+        # Notify-first: the durable in-app notification is the canonical record of
+        # "shared with you" — created here on the share grant itself (email stays
+        # the explicit opt-in action). Non-fatal: sharing must not depend on it.
+        if newly_added_user_ids:
+            try:
+                from app.services.inbox_service import inbox_service
+                await inbox_service.notify_share(
+                    db, report=report, share_type=share_type,
+                    user_ids=newly_added_user_ids, actor_user=current_user,
+                )
+            except Exception:
+                logger.warning("share in-app notification failed", exc_info=True)
 
         # Telemetry
         try:
@@ -665,6 +689,24 @@ class ReportService:
             from app.settings.config import settings as app_settings
             from app.dependencies import _locale_from_org
             report_url = f"{app_settings.bow_config.base_url}/r/{report_id}"
+            # notify-first: durable in-app row for user subscribers (collapsed per
+            # report so repeated runs refresh one entry). Email follows.
+            try:
+                from app.services.inbox_service import inbox_service
+                user_ids = [str(s.get("id")) for s in report_orm.notification_subscribers
+                            if s.get("type") == "user" and s.get("id")]
+                if user_ids:
+                    await inbox_service.notify_users(
+                        db, organization_id=str(report_orm.organization_id), user_ids=user_ids,
+                        source="schedule", type="scheduled_run",
+                        title=f'"{report_orm.title or "Untitled"}" ran',
+                        body="Your scheduled report ran.",
+                        link=f"/reports/{report_id}",
+                        subject={"kind": "report", "report_id": str(report_id)},
+                        group_key=f"schedule:{report_id}",
+                    )
+            except Exception:
+                logger.warning("scheduled-report in-app notification failed", exc_info=True)
             asyncio.create_task(
                 notification_service.send_scheduled_report_results(
                     report_id=report_id,
@@ -1039,6 +1081,7 @@ class ReportService:
         data_source_id: str | None = None,
         mode: str | None = None,
         has_artifacts: str | None = None,
+        view: str | None = None,
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
@@ -1185,6 +1228,65 @@ class ReportService:
             total_result = await db.execute(count_query)
             total = total_result.scalar()
 
+            # ── Minimal view (sidebar / recent-reports on every page) ──────────
+            # The sidebar only renders title, star and the artifact-mode icon. It
+            # does NOT use widgets/data_sources/queries/completions. Serving the
+            # full ReportSchema here means hydrating the whole Report
+            # lazy="selectin" object graph (widgets/queries/steps/completions/…)
+            # for every row — a per-page cascade. The minimal path noloads every
+            # relationship except `user`, and derives artifact_modes from one
+            # batched query, so it never touches that graph.
+            if view == "minimal":
+                from app.models.artifact import Artifact
+                from app.schemas.report_schema import PaginationMeta, ReportListResponse
+                m_query = (
+                    base_query.options(noload("*"), selectinload(Report.user))
+                    .order_by(
+                        is_starred_order.desc(),
+                        func.coalesce(Report.last_activity_at, Report.created_at).desc(),
+                    )
+                    .offset(offset)
+                    .limit(limit)
+                )
+                reports = (await db.execute(m_query)).scalars().all()
+                report_ids = [str(r.id) for r in reports]
+
+                starred_ids: set[str] = set()
+                modes_by_report: dict[str, set[str]] = {}
+                if report_ids:
+                    starred_ids = {
+                        str(row[0]) for row in (await db.execute(
+                            select(ReportStar.report_id).where(
+                                ReportStar.report_id.in_(report_ids),
+                                ReportStar.user_id == current_user.id,
+                                ReportStar.deleted_at.is_(None),
+                            )
+                        )).all()
+                    }
+                    for rid, am_mode in (await db.execute(
+                        select(Artifact.report_id, Artifact.mode).where(
+                            Artifact.report_id.in_(report_ids),
+                            Artifact.mode.isnot(None),
+                        )
+                    )).all():
+                        modes_by_report.setdefault(str(rid), set()).add(am_mode)
+
+                report_schemas = []
+                for report in reports:
+                    rs = ReportSchema.from_orm(report)  # heavy fields stay [] / None (noload)
+                    rs.user = UserSchema.from_orm(report.user)
+                    rs.is_starred = str(report.id) in starred_ids
+                    rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
+                    report_schemas.append(rs)
+
+                total_pages = (total + limit - 1) // limit
+                meta = PaginationMeta(
+                    total=total, page=page, limit=limit, total_pages=total_pages,
+                    has_next=page < total_pages, has_prev=page > 1,
+                )
+                span.add_event("get_reports done (minimal)")
+                return ReportListResponse(reports=report_schemas, meta=meta)
+
             # Suppress DataSource's lazy="selectin" cascade (reports →
             # widgets/queries/completions/…) that would otherwise fire per
             # loaded Report.data_sources. We don't lazyload at Report level
@@ -1197,8 +1299,27 @@ class ReportService:
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
-                selectinload(Report.artifacts)
-            ).order_by(is_starred_order.desc(), Report.created_at.desc()).offset(offset).limit(limit)
+                selectinload(Report.artifacts),
+                # These relationships are NOT fields on ReportSchema, so they are
+                # never serialized — but the model declares them lazy="selectin",
+                # so without this they'd each fire a batched query on every list
+                # load (completions especially: the full conversation history for
+                # all rows). noload them; output is byte-identical, the cascade
+                # is gone. (Per-relationship noload, not lazyload("*"), so it
+                # doesn't propagate into Report.user and break UserSchema.)
+                noload(Report.completions),
+                noload(Report.visualizations),
+                noload(Report.text_widgets),
+                noload(Report.files),
+                noload(Report.shares),
+                noload(Report.stars),
+            ).order_by(
+                is_starred_order.desc(),
+                # Sort by real conversation activity (new message / finalized agent
+                # turn), not creation time. Coalesce so reports that predate the
+                # column — or have no activity yet — fall back to created_at.
+                func.coalesce(Report.last_activity_at, Report.created_at).desc(),
+            ).offset(offset).limit(limit)
 
             result = await db.execute(query)
             span.add_event("query executed")

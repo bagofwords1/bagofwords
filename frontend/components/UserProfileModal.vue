@@ -31,7 +31,8 @@
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60'
             ]"
           >
-            <UIcon :name="item.icon" class="w-4 h-4 shrink-0" />
+            <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0" />
+            <UIcon v-else :name="item.icon" class="w-4 h-4 shrink-0" />
             <span class="whitespace-nowrap">{{ item.label }}</span>
           </button>
         </nav>
@@ -219,6 +220,76 @@
             </div>
           </div>
 
+          <!-- API Keys -->
+          <div v-else-if="activeTab === 'apiKeys'" class="space-y-4">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.apiKeys.title') }}</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.apiKeys.subtitle') }}</p>
+              </div>
+              <UButton
+                color="blue"
+                size="sm"
+                class="shrink-0"
+                :loading="apiKeysCreating"
+                @click="createApiKey"
+              >
+                <UIcon name="i-heroicons-plus" class="w-4 h-4 mr-1" />
+                {{ $t('profile.apiKeys.generate') }}
+              </UButton>
+            </div>
+
+            <!-- Freshly created key (shown once) -->
+            <div
+              v-if="newApiKey"
+              class="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-500/10 px-4 py-3 space-y-2"
+            >
+              <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.apiKeys.newKeyTitle') }}</div>
+              <div class="flex items-center gap-2">
+                <code class="flex-1 min-w-0 font-mono text-xs text-gray-700 dark:text-gray-300 break-all">{{ newApiKey }}</code>
+                <UButton size="2xs" color="gray" variant="solid" @click="copyApiKey(newApiKey)">
+                  <UIcon name="i-heroicons-clipboard-document" class="w-3.5 h-3.5 mr-1" />
+                  {{ $t('profile.apiKeys.copy') }}
+                </UButton>
+              </div>
+              <p class="text-[11px] text-amber-600 dark:text-amber-400">{{ $t('profile.apiKeys.newKeyWarning') }}</p>
+            </div>
+
+            <div v-if="apiKeysLoading" class="py-6 flex justify-center">
+              <Spinner class="w-5 h-5 text-gray-400" />
+            </div>
+
+            <template v-else>
+              <p v-if="!apiKeys.length" class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('profile.apiKeys.empty') }}</p>
+              <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-200 dark:divide-gray-800">
+                <div
+                  v-for="key in apiKeys"
+                  :key="key.id"
+                  class="flex items-center justify-between gap-3 px-3 py-2.5 group"
+                >
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate">{{ key.name }}</span>
+                      <code class="font-mono text-[11px] text-gray-500 dark:text-gray-400">{{ key.key_prefix }}…</code>
+                    </div>
+                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      {{ $t('profile.apiKeys.created', { date: formatApiKeyDate(key.created_at) }) }}
+                      ·
+                      {{ key.last_used_at ? $t('profile.apiKeys.lastUsed', { date: formatApiKeyDate(key.last_used_at) }) : $t('profile.apiKeys.neverUsed') }}
+                    </div>
+                  </div>
+                  <button
+                    @click="deleteApiKey(key)"
+                    class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    :title="$t('profile.apiKeys.deleteTitle')"
+                  >
+                    <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+
           <!-- Appearance -->
           <div v-else-if="activeTab === 'appearance'" class="space-y-4">
             <div>
@@ -259,6 +330,101 @@
               <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('profile.appearance.languageDescription') }}</p>
             </div>
           </div>
+
+          <!-- MCP Server (mirrors McpModal's content) -->
+          <div v-else-if="activeTab === 'mcp'" class="space-y-5">
+            <div>
+              <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('mcpServerModal.title') }}</h3>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('mcpServerModal.subtitle') }}</p>
+            </div>
+
+            <div v-if="mcpLoading" class="py-12 flex items-center justify-center">
+              <Spinner class="w-6 h-6 text-gray-400" />
+            </div>
+
+            <template v-else>
+              <!-- Server status + generate/regenerate -->
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+                  <div class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"></div>
+                  <code class="font-mono text-gray-700 dark:text-gray-300 truncate">{{ mcpServerUrl }}</code>
+                </div>
+                <UButton size="xs" color="blue" :loading="mcpCreating" class="shrink-0" @click="regenerateMcpToken">
+                  <UIcon :name="apiKeys.length === 0 ? 'heroicons-plus' : 'heroicons-arrow-path'" class="w-3.5 h-3.5 mr-1" />
+                  {{ apiKeys.length === 0 ? $t('mcpServerModal.generateToken') : $t('mcpServerModal.regenerateToken') }}
+                </UButton>
+              </div>
+
+              <!-- Configuration -->
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
+                <div class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <pre class="px-3 py-2.5 pr-20 font-mono text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">{{ mcpConfig }}</pre>
+                  <div class="absolute top-2 right-2">
+                    <UTooltip :text="mcpCurrentToken ? '' : (apiKeys.length === 0 ? $t('mcpServerModal.generateTokenToCopy') : $t('mcpServerModal.regenerateTokenToCopy'))" :popper="{ placement: 'top' }">
+                      <button
+                        @click="mcpCurrentToken && copyMcp(mcpConfig)"
+                        :disabled="!mcpCurrentToken"
+                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
+                      >
+                        <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
+                        {{ $t('mcpServerModal.copy') }}
+                      </button>
+                    </UTooltip>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Access token -->
+              <div>
+                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
+                <div v-if="apiKeys.length === 0 && !mcpCurrentToken" class="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-dashed px-4 py-6 text-center">
+                  <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">{{ $t('mcpServerModal.noTokenYet') }}</p>
+                  <UButton size="sm" color="blue" :loading="mcpCreating" @click="regenerateMcpToken">
+                    <UIcon name="heroicons-plus" class="w-4 h-4 mr-1" />
+                    {{ $t('mcpServerModal.generateToken') }}
+                  </UButton>
+                </div>
+                <div v-else class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div class="px-3 py-2 pr-20 flex items-center gap-3">
+                    <code class="font-mono text-xs text-gray-700 dark:text-gray-300 truncate">{{ mcpCurrentToken || '••••••••••••••••••••••••••••••••' }}</code>
+                    <span v-if="!mcpCurrentToken && apiKeys.length > 0" class="text-[10px] text-gray-400 shrink-0">{{ mcpFormatDate(apiKeys[0].created_at) }}</span>
+                  </div>
+                  <div class="absolute top-1/2 -translate-y-1/2 right-2">
+                    <UTooltip :text="mcpCurrentToken ? '' : $t('mcpServerModal.regenerateTokenToCopy')" :popper="{ placement: 'top' }">
+                      <button
+                        @click="mcpCurrentToken && copyMcp(mcpCurrentToken)"
+                        :disabled="!mcpCurrentToken"
+                        :class="['flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors', mcpCurrentToken ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600' : 'text-gray-300 dark:text-gray-600 cursor-not-allowed']"
+                      >
+                        <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
+                        {{ $t('mcpServerModal.copy') }}
+                      </button>
+                    </UTooltip>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Manage tokens -->
+              <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
+                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                  <UIcon :name="mcpShowTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
+                  {{ $t('mcpServerModal.manageTokens', { n: apiKeys.length }) }}
+                </button>
+                <div v-if="mcpShowTokens" class="mt-3 border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700">
+                  <div v-for="key in apiKeys" :key="key.id" class="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group">
+                    <div class="flex items-center gap-3 min-w-0">
+                      <code class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ key.key_prefix }}•••••••••</code>
+                      <span class="text-[10px] text-gray-400">{{ mcpFormatDate(key.created_at) }}</span>
+                    </div>
+                    <button @click="deleteApiKey(key)" class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" :title="$t('mcpServerModal.deleteTokenTitle')">
+                      <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
       </section>
     </div>
@@ -266,7 +432,9 @@
 </template>
 
 <script setup lang="ts">
+import { markRaw } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import McpIcon from '~/components/icons/McpIcon.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
@@ -280,16 +448,24 @@ const { t } = useI18n()
 const toast = useToast()
 const { data: currentUser, getSession } = useAuth()
 const { organization } = useOrganization()
+const { isMcpEnabled } = useOrgSettings()
 const colorMode = useColorMode()
 
-const activeTab = ref<'general' | 'instructions' | 'usage' | 'appearance'>('general')
+const activeTab = ref<'general' | 'instructions' | 'usage' | 'apiKeys' | 'mcp' | 'appearance'>('general')
 
-const navItems = computed(() => [
-  { key: 'general', label: t('profile.nav.general'), icon: 'i-heroicons-user-circle' },
-  { key: 'instructions', label: t('profile.nav.instructions'), icon: 'i-heroicons-sparkles' },
-  { key: 'usage', label: t('profile.nav.usage'), icon: 'i-heroicons-chart-bar' },
-  { key: 'appearance', label: t('profile.nav.appearance'), icon: 'i-heroicons-swatch' },
-])
+const navItems = computed(() => {
+  const items: any[] = [
+    { key: 'general', label: t('profile.nav.general'), icon: 'i-heroicons-user-circle' },
+    { key: 'instructions', label: t('profile.nav.instructions'), icon: 'i-heroicons-sparkles' },
+    { key: 'usage', label: t('profile.nav.usage'), icon: 'i-heroicons-chart-bar' },
+    { key: 'apiKeys', label: t('profile.nav.apiKeys'), icon: 'i-heroicons-key' },
+  ]
+  if (isMcpEnabled.value) {
+    items.push({ key: 'mcp', label: t('nav.mcpServer'), iconComponent: markRaw(McpIcon) })
+  }
+  items.push({ key: 'appearance', label: t('profile.nav.appearance'), icon: 'i-heroicons-swatch' })
+  return items
+})
 
 // --- User basics ---
 const currentUserName = computed<string>(() => {
@@ -440,6 +616,140 @@ async function saveNote() {
   }
 }
 
+// --- API keys (personal, per-user) ---
+// Shares the /api/api_keys endpoints with McpModal. Keys are scoped to the user
+// (not the org), so the same list shows here and in the MCP server modal.
+interface ApiKey {
+  id: string
+  name: string
+  key_prefix: string
+  key?: string
+  created_at: string
+  last_used_at?: string | null
+}
+const apiKeys = ref<ApiKey[]>([])
+const apiKeysLoading = ref(false)
+const apiKeysCreating = ref(false)
+const apiKeysLoaded = ref(false)
+const newApiKey = ref<string | null>(null)
+
+const _apiKeyDf = useFormatDate()
+function formatApiKeyDate(dateStr: string) {
+  return _apiKeyDf.format(dateStr, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+async function loadApiKeys() {
+  if (apiKeysLoaded.value) return
+  apiKeysLoading.value = true
+  try {
+    const res = await useMyFetch('/api/api_keys')
+    if (res.data?.value) apiKeys.value = res.data.value as ApiKey[]
+    apiKeysLoaded.value = true
+  } catch {
+    // non-fatal
+  } finally {
+    apiKeysLoading.value = false
+  }
+}
+
+async function createApiKey() {
+  apiKeysCreating.value = true
+  try {
+    const res = await useMyFetch('/api/api_keys', { method: 'POST', body: { name: 'API Key' } })
+    const created = res.data?.value as ApiKey | null
+    if (res.status.value !== 'success' || !created) {
+      throw new Error('create failed')
+    }
+    apiKeys.value = [created, ...apiKeys.value]
+    if (created.key) newApiKey.value = created.key
+    toast.add({ title: t('profile.apiKeys.toastGenerated'), color: 'green' })
+  } catch {
+    toast.add({ title: t('profile.apiKeys.toastGenerateFailed'), color: 'red' })
+  } finally {
+    apiKeysCreating.value = false
+  }
+}
+
+async function copyApiKey(key: string) {
+  await navigator.clipboard.writeText(key)
+  toast.add({ title: t('profile.apiKeys.copied'), color: 'green' })
+}
+
+async function deleteApiKey(key: ApiKey) {
+  if (!confirm(t('profile.apiKeys.confirmDelete'))) return
+  try {
+    const res = await useMyFetch(`/api/api_keys/${key.id}`, { method: 'DELETE' })
+    if (res.status.value !== 'success') throw new Error('delete failed')
+    apiKeys.value = apiKeys.value.filter(k => k.id !== key.id)
+    if (newApiKey.value && key.key_prefix && newApiKey.value.startsWith(key.key_prefix)) {
+      newApiKey.value = null
+    }
+    toast.add({ title: t('profile.apiKeys.toastDeleted'), color: 'green' })
+  } catch {
+    toast.add({ title: t('profile.apiKeys.toastDeleteFailed'), color: 'red' })
+  }
+}
+
+// --- MCP server (mirrors McpModal; shares the same /api/api_keys list) ---
+const mcpLoading = ref(false)
+const mcpCreating = ref(false)
+const mcpBaseUrl = ref('')
+const mcpCurrentToken = ref<string | null>(null)
+const mcpShowTokens = ref(false)
+const mcpLoaded = ref(false)
+
+const mcpServerUrl = computed(() => {
+  const base = mcpBaseUrl.value || (typeof window !== 'undefined' ? window.location.origin : '')
+  return `${base}/api/mcp`
+})
+const mcpConfig = computed(() => {
+  const token = mcpCurrentToken.value || '<YOUR_API_KEY>'
+  return JSON.stringify({
+    mcpServers: { bagofwords: { url: mcpServerUrl.value, headers: { Authorization: `Bearer ${token}` } } },
+  }, null, 2)
+})
+function mcpFormatDate(dateStr: string) {
+  return _apiKeyDf.format(dateStr, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+async function copyMcp(text: string | undefined) {
+  if (!text) return
+  await navigator.clipboard.writeText(text)
+  toast.add({ title: t('mcpServerModal.toastCopied'), icon: 'i-heroicons-check-circle', color: 'green' })
+}
+async function loadMcpSettings() {
+  try {
+    const res = await useMyFetch('/settings')
+    if (res.data?.value) mcpBaseUrl.value = (res.data.value as any).base_url || ''
+  } catch {}
+}
+async function regenerateMcpToken() {
+  mcpCreating.value = true
+  try {
+    const res = await useMyFetch('/api/api_keys', { method: 'POST', body: { name: 'MCP' } })
+    const created = res.data?.value as ApiKey | null
+    if (res.status.value !== 'success' || !created) throw new Error('create failed')
+    apiKeys.value = [created, ...apiKeys.value]
+    if (created.key) {
+      mcpCurrentToken.value = created.key
+      toast.add({ title: t('mcpServerModal.toastTokenGenerated'), icon: 'i-heroicons-check-circle', color: 'green' })
+    }
+  } catch {
+    toast.add({ title: t('mcpServerModal.toastTokenFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
+  } finally {
+    mcpCreating.value = false
+  }
+}
+async function loadMcp() {
+  if (mcpLoaded.value) return
+  mcpLoading.value = true
+  mcpCurrentToken.value = null
+  mcpShowTokens.value = false
+  apiKeysLoaded.value = false // ensure a fresh key list for the MCP view
+  await Promise.all([loadMcpSettings(), loadApiKeys()])
+  mcpLoaded.value = true
+  mcpLoading.value = false
+}
+
 // --- Usage (per-user quota summary from whoami) ---
 const emptyMetric = { used: 0, limit: null as number | null }
 const usage = computed(() => {
@@ -545,9 +855,19 @@ watch(isOpen, (open) => {
     syncNameInput()
     loadOrgLocale()
     if (activeTab.value === 'instructions') loadInstructions()
+    if (activeTab.value === 'apiKeys') loadApiKeys()
+    if (activeTab.value === 'mcp') loadMcp()
+  } else {
+    // Reset one-time key reveal and force a fresh fetch on next open.
+    newApiKey.value = null
+    apiKeysLoaded.value = false
+    mcpLoaded.value = false
+    mcpCurrentToken.value = null
   }
 }, { immediate: true })
 watch(activeTab, (tab) => {
   if (tab === 'instructions') loadInstructions()
+  if (tab === 'apiKeys') loadApiKeys()
+  if (tab === 'mcp') loadMcp()
 })
 </script>

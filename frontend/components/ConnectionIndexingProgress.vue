@@ -88,14 +88,12 @@ const percent = computed(() => {
 })
 const summary = computed(() => indexingSummary(props.indexing))
 
+// Render the indexing log time in the org timezone (UTC-correct parse), keeping
+// the HH:MM:SS precision the live log uses.
+const { format: formatTime24 } = useFormatDate()
 function formatTs(ts: string): string {
     if (!ts) return ''
-    const d = new Date(ts)
-    if (isNaN(d.getTime())) return ts
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mm = String(d.getMinutes()).padStart(2, '0')
-    const ss = String(d.getSeconds()).padStart(2, '0')
-    return `${hh}:${mm}:${ss}`
+    return formatTime24(ts, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
 function levelClass(level?: string): string {

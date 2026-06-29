@@ -1,30 +1,30 @@
 <template>
   <div class="flex flex-col text-sm" :style="{ height: showTopBanner ? `calc(100vh - ${bannerHeight})` : '100vh' }">
     <!-- Header -->
-    <div class="flex items-center justify-between pl-3 pr-4 py-3 shrink-0">
+    <div class="flex items-center justify-between ps-3 pe-4 py-3 shrink-0">
       <div>
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">Agents</h1>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Configure your agents and the data, tools, skills and instructions they reason with.</p>
+        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('agentsPage.title') }}</h1>
+        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
       <div class="flex items-center gap-2.5">
-        <button v-if="reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors" @click="openReview(null)">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ reviewCount }} to review
+        <button v-if="false && reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors" @click="openReview(null)">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.toReview', { n: reviewCount }) }}
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
-          <button class="inline-flex items-center gap-1.5 h-8 pl-2.5 pr-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors">
-            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> New
+          <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors">
+            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-52">
-              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="openCreate(); close()">
+              <button class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="openCreate(); close()">
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">Instruction</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">A rule, skill or note for your agents</span></span>
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newInstruction') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newInstructionDesc') }}</span></span>
               </button>
-              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="showNewAgent = true; close()">
+              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="showNewAgent = true; close()">
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">Agent</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">Connect data, tools and tables</span></span>
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newAgent') }}</span><span class="block text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.newAgentDesc') }}</span></span>
               </button>
             </div>
           </template>
@@ -35,26 +35,26 @@
     <!-- Body: tree → detail → versions -->
     <div class="flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
-      <aside class="shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
+      <aside class="shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
-            <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-            <input v-model="search" type="text" placeholder="Search everything…" class="w-full h-9 pl-8 pr-2 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+            <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 pe-2 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
           </div>
           <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
-            <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" title="Filters">
+            <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" :title="$t('agentsPage.filters')">
               <UIcon name="i-heroicons-adjustments-horizontal" class="w-4 h-4" />
-              <span v-if="activeFilterCount" class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-900 dark:bg-gray-700 text-white text-[8px] font-semibold flex items-center justify-center">{{ activeFilterCount }}</span>
+              <span v-if="activeFilterCount" class="absolute -top-1 -end-1 w-3.5 h-3.5 rounded-full bg-gray-900 dark:bg-gray-700 text-white text-[8px] font-semibold flex items-center justify-center">{{ activeFilterCount }}</span>
             </button>
             <template #panel="{ close }">
               <div class="p-3 w-56 space-y-3">
-                <FilterSection label="Status" :options="statusOpts" v-model="fStatus" />
-                <FilterSection label="Loading" :options="loadOpts" v-model="fLoad" />
-                <FilterSection label="Source" :options="sourceOpts" v-model="fSource" />
-                <FilterSection v-if="categoryOpts.length" label="Category" :options="categoryOpts" v-model="fCategory" />
+                <FilterSection :label="$t('agentsPage.filterStatus')" :options="statusOpts" v-model="fStatus" />
+                <FilterSection :label="$t('agentsPage.filterLoading')" :options="loadOpts" v-model="fLoad" />
+                <FilterSection :label="$t('agentsPage.filterSource')" :options="sourceOpts" v-model="fSource" />
+                <FilterSection v-if="categoryOpts.length" :label="$t('agentsPage.filterCategory')" :options="categoryOpts" v-model="fCategory" />
                 <div class="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
-                  <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" @click="clearFilters">Clear all</button>
-                  <button class="text-[11px] font-medium text-gray-900 dark:text-white" @click="close && close()">Done</button>
+                  <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" @click="clearFilters">{{ $t('agentsPage.clearAll') }}</button>
+                  <button class="text-[11px] font-medium text-gray-900 dark:text-white" @click="close && close()">{{ $t('agentsPage.done') }}</button>
                 </div>
               </div>
             </template>
@@ -62,28 +62,25 @@
         </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
-          <TreeGroup label="Global instructions" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
-            <EmptyHint v-if="listFor('global').length === 0" text="No global rules." add @add="openCreate()" />
+          <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
+            <EmptyHint v-if="listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" add @add="openCreate()" />
             <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
           </TreeGroup>
-          <TreeGroup label="Skills" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
-            <EmptyHint v-if="skillCount === 0" text="No skills yet." />
+          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
+            <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
             <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
           </TreeGroup>
-          <button type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0"
-                  style="padding-left:6px;padding-right:8px"
-                  :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
-                  @click="openReview(null)">
+          <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
+          <button v-if="canManageEvals" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'global-evals' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openGlobalEvals()">
             <span class="w-3 shrink-0"></span>
-            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-            <span class="flex-1 text-left truncate">Review</span>
-            <span v-if="reviewCount > 0" class="text-[11px] font-semibold px-1.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 tabular-nums">{{ reviewCount }}</span>
+            <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="flex-1 text-start truncate">{{ $t('agentsPage.globalEvals') }}</span>
+            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
           </button>
-
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
-            <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Agents</span>
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{{ $t('agentsPage.agentsSection') }}</span>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
               <label class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
@@ -93,63 +90,66 @@
           </div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? 'Sign in' : (agent.publish_status === 'disabled' ? 'Disabled' : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="instrLoading ? undefined : agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
-                  <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
+                  <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
-                <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" text="No accessible tables." :pad="48" />
+                <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noAccessibleTables')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
+              <TreeGroup :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
                   <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" /></template>
-                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600 dark:text-gray-400" style="padding-left:62px;padding-right:8px">
+                  <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600 dark:text-gray-400" style="padding-inline-start:62px;padding-inline-end:8px">
                     <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
-                    <span class="flex-1 text-left truncate font-mono text-xs">{{ tool.name }}</span>
-                    <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500">off</span>
+                    <span class="flex-1 text-start truncate font-mono text-xs">{{ tool.name }}</span>
+                    <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500">{{ $t('agentsPage.toolOff') }}</span>
                     <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ tool.policy }}</span>
                   </div>
                 </TreeGroup>
-                <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" text="No tools connected." :pad="48" />
+                <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noToolsConnected')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Files" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" addable :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)" @add="triggerUpload(agent.id)">
+              <TreeGroup :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" addable :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)" @add="triggerUpload(agent.id)">
                 <div
                   v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
                   class="group/file w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer"
                   :class="previewFile && previewFile.id === f.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
-                  style="padding-left:48px;padding-right:8px" @click="openFile(f, agent.id)"
+                  style="padding-inline-start:48px;padding-inline-end:8px" @click="openFile(f, agent.id)"
                 >
                   <UIcon :name="fileIcon(f.content_type, f.filename)" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
-                  <span class="flex-1 text-left truncate">{{ f.filename }}</span>
-                  <button v-if="canManageAgent(agent.id)" class="shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover/file:opacity-100 flex items-center justify-center" title="Delete file" @click.stop="deleteFile(agent.id, f)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
+                  <span class="flex-1 text-start truncate">{{ f.filename }}</span>
+                  <button v-if="canManageAgent(agent.id)" class="shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover/file:opacity-100 flex items-center justify-center" :title="$t('agentsPage.tipDeleteFile')" @click.stop="deleteFile(agent.id, f)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
                 </div>
-                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" text="No files." add @add="triggerUpload(agent.id)" :pad="48" />
-                <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-left:48px">Uploading…</div>
+                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noFiles')" add @add="triggerUpload(agent.id)" :pad="48" />
+                <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
-                <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
+              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="instrLoading ? undefined : listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+                <div v-if="instrLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                <template v-else>
+                  <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
+                  <EmptyHint v-if="listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" add @add="openCreate({ agentId: agent.id })" :pad="48" />
+                </template>
               </TreeGroup>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('evals', agent.id)">
                 <span class="w-3 shrink-0"></span>
                 <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-                <span class="flex-1 text-left truncate">Evals</span>
-                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100" />
+                <span class="flex-1 text-start truncate">{{ $t('agentsPage.evals') }}</span>
+                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
               </button>
 
-              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-left:20px;padding-right:8px" @click="openPanel('settings', agent.id)">
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openPanel('settings', agent.id)">
                 <span class="w-3 shrink-0"></span>
                 <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
-                <span class="flex-1 text-left truncate">Settings</span>
-                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100" />
+                <span class="flex-1 text-start truncate">{{ $t('agentsPage.settings') }}</span>
+                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
               </button>
             </TreeGroup>
           </template>
@@ -157,17 +157,17 @@
 
         <!-- Connections footer -->
         <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mr-1">Connections</span>
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
           <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
             <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
               <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
-              <span class="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+              <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </button>
           </UTooltip>
-          <UTooltip v-if="connections.length > 4" :text="`View all ${connections.length} connections`">
+          <UTooltip v-if="connections.length > 4" :text="$t('agentsPage.viewAllConnections', { n: connections.length })">
             <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 dark:border-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
-          <UTooltip v-if="canCreateDataSource && connections.length" text="New connection">
+          <UTooltip v-if="canCreateDataSource && connections.length" :text="$t('agentsPage.newConnection')">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
@@ -175,13 +175,13 @@
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
           <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
-            Add connection
+            {{ $t('agentsPage.addConnection') }}
           </button>
-          <button v-if="connections.length" type="button" class="ml-auto text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">View all</button>
+          <button v-if="connections.length" type="button" class="ms-auto text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">{{ $t('agentsPage.viewAll') }}</button>
         </div>
 
         <!-- Drag handle to resize the tree pane -->
-        <div class="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" title="Drag to resize" @mousedown="startTreeResize"></div>
+        <div class="absolute top-0 end-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" :title="$t('agentsPage.tipDragResize')" @mousedown="startTreeResize"></div>
       </aside>
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
@@ -200,52 +200,52 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 min-w-0">
                   <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" class="w-4 h-4 shrink-0" />
-                  <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? 'Active' : 'Inactive'"></span>
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? $t('agentsPage.active') : $t('agentsPage.inactive')"></span>
                   <h2 class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
                     <button type="button" class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0 transition-colors" :class="agentDetail?.is_public ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'">
-                      <UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}
+                      <UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? $t('agentsPage.public') : $t('agentsPage.private') }}
                       <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-60" />
                     </button>
                     <template #panel="{ close }">
                       <div class="p-1 w-40">
-                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="setAgentPublic(true); close()"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Public<UIcon v-if="agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900 dark:text-white" /></button>
-                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left" @click="setAgentPublic(false); close()"><UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Private<UIcon v-if="!agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900 dark:text-white" /></button>
+                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="setAgentPublic(true); close()"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.public') }}<UIcon v-if="agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ms-auto text-gray-900 dark:text-white" /></button>
+                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="setAgentPublic(false); close()"><UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.private') }}<UIcon v-if="!agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ms-auto text-gray-900 dark:text-white" /></button>
                       </div>
                     </template>
                   </UPopover>
-                  <span v-else class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0" :class="agentDetail?.is_public ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
+                  <span v-else class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0" :class="agentDetail?.is_public ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? $t('agentsPage.public') : $t('agentsPage.private') }}</span>
                   <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" :reliability-status="agentDetail.reliability_status" @updated="onAgentPublishUpdated" />
                   <!-- Auth badges (parity with the legacy agents page) -->
-                  <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" text="Runs via the connection's service account (admin/owner fallback) — no personal sign-in needed">
-                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"><UIcon name="i-heroicons-cpu-chip" class="w-2.5 h-2.5" />Service account</span>
+                  <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" :text="$t('agentsPage.serviceAccountTip')">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"><UIcon name="i-heroicons-cpu-chip" class="w-2.5 h-2.5" />{{ $t('agentsPage.serviceAccount') }}</span>
                   </UTooltip>
-                  <UTooltip v-if="agentListItem?.admin_only" text="Visible to you via admin access — you are not a member of this agent">
-                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 uppercase tracking-wide font-medium"><UIcon name="i-heroicons-shield-check" class="w-2.5 h-2.5" />Admin</span>
+                  <UTooltip v-if="agentListItem?.admin_only" :text="$t('agentsPage.adminTip')">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 uppercase tracking-wide font-medium"><UIcon name="i-heroicons-shield-check" class="w-2.5 h-2.5" />{{ $t('agentsPage.adminBadge') }}</span>
                   </UTooltip>
                 </div>
                 <div class="mt-1.5 group">
-                  <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 dark:text-gray-300 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
+                  <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" :placeholder="$t('agentsPage.addDescription')" class="w-full text-sm text-gray-600 dark:text-gray-300 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
                   <div v-else class="flex items-center gap-2">
-                    <p class="text-sm text-gray-500 dark:text-gray-400 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/70' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail?.description || (agentCanUpdate ? 'Add a description…' : '') }}</p>
-                    <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 shrink-0" @click="startEditDesc">Edit</button>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800/70' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail?.description || (agentCanUpdate ? $t('agentsPage.addDescription') : '') }}</p>
+                    <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 shrink-0" @click="startEditDesc">{{ $t('agentsPage.edit') }}</button>
                   </div>
                 </div>
               </div>
               <div class="flex items-center gap-2 shrink-0">
                 <!-- Per-agent activity sparkline + task total -->
-                <div v-if="activitySeries.length" class="flex items-center gap-2.5 pr-1" title="Tasks over the last 14 days">
+                <div v-if="activitySeries.length" class="flex items-center gap-2.5 pe-1" :title="$t('agentsPage.tasksTip')">
                   <span class="flex flex-col items-center leading-none">
                     <svg width="78" height="20" viewBox="0 0 96 26" preserveAspectRatio="none" class="overflow-visible"><path :d="sparkPath" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /></svg>
-                    <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">Activity</span>
+                    <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.activity') }}</span>
                   </span>
                   <span class="flex flex-col items-start leading-none">
                     <span class="text-sm font-semibold text-gray-900 dark:text-white tabular-nums">{{ totalTasks.toLocaleString() }}</span>
-                    <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">tasks</span>
+                    <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.tasks') }}</span>
                   </span>
                 </div>
-                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure how this agent learns from new suggestions" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
-                <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
+                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
+                <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
@@ -261,37 +261,37 @@
                 <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />{{ c.name }}
                 <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
-              <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-[11px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
-              <UTooltip text="Manage connections">
+              <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-[11px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />{{ $t('agentsPage.connect') }}</button>
+              <UTooltip :text="$t('agentsPage.manageConnections')">
                 <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="openConnModal(agentView.agentId)"><UIcon name="i-heroicons-cog-6-tooth" class="w-3.5 h-3.5" /></button>
               </UTooltip>
             </div>
 
             <!-- Counts (clean) -->
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ agentCount(agentView.agentId) }} instructions</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }) }}</span>
             </div>
 
             <!-- Primary instruction (inline, clean editor) -->
             <div v-if="creatingPrimary || editingPrimary">
               <div class="flex items-center justify-between gap-2 mb-2">
-                <input v-model="primaryDraft.title" type="text" placeholder="Untitled" class="flex-1 min-w-0 text-sm font-medium text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600" />
+                <input v-model="primaryDraft.title" type="text" :placeholder="$t('agentsPage.untitled')" class="flex-1 min-w-0 text-sm font-medium text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600" />
                 <div class="flex items-center gap-1.5 shrink-0">
-                  <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelPrimary">Cancel</button>
-                  <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? 'Saving…' : 'Save' }}</button>
+                  <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelPrimary">{{ $t('agentsPage.cancel') }}</button>
+                  <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? $t('agentsPage.saving') : $t('agentsPage.save') }}</button>
                 </div>
               </div>
               <div class="prose-instruction">
-                <InstructionEditor key="primary-edit" v-model="primaryDraft.text" mode="wysiwyg" :editable="true" :data-source-ids="[agentView.agentId]" placeholder="Write the agent's primary instruction in markdown… (type @ to mention a table or instruction)" />
+                <InstructionEditor key="primary-edit" v-model="primaryDraft.text" mode="wysiwyg" :editable="true" :data-source-ids="[agentView.agentId]" :placeholder="$t('agentsPage.primaryPlaceholder')" />
               </div>
             </div>
             <template v-else-if="agentDetail?.primary_instruction">
               <div v-if="agentCanUpdate" class="flex items-center justify-end gap-3 mb-1.5">
-                <PrimaryInstructionPicker :agent-id="agentView.agentId" :current-instruction-id="agentDetail.primary_instruction.id" label="Change" @select="onSelectExistingPrimary" />
-                <button class="text-[11px] text-blue-600 hover:underline" @click="startEditPrimary">Edit</button>
+                <PrimaryInstructionPicker :agent-id="agentView.agentId" :current-instruction-id="agentDetail.primary_instruction.id" :label="$t('agentsPage.change')" @select="onSelectExistingPrimary" />
+                <button class="text-[11px] text-blue-600 hover:underline" @click="startEditPrimary">{{ $t('agentsPage.edit') }}</button>
               </div>
               <InstructionText :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" :prose="true" :markdown="true" />
             </template>
@@ -299,31 +299,31 @@
               <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center mb-3">
                 <UIcon name="i-heroicons-document-text" class="w-5 h-5 text-blue-500" />
               </div>
-              <p class="text-sm font-medium text-gray-800 dark:text-gray-200">No primary instruction</p>
-              <p class="mt-1 max-w-md mx-auto text-xs text-gray-500 dark:text-gray-400">Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.</p>
+              <p class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.noPrimary') }}</p>
+              <p class="mt-1 max-w-md mx-auto text-xs text-gray-500 dark:text-gray-400">{{ $t('agentsPage.noPrimaryDesc') }}</p>
               <div v-if="agentCanUpdate" class="mt-4 flex items-center justify-center gap-3">
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="startCreatePrimary"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />Add primary instruction</button>
-                <span class="text-xs text-gray-400 dark:text-gray-500">or</span>
-                <PrimaryInstructionPicker :agent-id="agentView.agentId" label="select existing" @select="onSelectExistingPrimary" />
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="startCreatePrimary"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.addPrimary') }}</button>
+                <span class="text-xs text-gray-400 dark:text-gray-500">{{ $t('agentsPage.or') }}</span>
+                <PrimaryInstructionPicker :agent-id="agentView.agentId" :label="$t('agentsPage.selectExisting')" @select="onSelectExistingPrimary" />
               </div>
               <div v-if="agentCanStartTraining" class="mt-3">
-                <button class="text-xs text-sky-600 hover:underline inline-flex items-center gap-1" @click="startTrainingSessionForAgent(agentView.agentId)"><UIcon name="i-heroicons-academic-cap" class="w-3.5 h-3.5" />Start a training session</button>
+                <button class="text-xs text-sky-600 hover:underline inline-flex items-center gap-1" @click="startTrainingSessionForAgent(agentView.agentId)"><UIcon name="i-heroicons-academic-cap" class="w-3.5 h-3.5" />{{ $t('agentsPage.startTraining') }}</button>
               </div>
             </div>
 
             <!-- Conversation starters (editable) -->
             <div class="mt-6">
               <div class="flex items-center gap-2 mb-2">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Conversation starters</span>
-                <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{{ $t('agentsPage.conversationStarters') }}</span>
+                <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">{{ $t('agentsPage.edit') }}</button>
               </div>
-              <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
-                <button v-for="(cs, i) in agentDetail.conversation_starters" :key="i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, cs, i)">
+              <div v-if="starterPrompts.length" class="flex flex-wrap gap-2">
+                <button v-for="(p, i) in starterPrompts" :key="p.id || i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-900 dark:hover:bg-gray-700 hover:text-white dark:hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, p.text, i)">
                   <Spinner v-if="startingReport && startingStarterIdx === i" class="w-3 h-3 animate-spin shrink-0" />
-                  <span>{{ starterTitle(cs) }}</span>
+                  <span>{{ starterTitle(p.text) }}</span>
                 </button>
               </div>
-              <p v-else class="text-[11px] text-gray-300 dark:text-gray-600 italic">No conversation starters.</p>
+              <p v-else class="text-[11px] text-gray-300 dark:text-gray-600 italic">{{ $t('agentsPage.noConversationStarters') }}</p>
             </div>
             </template>
           </div>
@@ -333,18 +333,26 @@
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Open agent" @click="openAgent(panelView.agentId)">
-                <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
-                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || 'Agent' }}</span>
-              </button>
-              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0" />
-              <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
-              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">read-only</span>
+              <template v-if="panelView.kind === 'global-evals'">
+                <UIcon name="i-heroicons-check-circle" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('agentsPage.globalEvals') }}</span>
+                <span class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">{{ $t('agentsPage.allAgentsTag') }}</span>
+              </template>
+              <template v-else>
+                <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipOpenAgent')" @click="openAgent(panelView.agentId)">
+                  <DataSourceIcon :type="panelAgent?.type" class="w-[18px] h-[18px] shrink-0" />
+                  <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || $t('agentsPage.agent') }}</span>
+                </button>
+                <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
+                <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ panelKindLabel }}</span>
+                <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">{{ $t('agentsPage.readOnly') }}</span>
+              </template>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
               <TablesSelector
@@ -359,7 +367,7 @@
                 max-height="calc(100vh - 240px)"
               >
                 <template #reload-left>
-                  <button type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Manage connections" @click="openConnModal(panelView.agentId)"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Connections</button>
+                  <button type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.manageConnections')" @click="openConnModal(panelView.agentId)"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.connections') }}</button>
                 </template>
               </TablesSelector>
               <ToolsSelector
@@ -386,20 +394,20 @@
               <span class="text-[10px] text-gray-300 dark:text-gray-600 shrink-0">{{ previewFile.content_type }}</span>
             </div>
             <div class="flex items-center gap-1.5">
-              <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="downloadPreview">Open</button>
-              <button v-if="previewFileAgentId && canManageAgent(previewFileAgentId)" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10" @click="deleteFile(previewFileAgentId, previewFile)">Delete</button>
+              <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="downloadPreview">{{ $t('agentsPage.open') }}</button>
+              <button v-if="previewFileAgentId && canManageAgent(previewFileAgentId)" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10" @click="deleteFile(previewFileAgentId, previewFile)">{{ $t('agentsPage.delete') }}</button>
               <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="closePreview"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
             </div>
           </div>
           <div class="flex-1 overflow-auto p-6">
-            <div v-if="previewLoading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">Loading…</div>
+            <div v-if="previewLoading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">{{ $t('agentsPage.loading') }}</div>
             <img v-else-if="isImage(previewFile) && previewUrl" :src="previewUrl" class="max-w-full rounded-lg border border-gray-200 dark:border-gray-800" />
             <iframe v-else-if="isPdf(previewFile) && previewUrl" :src="previewUrl" class="w-full h-[72vh] rounded-lg border border-gray-200 dark:border-gray-800"></iframe>
             <pre v-else-if="previewText !== null" class="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 overflow-auto">{{ previewText }}</pre>
             <div v-else class="text-center text-sm text-gray-400 dark:text-gray-500 py-10">
               <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-9 h-9 mx-auto text-gray-200 dark:text-gray-700" />
-              <p class="mt-2">No inline preview for this file type.</p>
-              <button v-if="previewUrl" class="mt-2 text-xs text-gray-700 dark:text-gray-300 underline" @click="downloadPreview">Open file</button>
+              <p class="mt-2">{{ $t('agentsPage.noInlinePreview') }}</p>
+              <button v-if="previewUrl" class="mt-2 text-xs text-gray-700 dark:text-gray-300 underline" @click="downloadPreview">{{ $t('agentsPage.openFile') }}</button>
             </div>
           </div>
         </template>
@@ -409,29 +417,29 @@
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-2 min-w-0">
               <template v-if="creating">
-                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">New instruction</span>
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('agentsPage.newInstructionHeader') }}</span>
               </template>
               <template v-else>
                 <!-- Pending state is authoritative from the live-hunk review
                      (/pending-changes), not the build-status heuristic, so the
                      badge never goes stale relative to the dots. -->
                 <span class="w-1.5 h-1.5 rounded-full" :class="isPending(detail) ? 'bg-amber-400' : h.getStatusIconClass({ ...detail, current_build_status: null, current_build_id: null })"></span>
-                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ isPending(detail) ? 'Pending review' : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ isPending(detail) ? $t('agentsPage.pendingReview') : h.getStatusLabel({ ...detail, current_build_status: null, current_build_id: null }) }}</span>
               </template>
             </div>
             <div class="flex items-center gap-1.5">
-              <span v-if="savingMeta" class="text-[10px] text-gray-400 dark:text-gray-500">Saving…</span>
-              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" title="Version history" @click="toggleHistory()">
+              <span v-if="savingMeta" class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.saving') }}</span>
+              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70'" :title="$t('agentsPage.tipVersionHistory')" @click="toggleHistory()">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
               <template v-if="!editing && !diff">
-                <button class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="startEdit">Edit</button>
+                <button class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="startEdit">{{ $t('agentsPage.edit') }}</button>
               </template>
               <template v-else-if="!diff">
-                <button v-if="!creating && canApprove" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" title="Delete this instruction" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? 'Deleting…' : 'Delete' }}</span></button>
+                <button v-if="!creating && canApprove" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" :title="$t('agentsPage.tipDeleteInstruction')" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? $t('agentsPage.deleting') : $t('agentsPage.delete') }}</span></button>
                 <span v-if="!creating && canApprove" class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
-                <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelEdit">Cancel</button>
-                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
+                <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelEdit">{{ $t('agentsPage.cancel') }}</button>
+                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
               </template>
             </div>
           </div>
@@ -454,14 +462,14 @@
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ diff.title }}</span>
-                <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">· {{ hunkCount }} change{{ hunkCount === 1 ? '' : 's' }}</span>
+                <span v-if="diff.buildId && hunkCount" class="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">· {{ hunkCount === 1 ? $t('agentsPage.changeCountOne', { n: hunkCount }) : $t('agentsPage.changeCountMany', { n: hunkCount }) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <template v-if="diff.buildId && canApprove">
-                  <button class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? 'Rejecting…' : 'Reject all' }}</button>
-                  <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? 'Accepting…' : 'Accept all' }}</button>
+                  <button class="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? $t('agentsPage.rejecting') : $t('agentsPage.rejectAll') }}</button>
+                  <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-[11px] font-medium text-gray-700 dark:text-gray-300 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? $t('agentsPage.accepting') : $t('agentsPage.acceptAll') }}</button>
                 </template>
-                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Close" @click="closeDiff"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipClose')" @click="closeDiff"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
             <!-- Run this suggestion's evals (validate the candidate build) -->
@@ -473,10 +481,10 @@
                 </select>
                 <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1 shrink-0" :disabled="!selectedEvalSuiteId || evalRunning || !evalHasCases" @click="runSuggestionEval">
                   <UIcon :name="evalRunning ? 'i-heroicons-arrow-path' : 'i-heroicons-play'" :class="['w-3 h-3', { 'animate-spin': evalRunning }]" />
-                  {{ evalRunning ? 'Running…' : 'Run eval' }}
+                  {{ evalRunning ? $t('agentsPage.running') : $t('agentsPage.runEval') }}
                 </button>
               </div>
-              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">No test cases yet — create them in <NuxtLink to="/evals" class="text-blue-600 dark:text-blue-400 hover:underline">/evals</NuxtLink>.</p>
+              <p v-else class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.noTestCasesPre') }} <NuxtLink to="/evals" class="text-blue-600 dark:text-blue-400 hover:underline">/evals</NuxtLink>.</p>
 
               <!-- Active / latest run progress -->
               <div v-if="evalActiveRun" class="mt-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-2.5 space-y-1.5">
@@ -485,13 +493,13 @@
                     <UIcon :name="evalActiveRun.status === 'in_progress' ? 'i-heroicons-arrow-path' : (evalActiveRun.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle')" :class="['w-3.5 h-3.5', evalActiveRun.status === 'in_progress' ? 'text-blue-500 animate-spin' : (evalActiveRun.status === 'success' ? 'text-green-500' : 'text-red-500')]" />
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ evalPrettyStatus(evalActiveRun.status) }}</span>
                   </div>
-                  <NuxtLink :to="`/evals/runs/${evalActiveRun.id}`" class="text-[10px] text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">View details<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
+                  <NuxtLink :to="`/evals/runs/${evalActiveRun.id}`" class="text-[10px] text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">{{ $t('agentsPage.viewDetails') }}<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
                 </div>
                 <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
-                  <span class="px-1.5 py-0.5 rounded border bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-500/30">Cases: {{ evalSummary.total }}</span>
-                  <span class="px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30">Pass: {{ evalSummary.passed }}</span>
-                  <span class="px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30">Fail: {{ evalSummary.failed }}</span>
-                  <span v-if="evalSummary.inProgress" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30"><UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />Running: {{ evalSummary.inProgress }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-500/30">{{ $t('agentsPage.casesLabel') }}: {{ evalSummary.total }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30">{{ $t('agentsPage.passLabel') }}: {{ evalSummary.passed }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30">{{ $t('agentsPage.failLabel') }}: {{ evalSummary.failed }}</span>
+                  <span v-if="evalSummary.inProgress" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30"><UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />{{ $t('agentsPage.runningLabel') }}: {{ evalSummary.inProgress }}</span>
                 </div>
                 <div v-if="evalActiveRun.status === 'in_progress'" class="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                   <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{ width: `${evalSummary.progressPercent}%` }" />
@@ -503,7 +511,7 @@
               <!-- Inline per-hunk review for suggestions. Clean tracked changes;
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
-                <div v-if="!hunkCount" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">No remaining changes — this suggestion is resolved.</div>
+                <div v-if="!hunkCount" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">{{ $t('agentsPage.noRemainingChanges') }}</div>
                 <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
@@ -514,16 +522,16 @@
                       </template>
                       <!-- Floating control anchored just below the first line of
                            the change (near the hover point even for tall blocks). -->
-                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
+                      <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 start-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
                         <span class="block w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
                           <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ activeSuggestion?.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
-                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ml-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" title="View trace" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
+                            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ activeSuggestion?.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
+                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ms-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" :title="$t('agentsPage.tipViewTrace')" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
                           <span class="flex items-center gap-1.5">
-                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />Accept</button>
-                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />{{ $t('agentsPage.accept') }}</button>
+                            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.reject') }}</button>
                           </span>
                         </span>
                       </span>
@@ -539,22 +547,22 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-left hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-              <span class="text-[12px] text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? 'A pending change is waiting for review' : `${pendingViews.length} pending changes are waiting for review` }}</span>
-              <span class="ml-auto text-[11px] font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">Review<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" /></span>
+              <span class="text-[12px] text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? $t('agentsPage.pendingOne') : $t('agentsPage.pendingMany', { n: pendingViews.length }) }}</span>
+              <span class="ms-auto text-[11px] font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">{{ $t('agentsPage.review') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3 rtl:rotate-180" /></span>
             </button>
             <!-- Scrollable content: title + body -->
             <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
               <div class="max-w-3xl">
-                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
+                <input v-if="editing" v-model="draft.title" :placeholder="$t('agentsPage.untitledInstruction')" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
                 <h2 v-else class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ displayTitle(detail) }}</h2>
                 <!-- Optional description (advertised for skills) -->
-                <input v-if="editing" v-model="draft.description" placeholder="Add a description (optional)" class="w-full text-sm text-gray-600 dark:text-gray-300 bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-4" />
+                <input v-if="editing" v-model="draft.description" :placeholder="$t('agentsPage.addDescriptionOptional')" class="w-full text-sm text-gray-600 dark:text-gray-300 bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-4" />
                 <p v-else-if="detail?.description" class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ detail.description }}</p>
                 <div v-else class="mb-4"></div>
                 <div class="prose-instruction">
-                  <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
+                  <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" />
                 </div>
               </div>
             </div>
@@ -562,8 +570,8 @@
             <!-- Frozen bottom panel: Details (compact, horizontal) / Analyze tabs -->
             <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40">
               <div class="px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
-                <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />Details</button>
-                <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ml-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />Analyze</button>
+                <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />{{ $t('agentsPage.details') }}</button>
+                <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ms-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />{{ $t('agentsPage.analyze') }}</button>
               </div>
 
               <!-- Details: compact horizontal pills (inline-editable for admins) -->
@@ -575,58 +583,58 @@
                   <!-- Loading (skills are always 'Smart' — locked) -->
                   <template v-if="metaEditable">
                     <KSelect v-if="draft.kind !== 'skill'" v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" />
-                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium" title="Skills always use smart retrieval"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400 dark:text-gray-500" />Smart</span>
+                    <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium" :title="$t('agentsPage.smartTip')"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.smart') }}</span>
                   </template>
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400 dark:text-gray-500" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
                   <!-- Category -->
-                  <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
                   <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
                   <!-- Agents -->
-                  <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOpts" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
-                    <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />All agents</span>
+                    <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
                     <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
-                  <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />Primary</span>
+                  <span v-else-if="!metaEditable && (detail?.primary_for || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium"><UIcon name="i-heroicons-star" class="w-3 h-3" />{{ $t('agentsPage.primary') }}</span>
                   <!-- References -->
-                  <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 pl-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono" :class="metaEditable ? 'pr-1' : 'pr-2'">
+                  <span v-for="(r, i) in draft.references" :key="'ref'+i" class="inline-flex items-center gap-1 ps-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-mono" :class="metaEditable ? 'pe-1' : 'pe-2'">
                     <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ r.display_text || r.object_id }}
                     <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
                   </span>
-                  <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple placeholder="+ Reference" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple :placeholder="$t('agentsPage.addReference')" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
                   <!-- Labels -->
-                  <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple placeholder="+ Label" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
+                  <KSelect v-if="metaEditable && labelOpts.length" v-model="draft.label_ids" :options="labelOpts" multiple :placeholder="$t('agentsPage.addLabel')" icon="i-heroicons-tag" @update:modelValue="onMetaChange" />
                   <span v-for="l in (!metaEditable ? (detail.labels || []) : [])" :key="l.id" class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]">{{ l.name }}</span>
                   <!-- Kind (last) -->
                   <KSelect v-if="metaEditable" v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onKindChange" />
-                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400 dark:text-gray-500" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
+                  <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />{{ draft.kind === 'skill' ? $t('agentsPage.skill') : $t('agentsPage.instruction') }}</span>
                 </div>
 
                 <!-- Advanced: run-mode + channel scoping (collapsed by default) -->
                 <div class="mt-2 border-t border-gray-100/70 dark:border-gray-800 pt-2">
                   <button type="button" class="flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="showAdvanced = !showAdvanced">
-                    <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
-                    Advanced
-                    <span v-if="advancedHasValues && !showAdvanced" class="ml-1 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
+                    <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl:rotate-180" />
+                    {{ $t('agentsPage.advanced') }}
+                    <span v-if="advancedHasValues && !showAdvanced" class="ms-1 w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500"></span>
                   </button>
                   <div v-show="showAdvanced" class="mt-2 flex flex-col gap-2">
                     <!-- Modes (empty = all modes) -->
                     <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">Modes</span>
-                      <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple placeholder="All modes" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
+                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.modes') }}</span>
+                      <KSelect v-if="metaEditable" v-model="draft.applicable_modes" :options="modeOpts" multiple :placeholder="$t('agentsPage.allModes')" icon="i-heroicons-rectangle-stack" @update:modelValue="onMetaChange" />
                       <template v-else>
-                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />All modes</span>
+                        <span v-if="!(detail.applicable_modes || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allModes') }}</span>
                         <span v-for="m in (detail.applicable_modes || [])" :key="'mode'+m" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-rectangle-stack" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ modeLabel(m) }}</span>
                       </template>
                     </div>
                     <!-- Channels (empty = all channels) -->
                     <div class="flex items-center gap-2">
-                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">Channels</span>
-                      <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple placeholder="All channels" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
+                      <span class="text-[11px] text-gray-400 dark:text-gray-500 w-20 shrink-0">{{ $t('agentsPage.channels') }}</span>
+                      <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple :placeholder="$t('agentsPage.allChannels')" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
                       <template v-else>
-                        <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />All channels</span>
+                        <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allChannels') }}</span>
                         <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ channelLabel(c) }}</span>
                       </template>
                     </div>
@@ -636,8 +644,8 @@
                 <div v-if="detail" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
                   <span class="inline-flex items-center gap-1"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3" />{{ h.getSourceTooltip(detail) }}</span>
                   <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3 h-3" />{{ detail.user.name || detail.user.email }}</span>
-                  <span v-if="detail.created_at">Created {{ fmtDate(detail.created_at) }}</span>
-                  <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">· Updated {{ fmtDate(detail.updated_at) }}</span>
+                  <span v-if="detail.created_at">{{ $t('agentsPage.created', { date: fmtDate(detail.created_at) }) }}</span>
+                  <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">· {{ $t('agentsPage.updated', { date: fmtDate(detail.updated_at) }) }}</span>
                 </div>
               </div>
 
@@ -664,11 +672,11 @@
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
             <div class="absolute inset-x-0 bottom-0 dark:top-0 flex flex-col items-center justify-center text-center px-6 pb-2">
               <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm ring-1 ring-gray-200/70 dark:ring-gray-700 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400 dark:text-gray-500" /></div>
-              <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">Configure your agents</h3>
-              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ agents.length ? 'Select an agent on the left to explore and edit its data, tools, skills and instructions.' : 'Connect your data to create your first agent.' }}</p>
+              <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">{{ $t('agentsPage.configureAgents') }}</h3>
+              <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ agents.length ? $t('agentsPage.selectAgentHint') : $t('agentsPage.connectDataHint') }}</p>
               <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New agent</button>
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Connect data</button>
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.createNewAgent') }}</button>
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.connectData') }}</button>
               </div>
             </div>
           </div>
@@ -676,23 +684,23 @@
       </section>
 
       <!-- ── Pane 3: version history only (hidden by default; toggle via clock) ── -->
-      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-l border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-s border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
         <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
-          <span class="text-[12px] font-medium text-gray-700 dark:text-gray-300">History</span>
-          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Close" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+          <span class="text-[12px] font-medium text-gray-700 dark:text-gray-300">{{ $t('agentsPage.history') }}</span>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipClose')" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
         <div class="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400 dark:text-gray-500">Loading…</div>
-          <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300 dark:text-gray-600">No history yet.</div>
+          <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.loading') }}</div>
+          <div v-else-if="versions.length === 0" class="p-6 text-center text-[11px] text-gray-300 dark:text-gray-600">{{ $t('agentsPage.noHistory') }}</div>
           <button v-for="(v, i) in versions" :key="v.id" type="button"
-                  class="group/h w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
+                  class="group/h w-full text-start px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
                   :class="diff && diff.versionId === v.id ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                   @click="viewVersion(v, i === 0)">
             <div class="min-w-0">
-              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="i === 0" class="ml-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">current</span></div>
+              <div class="text-[13px] text-gray-800 dark:text-gray-200">v{{ v.version_number }}<span v-if="i === 0" class="ms-1.5 text-[10px] font-medium text-green-600 dark:text-green-400">{{ $t('agentsPage.current') }}</span></div>
               <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ fmtDate(v.created_at) }}</div>
             </div>
-            <span v-if="i !== 0" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">Restore</span>
+            <span v-if="i !== 0" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 opacity-0 group-hover/h:opacity-100 shrink-0" @click.stop="restore(v)">{{ $t('agentsPage.restore') }}</span>
           </button>
         </div>
       </aside>
@@ -708,22 +716,22 @@
       <div class="p-5">
         <div class="flex items-center justify-between mb-3">
           <div>
-            <div class="text-sm font-semibold text-gray-900 dark:text-white">Connections</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">{{ connections.length }} connected source{{ connections.length === 1 ? '' : 's' }}</div>
+            <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('agentsPage.connections') }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ connections.length === 1 ? $t('agentsPage.connectedSourceOne', { n: connections.length }) : $t('agentsPage.connectedSourceMany', { n: connections.length }) }}</div>
           </div>
-          <button v-if="canCreateDataSource" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New</button>
+          <button v-if="canCreateDataSource" type="button" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = false; connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.new') }}</button>
         </div>
         <div class="max-h-[60vh] overflow-auto -mx-1 px-1 space-y-0.5">
-          <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
+          <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
             <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
               <DataSourceIcon :type="c.type" class="w-4 h-4" />
-              <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+              <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ c.name }}</span>
               <span class="block text-xs text-gray-400 dark:text-gray-500 truncate">{{ c.type }}</span>
             </span>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0" />
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
           </button>
         </div>
       </div>
@@ -750,24 +758,24 @@
 
     <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
       <div class="p-5">
-        <div class="text-sm font-medium text-gray-900 dark:text-white">Edit conversation starters</div>
-        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">Short prompts users can click to start a conversation with this agent.</div>
+        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('agentsPage.editStarters') }}</div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('agentsPage.editStartersDesc') }}</div>
         <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
           <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 dark:border-gray-800 p-2">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Starter {{ idx + 1 }}</span>
-              <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400" @click="removeStarter(idx)">Remove</button>
+              <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ $t('agentsPage.starterN', { n: idx + 1 }) }}</span>
+              <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400" @click="removeStarter(idx)">{{ $t('agentsPage.remove') }}</button>
             </div>
             <div class="space-y-1">
-              <input v-model="item.title" type="text" placeholder="Title" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              <textarea v-model="item.prompt" rows="2" placeholder="Prompt" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+              <input v-model="item.title" type="text" :placeholder="$t('agentsPage.starterTitlePlaceholder')" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+              <textarea v-model="item.prompt" rows="2" :placeholder="$t('agentsPage.starterPromptPlaceholder')" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
             </div>
           </div>
-          <button class="text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="addStarter">Add starter</button>
+          <button class="text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="addStarter">{{ $t('agentsPage.addStarter') }}</button>
         </div>
         <div class="flex justify-end gap-2 mt-4">
-          <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg" @click="showEditStarters = false">Cancel</button>
-          <button class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50" :disabled="savingStarters" @click="saveStarters">{{ savingStarters ? 'Saving…' : 'Save' }}</button>
+          <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg" @click="showEditStarters = false">{{ $t('agentsPage.cancel') }}</button>
+          <button class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50" :disabled="savingStarters" @click="saveStarters">{{ savingStarters ? $t('agentsPage.saving') : $t('agentsPage.save') }}</button>
         </div>
       </div>
     </UModal>
@@ -777,11 +785,11 @@
       <div class="p-5">
         <div class="flex items-center gap-2 mb-1">
           <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500" />
-          <div class="text-sm font-semibold text-gray-900 dark:text-white">Self Learning</div>
+          <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('agentsPage.selfLearning') }}</div>
         </div>
         <AgentAutomationSettings v-if="showSelfLearning && agentView" :agent-id="agentView.agentId" @saved="onSelfLearningSaved" />
         <div class="flex justify-end mt-4">
-          <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showSelfLearning = false">Close</button>
+          <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showSelfLearning = false">{{ $t('agentsPage.close') }}</button>
         </div>
       </div>
     </UModal>
@@ -823,16 +831,21 @@ import { useOrgSettings } from '~/composables/useOrgSettings'
 
 const h = useInstructionHelpers()
 const toast = useToast()
+const { t } = useI18n()
 // Training mode is gated by org setting + permission (mirrors the legacy agents page).
 const { isTrainingModeEnabled } = useOrgSettings()
 const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
 
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
+// True until the first /api/instructions load resolves. Drives a Spinner on the
+// Instructions tree nodes so they don't read as "0 / No instructions yet" while
+// the list is still in flight (the rows arrive late on large orgs).
+const instrLoading = ref(true)
 const agents = ref<any[]>([])
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
-function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings saved', color: 'green' }) }
+function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearningSaved'), color: 'green' }) }
 // Admin-only "show all" toggle: include every agent in the org, not just the
 // caller's memberships. Re-fetches the agent list when flipped.
 const showAllAgents = ref(false)
@@ -864,12 +877,12 @@ const deleting = ref(false)
 const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[]; applicable_modes: string[]; applicable_channels: string[] }>(
   { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [], applicable_modes: [], applicable_channels: [] }
 )
-const kindOpts = [{ value: 'instruction', label: 'Instruction' }, { value: 'skill', label: 'Skill' }]
+const kindOpts = computed(() => [{ value: 'instruction', label: t('agentsPage.optInstruction') }, { value: 'skill', label: t('agentsPage.optSkill') }])
 // Mode/channel scoping options (empty selection = applies everywhere)
-const modeOpts = [{ value: 'chat', label: 'Chat' }, { value: 'deep', label: 'Deep analytics' }, { value: 'training', label: 'Training' }]
-const channelOpts = [{ value: 'app', label: 'Web app' }, { value: 'slack', label: 'Slack' }, { value: 'teams', label: 'Teams' }, { value: 'email', label: 'AI mailbox' }, { value: 'mcp', label: 'MCP' }]
-const modeLabel = (v: string) => modeOpts.find(o => o.value === v)?.label || v
-const channelLabel = (v: string) => channelOpts.find(o => o.value === v)?.label || v
+const modeOpts = computed(() => [{ value: 'chat', label: t('agentsPage.optModeChat') }, { value: 'deep', label: t('agentsPage.optModeDeep') }, { value: 'training', label: t('agentsPage.optModeTraining') }])
+const channelOpts = computed(() => [{ value: 'app', label: t('agentsPage.optChannelApp') }, { value: 'slack', label: t('agentsPage.optChannelSlack') }, { value: 'teams', label: t('agentsPage.optChannelTeams') }, { value: 'email', label: t('agentsPage.optChannelEmail') }, { value: 'mcp', label: t('agentsPage.optChannelMcp') }])
+const modeLabel = (v: string) => modeOpts.value.find(o => o.value === v)?.label || v
+const channelLabel = (v: string) => channelOpts.value.find(o => o.value === v)?.label || v
 // Reference options come from the selected agents' tables (valid datasource_table ids).
 const refOptions = computed(() => {
   const opts: { value: string; label: string; type?: string }[] = []
@@ -901,10 +914,10 @@ const gitRepos = ref<{ provider: string; repoName: string }[]>([])
 const gitLastIndexed = ref<string | null>(null)
 const showGitModal = ref(false)
 
-const statusOpts = [{ value: 'published', label: 'Active' }, { value: 'draft', label: 'Inactive' }, { value: 'pending_review', label: 'Pending review' }]
-const statusEditOpts = [{ value: 'published', label: 'Active' }, { value: 'draft', label: 'Inactive' }]
-const loadOpts = [{ value: 'always', label: 'Always' }, { value: 'intelligent', label: 'Smart' }, { value: 'disabled', label: 'Off' }]
-const sourceOpts = [{ value: 'user', label: 'User' }, { value: 'ai', label: 'AI' }, { value: 'git', label: 'Git' }]
+const statusOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }, { value: 'pending_review', label: t('agentsPage.optStatusPending') }])
+const statusEditOpts = computed(() => [{ value: 'published', label: t('agentsPage.optStatusActive') }, { value: 'draft', label: t('agentsPage.optStatusInactive') }])
+const loadOpts = computed(() => [{ value: 'always', label: t('agentsPage.optLoadAlways') }, { value: 'intelligent', label: t('agentsPage.optLoadSmart') }, { value: 'disabled', label: t('agentsPage.optLoadOff') }])
+const sourceOpts = computed(() => [{ value: 'user', label: t('agentsPage.optSourceUser') }, { value: 'ai', label: t('agentsPage.optSourceAi') }, { value: 'git', label: t('agentsPage.optSourceGit') }])
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
 
@@ -912,7 +925,7 @@ const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.
 // exactly one agent. `primary_for` (from the API) lists data sources whose
 // primary_instruction_id points at this instruction.
 const singleAgentId = computed(() => draft.data_source_ids.length === 1 ? draft.data_source_ids[0] : null)
-const primaryOpts = [{ value: 'primary', label: 'Primary' }, { value: 'standard', label: 'Not primary' }]
+const primaryOpts = computed(() => [{ value: 'primary', label: t('agentsPage.optPrimary') }, { value: 'standard', label: t('agentsPage.optNotPrimary') }])
 const settingPrimary = ref(false)
 const primarySelectValue = computed<string>({
   get: () => {
@@ -939,14 +952,14 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
     }
     // Keep the agent panel in sync if it's open for this agent.
     if (agentView.value?.agentId === aid) await refreshAgentDetail()
-    toast.add({ title: 'Saved', color: 'green' })
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { settingPrimary.value = false }
+    toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { settingPrimary.value = false }
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings' } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
@@ -956,6 +969,11 @@ const openPanel = (kind: 'tables' | 'tools' | 'evals' | 'settings', agentId: str
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
+}
+// Org-wide evals view — not bound to any agent.
+const openGlobalEvals = () => {
+  clearRightPane()
+  panelView.value = { kind: 'global-evals', agentId: '' }
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
@@ -982,10 +1000,22 @@ const creatingPrimary = ref(false); const editingPrimary = ref(false)
 const showEditStarters = ref(false); const editStarters = ref<{ title: string; prompt: string }[]>([]); const savingStarters = ref(false)
 
 const agentDetailLoading = ref(false)
-const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false }
+// Conversation starters are sourced from agent-scoped starter Prompts (not the
+// legacy data_source.conversation_starters JSON). Each prompt's `text` is the
+// "title\nprompt" string.
+const starterPrompts = ref<any[]>([])
+const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false; starterPrompts.value = [] }
+const refreshStarterPrompts = async () => {
+  const id = agentView.value?.agentId; if (!id) { starterPrompts.value = []; return }
+  try {
+    const { data } = await useMyFetch<any>(`/prompts?data_source_id=${id}`)
+    if (agentView.value?.agentId === id) starterPrompts.value = (data.value as any)?.prompts || []
+  } catch { if (agentView.value?.agentId === id) starterPrompts.value = [] }
+}
 const refreshAgentDetail = async () => {
   const id = agentView.value?.agentId; if (!id) return
   try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {} finally { if (agentView.value?.agentId === id) agentDetailLoading.value = false }
+  refreshStarterPrompts()
 }
 const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
@@ -1002,12 +1032,12 @@ const setAgentPublic = async (val: boolean) => {
     await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { is_public: val } })
     if (agentDetail.value) agentDetail.value.is_public = val
     const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
-    toast.add({ title: val ? 'Made public' : 'Made private', color: 'green' })
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+    toast.add({ title: val ? t('agentsPage.toastMadePublic') : t('agentsPage.toastMadePrivate'), color: 'green' })
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
 }
 const openAgent = async (id: string) => {
   clearRightPane()
-  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
+  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true; starterPrompts.value = []
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
 }
@@ -1026,7 +1056,7 @@ const createReportForAgent = async (id: string) => {
     const rid = (data.value as any)?.id
     if (error.value || !rid) throw new Error('Failed to create report')
     navigateTo(`/reports/${rid}`)
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
 }
 // Start a training session for an agent: a new report scoped to ONLY this
 // agent/data source, switched to training mode, with a pre-filled (non-submitting)
@@ -1041,7 +1071,7 @@ const startTrainingSessionForAgent = async (agentId: string) => {
     const { error: modeErr } = await useMyFetch(`/reports/${rid}`, { method: 'PUT', body: { mode: 'training' } })
     if (modeErr.value) throw new Error(String(modeErr.value))
     await navigateTo({ path: `/reports/${rid}`, query: { prompt } })
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
 }
 // description inline edit
 const startEditDesc = () => { descForm.value = agentDetail.value?.description || ''; editingDesc.value = true; nextTick(() => descInputRef.value?.focus()) }
@@ -1052,7 +1082,7 @@ const saveDesc = async () => {
   const id = agentView.value?.agentId; if (!id) return
   const v = descForm.value
   if (v === (agentDetail.value?.description || '')) return
-  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { description: v } }); if (agentDetail.value) agentDetail.value.description = v; toast.add({ title: 'Saved', color: 'green' }) } catch { toast.add({ title: 'Failed to save description', color: 'red' }) }
+  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { description: v } }); if (agentDetail.value) agentDetail.value.description = v; toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }) } catch { toast.add({ title: t('agentsPage.toastSaveDescFailed'), color: 'red' }) }
 }
 // primary instruction inline edit (clean editor: title + body + save/cancel)
 const primaryDraft = reactive<{ title: string; text: string }>({ title: '', text: '' })
@@ -1064,8 +1094,8 @@ const onSelectExistingPrimary = async (instruction: any) => {
   try {
     await useMyFetch(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: newId } })
     await refreshAgentDetail()
-    toast?.add?.({ title: 'Saved', description: 'Primary instruction updated.' })
-  } catch (e: any) { toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' }) }
+    toast?.add?.({ title: t('agentsPage.toastSaved'), description: t('agentsPage.toastPrimaryUpdated') })
+  } catch (e: any) { toast?.add?.({ title: t('agentsPage.toastError'), description: String(e?.message || e), color: 'red' }) }
 }
 const startEditPrimary = () => { const p = agentDetail.value?.primary_instruction; primaryDraft.title = p?.title || ''; primaryDraft.text = p?.text || ''; editingPrimary.value = true; creatingPrimary.value = false }
 const cancelPrimary = () => { creatingPrimary.value = false; editingPrimary.value = false }
@@ -1084,8 +1114,8 @@ const savePrimary = async () => {
     }
     creatingPrimary.value = false; editingPrimary.value = false
     await Promise.all([refreshAgentDetail(), fetchAll()])
-    toast.add({ title: 'Saved', color: 'green' })
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { primarySaving.value = false }
+    toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { primarySaving.value = false }
 }
 // conversation starters edit
 const starterTitle = (cs: any) => typeof cs === 'string' ? (cs.split('\n')[0] || '') : (cs?.title || cs?.prompt || '')
@@ -1105,13 +1135,14 @@ const startReportWithStarter = async (agentId: string, cs: any, idx: number) => 
     const rid = (data.value as any)?.id
     if (error.value || !rid) throw new Error('Failed to create report')
     await navigateTo({ path: `/reports/${rid}`, query: { new_message: prompt } })
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { startingReport.value = false; startingStarterIdx.value = null }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { startingReport.value = false; startingStarterIdx.value = null }
 }
 const openEditStarters = () => {
-  const arr = agentDetail.value?.conversation_starters || []
-  editStarters.value = arr.map((s: any) => typeof s === 'string'
-    ? { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
-    : { title: s.title || '', prompt: s.prompt || '' })
+  // Build the editor from the agent's starter Prompts (text = "title\nprompt").
+  editStarters.value = starterPrompts.value.map((p: any) => {
+    const s = String(p?.text ?? '')
+    return { title: (s.split('\n')[0] || '').trim(), prompt: s.split('\n').slice(1).join('\n').trim() }
+  })
   if (!editStarters.value.length) editStarters.value = [{ title: '', prompt: '' }]
   showEditStarters.value = true
 }
@@ -1122,8 +1153,22 @@ const saveStarters = async () => {
   savingStarters.value = true
   const id = agentView.value?.agentId
   const conversation_starters = editStarters.value.map(s => `${(s.title || '').trim()}${s.prompt?.trim() ? '\n' + s.prompt.trim() : ''}`).filter(s => s.trim().length > 0)
-  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { conversation_starters } }); await refreshAgentDetail(); showEditStarters.value = false; toast.add({ title: 'Saved', color: 'green' }) }
-  catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
+  try {
+    // Back the starters with the Prompt model (agent-scoped starter Prompts).
+    // Replace-all: drop this agent's existing starter prompts, recreate from the editor.
+    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
+    for (const p of ((existing.value as any)?.prompts || [])) {
+      await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
+    }
+    for (const text of conversation_starters) {
+      await useMyFetch(`/prompts`, { method: 'POST', body: {
+        text, title: (text.split('\n')[0] || '').slice(0, 60),
+        scope: 'agent', is_starter: true, data_source_ids: [id],
+      } })
+    }
+    await refreshStarterPrompts(); showEditStarters.value = false; toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  }
+  catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
 }
 // reload tables / tools from the tree
 const tablesRefreshKey = ref(0)
@@ -1131,11 +1176,11 @@ const reloadTables = async (id: string) => {
   try { await useMyFetch(`/data_sources/${id}/refresh_schema`, { method: 'GET' }) } catch {}
   agentLoaded.value.delete(id); await loadAgentMeta(id)
   tablesRefreshKey.value++  // force the open TablesSelector panel to re-fetch
-  toast.add({ title: 'Tables reloaded', color: 'green' })
+  toast.add({ title: t('agentsPage.toastTablesReloaded'), color: 'green' })
 }
 const reloadTools = async (id: string) => {
   for (const c of (agents.value.find(a => a.id === id)?.connections || [])) { try { await useMyFetch(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch {} }
-  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: 'Tools reloaded', color: 'green' })
+  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: t('agentsPage.toastToolsReloaded'), color: 'green' })
 }
 
 // ── File upload (per agent) ─────────────────────────────
@@ -1154,11 +1199,11 @@ const onUploadInput = async (e: Event) => {
       const fd = new FormData(); fd.append('file', file)
       await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
     }
-    toast.add({ title: `Uploaded ${files.length} file(s)`, color: 'green' })
+    toast.add({ title: t('agentsPage.toastUploaded', { n: files.length }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)
-  } catch (err: any) { toast.add({ title: 'Upload failed', description: err?.message, color: 'red' }) }
+  } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: err?.message, color: 'red' }) }
   finally { uploadingAgent.value = null; if (input) input.value = '' }
 }
 
@@ -1203,9 +1248,12 @@ const startTreeResize = (e: MouseEvent) => {
   e.preventDefault()
   const startX = e.clientX
   const startWidth = treeWidth.value
+  // In RTL the tree sits on the right with its resize handle on the inline-end
+  // (left) edge, so a rightward drag must shrink the pane (and vice-versa).
+  const dir = (typeof document !== 'undefined' && document.documentElement.getAttribute('dir') === 'rtl') ? -1 : 1
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'col-resize'
-  const onMove = (ev: MouseEvent) => { treeWidth.value = clampTreeWidth(startWidth + (ev.clientX - startX)) }
+  const onMove = (ev: MouseEvent) => { treeWidth.value = clampTreeWidth(startWidth + dir * (ev.clientX - startX)) }
   const onUp = () => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
@@ -1261,7 +1309,7 @@ const connectAgent = async (agentId: string) => {
     const result = await signIn.triggerUserSignIn(pending)
     if (result.redirecting) return // keep spinning; the page is navigating to the provider
     connectingAgentId.value = null
-    if (result.error) toast.add({ title: 'Could not start sign-in', description: result.error, color: 'red' })
+    if (result.error) toast.add({ title: t('agentsPage.toastSignInFailed'), description: result.error, color: 'red' })
   }
   // Non-OAuth (or OAuth that couldn't auto-redirect): collect creds in-app.
   credsAgent.value = a
@@ -1352,6 +1400,8 @@ const usesServiceAccount = (a: any) => {
 }
 // Editing tables/tools requires manage on the data source (org-wide or on this resource).
 const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || useCan('update_data_source', { type: 'data_source', id })) : false
+// Global Evals is an org-admin surface, gated by the org-level manage_evals perm.
+const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
@@ -1414,7 +1464,7 @@ const doResolve = async (key: number | 'all' | 'reject-all', promoteText: string
     else closeDiff()
     restoreScroll(prevScroll)
   } catch (e: any) {
-    toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' })
+    toast.add({ title: t('agentsPage.toastApplyFailed'), description: e?.message, color: 'red' })
   } finally { resolving.value = null }
 }
 const acceptHunk = (idx: number) => doResolve(idx, buildHunkText(new Set([idx])), diff.value?.modified || '')
@@ -1578,7 +1628,7 @@ const doResolveFor = async (buildId: string, promoteText: string, remainingText:
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
     await reloadAfterResolve()
     restoreScroll(prevScroll)
-  } catch (e: any) { toast.add({ title: 'Couldn’t apply change', description: e?.message, color: 'red' }) } finally { resolving.value = null }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastApplyFailed'), description: e?.message, color: 'red' }) } finally { resolving.value = null }
 }
 // Restore the review pane's scroll across re-renders: once after Vue patches,
 // then again on the next frame after layout settles (content height changed).
@@ -1660,7 +1710,7 @@ const viewVersion = async (v: any, isCurrent: boolean) => {
   if (isCurrent || !detail.value) { closeDiff(); return }
   try {
     const { data } = await useMyFetch<any>(`/api/instructions/${detail.value.id}/versions/${v.id}`, { method: 'GET' })
-    diff.value = { title: `Version v${v.version_number}`, label: `v${v.version_number}`, original: detail.value?.text || '', modified: data.value?.text || '', versionId: v.id, buildId: null }
+    diff.value = { title: `${t('nav.version')} v${v.version_number}`, label: `v${v.version_number}`, original: detail.value?.text || '', modified: data.value?.text || '', versionId: v.id, buildId: null }
   } catch {}
 }
 const viewSuggestion = (pb: any) => {
@@ -1675,12 +1725,12 @@ const approveSuggestion = async (pb: any) => {
   approving.value = pb.build_id
   try {
     await useMyFetch(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
-    toast.add({ title: 'Approved & published', color: 'green' })
+    toast.add({ title: t('agentsPage.toastApprovedPublished'), color: 'green' })
     closeDiff()
     await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { approving.value = null }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { approving.value = null }
 }
 const discardSuggestion = async (pb: any) => {
   if (!pb?.build_id || discarding.value) return
@@ -1689,12 +1739,12 @@ const discardSuggestion = async (pb: any) => {
   try {
     const { error } = await useMyFetch(`/api/builds/${pb.build_id}/reject`, { method: 'POST', body: { reason: 'Discarded from the Agents review queue' } })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Reject failed')
-    toast.add({ title: 'Suggestion discarded', color: 'gray' })
+    toast.add({ title: t('agentsPage.toastSuggestionDiscarded'), color: 'gray' })
     if (diff.value?.buildId === pb.build_id) closeDiff()
     await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
-  } catch (e: any) { toast.add({ title: 'Couldn’t discard', description: e?.message, color: 'red' }) } finally { discarding.value = null }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastDiscardFailed'), description: e?.message, color: 'red' }) } finally { discarding.value = null }
 }
 
 // ── Suggestion evals: run a test suite against the candidate (pending) build,
@@ -1721,7 +1771,7 @@ const evalSummary = computed(() => {
   const progressPercent = total > 0 ? Math.round(((passed + failed) / total) * 100) : 0
   return { total, passed, failed, inProgress, progressPercent }
 })
-const evalPrettyStatus = (s?: string) => s === 'in_progress' ? 'Running' : s === 'success' ? 'Passed' : (s === 'fail' || s === 'error') ? 'Failed' : (s || '—')
+const evalPrettyStatus = (s?: string) => s === 'in_progress' ? t('agentsPage.evalStatusRunning') : s === 'success' ? t('agentsPage.evalStatusPassed') : (s === 'fail' || s === 'error') ? t('agentsPage.evalStatusFailed') : (s || '—')
 
 const fetchEvalSuites = async () => {
   if (!canManageTests.value || evalSuites.value.length) return
@@ -1758,9 +1808,9 @@ const runSuggestionEval = async () => {
       evalActiveRun.value = data.value
       await fetchEvalResults(data.value.id)
       startEvalPoll()
-      toast.add({ title: 'Eval started', color: 'blue' })
+      toast.add({ title: t('agentsPage.toastEvalStarted'), color: 'blue' })
     }
-  } catch (e: any) { toast.add({ title: 'Failed to start eval', description: e?.message, color: 'red' }) } finally { evalRunning.value = false }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastEvalStartFailed'), description: e?.message, color: 'red' }) } finally { evalRunning.value = false }
 }
 onUnmounted(() => stopEvalPoll())
 
@@ -1807,7 +1857,7 @@ const expand = (key: string, force?: boolean) => {
 
 // ── Fetching ────────────────────────────────────────────
 const fetchAll = async () => {
-  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) } finally { instrLoading.value = false }
 }
 // Refresh BOTH the instruction list and the pending-builds map so the left tree
 // (Pending review count, top "N pending" badge, per-row amber dots) stays in
@@ -1823,7 +1873,7 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, publish_status: d.publish_status, description: d.description, conversation_starters: d.conversation_starters || [], auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
@@ -1886,8 +1936,8 @@ const deleteFile = async (agentId: string, f: any) => {
     agentFiles.value[agentId] = (agentFiles.value[agentId] || []).filter((x: any) => x.id !== f.id)
     agentFiles.value = { ...agentFiles.value }
     if (previewFile.value?.id === f.id) closePreview()
-    toast.add({ title: 'File deleted', color: 'green' })
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+    toast.add({ title: t('agentsPage.toastFileDeleted'), color: 'green' })
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
 }
 const openFile = async (f: any, agentId?: string) => {
   detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
@@ -1986,12 +2036,12 @@ const deleteInstruction = async () => {
   try {
     const { error } = await useMyFetch(`/api/instructions/${id}`, { method: 'DELETE' })
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Delete failed')
-    toast.add({ title: 'Deleted', color: 'green' })
+    toast.add({ title: t('agentsPage.toastDeleted'), color: 'green' })
     allInstructions.value = allInstructions.value.filter(i => i.id !== id)
     editing.value = false; detail.value = null; selectedId.value = null; versions.value = []
     fetchPendingMap()
   } catch (e: any) {
-    toast.add({ title: 'Error', description: e?.message, color: 'red' })
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
   } finally { deleting.value = false }
 }
 const save = async () => {
@@ -2002,7 +2052,7 @@ const save = async () => {
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
-      toast.add({ title: 'Created', color: 'green' })
+      toast.add({ title: t('agentsPage.toastCreated'), color: 'green' })
       creating.value = false; editing.value = false; draft.references = []
       // Insert the new instruction in place (no full list re-fetch / flicker);
       // the tree grouping computed places it. Fall back to a refresh only if the
@@ -2020,7 +2070,7 @@ const save = async () => {
     } else if (detail.value) {
       const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
-      toast.add({ title: 'Saved', color: 'green' }); editing.value = false
+      toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }); editing.value = false
       // Update just this instruction in place — no full list re-fetch, so the
       // tree keeps its scroll/expanded state (no page-refresh feel).
       if (data.value) {
@@ -2032,7 +2082,7 @@ const save = async () => {
       fetchPendingMap()
       loadVersions(detail.value!.id)
     }
-  } catch (e: any) { toast.add({ title: 'Error', description: e.message, color: 'red' }) } finally { saving.value = false }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e.message, color: 'red' }) } finally { saving.value = false }
 }
 
 // ── Detail tabs (Instruction / Analyze) ─────────────────
@@ -2060,8 +2110,8 @@ const saveMeta = async () => {
     await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh && !editing.value) { detail.value = fresh; syncDraft(fresh) }
-    toast.add({ title: 'Saved', color: 'green' })
-  } catch (e: any) { toast.add({ title: 'Couldn’t save', description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
+    toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastSaveFailed'), description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
 }
 // Fire after a metadata control changes (user-initiated only — not on load/edit).
 const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
@@ -2106,7 +2156,7 @@ const loadVersions = async (id: string) => {
 const restore = async (v: any) => {
   if (!detail.value) return
   if (!window.confirm(`Restore version v${v.version_number}? This creates a new version.`)) return
-  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: `Restored v${v.version_number}`, color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: t('agentsPage.toastRestored', { n: v.version_number }), color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
 }
 
 // ── Display helpers ─────────────────────────────────────
@@ -2125,18 +2175,18 @@ const TreeGroup = defineComponent({
     return () => createElement('div', {}, [
       createElement('div', {
         class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0', props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
-        style: { paddingLeft: (6 + props.indent * 14) + 'px', paddingRight: '8px' },
+        style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rotate-90' : '', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
-        props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: 'Status' }) : null,
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
+        props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: t('agentsPage.tipStatus') }) : null,
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }) : null),
-        createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-xs' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
-        props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0', title: 'Private' }) : null,
+        createElement('span', { class: ['flex-1 text-start truncate', props.mono ? 'font-mono text-xs' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
+        props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0', title: t('agentsPage.tipPrivate') }) : null,
         props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
-        (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Reload', onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
-        (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Manage', onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
-        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
+        (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipReload'), onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
+        (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipManage'), onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipAdd'), onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-xs tabular-nums shrink-0', props.countAccent ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400 dark:text-gray-500'] }, String(props.count)) : null,
       ]),
       (props.open && !props.disabled) ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, slots.default ? slots.default() : []) : null,
@@ -2152,11 +2202,11 @@ const InstrLeaf = defineComponent({
       const sel = selectedId.value === ins.id
       return createElement('button', {
         class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
-        style: { paddingLeft: (20 + props.indent * 14) + 'px', paddingRight: '8px' },
+        style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => openInstruction(ins),
       }, [
-        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pendingInstrIds.value.has(ins.id) ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pendingInstrIds.value.has(ins.id) ? 'Pending review' : h.getStatusTooltip(ins) }),
-        createElement('span', { class: 'flex-1 text-left truncate' }, displayTitle(ins)),
+        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pendingInstrIds.value.has(ins.id) ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pendingInstrIds.value.has(ins.id) ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
+        createElement('span', { class: 'flex-1 text-start truncate' }, displayTitle(ins)),
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
         createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
@@ -2170,9 +2220,9 @@ const EmptyHint = defineComponent({
   props: { text: String, add: Boolean, pad: { type: Number, default: 34 } },
   emits: ['add'],
   setup(props, { emit }) {
-    return () => createElement('div', { class: 'flex items-center gap-2 py-1', style: { paddingLeft: props.pad + 'px' } }, [
+    return () => createElement('div', { class: 'flex items-center gap-2 py-1', style: { paddingInlineStart: props.pad + 'px' } }, [
       createElement('span', { class: 'text-[11px] text-gray-300 dark:text-gray-600 italic' }, props.text),
-      props.add ? createElement('button', { class: 'text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, '+ Add') : null,
+      props.add ? createElement('button', { class: 'text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, t('agentsPage.addShort')) : null,
     ])
   },
 })
@@ -2277,8 +2327,13 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchPendingMap(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  // Render the tree as soon as agents + instructions are in. fetchPendingMap()
+  // only feeds the decorative amber "pending" dots / "N pending" badge, so it's
+  // fired without blocking — the dots fill in a beat later instead of gating the
+  // whole tree on the heaviest call.
+  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   restoreFromRoute()
+  fetchPendingMap()
 })
 </script>
 

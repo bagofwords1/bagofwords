@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -6,6 +6,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.ee.license import require_enterprise
+from app.ee.audit.service import audit_service
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.usage_policy_schema import (
@@ -62,12 +63,22 @@ async def list_usage_policies(
 async def create_usage_policy(
     organization_id: str,
     data: UsagePolicyCreate,
+    request: Request,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
     _ensure_org_match(organization_id, organization)
-    return await usage_policy_service.create_policy(db, organization_id, data)
+    policy = await usage_policy_service.create_policy(db, organization_id, data)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization_id, action="usage_policy.created",
+            user_id=current_user.id, resource_type="usage_policy", resource_id=policy.id,
+            details={"name": getattr(policy, "name", None)}, request=request,
+        )
+    except Exception:
+        pass
+    return policy
 
 
 @router.get("/organizations/{organization_id}/usage-policies/effective/{user_id}", response_model=EffectiveUsagePolicySchema)
@@ -94,18 +105,29 @@ async def get_effective_usage_policy(
 async def set_principal_usage_policy(
     organization_id: str,
     data: UsagePolicyPrincipalAssignmentUpdate,
+    request: Request,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
     _ensure_org_match(organization_id, organization)
-    return await usage_policy_service.set_principal_policy(
+    result = await usage_policy_service.set_principal_policy(
         db,
         organization_id,
         principal_type=data.principal_type,
         principal_id=data.principal_id,
         policy_id=data.policy_id,
     )
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization_id, action="usage_policy.assigned",
+            user_id=current_user.id, resource_type="usage_policy", resource_id=data.policy_id,
+            details={"principal_type": data.principal_type, "principal_id": data.principal_id,
+                     "policy_id": data.policy_id}, request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/organizations/{organization_id}/usage-policies/{policy_id}", response_model=UsagePolicySchema)
@@ -129,15 +151,25 @@ async def update_usage_policy(
     organization_id: str,
     policy_id: str,
     data: UsagePolicyUpdate,
+    request: Request,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
     _ensure_org_match(organization_id, organization)
     try:
-        return await usage_policy_service.update_policy(db, organization_id, policy_id, data)
+        policy = await usage_policy_service.update_policy(db, organization_id, policy_id, data)
     except UsageLimitExceeded as exc:
         raise _quota_http_error(exc)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization_id, action="usage_policy.updated",
+            user_id=current_user.id, resource_type="usage_policy", resource_id=policy_id,
+            details={"fields": list(data.dict(exclude_unset=True).keys())}, request=request,
+        )
+    except Exception:
+        pass
+    return policy
 
 
 @router.delete("/organizations/{organization_id}/usage-policies/{policy_id}", status_code=204)
@@ -146,9 +178,18 @@ async def update_usage_policy(
 async def delete_usage_policy(
     organization_id: str,
     policy_id: str,
+    request: Request,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
     _ensure_org_match(organization_id, organization)
     await usage_policy_service.delete_policy(db, organization_id, policy_id)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization_id, action="usage_policy.deleted",
+            user_id=current_user.id, resource_type="usage_policy", resource_id=policy_id,
+            request=request,
+        )
+    except Exception:
+        pass

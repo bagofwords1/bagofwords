@@ -21,6 +21,9 @@ _OBS_KEEP_KEYS = {
     "summary", "step_id", "artifact_id", "visualization_id",
     "visualization_ids", "query_id", "mode", "title",
     "analysis_complete", "success",
+    # Preserve the small sampled preview (kept by the observation builder's
+    # compaction) so older create_data results stay referenceable.
+    "data_preview",
 }
 
 class PromptBuilder:

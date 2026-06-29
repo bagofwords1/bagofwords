@@ -46,8 +46,19 @@ class ArtifactService:
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
-    async def list_by_report(self, db: AsyncSession, report_id: str) -> List[Artifact]:
-        """List all artifacts for a report."""
+    async def list_by_report(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        organization_id: Optional[str] = None,
+    ) -> List[Artifact]:
+        """List all artifacts for a report, scoped to the caller's organization.
+
+        When ``organization_id`` is provided the read is constrained to that
+        org so artifacts of a report owned by a different organization are
+        never returned (defense in depth — the route decorator also enforces
+        this binding).
+        """
         stmt = (
             select(Artifact)
             .where(
@@ -56,6 +67,8 @@ class ArtifactService:
             )
             .order_by(Artifact.created_at.desc())
         )
+        if organization_id:
+            stmt = stmt.where(Artifact.organization_id == str(organization_id))
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
@@ -155,7 +168,9 @@ class ArtifactService:
             return None
 
         # Get the highest version for this report
-        existing = await self.list_by_report(db, original.report_id)
+        existing = await self.list_by_report(
+            db, original.report_id, organization_id=original.organization_id
+        )
         max_version = max((a.version for a in existing), default=0)
 
         new_artifact = Artifact(

@@ -222,10 +222,41 @@
                         option-attribute="label"
                         value-attribute="value"
                         searchable
-                        :placeholder="$t('rolesManager.addDataSource')"
+                        :placeholder="$t('rolesManager.addAgent')"
                         @update:model-value="addResource"
                         size="sm"
                     />
+
+                    <!-- Model access (enterprise: per-model LLM access control) -->
+                    <div v-if="showModelAccess" class="border rounded-lg overflow-hidden">
+                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <UIcon name="i-heroicons-cpu-chip" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                <span class="text-sm font-medium">{{ $t('rolesManager.modelAccess') }}</span>
+                            </div>
+                            <span class="text-xs text-gray-400">{{ $t('rolesManager.modelAccessHint') }}</span>
+                        </div>
+                        <div class="p-3">
+                            <div v-if="restrictedModels.length === 0" class="text-xs text-gray-400 py-0.5">
+                                {{ $t('rolesManager.noRestrictedModels') }}
+                            </div>
+                            <div v-else class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                                <label
+                                    v-for="model in restrictedModels"
+                                    :key="model.model_id"
+                                    class="flex items-center gap-2 text-sm cursor-pointer py-0.5"
+                                >
+                                    <UCheckbox
+                                        :model-value="model.granted"
+                                        :disabled="modelAccessSaving"
+                                        @update:model-value="toggleModelAccess(model, $event)"
+                                        size="xs"
+                                    />
+                                    <span class="text-gray-700 dark:text-gray-300 truncate">{{ model.name }}</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Actions -->
@@ -295,6 +326,21 @@ const selectedResource = ref(null)
 const showOrgDetails = ref(false)
 const { hasFeature } = useEnterprise()
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
+
+// Per-model LLM access control (enterprise). Editing writes grants immediately,
+// independent of the role's Save button, so it only applies to a saved role.
+interface RestrictedModel {
+    model_id: string
+    name: string
+    provider_name: string
+    granted: boolean
+    grant_id: string | null
+}
+const restrictedModels = ref<RestrictedModel[]>([])
+const modelAccessSaving = ref(false)
+const showModelAccess = computed(() =>
+    hasFeature('llm_access_control') && !!editingRole.value && !isFullAdmin.value
+)
 
 const form = reactive({
     name: '',
@@ -463,7 +509,7 @@ async function loadResources() {
         if (dsResult.data.value) {
             for (const ds of dsResult.data.value as any[]) {
                 resources.push({
-                    label: `Data Source: ${ds.name}`,
+                    label: `Agent: ${ds.name}`,
                     value: `data_source:${ds.id}`,
                     type: 'data_source',
                     id: ds.id,
@@ -473,6 +519,52 @@ async function loadResources() {
         availableResources.value = resources
     } catch (e) {
         console.error('Failed to load resources', e)
+    }
+}
+
+async function loadModelAccess(roleId: string) {
+    restrictedModels.value = []
+    if (!hasFeature('llm_access_control')) return
+    try {
+        const { data } = await useMyFetch(
+            `/llm/model-access/by-principal?principal_type=role&principal_id=${roleId}`
+        )
+        if (data.value) restrictedModels.value = data.value as RestrictedModel[]
+    } catch (e) {
+        console.error('Failed to load model access', e)
+    }
+}
+
+async function toggleModelAccess(model: RestrictedModel, checked: boolean) {
+    if (!editingRole.value) return
+    modelAccessSaving.value = true
+    try {
+        if (checked) {
+            const { data, error } = await useMyFetch(`/llm/models/${model.model_id}/access`, {
+                method: 'POST',
+                body: { principal_type: 'role', principal_id: editingRole.value.id },
+            })
+            if (error.value) {
+                toast.add({ title: error.value.data?.detail || t('rolesManager.failedToSave'), color: 'red' })
+                return
+            }
+            model.grant_id = (data.value as any)?.grant_id ?? null
+            model.granted = true
+        } else {
+            if (!model.grant_id) { model.granted = false; return }
+            const { error } = await useMyFetch(
+                `/llm/models/${model.model_id}/access/${model.grant_id}`,
+                { method: 'DELETE' }
+            )
+            if (error.value) {
+                toast.add({ title: error.value.data?.detail || t('rolesManager.failedToSave'), color: 'red' })
+                return
+            }
+            model.grant_id = null
+            model.granted = false
+        }
+    } finally {
+        modelAccessSaving.value = false
     }
 }
 
@@ -487,7 +579,7 @@ function addResource(selected: any) {
     form.resourceGrants.push({
         resource_type: resource.type,
         resource_id: resource.id,
-        resource_name: resource.label.replace(/^(Data Source|Connection): /, ''),
+        resource_name: resource.label.replace(/^(Agent|Data Source|Connection): /, ''),
         permissions: [],
     })
     selectedResource.value = null
@@ -631,6 +723,7 @@ function openCreateModal() {
     form.description = ''
     form.permissions = []
     form.resourceGrants = []
+    restrictedModels.value = []
     showOrgDetails.value = false
     showModal.value = true
     loadResources()
@@ -652,10 +745,11 @@ async function openEditModal(role: RoleData) {
         return {
             resource_type: g.resource_type,
             resource_id: g.resource_id,
-            resource_name: found ? found.label.replace(/^(Data Source|Connection): /, '') : g.resource_id,
+            resource_name: found ? found.label.replace(/^(Agent|Data Source|Connection): /, '') : g.resource_id,
             permissions: [...(g.permissions || [])],
         }
     })
+    await loadModelAccess(role.id)
 }
 
 async function saveRole() {

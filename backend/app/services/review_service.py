@@ -197,6 +197,7 @@ class ReviewService:
                 # open/in_progress one just ticks up.
                 await db.commit()
                 await db.refresh(existing)
+                await self._fanout_notification(db, existing)
                 return existing
 
         item = ReviewItem(
@@ -219,7 +220,43 @@ class ReviewService:
         db.add(item)
         await db.commit()
         await db.refresh(item)
+        await self._fanout_notification(db, item)
         return item
+
+    async def _fanout_notification(self, db, item) -> None:
+        """Deliver a per-user notification for a freshly created/bumped item.
+
+        ``ReviewItem`` is the internal dedup/state ledger; the *surface* is the
+        per-user inbox. Recipients are the item's agent managers (or full admins
+        for a global item) — the same audience the review feed used. Non-fatal:
+        a delivery failure must never break emission.
+        """
+        if item is None or item.disposition != DISPOSITION_NOTIFY:
+            return
+        try:
+            from app.services.inbox_service import inbox_service
+            ds_id = str(item.data_source_id) if item.data_source_id else None
+            await inbox_service.notify_agent_managers(
+                db,
+                organization_id=str(item.organization_id),
+                data_source_id=ds_id,
+                type=item.type,
+                title=item.title,
+                body=item.why,
+                severity=item.severity,
+                link=(f"/agents/{ds_id}" if ds_id else None),
+                subject={
+                    "kind": "review_item",
+                    "review_item_id": str(item.id),
+                    "review_type": item.type,
+                    "data_source_id": ds_id,
+                },
+                group_key=item.group_key,
+                source_id=str(item.id),
+                resurface_after_hours=24 * 7,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("review: notification fan-out failed: %s", e)
 
     async def resolve_open_for(
         self, db: AsyncSession, *, organization_id: str, type: str,
@@ -309,10 +346,14 @@ class ReviewService:
         rows = (await db.execute(
             select(ReviewItem).where(and_(*clauses)).limit(limit)
         )).scalars().all()
-        # Sort by severity then recency (in Python — small N).
+        # Sort by severity then recency (in Python — small N). Guard a null
+        # timestamp: datetime.min.timestamp() raises on Linux and would 500 the
+        # feed, so treat a missing time as the epoch instead.
+        def _ts(dt):
+            return dt.timestamp() if dt else 0.0
         rows.sort(key=lambda r: (
             SEVERITY_RANK.get(r.severity, 9),
-            -((r.last_seen_at or r.created_at or datetime.min).timestamp()),
+            -_ts(r.last_seen_at or r.created_at),
         ))
         unread = sum(1 for r in rows if r.read_at is None and r.status in (STATUS_OPEN, STATUS_IN_PROGRESS))
         # Gate run_eval/run_training on whether the agent actually has evals.

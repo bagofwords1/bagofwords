@@ -35,6 +35,12 @@ export const useOrgSettings = () => {
   const error = useState<string | null>(`${key.value}-error`, () => null)
 
   const fetchSettings = async () => {
+    // Dedupe: ~19 components call useOrgSettings(), each with an immediate
+    // watcher. Without this guard every one fires its own
+    // GET /api/organization/settings on page load (a request storm). Skip if
+    // already cached or in-flight; the shared useState cache means all callers
+    // still receive the result.
+    if (loading.value || settings.value) return
     error.value = null
     loading.value = true
     try {

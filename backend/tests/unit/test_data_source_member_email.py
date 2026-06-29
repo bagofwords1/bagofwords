@@ -1,9 +1,10 @@
-"""Unit tests for delayed member-added data source email notifications.
+"""Unit tests for delayed member-added data source notifications.
 
-Covers the two requirements:
-  1. Email is only sent when SMTP is configured.
+Notify-first. Covers:
+  1. The in-app "added to agent" notification is delivered regardless of SMTP;
+     email is additionally sent only when SMTP is configured.
   2. The send is delayed and re-validates membership, so an accidental add that
-     is undone within the window never results in an email.
+     is undone within the window never results in a notification or email.
 """
 
 import asyncio
@@ -36,12 +37,18 @@ def _session_maker(db):
 # --------------------------------------------------------------------------
 
 class TestScheduleMemberAddedEmail:
-    def test_noop_when_smtp_not_configured(self):
+    def test_schedules_job_without_smtp(self):
+        # Notify-first: the job is scheduled even without SMTP because it delivers
+        # the in-app notification (email is skipped at send time).
         with patch("app.settings.config.settings") as settings, \
              patch("app.core.scheduler.scheduler") as scheduler:
             settings.email_client = None
             mod.schedule_member_added_email("ds1", "user1", "admin1", "org1")
-            scheduler.add_job.assert_not_called()
+            scheduler.add_job.assert_called_once()
+            kwargs = scheduler.add_job.call_args.kwargs
+            assert kwargs["trigger"] == "date"
+            assert kwargs["args"][0] == "ds1"
+            assert kwargs["args"][1] == "user1"
 
     def test_schedules_job_when_smtp_configured(self):
         with patch("app.settings.config.settings") as settings, \
@@ -131,13 +138,27 @@ class TestSendMemberAddedEmail:
 
         fm.send_message.assert_not_called()
 
-    def test_skips_when_smtp_unconfigured_at_send_time(self):
+    def test_creates_inapp_but_no_email_without_smtp(self):
+        """Notify-first: without SMTP the session is still opened to create the
+        in-app notification, but no email is sent."""
+        fm = MagicMock()
+        fm.send_message = AsyncMock()
+        db = _make_db(membership=object(), data_source=_ds(), user=_user(),
+                      added_by=_user("admin@example.com", "Admin"))
+        maker = _session_maker(db)
+
         with patch("app.core.scheduler.claim_scheduled_run", return_value=True), \
              patch("app.settings.config.settings") as settings, \
-             patch("app.dependencies.async_session_maker") as maker:
-            settings.email_client = None
+             patch("app.dependencies.async_session_maker", maker), \
+             patch("app.services.inbox_service.inbox_service") as inbox:
+            inbox.notify_users = AsyncMock()
+            settings.email_client = None  # SMTP not configured
+            settings.bow_config = MagicMock(base_url="http://localhost:3000")
             asyncio.run(mod.send_member_added_email("ds1", "user1", "admin1", "org1"))
-            maker.assert_not_called()
+
+        maker.assert_called_once()                 # session opened for the in-app notification
+        inbox.notify_users.assert_awaited_once()   # in-app notification created
+        fm.send_message.assert_not_called()        # no email without SMTP
 
     def test_skips_when_not_claim_winner(self):
         with patch("app.core.scheduler.claim_scheduled_run", return_value=False), \

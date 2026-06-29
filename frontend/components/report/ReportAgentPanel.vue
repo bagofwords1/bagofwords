@@ -129,19 +129,19 @@
           </div>
 
           <!-- Conversation Starters -->
-          <div v-if="selectedAgentDetails.conversation_starters?.length || canUpdateDataSource">
+          <div v-if="starterPrompts.length || canUpdateDataSource">
             <div class="flex items-center gap-2 mb-2">
               <div class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">{{ $t('dataSource.conversationStarters') }}</div>
               <button v-if="canUpdateDataSource" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
             </div>
-            <div v-if="selectedAgentDetails.conversation_starters?.length" class="space-y-1.5">
+            <div v-if="starterPrompts.length" class="space-y-1.5">
               <button
-                v-for="(starter, idx) in selectedAgentDetails.conversation_starters"
-                :key="idx"
-                @click="$emit('starter-click', starter)"
+                v-for="(p, idx) in starterPrompts"
+                :key="p.id || idx"
+                @click="$emit('starter-click', p.text)"
                 class="w-full text-start text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
               >
-                {{ starter.split('\n')[0] }}
+                {{ (p.text || '').split('\n')[0] }}
               </button>
             </div>
             <div v-else class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('reportAgent.noStarters') }}</div>
@@ -616,15 +616,27 @@ const instructionLoading = ref(false)
 // open the pane already showing a diff against the current version).
 const initialVersionNumberForInstruction = ref<number | null>(null)
 
-// Edit conversation starters
+// Conversation starters are sourced from agent-scoped starter Prompts
+// (not the legacy data_source.conversation_starters JSON). Each prompt's
+// `text` is the "title\nprompt" string.
 const showEditStarters = ref(false)
 const editStartersForm = ref<{ title: string; prompt: string }[]>([])
 const savingStarters = ref(false)
+const starterPrompts = ref<any[]>([])
+
+async function loadStarterPrompts(agentId: string | null) {
+  if (!agentId || agentId === GLOBAL_AGENT_ID) { starterPrompts.value = []; return }
+  try {
+    const { data } = await useMyFetch(`/prompts?data_source_id=${agentId}`)
+    starterPrompts.value = (data.value as any)?.prompts || []
+  } catch { starterPrompts.value = [] }
+}
+
+watch(selectedAgentId, (id) => loadStarterPrompts(id), { immediate: true })
 
 function openEditStarters() {
-  const starters = selectedAgentDetails.value?.conversation_starters || []
-  editStartersForm.value = starters.map((s: string) => {
-    const parts = String(s).split('\n')
+  editStartersForm.value = (starterPrompts.value || []).map((p: any) => {
+    const parts = String(p.text || '').split('\n')
     return { title: (parts[0] || '').trim(), prompt: parts.slice(1).join('\n').trim() }
   })
   if (editStartersForm.value.length === 0) editStartersForm.value = [{ title: '', prompt: '' }]
@@ -642,19 +654,24 @@ function removeStarter(index: number) {
 async function saveStarters() {
   if (savingStarters.value || !selectedAgentId.value) return
   savingStarters.value = true
-  const conversation_starters = editStartersForm.value
+  const id = selectedAgentId.value
+  const starters = editStartersForm.value
     .map(s => `${(s.title || '').trim()}${s.prompt?.trim() ? `\n${s.prompt.trim()}` : ''}`)
     .filter(s => s.trim().length > 0)
   try {
-    const { error } = await useMyFetch(`/data_sources/${selectedAgentId.value}`, {
-      method: 'PUT',
-      body: { conversation_starters },
-    })
-    if (!error?.value) {
-      delete agentDetailsCache.value[selectedAgentId.value]
-      await fetchTabData(selectedAgentId.value, 'overview')
-      showEditStarters.value = false
+    // Replace-all of this agent's starter Prompts (no legacy JSON write).
+    const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
+    for (const p of ((existing.value as any)?.prompts || [])) {
+      await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
     }
+    for (const text of starters) {
+      await useMyFetch(`/prompts`, { method: 'POST', body: {
+        text, title: (text.split('\n')[0] || '').slice(0, 60),
+        scope: 'agent', is_starter: true, data_source_ids: [id],
+      } })
+    }
+    await loadStarterPrompts(id)
+    showEditStarters.value = false
   } finally {
     savingStarters.value = false
   }

@@ -27,6 +27,7 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.models.data_source_file_association import data_source_file_association
 from app.models.sheet_schema import SheetSchema
 from app.models.prompt import Prompt
+from app.models.prompt_run import PromptRun
 from app.models.plan import Plan
 from app.models.mention import Mention
 from app.models.file_tag import FileTag
@@ -91,6 +92,7 @@ from app.models.report_share import ReportShare
 from app.models.report_star import ReportStar
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem
+from app.models.notification import Notification
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,

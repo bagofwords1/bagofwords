@@ -1,5 +1,5 @@
 <template>
-    <UTooltip text="Share Conversation">
+    <UTooltip v-if="!noTrigger" text="Share Conversation">
         <button @click="openModal" class="p-1.5 rounded text-xl hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center">
             <Icon name="heroicons:arrow-up-tray" class="inline-block me-2" />
             <span class="text-sm">Share</span>
@@ -53,7 +53,6 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 
-const modalOpen = ref(false);
 const toast = useToast();
 const { smtpEnabled } = useAppSettings();
 const isLoading = ref(false);
@@ -61,7 +60,22 @@ const showTooltip = ref(false);
 
 const props = defineProps<{
     report: any
+    // When provided, the modal's open state is controlled by the parent (v-model).
+    modelValue?: boolean
+    // Hide the built-in "Share" trigger button (used when opened externally).
+    noTrigger?: boolean
 }>();
+const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>();
+
+// Proxy: use the parent's v-model when given, otherwise own internal state.
+const internalOpen = ref(false);
+const modalOpen = computed({
+    get: () => (props.modelValue !== undefined ? props.modelValue : internalOpen.value),
+    set: (v: boolean) => {
+        if (props.modelValue !== undefined) emit('update:modelValue', v);
+        else internalOpen.value = v;
+    },
+});
 
 // Local state for sharing status
 const isShared = ref(false);
@@ -100,16 +114,19 @@ const fetchShareStatus = async () => {
     }
 };
 
-// Sync when modal opens to ensure fresh state
-const openModal = async () => {
-    modalOpen.value = true;
+const openModal = () => { modalOpen.value = true; };
+
+// Sync whenever the modal transitions to open (covers both the internal
+// trigger and external v-model control from the sidebar menu).
+watch(modalOpen, async (open) => {
+    if (!open) return;
     syncFromProps();
     try {
         await fetchShareStatus();
     } catch {
         // If status fetch fails, keep best-effort state from props.
     }
-};
+});
 
 // If the report instance changes, re-sync.
 watch(() => props.report?.id, () => {

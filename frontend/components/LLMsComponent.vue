@@ -27,6 +27,7 @@
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colModel') }}</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colProvider') }}</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colStatus') }}</th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="canManageAccess">Access</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
                     </tr>
                 </thead>
@@ -63,6 +64,18 @@
                                 :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default"
                             />
                         </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="canManageAccess">
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1 text-sm"
+                                :class="accessIsRestricted(model) ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'"
+                                @click="openAccess(model)"
+                                data-testid="llm-access-cell"
+                            >
+                                <UIcon :name="accessIsRestricted(model) ? 'i-heroicons-lock-closed' : 'i-heroicons-user-group'" class="w-4 h-4" />
+                                <span>{{ accessLabel(model) }}</span>
+                            </button>
+                        </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="useCan('manage_llm_settings')">
                             <UDropdown :items="getDropdownItems(model)">
                                 <UButton class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
@@ -96,6 +109,15 @@
             @update:modelValue="handleProviderModalClose"
         />
 
+        <!-- Per-model Access Modal (Enterprise) -->
+        <LLMModelAccessModal
+            v-if="canManageAccess && accessModel"
+            v-model="accessModalOpen"
+            :model="accessModel"
+            :organization-id="organization.id"
+            @updated="getModels"
+        />
+
 
     </div>
 </template>
@@ -120,6 +142,7 @@ type Model = {
   is_default: boolean;
   is_small_default: boolean;
   is_enabled: boolean;
+  is_restricted?: boolean;
   provider: Provider;
 };
 
@@ -128,6 +151,22 @@ const providers = ref<Provider[]>([]);
 
 const providerModalOpen = ref(false);
 const editProviderId = ref<string | null>(null);
+
+const { hasFeature } = useEnterprise();
+const canManageAccess = computed(() => hasFeature('llm_access_control') && useCan('manage_llm_settings'));
+
+const accessModalOpen = ref(false);
+const accessModel = ref<Model | null>(null);
+
+const accessIsRestricted = (model: Model) => !!model.is_restricted && !model.is_default && !model.is_small_default;
+const accessLabel = (model: Model) => {
+    if (model.is_default || model.is_small_default) return 'Everyone (default)';
+    return model.is_restricted ? 'Restricted' : 'Everyone';
+};
+const openAccess = (model: Model) => {
+    accessModel.value = model;
+    accessModalOpen.value = true;
+};
 
 const filteredModels = computed<Model[]>(() => {
     const query = searchQuery.value.toLowerCase();

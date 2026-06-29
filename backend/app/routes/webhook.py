@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -9,6 +9,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
 from app.services.webhook_service import webhook_service
+from app.ee.audit.service import audit_service
 from app.services.webhook_adapters.factory import WebhookAdapterFactory
 from app.schemas.webhook_schema import WebhookCreate, WebhookUpdate, WebhookSchema
 
@@ -32,11 +33,22 @@ async def list_sources(current_user: User = Depends(current_user)):
 async def create_webhook(
     report_id: str,
     body: WebhookCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await webhook_service.create_webhook(db, report_id, body, current_user, organization)
+    wh = await webhook_service.create_webhook(db, report_id, body, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="webhook.created",
+            user_id=current_user.id, resource_type="webhook", resource_id=wh.id,
+            details={"report_id": report_id, "source": getattr(wh, "source", None)},
+            request=request,
+        )
+    except Exception:
+        pass
+    return wh
 
 
 @router.get("/reports/{report_id}/webhooks", response_model=List[WebhookSchema])
@@ -56,11 +68,23 @@ async def update_webhook(
     report_id: str,
     webhook_id: str,
     body: WebhookUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await webhook_service.update_webhook(db, webhook_id, body)
+    wh = await webhook_service.update_webhook(db, webhook_id, body)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="webhook.updated",
+            user_id=current_user.id, resource_type="webhook", resource_id=webhook_id,
+            details={"report_id": report_id,
+                     "fields": list(body.dict(exclude_unset=True).keys())},
+            request=request,
+        )
+    except Exception:
+        pass
+    return wh
 
 
 @router.post("/reports/{report_id}/webhooks/{webhook_id}/rotate", response_model=WebhookSchema)
@@ -68,11 +92,21 @@ async def update_webhook(
 async def rotate_webhook_secret(
     report_id: str,
     webhook_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await webhook_service.rotate_secret(db, webhook_id)
+    wh = await webhook_service.rotate_secret(db, webhook_id)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="webhook.secret_rotated",
+            user_id=current_user.id, resource_type="webhook", resource_id=webhook_id,
+            details={"report_id": report_id}, request=request,
+        )
+    except Exception:
+        pass
+    return wh
 
 
 @router.delete("/reports/{report_id}/webhooks/{webhook_id}", status_code=204)
@@ -80,8 +114,17 @@ async def rotate_webhook_secret(
 async def delete_webhook(
     report_id: str,
     webhook_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     await webhook_service.delete_webhook(db, webhook_id)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="webhook.deleted",
+            user_id=current_user.id, resource_type="webhook", resource_id=webhook_id,
+            details={"report_id": report_id}, request=request,
+        )
+    except Exception:
+        pass
