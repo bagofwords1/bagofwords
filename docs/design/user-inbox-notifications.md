@@ -242,7 +242,7 @@ call-to-action** (the row is the link). Counts render as a badge from
 
 | type | severity | title | body |
 |---|---|---|---|
-| `low_confidence` | warning | `Low-confidence answers on {agent}` | `An answer on {agent} scored below 3/5.` |
+| `low_confidence` | warning | `Low-confidence answers on {agent}` | `{n} answers on {agent} were scored below 3/5 in the past week.` (only after 5 in the rolling week window) |
 | `schema_changed` | warning | `Schema changed on {agent}` | `Tables or columns changed on this connection — answers may be affected.` |
 | `slow_query` | warning | `Slow queries on {agent}` | `A data query on {agent} ran {actual}s, over the {secs}s budget.` |
 | `query_error` | error | `Query error on {agent}` | `A data query on {agent} failed to run.` |
