@@ -169,16 +169,32 @@ class CustomApiClient(ToolProviderClient):
         return "json"
 
     def test_connection(self) -> Dict[str, Any]:
-        """Test connectivity by sending a HEAD request to the base URL."""
+        """Test connectivity by sending a HEAD request to the base URL.
+
+        A response is only a *success* when the API actually answers OK. An
+        error status (404 wrong base URL, 401/403 bad credentials, 5xx) means we
+        reached a host but the connection is not usable, so it must not be
+        reported as green/connected. 405 is treated as reachable because many
+        APIs reject HEAD on the base path while still being valid.
+        """
         import httpx
 
         try:
             headers = self._build_headers()
             with httpx.Client(timeout=10.0) as client:
                 response = client.head(self.base_url, headers=headers)
+            status = response.status_code
+            if status < 400 or status == 405:
+                return {
+                    "success": True,
+                    "message": f"Connected to API at {self.base_url} (HTTP {status})",
+                }
             return {
-                "success": True,
-                "message": f"Connected to API at {self.base_url} (HTTP {response.status_code})",
+                "success": False,
+                "message": (
+                    f"Reached {self.base_url} but it returned HTTP {status} — "
+                    f"check the base URL, endpoint path, and credentials."
+                ),
             }
         except Exception as e:
             return {
