@@ -729,6 +729,35 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         requires_license="enterprise",
     ),
+    "outlook_mail": DataSourceRegistryEntry(
+        type="outlook_mail",
+        title="Outlook Mail",
+        description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
+        config_schema=OneDriveConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=OneDriveCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Each email is surfaced as a "file" so the existing list_files /
+        # search_files / read_file tools work over mail with no new tool surface.
+        client_path="app.data_sources.clients.graph_mail_client.GraphMailClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        requires_license="enterprise",
+    ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
         title="Google Drive",
