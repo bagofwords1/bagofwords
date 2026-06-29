@@ -73,6 +73,9 @@
                                         <UBadge size="xs" color="green" variant="subtle">
                                             {{ $t('quotaPolicies.dataShort') }}: {{ formatBytesLimit(policy.monthly_data_bytes_limit) }}
                                         </UBadge>
+                                        <UBadge size="xs" color="amber" variant="subtle">
+                                            {{ $t('quotaPolicies.spendShort') }}: {{ formatUsdLimit(policy.monthly_spend_limit_usd) }}
+                                        </UBadge>
                                     </div>
                                 </td>
                                 <td class="px-4 py-2">
@@ -187,6 +190,10 @@
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.monthlyDataLimitMb') }}</label>
                         <UInput v-model="form.monthlyDataLimitMb" type="number" min="0" step="0.01" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('quotaPolicies.monthlySpendLimitUsd') }}</label>
+                        <UInput v-model="form.monthlySpendLimitUsd" type="number" min="0" step="0.01" :placeholder="$t('quotaPolicies.unlimited')" size="sm" />
                     </div>
                 </div>
 
@@ -315,6 +322,7 @@ interface UsagePolicy {
     monthly_token_limit: number | null
     monthly_query_limit: number | null
     monthly_data_bytes_limit: number | null
+    monthly_spend_limit_usd: number | null
     enabled: boolean
     assignments: UsagePolicyAssignment[]
     connection_overrides: UsagePolicyConnectionOverride[]
@@ -351,6 +359,7 @@ const form = reactive({
     monthlyTokenLimit: '',
     monthlyQueryLimit: '',
     monthlyDataLimitMb: '',
+    monthlySpendLimitUsd: '',
     enabled: true,
     connectionOverrides: [] as UsagePolicyConnectionOverride[],
 })
@@ -382,6 +391,13 @@ function parseOptionalMb(value: string | number | null | undefined): number | nu
     return Math.floor(parsed * 1024 * 1024)
 }
 
+function parseOptionalUsd(value: string | number | null | undefined): number | null {
+    if (value === '' || value == null) return null
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 0) return null
+    return Math.round(parsed * 100) / 100
+}
+
 function bytesToMbInput(value: number | null | undefined): string {
     if (value == null) return ''
     const mb = value / 1024 / 1024
@@ -394,6 +410,11 @@ function formatCountLimit(value: number | null | undefined): string {
 
 function formatBytesLimit(value: number | null | undefined): string {
     return value == null ? t('quotaPolicies.unlimited') : formatBytes(value)
+}
+
+function formatUsdLimit(value: number | null | undefined): string {
+    if (value == null) return t('quotaPolicies.unlimited')
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value)
 }
 
 function formatBytes(value: number): string {
@@ -460,6 +481,7 @@ function resetForm() {
     form.monthlyTokenLimit = ''
     form.monthlyQueryLimit = ''
     form.monthlyDataLimitMb = ''
+    form.monthlySpendLimitUsd = ''
     form.enabled = true
     form.connectionOverrides = []
     overrideConnection.value = null
@@ -481,6 +503,7 @@ function openEditModal(policy: UsagePolicy) {
     form.monthlyTokenLimit = policy.monthly_token_limit == null ? '' : String(policy.monthly_token_limit)
     form.monthlyQueryLimit = policy.monthly_query_limit == null ? '' : String(policy.monthly_query_limit)
     form.monthlyDataLimitMb = bytesToMbInput(policy.monthly_data_bytes_limit)
+    form.monthlySpendLimitUsd = policy.monthly_spend_limit_usd == null ? '' : String(policy.monthly_spend_limit_usd)
     form.enabled = policy.enabled
     form.connectionOverrides = policy.connection_overrides.map(override => ({
         connection_id: override.connection_id,
@@ -568,6 +591,7 @@ function policyPayload() {
         monthly_token_limit: parseOptionalInt(form.monthlyTokenLimit),
         monthly_query_limit: parseOptionalInt(form.monthlyQueryLimit),
         monthly_data_bytes_limit: parseOptionalMb(form.monthlyDataLimitMb),
+        monthly_spend_limit_usd: parseOptionalUsd(form.monthlySpendLimitUsd),
         enabled: form.enabled,
         connection_overrides: connectionOverridesForSave(),
     }
