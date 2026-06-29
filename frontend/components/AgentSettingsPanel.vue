@@ -40,33 +40,12 @@
                 </div>
             </div>
 
-            <!-- Channels -->
-            <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Channels</div>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
-                <div class="space-y-2">
-                    <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-3">
-                        <UToggle
-                            :model-value="channelAvailability[ch.key] !== false"
-                            :disabled="!canManageDs || savingChannels"
-                            @update:model-value="onToggleChannel(ch.key, $event)"
-                        />
-                        <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-400">
-                            <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
-                            <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
-                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-                            {{ ch.name }}
-                        </span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Members (only shown when not public) -->
-            <div v-if="!form.isPublic" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
+            <!-- Members & your access -->
+            <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
                 <div class="flex items-center justify-between mb-2">
                     <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Members</div>
                     <button
-                        v-if="canManageDsMembers"
+                        v-if="canManageDsMembers && !form.isPublic"
                         @click="openAdd"
                         class="h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
@@ -76,8 +55,28 @@
                 <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
 
                 <div class="space-y-1">
+                    <!-- Your access (the current user's effective role on this agent) -->
+                    <div class="rounded-md border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-900/10 px-3 py-2">
+                        <div class="flex items-start gap-1.5">
+                            <UIcon name="i-heroicons-user" class="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="text-xs font-medium text-gray-900 dark:text-white">{{ currentUserName }}</span>
+                                    <UBadge size="xs" color="blue" variant="subtle">You</UBadge>
+                                    <UBadge v-if="isOwner" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
+                                    <UBadge v-else size="xs" :color="myAccessIsPrivileged ? 'blue' : 'gray'" variant="subtle">{{ myAccessLabel }}</UBadge>
+                                </div>
+                                <div class="mt-1.5 flex gap-1 flex-wrap">
+                                    <UBadge v-for="p in myEffectivePerms" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
+                                    <span v-if="!myEffectivePerms.length" class="text-[11px] text-gray-400 dark:text-gray-500" title="You can query this agent but have no extra management rights">Query only</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <template v-if="!form.isPublic">
                     <div
-                        v-for="m in members"
+                        v-for="m in otherMembers"
                         :key="m.grant_id"
                         class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
@@ -87,6 +86,7 @@
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-1.5">
                                         <span class="text-xs font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
+                                        <UBadge v-if="isOwnerPrincipal(m)" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
                                         <template v-if="m.principal_type === 'group'">
                                             <span class="text-[11px] text-gray-400 dark:text-gray-500">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                             <button
@@ -150,8 +150,33 @@
                             </button>
                         </div>
                     </div>
-                    <div v-if="members.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-4 text-[11px] text-gray-400 dark:text-gray-500 text-center">
-                        No members yet. All organization members have access by default.
+                    <div v-if="otherMembers.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
+                        No other members yet.
+                    </div>
+                    </template>
+                    <div v-else class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
+                        This agent is public — every organization member can query it.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Channels (MCP / Slack / …) — moved to the bottom -->
+            <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Channels</div>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
+                <div class="space-y-2">
+                    <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-3">
+                        <UToggle
+                            :model-value="channelAvailability[ch.key] !== false"
+                            :disabled="!canManageDs || savingChannels"
+                            @update:model-value="onToggleChannel(ch.key, $event)"
+                        />
+                        <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+                            <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
+                            <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
+                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                            {{ ch.name }}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -232,7 +257,7 @@
                                 :model-value="addPermissions.includes(perm)"
                                 @update:model-value="toggleAddPermission(perm, $event)"
                             />
-                            {{ perm }}
+                            {{ formatPermission(perm) }}
                         </label>
                     </div>
                 </div>
@@ -263,7 +288,7 @@
 </template>
 
 <script setup lang="ts">
-import { useCan } from '~/composables/usePermissions'
+import { useCan, usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -273,6 +298,7 @@ const emit = defineEmits(['updated', 'deleted'])
 
 const toast = useToast?.()
 const { organization } = useOrganization()
+const { data: currentUser } = useAuth()
 
 // Agent detail fetched directly (no parent `integration` provide())
 const integration = ref<any>(null)
@@ -342,6 +368,38 @@ const adding = ref(false)
 const dsResource = computed(() => ({ type: 'data_source', id: props.agentId }))
 const canManageDs = computed(() => useCan('manage', dsResource.value))
 const canManageDsMembers = computed(() => useCan('manage', dsResource.value))
+
+// ── Current user's role/access on THIS agent ─────────────────────────────
+// Surfaced so anyone (including the owner) can see their effective role here.
+const orgPerms = usePermissions()
+const resourcePerms = useResourcePermissions()
+const currentUserId = computed(() => (currentUser.value as any)?.id || null)
+const currentUserName = computed(() => {
+    const u = currentUser.value as any
+    return u?.name || u?.email || 'You'
+})
+const ownerUserId = computed(() => integration.value?.owner_user_id || null)
+const isFullAdmin = computed(() => orgPerms.value.includes('full_admin_access'))
+const isOwner = computed(() => !!currentUserId.value && currentUserId.value === ownerUserId.value)
+const isOwnerPrincipal = (m: MemberGrant) =>
+    m.principal_type === 'user' && !!ownerUserId.value && m.principal_id === ownerUserId.value
+
+// What a `manage` grant implies — mirrors RESOURCE_PERM_IMPLIES on the backend.
+const MANAGE_IMPLIES = ['manage_instructions', 'create_entities', 'manage_evals', 'manage_members']
+
+const myAccessLabel = computed(() => {
+    if (isFullAdmin.value) return 'Admin'
+    if (isOwner.value) return 'Owner'
+    if (canManageDs.value) return 'Manager'
+    return 'Member'
+})
+const myAccessIsPrivileged = computed(() => isFullAdmin.value || isOwner.value || canManageDs.value)
+// Effective per-agent capabilities for the current user, expanding `manage`.
+const myEffectivePerms = computed<string[]>(() => {
+    if (isFullAdmin.value || canManageDs.value) return ['manage', ...MANAGE_IMPLIES]
+    return resourcePerms.value[`data_source:${props.agentId}`] || []
+})
+
 const { hasFeature } = useEnterprise()
 const isEnterprise = computed(() => hasFeature('custom_roles'))
 
@@ -373,6 +431,13 @@ interface MemberGrant {
 }
 
 const members = ref<MemberGrant[]>([])
+
+// Members other than the current user — the current user is shown separately as
+// the highlighted "You" row at the top of the members list, so we don't repeat
+// their own grant row here.
+const otherMembers = computed(() =>
+    members.value.filter(m => !(m.principal_type === 'user' && m.principal_id === currentUserId.value))
+)
 
 // User/group/role lookup data
 const allUsers = ref<{ id: string; display_name: string; email?: string }[]>([])
@@ -503,7 +568,7 @@ function groupMemberCount(m: MemberGrant): number {
 // human-readable names as the role editor.
 const PERMISSION_LABELS: Record<string, string> = {
     manage_instructions: 'Manage instructions',
-    create_entities: 'Create entities',
+    create_entities: 'Manage entities',
     manage_evals: 'Manage evals',
     manage: 'Manage settings',
     manage_members: 'Manage members',

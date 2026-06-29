@@ -348,6 +348,94 @@ def test_public_data_source_visibility(
 
 
 # ────────────────────────────────────────────────────────────────────
+# Table-selection edits require `manage` (not the read-tier `view_schema`)
+# ────────────────────────────────────────────────────────────────────
+
+
+def _table_mutation_calls(client, ds_id, org_id, token):
+    """Hit each table-mutation endpoint; return {endpoint: status_code}."""
+    h = _hdr(token, org_id)
+    return {
+        "update_schema": client.put(
+            f"/api/data_sources/{ds_id}/update_schema", json=[], headers=h
+        ).status_code,
+        "bulk_update_tables": client.post(
+            f"/api/data_sources/{ds_id}/bulk_update_tables",
+            json={"action": "deactivate", "filter": {}},
+            headers=h,
+        ).status_code,
+        "update_tables_status": client.put(
+            f"/api/data_sources/{ds_id}/update_tables_status",
+            json={"activate": [], "deactivate": []},
+            headers=h,
+        ).status_code,
+    }
+
+
+@pytest.mark.e2e
+def test_table_edits_on_private_ds_require_manage(test_client, ds_world):
+    """On a private agent, only `manage` holders may edit table selection.
+
+    Previously these endpoints were gated on the read-tier `view_schema`,
+    so anyone with *any* grant (e.g. a view-only member) could mutate the
+    table set. They now require `manage`, matching name/status/member edits.
+
+    - admin (full_admin)            → allowed (not 403)
+    - ds_a_manager (manage on ds_a) → allowed on ds_a, denied on ds_b
+    - member_no_grants              → denied
+    """
+    org_id = ds_world["org_id"]
+    ds_a_id = ds_world["ds_a"]["id"]
+
+    admin = ds_world["principals"]["admin"]
+    manager = ds_world["principals"]["ds_a_manager"]
+    member = ds_world["principals"]["member_no_grants"]
+
+    # Manager + admin can edit ds_a's tables (manage grant / full_admin).
+    for name, p in (("admin", admin), ("ds_a_manager", manager)):
+        for endpoint, code in _table_mutation_calls(test_client, ds_a_id, org_id, p["token"]).items():
+            assert code != 403, f"{name} unexpectedly denied on {endpoint}: {code}"
+
+    # A member with no grant is denied on every table-mutation endpoint.
+    for endpoint, code in _table_mutation_calls(test_client, ds_a_id, org_id, member["token"]).items():
+        assert code == 403, f"member_no_grants should be denied on {endpoint}; got {code}"
+
+    # The ds_a manager has no grant on ds_b → denied there too.
+    ds_b_id = ds_world["ds_b"]["id"]
+    for endpoint, code in _table_mutation_calls(test_client, ds_b_id, org_id, manager["token"]).items():
+        assert code == 403, f"ds_a_manager should be denied on ds_b {endpoint}; got {code}"
+
+
+@pytest.mark.e2e
+def test_table_edits_on_public_ds_require_manage(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """Public agents are readable by every member, but editing the table
+    selection still requires `manage` — a plain member is denied even though
+    the agent is public (the old `view_schema` gate let them through).
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    ds = sqlite_data_source(
+        name="public_tables_ds", user_token=admin["token"], org_id=org_id, is_public=True
+    )
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+
+    # Member can read the schema (view tier) but cannot mutate it.
+    read = test_client.get(
+        f"/api/data_sources/{ds['id']}/full_schema", headers=_hdr(member["token"], org_id)
+    )
+    assert read.status_code == 200, read.text
+
+    for endpoint, code in _table_mutation_calls(test_client, ds["id"], org_id, member["token"]).items():
+        assert code == 403, f"public-DS member should be denied on {endpoint}; got {code}"
+
+    # The creator (manage grant) can still edit.
+    for endpoint, code in _table_mutation_calls(test_client, ds["id"], org_id, admin["token"]).items():
+        assert code != 403, f"admin unexpectedly denied on {endpoint}: {code}"
+
+
+# ────────────────────────────────────────────────────────────────────
 # Org-isolation: detail of *their own* org's DS via wrong org header
 # ────────────────────────────────────────────────────────────────────
 
