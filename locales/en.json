@@ -1083,7 +1083,7 @@
       "manage_identity_providers": "Manage identity providers",
       "view": "View",
       "view_schema": "View schema",
-      "create_entities": "Create entities",
+      "create_entities": "Manage entities",
       "manage": "Manage settings"
     },
     "addAgent": "+ Add agent...",
