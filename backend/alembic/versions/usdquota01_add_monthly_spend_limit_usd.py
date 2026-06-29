@@ -1,7 +1,7 @@
 """add monthly spend limit (USD) to usage policies
 
 Revision ID: usdquota01
-Revises: usravatar01
+Revises: la1a2b3c4d5e
 Create Date: 2026-06-29 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision: str = "usdquota01"
-down_revision: Union[str, None] = "usravatar01"
+down_revision: Union[str, None] = "la1a2b3c4d5e"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
