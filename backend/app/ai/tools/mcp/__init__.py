@@ -11,6 +11,8 @@ from .create_data import CreateDataMCPTool
 from .create_artifact import CreateArtifactMCPTool
 from .edit_artifact import EditArtifactMCPTool
 from .send_email import SendEmailMCPTool
+from .list_agent_tools import ListAgentToolsMCPTool
+from .execute_mcp import ExecuteMCPMCPTool
 from .instructions import (
     ListInstructionsMCPTool,
     CreateInstructionMCPTool,
@@ -26,6 +28,9 @@ MCP_TOOLS = {
     "create_artifact": CreateArtifactMCPTool,
     "edit_artifact": EditArtifactMCPTool,
     "send_email": SendEmailMCPTool,
+    # Agent tool gateway (MCP servers + custom APIs attached to an agent)
+    "list_agent_tools": ListAgentToolsMCPTool,
+    "execute_mcp": ExecuteMCPMCPTool,
     # Instruction management tools
     "list_instructions": ListInstructionsMCPTool,
     "create_instruction": CreateInstructionMCPTool,

@@ -92,6 +92,43 @@ class GetContextTool(MCPTool):
         resource_builder = ResourceContextBuilder(db, data_sources, organization, {})
         resources_section = await resource_builder.build()
         
+        # Fetch each agent's MCP / custom-API tools (name + description only —
+        # mirrors the internal <mcp_tools> block; full schemas come from
+        # list_agent_tools) so external clients know what execute_mcp can run.
+        from app.services.connection_tool_gateway import ConnectionToolGateway
+        from app.schemas.mcp import ToolInfo
+        tools_by_ds: Dict[str, List[ToolInfo]] = {}
+        try:
+            gateway_tools = await ConnectionToolGateway().list_tools(
+                db, organization, data_source_ids=[str(d.id) for d in data_sources]
+            )
+            for gt in gateway_tools:
+                if input_data.patterns:
+                    searchable = f"{gt.name} {gt.description or ''}"
+                    matched = False
+                    for pattern in input_data.patterns:
+                        try:
+                            if re.search(pattern, searchable, re.IGNORECASE):
+                                matched = True
+                                break
+                        except re.error:
+                            if pattern.lower() in searchable.lower():
+                                matched = True
+                                break
+                    if not matched:
+                        continue
+                tools_by_ds.setdefault(gt.data_source_id, []).append(
+                    ToolInfo(
+                        name=gt.name,
+                        description=gt.description,
+                        connection_name=gt.connection_name,
+                        connection_type=gt.connection_type,
+                        policy=gt.policy,
+                    )
+                )
+        except Exception:
+            tools_by_ds = {}
+
         # Convert schemas to output format
         data_sources_output: List[DataSourceInfo] = []
         for ds in schemas.data_sources:
@@ -113,6 +150,7 @@ class GetContextTool(MCPTool):
                 name=ds.info.name,
                 type=ds.info.type,
                 tables=tables,
+                tools=tools_by_ds.get(str(ds.info.id), []),
             ))
         
         # Convert resources to output format
