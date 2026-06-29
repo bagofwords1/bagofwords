@@ -443,6 +443,17 @@ Examples of good behavior:
         parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
         if planner_input.instructions:
             parts.append(f"  {planner_input.instructions}")
+        if not getattr(planner_input, "allow_llm_see_data", True):
+            parts.append(
+                "  <data_visibility>Data privacy mode is ON for this organization "
+                "(allow_llm_see_data is off). Data tools (create_data, read_query) "
+                "return only columns, row_count and aggregate stats (counts, "
+                "mean/std/sum, date ranges) — never raw rows; inspect_data is "
+                "disabled. This is expected, not an error: do not retry to \"see\" "
+                "the data or attempt to retrieve individual values. Reason from the "
+                "structure and aggregates provided, and answer without quoting raw "
+                "rows.</data_visibility>"
+            )
         if getattr(planner_input, "schemas_combined", None):
             parts.append(f"  {planner_input.schemas_combined}")
         if getattr(planner_input, "files_context", None):

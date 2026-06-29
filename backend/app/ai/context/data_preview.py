@@ -117,6 +117,14 @@ def build_data_preview(
             "columns": [{"field": c.get("field")} for c in columns if isinstance(c, dict)],
             "row_count": total,
             "stats": gate_stats_for_privacy(info),
+            "data_hidden": True,
+            "note": (
+                "Row-level data is hidden by organization policy "
+                "(allow_llm_see_data is off). Only columns, row_count, and "
+                "aggregate stats are available — do not attempt to retrieve raw "
+                "values (e.g. via inspect_data); reason from the structure and "
+                "aggregates provided."
+            ),
         }
 
     # Does the whole result fit the budget?
