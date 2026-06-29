@@ -25,14 +25,14 @@ def _ds_is_connector(d) -> bool:
 
 
 def _ds_connector_key(d):
-    """The catalog key (e.g. 'notion', 'monday') for a seeded/known connector so
-    the UI can render the provider's icon. Read from a connection's
-    config.catalog_key, else matched by server_url against the catalog. None if
-    not a known catalog connector."""
+    """The preset key (e.g. 'notion', 'monday') for a known connector so the UI
+    can render the provider's icon. Read from a connection's config.catalog_key,
+    else matched by server_url against the mcp presets. None if not a known
+    preset connector."""
     import json as _json
     try:
-        from app.schemas.connector_catalog import CATALOG
-        by_url = {e.server_url: e.key for e in CATALOG if getattr(e, "server_url", None)}
+        from app.schemas.data_source_registry import mcp_presets
+        by_url = {p["server_url"]: p["key"] for p in mcp_presets() if p.get("server_url")}
     except Exception:
         by_url = {}
     for c in (getattr(d, "connections", None) or []):

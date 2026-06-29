@@ -140,7 +140,7 @@ async def ensure_mcp_oauth_config(db, connection) -> bool:
     # SSRF guard: only run discovery + dynamic registration against known catalog
     # hosts (their resource + authorization-server hosts). Custom/admin URLs that
     # aren't in the catalog must supply a client manually rather than DCR.
-    from app.schemas.connector_catalog import allowed_dcr_hosts
+    from app.schemas.data_source_registry import allowed_dcr_hosts
     host = urlsplit(server_url).netloc
     if host not in allowed_dcr_hosts():
         raise ValueError(

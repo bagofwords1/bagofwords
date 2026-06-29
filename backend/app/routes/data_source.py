@@ -39,11 +39,11 @@ async def get_connectors_catalog(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Curated catalog of pre-built MCP integrations (Monday, Notion, …).
-    The popular DCR ones are auto-seeded on org creation; the rest are
-    available on demand."""
-    from app.schemas.connector_catalog import list_catalog
-    return list_catalog()
+    """Curated catalog of pre-built MCP integrations (Monday, Notion, …) —
+    the named presets on the registry's `mcp` entry. Admins add them from the
+    Add Connection catalog; the DCR ones need no setup."""
+    from app.schemas.data_source_registry import mcp_presets
+    return mcp_presets()
 
 @router.get("/data_sources", response_model=list[DataSourceListItemSchema])
 async def get_data_sources(
