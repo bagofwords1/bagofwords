@@ -35,6 +35,34 @@ ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
     "manage_connections":  {"connection": {"manage_data_sources"}},
 }
 
+# A `manage` grant on a data source is the agent-owner/manager tier: it is a
+# superset that implies the specific management permissions enforced across the
+# agent's surfaces (instructions, entities, evals, membership). This is what
+# lets a non-admin who creates/owns an agent fully manage *that* agent without
+# extra per-permission grants, while still scoping them to their own agents —
+# unlike the org-level `manage_*` perms which apply to every data source.
+RESOURCE_PERM_IMPLIES: dict[str, dict[str, set[str]]] = {
+    "data_source": {
+        "manage": {
+            "manage_instructions",
+            "create_entities",
+            "manage_evals",
+            "manage_members",
+            "view",
+            "view_schema",
+        },
+    },
+}
+
+
+def _grant_implies(resource_type: str, granted: set, permission: str) -> bool:
+    """True if any held resource grant implies `permission` (e.g. `manage`)."""
+    by_perm = RESOURCE_PERM_IMPLIES.get(resource_type, {})
+    for held in granted:
+        if permission in by_perm.get(held, set()):
+            return True
+    return False
+
 
 @dataclass
 class ResolvedPermissions:
@@ -52,7 +80,9 @@ class ResolvedPermissions:
         """Check if user has a specific resource-level permission.
 
         Tiers: full_admin → implicit view/view_schema (any grant) →
-        org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → explicit grant.
+        org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → grant implications
+        (RESOURCE_PERM_IMPLIES, e.g. `manage` ⇒ manage_instructions) →
+        explicit grant.
         """
         if FULL_ADMIN in self.org_permissions:
             return True
@@ -68,8 +98,30 @@ class ResolvedPermissions:
             implied = ORG_PERM_IMPLIES_RESOURCE.get(org_perm, {}).get(resource_type)
             if implied and permission in implied:
                 return True
+        granted = self.resource_permissions.get(key, set())
+        # Implied by a superset grant on this resource (e.g. `manage`).
+        if _grant_implies(resource_type, granted, permission):
+            return True
         # Explicit grant
-        return permission in self.resource_permissions.get(key, set())
+        return permission in granted
+
+    def has_any_resource_permission(self, permission: str, resource_type: str | None = None) -> bool:
+        """True if the user holds `permission` on at least one resource, via an
+        explicit grant or a superset grant (e.g. `manage`).
+
+        Used by resource-scoped route gating as a cheap pre-filter before the
+        specific resource_id is checked in the route body — it must honour the
+        same grant implications as ``has_resource_permission`` so an agent
+        manager (holding only `manage`) isn't rejected at the door.
+        """
+        if FULL_ADMIN in self.org_permissions:
+            return True
+        for (rtype, _rid), perms in self.resource_permissions.items():
+            if resource_type is not None and rtype != resource_type:
+                continue
+            if permission in perms or _grant_implies(rtype, perms, permission):
+                return True
+        return False
 
     def has_resource_membership(self, resource_type: str, resource_id: str) -> bool:
         """Binary check — is user a member of this resource at all? (non-enterprise path)"""

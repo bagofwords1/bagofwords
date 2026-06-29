@@ -157,11 +157,11 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 # grants from creating resources with empty data_source_ids.
                 if resource_scoped:
                     perm_to_check = permission if isinstance(permission, str) else list(permission)[0]
-                    has_any_resource = any(
-                        perm_to_check in perms
-                        for perms in resolved.resource_permissions.values()
-                    )
-                    if has_any_resource:
+                    # Honour grant implications (e.g. a `manage` grant implies
+                    # manage_instructions) so an agent manager passes this
+                    # pre-filter; the specific resource_id is still enforced in
+                    # the route body via check_resource_permissions.
+                    if resolved.has_any_resource_permission(perm_to_check):
                         return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
@@ -315,3 +315,25 @@ async def check_resource_permissions(
                 status_code=403,
                 detail=f"Access denied to {resource_type} {rid} for '{permission}'",
             )
+
+
+async def require_org_permission(
+    db: AsyncSession,
+    user_id: str,
+    org_id: str,
+    permission: str,
+) -> None:
+    """Raise 403 unless the user holds `permission` at the org level.
+
+    `full_admin_access` bypasses. Used for org-wide actions that have no
+    per-resource scope — e.g. creating a *global* (data-source-less)
+    instruction or entity, which must stay an org-admin capability even
+    though the per-resource (`resource_scoped`) routes that share the same
+    handler let agent managers act on their own data sources.
+    """
+    resolved = await resolve_permissions(db, user_id, org_id)
+    if not resolved.has_org_permission(permission):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Org-level '{permission}' required",
+        )

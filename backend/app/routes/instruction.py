@@ -9,7 +9,7 @@ from app.errors import AppError, ErrorCode
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission, check_resource_permissions
+from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import (
     InstructionCreate,
@@ -68,6 +68,13 @@ async def create_global_instruction(
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", instruction.data_source_ids, "manage_instructions",
+        )
+    else:
+        # Truly org-wide (no data source) → stays an org-level capability.
+        # An agent manager's per-DS `manage` must NOT let them author global
+        # instructions that apply to every agent.
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_instructions",
         )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
