@@ -110,24 +110,131 @@ Commit/rollback right after each read so the connection is `idle` rather than
 *precondition* that makes Option 4 effective — but does **not** free the pool
 slot on its own (the session is still checked out until close).
 
-## Recommended phasing
+## Decision
 
-1. **Phase 1 (do first): Option 1** — early-release helper applied to the
-   per-page read endpoints (reports list incl. `view=minimal`, instructions
-   list, `pending-changes`, `data_sources/active`, full_schema). Measure the knee
-   shift with `concurrency_bench.py`. Low risk, immediate.
-2. **Phase 2: Option 5 across read paths** — make GET handlers end their
-   transaction promptly (or a read-only session helper), to cut idle-in-tx and
-   set up Phase 3.
-3. **Phase 3 (strategic): Option 4 (PgBouncer)** — once transactions are short,
-   front PG with PgBouncer so a large app pool maps onto a small, safe number of
-   PG backends. This is what actually removes the ceiling.
-4. **Not planned: Option 3** (full 416-site refactor) unless Phases 1–3 prove
-   insufficient. **Out of scope here:** the `pool_size` / `max_connections`
-   capacity bump — tracked separately.
+Only **Phase 1** and **Phase 2** are in scope. Option 3 (full 416-site refactor),
+Option 4 (PgBouncer), and the `pool_size`/`max_connections` capacity bump are
+explicitly out of scope.
 
-## Open questions for review
-- Is adding PgBouncer to the docker-compose stack acceptable (one more service),
-  or do we prefer to stay app-only (Options 1–2) for now?
-- For Phase 1, confirm the target endpoint list and that each returns a
-  detached-safe (Pydantic) value before the early release.
+---
+
+# Phase 1 — Targeted early connection release (ship first)
+
+**Goal:** free the pooled connection back to the pool *before* response
+serialization on the highest-frequency read endpoints, so a burst of those calls
+stops pinning the pool for each request's full wall-time.
+
+**Mechanism.** Add one helper and call it at the end of each target handler,
+after the Pydantic response object is built and before `return`:
+
+```python
+# app/dependencies.py (or a small app/db_utils.py)
+async def release_request_db(db: AsyncSession) -> None:
+    """Return the request's pooled connection to the pool now, instead of at
+    response-send. Safe only when the caller will not touch `db` again and the
+    return value is detached-safe (Pydantic / plain data). Mirrors the SSE path
+    in completion_service.create_completion_stream."""
+    try:
+        await db.commit()      # end the read txn; commit is a no-op for pure reads
+    except Exception:
+        pass
+    try:
+        await db.close()       # <-- returns the connection to the pool
+    except Exception:
+        pass
+```
+
+`get_async_db`'s `finally` already tolerates a pre-closed session (its rollback is
+wrapped in try/except), so no dependency change is needed.
+
+**Target endpoints (per-page, highest frequency — all return detached-safe Pydantic):**
+| endpoint | handler | returns |
+|---|---|---|
+| `GET /reports?view=minimal` (sidebar, every page) | `report.py:78` | `ReportListResponse` |
+| `GET /reports` (full list) | `report.py:78` | `ReportListResponse` |
+| `GET /instructions` | `instruction.py:78` | dict of `InstructionListSchema` |
+| `GET /instructions/pending-changes` | `instruction.py:312` | `{"instruction_ids": [...]}` |
+| `GET /data_sources/active` | `data_source.py:47` | `list[DataSourceListItemSchema]` |
+| `GET /data_sources/{id}/full_schema` | `data_source.py:163` | `PaginatedTablesResponse` |
+
+Call site shape (service-returns-schema endpoints): build the result, then
+`await release_request_db(db)` immediately before returning it.
+
+**Guardrails / preconditions (verify per endpoint before adding the call):**
+- The handler must not use `db` after the release (no post-serialization DB work,
+  no background task that reuses the request session).
+- The returned value must be fully materialized (Pydantic/dict), not lazy ORM
+  objects — confirmed for all six above.
+- `current_user` (which writes `last_seen`) and `get_current_organization` run
+  *before* the handler body, so they're done by the time we release.
+
+**Blast radius:** 6 endpoints + 1 helper. No global behavior change.
+
+**Verification:** `scripts/concurrency_bench.py` against the seeded Postgres
+harness — expect the latency knee to move up (more concurrency before the
+`QueuePool ... timed out` 500s) and p50 under burst to drop. Add a before/after
+table to the PR.
+
+**Effort:** ~½ day incl. measurement.
+
+---
+
+# Phase 2 — Read-only autocommit session, auto-released for GET routes (broaden)
+
+**Goal:** generalize Phase 1 to *all* read endpoints and additionally stop reads
+from sitting **idle-in-transaction** (which blocks VACUUM, holds locks, and is the
+mechanism behind the `last_seen` row-lock amplifier).
+
+**Mechanism.** A dedicated read dependency + a read router that auto-releases:
+
+```python
+# AUTOCOMMIT: each SELECT is its own statement, no lingering transaction.
+read_session_maker = create_async_session_factory(
+    bind=engine.execution_options(isolation_level="AUTOCOMMIT")
+)
+
+async def get_read_db() -> AsyncGenerator[AsyncSession, None]:
+    async with read_session_maker() as session:
+        yield session
+```
+
+Plus a small custom `APIRoute` (applied to read-only routers) that closes the
+request's read session right after the handler returns its value — so the
+auto-release of Phase 1 happens for every endpoint on that router without
+per-handler calls.
+
+**Scope of application (opt-in, ordered):**
+1. The same 6 hot endpoints from Phase 1 (swap `get_async_db` → `get_read_db`;
+   the early-release is then automatic via the read router).
+2. Then broaden to other **GET** endpoints router-by-router after a quick audit.
+
+**Hard guardrails:**
+- **GET / pure-read only.** AUTOCOMMIT removes multi-statement atomicity, so it
+  must never be used on POST/PUT/DELETE or any handler that writes as a unit.
+- **`_update_last_seen` interaction.** `current_user` writes `last_seen` on the
+  request session. Under AUTOCOMMIT that single UPDATE still commits correctly
+  (it's standalone), so it's compatible — but this must be re-confirmed when
+  `current_user` shares the read session, and is a reason to keep write endpoints
+  on the existing `get_async_db`.
+- Endpoints that read-then-write in one handler stay on `get_async_db`.
+
+**What Phase 2 does and does not do (be honest):**
+- ✅ Removes idle-in-transaction for reads (VACUUM/lock/`last_seen`-contention
+  relief) and, via the read router's auto-close, frees the pool slot for *all*
+  migrated GETs (not just the 6 in Phase 1).
+- ❌ Does not, by itself, raise the absolute pool ceiling — a request still holds
+  one slot while actively running. (That ceiling is the out-of-scope capacity item.)
+
+**Blast radius:** new dependency + read router (small), then a gradual per-router
+migration of GET endpoints (bounded, reversible).
+
+**Verification:** `concurrency_bench.py` for the knee; plus a Postgres
+`pg_stat_activity` sample showing `idle in transaction` → `idle` for read
+endpoints under load (the sampler in the contention feedback-loop doc).
+
+**Effort:** ~1–2 days for the mechanism + the hot set; migration of remaining GET
+routers incremental thereafter.
+
+## Open question for review
+- Phase 2 migration breadth: stop at the hot read endpoints, or commit to
+  migrating all GET routers to the read session over time?
