@@ -353,11 +353,14 @@ async def _require_resource_manage(
     resolved = await resolve_permissions(db, str(user.id), str(org_id))
     if FULL_ADMIN in resolved.org_permissions:
         return
-    if resolved.has_resource_permission(resource_type, str(resource_id), "manage"):
+    # The "owner-level" permission differs by resource type: `manage` on an
+    # agent, `manage_connection` on a connection.
+    owner_perm = "manage_connection" if resource_type == "connection" else "manage"
+    if resolved.has_resource_permission(resource_type, str(resource_id), owner_perm):
         return
     raise HTTPException(
         status_code=403,
-        detail=f"Requires 'manage' on {resource_type} {resource_id}",
+        detail=f"Requires '{owner_perm}' on {resource_type} {resource_id}",
     )
 
 
