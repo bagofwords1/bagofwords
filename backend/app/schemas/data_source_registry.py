@@ -163,6 +163,10 @@ class DataSourceRegistryEntry(BaseModel):
     description: str
     status: str = "active"
     version: str = "1.0.0"
+    # Deprecated entries stay resolvable (existing connections keep working) but
+    # are hidden from the new-connection catalog. Used to steer new connections
+    # to a replacement (e.g. native google_drive → the Google Drive MCP preset).
+    deprecated: bool = False
     config_schema: Type[BaseModel]
     credentials_auth: AuthOptions
     # Optional explicit client path; if None, fallback to dynamic resolution
@@ -751,6 +755,10 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         requires_license="enterprise",
+        # Superseded by the Google Drive MCP preset (first-party remote MCP).
+        # Hidden from new connections; existing google_drive connections keep
+        # working via this client.
+        deprecated=True,
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -989,8 +997,13 @@ MCP_PRESETS: List[McpPreset] = [
               description="Errors, issues and releases from Sentry."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
-    McpPreset(key="gmail", title="Gmail", server_url="",
-              auth="oauth_app", description="Gmail (needs a Google OAuth client + Workspace approval)."),
+    # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
+    # client; no DCR — the authorize flow audience-binds the token to the MCP
+    # resource via RFC 8707). Files come back as blobs → materialized for analysis.
+    McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
+              auth="oauth_app", description="Files in Google Drive (needs a Google OAuth client)."),
+    McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
+              auth="oauth_app", description="Gmail messages (needs a Google OAuth client)."),
 ]
 
 
@@ -1027,6 +1040,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
         for e in REGISTRY.values()
         if (
             e.status == "active"
+            and not e.deprecated
             and _entry_visible(e)
             and (e.is_connection or include_tool_providers)
         )
