@@ -54,13 +54,23 @@ so connector-materialized files are made **ephemeral per turn**:
 > Per-user permissions also fall out: each turn re-fetches under the requesting
 > user, so one user's bytes are never persisted into a shared report.
 
-### A3 — durable references + prompt-box picker (follow-up)
-The **pre-attach** case (user pins a file before the agent runs, reused across
-turns) does need a durable reference. That's where `FileReference`
-(`connection_id`/`external_file_id`/`etag`/`last_fetched_at`) +
-`ensure_materialized(ref, user)` (etag-checked, per-user) + the
-`list_mcp_resources`/search picker live. Deferred — not needed for the
-agent-driven analysis flow (A1+A2).
+### A3 — durable references + resolver  ✅ backend built
+Pin a connector file to a report; it's re-materialized fresh, per-user, each run.
+- `FileReference` model + migration — the report owns `connection_id` +
+  `external_file_id` (+ name/mime); **no bytes cached on the reference**.
+- `file_reference_service.ensure_materialized(db, ref, user, report, org)` —
+  fetches under the current user via the connection client → ephemeral
+  `connector` session File (reuses A2). Always fresh + per-user.
+- `agent_v2.main_execution` resolves the report's references into
+  `analysis_files` at run start (best-effort).
+- Routes: `POST/GET /reports/{id}/file_references`, `DELETE /file_references/{id}`,
+  `GET /connections/{id}/files` (per-user picker listing). Verified registered;
+  serializer unit-tested.
+
+**Remaining:** the **prompt-box picker UI** (browse `GET /connections/{id}/files`
+→ pin) — backend endpoints are ready; building/verifying the UI needs a
+connector with a working per-user token (blocked in the proxied sandbox by
+Google's interactive consent + the demo MS account's MFA).
 
 ## Workstream B — connectors (replace native Drive/OneDrive/SharePoint)
 
