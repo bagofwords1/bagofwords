@@ -54,6 +54,33 @@ def to_dict(n: Notification) -> Dict[str, Any]:
     }
 
 
+def _safe_to_dict(n: Notification) -> Dict[str, Any]:
+    """Serialize a row, never raising. A single malformed notification must not
+    500 the whole inbox (which would strand the user on an empty list under a
+    non-zero unread badge). On failure, fall back to a minimal placeholder so the
+    row still surfaces and the list stays consistent with count_unread."""
+    try:
+        return to_dict(n)
+    except Exception:  # noqa: BLE001
+        logger.exception("inbox: failed to serialize notification %s", getattr(n, "id", "?"))
+        nid = getattr(n, "id", None)
+        return {
+            "id": str(nid) if nid is not None else "",
+            "source": getattr(n, "source", "") or "",
+            "type": getattr(n, "type", "") or "",
+            "severity": getattr(n, "severity", None) or SEVERITY_INFO,
+            "title": getattr(n, "title", None) or "Notification",
+            "body": None,
+            "link": getattr(n, "link", None),
+            "subject": {},
+            "actor_user_id": None,
+            "read": getattr(n, "read_at", None) is not None,
+            "dismissed": getattr(n, "dismissed_at", None) is not None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+
 class InboxService:
     # ---- write -------------------------------------------------------------
     async def notify_users(
@@ -242,19 +269,37 @@ class InboxService:
             select(Notification).where(and_(*clauses))
             .order_by(Notification.created_at.desc()).limit(limit)
         )).scalars().all()
-        # Severity-first, then recency. Guard against rows with a null timestamp:
-        # datetime.min.timestamp() raises ("year 0 is out of range") on Linux, which
-        # would 500 the whole list (while count_unread stays fine) — so treat a
-        # missing created_at as the epoch instead.
+        # Newest-first (recency DESC), with severity only as a tiebreaker for
+        # rows sharing a timestamp. A notification inbox reads chronologically;
+        # ranking by severity first surfaced a stale warning above a fresh run.
+        #
+        # This whole read path must never 500: the unread badge comes from
+        # count_unread (a pure func.count that can't fail), so if listing throws
+        # on one malformed row the user is left with a red badge over an empty
+        # "all caught up" inbox (the frontend swallows the error). Keep the two
+        # consistent by being defensive end-to-end:
+        #   * _ts treats a missing/invalid timestamp as the epoch — datetime.min
+        #     and out-of-range/aware datetimes can otherwise raise on .timestamp()
+        #     ("year 0 is out of range").
+        #   * the sort itself is wrapped so a surprise key error falls back to the
+        #     DB's created_at ordering (already DESC) rather than failing.
+        #   * each row is serialized independently so one poison row degrades to a
+        #     safe placeholder instead of blanking the entire list.
         def _ts(dt):
-            return dt.timestamp() if dt else 0.0
-        rows.sort(key=lambda r: (
-            SEVERITY_RANK.get(r.severity, 9),
-            -_ts(r.created_at),
-        ))
+            try:
+                return dt.timestamp() if dt else 0.0
+            except Exception:  # noqa: BLE001 — any unrepresentable datetime
+                return 0.0
+        try:
+            rows.sort(key=lambda r: (
+                -_ts(r.created_at),
+                SEVERITY_RANK.get(r.severity, 9),
+            ))
+        except Exception:  # noqa: BLE001
+            logger.exception("inbox: failed to sort notifications; using DB order")
         unread_n = sum(1 for r in rows if r.read_at is None)
         return {
-            "items": [to_dict(r) for r in rows],
+            "items": [_safe_to_dict(r) for r in rows],
             "total": len(rows),
             "unread": unread_n,
         }

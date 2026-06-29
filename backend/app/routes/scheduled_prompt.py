@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -10,6 +12,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
 from app.services.scheduled_prompt_service import scheduled_prompt_service
+from app.ee.audit.service import audit_service
 from app.schemas.scheduled_prompt_schema import (
     ScheduledPromptCreate,
     ScheduledPromptUpdate,
@@ -69,11 +72,22 @@ async def list_all_scheduled_prompts(
 async def create_scheduled_prompt(
     report_id: str,
     body: ScheduledPromptCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await scheduled_prompt_service.create_scheduled_prompt(db, report_id, body, current_user, organization)
+    sp = await scheduled_prompt_service.create_scheduled_prompt(db, report_id, body, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="scheduled_prompt.created",
+            user_id=current_user.id, resource_type="scheduled_prompt", resource_id=sp.id,
+            details={"report_id": report_id, "cron": getattr(sp, "cron_schedule", None)},
+            request=request,
+        )
+    except Exception:
+        pass
+    return sp
 
 
 @router.get("/reports/{report_id}/scheduled-prompts", response_model=List[ScheduledPromptSchema])
@@ -93,11 +107,23 @@ async def update_scheduled_prompt(
     report_id: str,
     sp_id: str,
     body: ScheduledPromptUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await scheduled_prompt_service.update_scheduled_prompt(db, sp_id, body, current_user, organization)
+    sp = await scheduled_prompt_service.update_scheduled_prompt(db, sp_id, body, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="scheduled_prompt.updated",
+            user_id=current_user.id, resource_type="scheduled_prompt", resource_id=sp_id,
+            details={"report_id": report_id,
+                     "fields": list(body.dict(exclude_unset=True).keys())},
+            request=request,
+        )
+    except Exception:
+        pass
+    return sp
 
 
 @router.delete("/reports/{report_id}/scheduled-prompts/{sp_id}", status_code=204)
@@ -105,11 +131,20 @@ async def update_scheduled_prompt(
 async def delete_scheduled_prompt(
     report_id: str,
     sp_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     await scheduled_prompt_service.delete_scheduled_prompt(db, sp_id, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="scheduled_prompt.deleted",
+            user_id=current_user.id, resource_type="scheduled_prompt", resource_id=sp_id,
+            details={"report_id": report_id}, request=request,
+        )
+    except Exception:
+        pass
 
 
 @router.post("/reports/{report_id}/scheduled-prompts/{sp_id}/trigger", status_code=200)
@@ -117,10 +152,28 @@ async def delete_scheduled_prompt(
 async def trigger_scheduled_prompt(
     report_id: str,
     sp_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Manually trigger a scheduled prompt execution (for testing / on-demand runs)."""
-    await scheduled_prompt_service.scheduled_run_prompt(sp_id)
+    """Manually trigger a scheduled prompt execution (for testing / on-demand runs).
+
+    The run is launched in the background so the request returns immediately —
+    the agent run can take a while, and the caller (e.g. the "Run now" button)
+    should not block on it. ``force=True`` bypasses the cross-worker claim and
+    the paused check so a manual run always executes.
+    """
+    # Validate existence/visibility before kicking off the background run so the
+    # caller gets a clean 404 instead of a silent no-op.
+    await scheduled_prompt_service.get_scheduled_prompt(db, sp_id)
+    asyncio.create_task(scheduled_prompt_service.scheduled_run_prompt(sp_id, force=True))
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="scheduled_prompt.triggered",
+            user_id=current_user.id, resource_type="scheduled_prompt", resource_id=sp_id,
+            details={"report_id": report_id}, request=request,
+        )
+    except Exception:
+        pass
     return {"status": "triggered", "scheduled_prompt_id": sp_id}

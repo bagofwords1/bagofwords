@@ -126,10 +126,15 @@ def _get_async_database_url() -> str:
 
 
 def _get_async_ssl_connect_args(db_config) -> dict:
-    """Build SSL connect_args for asyncpg (uses a different ssl param format)."""
+    """Build SSL connect_args for asyncpg (uses a different ssl param format).
+
+    When ssl_mode is empty, explicitly pass ssl=False to prevent asyncpg from
+    auto-detecting client certificates in ~/.postgresql/ (which fails on OCP
+    where the container runs under an arbitrary UID that cannot read those files).
+    """
     ssl_mode = db_config.auth.ssl_mode
     if not ssl_mode:
-        return {}
+        return {"ssl": False}
     import ssl
     ssl_ctx = ssl.create_default_context()
     if ssl_mode == "verify-full":
@@ -218,7 +223,7 @@ def _build_async_database_engine():
         database_url = _get_async_database_url()
 
         if "postgresql+asyncpg" in database_url:
-            connect_args = _get_async_ssl_connect_args(db_config) if db_config.uses_iam_auth else {}
+            connect_args = _get_async_ssl_connect_args(db_config)
             # Server-side safety timeouts. Without these, any transaction that
             # holds a row lock (e.g. the agent's long-lived shared
             # agent-execution transaction, or a leaked/abandoned session) blocks
@@ -333,7 +338,7 @@ def create_async_database_engine_for_indexing():
         db_config = settings.bow_config.database
         database_url = _get_async_database_url()
         if "postgresql+asyncpg" in database_url:
-            connect_args = _get_async_ssl_connect_args(db_config) if db_config.uses_iam_auth else {}
+            connect_args = _get_async_ssl_connect_args(db_config)
             engine = create_async_engine(
                 database_url,
                 echo=False,

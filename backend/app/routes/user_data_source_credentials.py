@@ -77,12 +77,22 @@ async def upsert_my_credentials(
 async def patch_my_credentials(
     data_source_id: str,
     payload: UserDataSourceCredentialsUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
     ds = await _load_datasource(db, organization, data_source_id)
-    return await svc.patch_my_credentials(db=db, data_source=ds, user=current_user, payload=payload)
+    result = await svc.patch_my_credentials(db=db, data_source=ds, user=current_user, payload=payload)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="credentials.updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.delete("/data_sources/{data_source_id}/my-credentials", status_code=204)

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from pydantic import BaseModel
 
+from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
@@ -120,35 +121,68 @@ async def get_models(
 @requires_permission('manage_llm')
 async def create_model(
     model: LLMModelCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Create a new custom model"""
-    return await llm_service.create_model(db, organization, current_user, model)
+    created = await llm_service.create_model(db, organization, current_user, model)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="llm_model.created",
+            user_id=current_user.id, resource_type="llm_model",
+            resource_id=str(getattr(created, "id", "") or ""),
+            details={"name": getattr(model, "model_id", None) or getattr(model, "name", None)},
+            request=request,
+        )
+    except Exception:
+        pass
+    return created
 
 @router.patch("/llm/models/{model_id}")
 @requires_permission('manage_llm')
 async def update_model(
     model_id: str,
     model: LLMModelUpdate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Update model settings"""
-    return await llm_service.update_model(db, organization, current_user, model_id, model)
+    updated = await llm_service.update_model(db, organization, current_user, model_id, model)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="llm_model.updated",
+            user_id=current_user.id, resource_type="llm_model", resource_id=str(model_id),
+            details={"fields": list(model.dict(exclude_unset=True).keys())},
+            request=request,
+        )
+    except Exception:
+        pass
+    return updated
 
 @router.delete("/llm/models/{model_id}")
 @requires_permission('manage_llm')
 async def delete_model(
     model_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """Delete a custom model (preset models cannot be deleted)"""
-    return await llm_service.delete_model(db, organization, current_user, model_id)
+    result = await llm_service.delete_model(db, organization, current_user, model_id)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="llm_model.deleted",
+            user_id=current_user.id, resource_type="llm_model", resource_id=str(model_id),
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.post("/llm/providers/{provider_id}/toggle")
 @requires_permission('manage_llm')

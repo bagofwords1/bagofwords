@@ -28,6 +28,7 @@ from app.schemas.agent_manifest_schema import (
     ApplyStatus,
 )
 from app.services.test_suite_service import TestSuiteService
+from app.ee.audit.service import audit_service
 
 
 router = APIRouter(prefix="/evals", tags=["evals"])
@@ -146,6 +147,19 @@ async def apply_eval(
                 )
             ],
         )
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=str(organization.id), action="eval.applied",
+            user_id=current_user.id, resource_type="eval",
+            resource_id=str(result.get("suite_id") or ""),
+            details={"name": result.get("suite_name"),
+                     "status": "updated" if existed_before else "created",
+                     "strategy": strategy},
+            request=request,
+        )
+    except Exception:
+        pass
 
     return ApplyResult(
         status=ApplyStatus.UPDATED if existed_before else ApplyStatus.CREATED,

@@ -10,6 +10,7 @@ from typing import AsyncIterator, Dict, Any, Type, List, Optional
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.ai.context.data_preview import build_data_preview
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -134,21 +135,11 @@ class ReadQueryTool(Tool):
         if not step_view and visualization:
             step_view = visualization.view
 
-        # Build privacy-aware data preview
+        # Reuse the same budgeted preview as create_data so read_query returns the
+        # full result (up to the byte budget), not a fixed 5-row slice.
         data_preview = None
         if step_data and isinstance(step_data, dict):
-            columns = step_data.get("columns", [])
-            rows = step_data.get("rows", [])
-            if allow_llm_see_data:
-                data_preview = {
-                    "columns": columns,
-                    "rows": rows[:5],
-                }
-            else:
-                data_preview = {
-                    "columns": [{"field": c.get("field")} for c in columns if isinstance(c, dict)],
-                    "row_count": len(rows),
-                }
+            data_preview = build_data_preview(step_data, allow_llm_see_data=allow_llm_see_data)
 
         return ReadQueryResult(
             query_id=str(query.id) if query else None,

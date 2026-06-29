@@ -26,6 +26,18 @@
           <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
         </div>
 
+        <div v-else-if="error" class="py-16 flex flex-col items-center text-center gap-2 px-6">
+          <div class="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 dark:bg-red-500/10">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-400 dark:text-red-500" />
+          </div>
+          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Couldn't load notifications</p>
+          <p class="text-xs text-gray-400 dark:text-gray-500">Something went wrong fetching your inbox.</p>
+          <button
+            @click="fetchItems()"
+            class="mt-1 text-[12px] text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded-md"
+          >Try again</button>
+        </div>
+
         <div v-else-if="!items.length" class="py-16 flex flex-col items-center text-center gap-2 px-6">
           <div class="flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 dark:bg-gray-800">
             <UIcon name="i-heroicons-bell-slash" class="w-6 h-6 text-gray-300 dark:text-gray-600" />
@@ -83,7 +95,7 @@ import Spinner from '~/components/Spinner.vue'
 import type { BowNotification } from '~/composables/useNotifications'
 
 const router = useRouter()
-const { isOpen, items, unread, loading, fetchItems, markRead, markAllRead, dismiss } = useNotifications()
+const { isOpen, items, unread, loading, error, fetchItems, markRead, markAllRead, dismiss } = useNotifications()
 
 // Severity → accent (icon bubble).
 function sevBg(n: BowNotification): string {

@@ -23,6 +23,11 @@ export const useNotifications = () => {
   const items = useState<BowNotification[]>('notifications-items', () => [])
   const unread = useState<number>('notifications-unread', () => 0)
   const loading = useState<boolean>('notifications-loading', () => false)
+  // True when the last list fetch failed. Without this the modal renders the
+  // "you're all caught up" empty state even though the badge (fed by the
+  // separate, more robust count endpoint) still shows unread items — a
+  // confusing red-badge-over-empty-inbox. See NotificationModal.vue.
+  const error = useState<boolean>('notifications-error', () => false)
 
   const open = () => { isOpen.value = true }
   const close = () => { isOpen.value = false }
@@ -43,13 +48,20 @@ export const useNotifications = () => {
   // Full list for the modal.
   async function fetchItems(source?: string | null) {
     loading.value = true
+    error.value = false
     try {
       const qs = source ? `/api/notifications?source=${encodeURIComponent(source)}` : '/api/notifications'
       const res: any = await useMyFetch(qs, { method: 'GET' })
-      items.value = res?.data?.value?.items ?? []
-      unread.value = res?.data?.value?.unread ?? unread.value
+      // useMyFetch swallows non-2xx into { data: null, error }. Treat a null
+      // body as a failure rather than silently rendering an empty inbox.
+      if (res?.error?.value || res?.data?.value == null) {
+        error.value = true
+      } else {
+        items.value = res.data.value.items ?? []
+        unread.value = res.data.value.unread ?? unread.value
+      }
     } catch {
-      items.value = []
+      error.value = true
     } finally {
       loading.value = false
     }
@@ -75,7 +87,7 @@ export const useNotifications = () => {
   }
 
   return {
-    isOpen, items, unread, loading,
+    isOpen, items, unread, loading, error,
     open, close, toggle,
     fetchCount, fetchItems, markRead, markAllRead, dismiss,
   }

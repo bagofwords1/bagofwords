@@ -4,6 +4,7 @@ import logging
 import os
 import time as _time
 import uuid as _uuid_mod
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
 from pydantic import ValidationError
@@ -130,7 +131,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
@@ -1254,16 +1255,17 @@ class AgentV2:
             self.mode = prior_mode
 
     async def _generate_title_background(self, messages_context: str, plan_info: list, report_id: str):
-        """Generate report title in background after completion.finished is sent.
+        """Generate and persist the report title in its own DB session.
 
-        `report_id` is passed in as a plain string (captured while the request's
-        session is still alive). We must NOT read it off `self.report` here: this
-        runs as a fire-and-forget task that can outlive the request, at which point
-        `self.report` is detached from its (now-closed) session and any attribute
-        access raises "Instance is not bound to a Session". That silently skipped
-        title generation — most visibly on Postgres, whose pooled connections
-        return/expire faster than SQLite's, so the session was reliably gone by the
-        time this task ran.
+        Awaited inline by the caller (see main_execution) rather than spawned as a
+        fire-and-forget task — a discarded asyncio.create_task is only weakly
+        referenced by the loop and was routinely garbage-collected on Postgres
+        (pooled connections recycle the instant the response finishes) before its
+        LLM call returned, silently skipping the title.
+
+        `report_id` is passed in as a plain string and the report is re-fetched in
+        this method's own session, so we never touch a `self.report` that may be
+        detached from a closed session ("Instance is not bound to a Session").
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -1275,6 +1277,7 @@ class AgentV2:
                     if not title or not title.strip():
                         logger.warning("Title generation returned empty result")
                         return
+                    title = title.strip()
                     # Re-fetch report using select query (more reliable than session.get with UUID).
                     # lazyload("*") suppresses Report's lazy="selectin" cascade (14 rels +
                     # downstream DS/widget/query graph) — update_report_title only touches title.
@@ -1282,11 +1285,20 @@ class AgentV2:
                     stmt = select(Report).where(Report.id == report_id).options(_lazyload("*"))
                     result = await session.execute(stmt)
                     report = result.scalar_one_or_none()
-                    if report:
-                        await self.project_manager.update_report_title(session, report, title)
-                        logger.info(f"Report title updated to: {title}")
-                    else:
+                    if not report:
                         logger.warning(f"Report not found for title update: {report_id}")
+                        return
+                    # Only write while the title is still a placeholder. The caller
+                    # now gates on the same condition, but it can run on multiple
+                    # turns (value-gated, self-healing); re-checking here under a
+                    # fresh read avoids clobbering a real title a concurrent turn
+                    # may have just set.
+                    existing = (report.title or "").strip()
+                    if existing.lower() not in ("", "untitled report"):
+                        logger.info(f"Report {report_id} already titled; skipping")
+                        return
+                    await self.project_manager.update_report_title(session, report, title)
+                    logger.info(f"Report title updated to: {title}")
                 except Exception as e:
                     logger.error(f"Failed to generate/update report title: {e}")
         except Exception as e:
@@ -3484,37 +3496,43 @@ class AgentV2:
             else:
                 asyncio.create_task(_bg_final_snap())
             
-            # Generate report title if this is the first completion (non-blocking)
+            # Generate report title while the report still has no real title.
+            #
+            # Run INLINE (awaited) — like follow-ups above, and unlike the old
+            # fire-and-forget asyncio.create_task. A discarded create_task keeps
+            # only a weak reference in the loop, so on Postgres — where the
+            # request's pooled connection is recycled the moment the response
+            # finishes — the suspended task was routinely garbage-collected before
+            # its small-model LLM call returned, leaving the report stuck on the
+            # placeholder title. Awaiting here keeps self.db alive and lands the
+            # write before main_execution returns.
+            #
+            # Gate on the title VALUE (empty or the frontend's "untitled report"
+            # placeholder), not on "is this the first completion". The old
+            # first-completion gate made generation one-shot: a single transient
+            # failure left the report untitled forever. Value-gating is
+            # self-healing — a later turn retries until a real title sticks.
             try:
-                if self.head_completion and self.report:
-                    first_completion = await self.db.execute(
-                        select(Completion)
-                        .filter(Completion.report_id == self.report.id)
-                        .order_by(Completion.created_at.asc())
-                        .limit(1)
-                    )
-                    first_completion = first_completion.scalar_one_or_none()
-                    
-                    if first_completion and self.head_completion.id == first_completion.id:
-                        # Generate title in background to not block completion
-                        messages_section = await self.context_hub.message_builder.build(max_messages=5)
-                        messages_context = messages_section.render()
+                current_title = (getattr(self.report, "title", "") or "").strip() if self.report else ""
+                if self.head_completion and self.report and current_title.lower() in ("", "untitled report"):
+                    # Generate title (small model)
+                    messages_section = await self.context_hub.message_builder.build(max_messages=5)
+                    messages_context = messages_section.render()
 
-                        # Extract plan information from current execution
-                        plan_info = []
-                        if current_plan_decision:
-                            if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
-                                plan_info.append({"action": current_plan_decision.action_name})
+                    # Extract plan information from current execution
+                    plan_info = []
+                    if current_plan_decision:
+                        if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
+                            plan_info.append({"action": current_plan_decision.action_name})
 
-                        # Capture the report id as a plain string NOW, while self.db is
-                        # still open. The background task can outlive the request, and
-                        # reading self.report.id after the session closes raises
-                        # "Instance is not bound to a Session" (the bug that silently
-                        # skipped title generation, esp. on Postgres).
-                        report_id_for_title = str(self.report.id)
+                    # Capture the report id as a plain string NOW, while self.db is
+                    # still open. _generate_title_background re-fetches by this id in
+                    # its own session, so reading self.report.id later (after the
+                    # session closes) can't raise "Instance is not bound to a Session"
+                    # (the bug that silently skipped title generation, esp. on Postgres).
+                    report_id_for_title = str(self.report.id)
 
-                        # Run title generation in background
-                        asyncio.create_task(self._generate_title_background(messages_context, plan_info, report_id_for_title))
+                    await self._generate_title_background(messages_context, plan_info, report_id_for_title)
             except Exception as e:
                 # Don't fail the entire execution if title generation fails
                 import logging
@@ -3550,6 +3568,20 @@ class AgentV2:
                 agent_execution=self.current_execution,
                 status=status,
             )
+            # Bump conversation activity so the finalized turn re-floats the report
+            # to the top of the list. Targeted UPDATE by id (not a mutation of
+            # self.report, which may be detached from self.db here — see the title
+            # generation note below) and best-effort so it never fails the turn.
+            try:
+                if self.report is not None:
+                    await self.db.execute(
+                        sa_update(Report)
+                        .where(Report.id == str(self.report.id))
+                        .values(last_activity_at=datetime.utcnow())
+                    )
+                    await self.db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to bump report last_activity_at: {e}")
             # Telemetry: agent execution completed
             try:
                 await telemetry.capture(
