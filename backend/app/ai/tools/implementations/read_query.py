@@ -10,7 +10,7 @@ from typing import AsyncIterator, Dict, Any, Type, List, Optional
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.ai.context.data_preview import build_data_preview
+from app.ai.context.data_preview import build_data_preview, gate_stats_for_privacy
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -255,7 +255,7 @@ class ReadQueryTool(Tool):
             r = succeeded[0]
             observation["data_preview"] = r.data_preview
             info = r.data.get("info", {}) if r.data and isinstance(r.data, dict) else {}
-            observation["stats"] = info
+            observation["stats"] = info if allow_llm_see_data else gate_stats_for_privacy(info)
             if r.data_model:
                 observation["data_model"] = r.data_model
             if r.view:

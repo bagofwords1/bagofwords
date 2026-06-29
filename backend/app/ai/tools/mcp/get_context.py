@@ -31,7 +31,9 @@ class GetContextTool(MCPTool):
     name = "get_context"
     description = (
         "Get available data sources, tables, and metadata resources. Useful for searching or explaining metadata. "
-        "Optionally filter by regex patterns."
+        "Optionally filter by regex patterns. "
+        "Agents may also expose external tools (MCP servers / custom APIs), listed here by name only — "
+        "call list_agent_tools to get their full input schemas before invoking them with execute_mcp."
     )
     
     @property
@@ -92,6 +94,43 @@ class GetContextTool(MCPTool):
         resource_builder = ResourceContextBuilder(db, data_sources, organization, {})
         resources_section = await resource_builder.build()
         
+        # Fetch each agent's MCP / custom-API tools (name + description only —
+        # mirrors the internal <mcp_tools> block; full schemas come from
+        # list_agent_tools) so external clients know what execute_mcp can run.
+        from app.services.connection_tool_gateway import ConnectionToolGateway
+        from app.schemas.mcp import ToolInfo
+        tools_by_ds: Dict[str, List[ToolInfo]] = {}
+        try:
+            gateway_tools = await ConnectionToolGateway().list_tools(
+                db, organization, data_source_ids=[str(d.id) for d in data_sources]
+            )
+            for gt in gateway_tools:
+                if input_data.patterns:
+                    searchable = f"{gt.name} {gt.description or ''}"
+                    matched = False
+                    for pattern in input_data.patterns:
+                        try:
+                            if re.search(pattern, searchable, re.IGNORECASE):
+                                matched = True
+                                break
+                        except re.error:
+                            if pattern.lower() in searchable.lower():
+                                matched = True
+                                break
+                    if not matched:
+                        continue
+                tools_by_ds.setdefault(gt.data_source_id, []).append(
+                    ToolInfo(
+                        name=gt.name,
+                        description=gt.description,
+                        connection_name=gt.connection_name,
+                        connection_type=gt.connection_type,
+                        policy=gt.policy,
+                    )
+                )
+        except Exception:
+            tools_by_ds = {}
+
         # Convert schemas to output format
         data_sources_output: List[DataSourceInfo] = []
         for ds in schemas.data_sources:
@@ -113,6 +152,7 @@ class GetContextTool(MCPTool):
                 name=ds.info.name,
                 type=ds.info.type,
                 tables=tables,
+                tools=tools_by_ds.get(str(ds.info.id), []),
             ))
         
         # Convert resources to output format
@@ -143,10 +183,21 @@ class GetContextTool(MCPTool):
                         description=resource.get("description"),
                     ))
         
+        # Tools are listed by name only here. Point the client at list_agent_tools
+        # for their full input schemas before calling execute_mcp.
+        has_tools = any(ds.tools for ds in data_sources_output)
+        tools_hint = (
+            "Some agents expose tools (listed by name above). Call list_agent_tools "
+            "with the agent's data_source_id to get their full input schemas, then "
+            "invoke them with execute_mcp."
+            if has_tools else None
+        )
+
         output = GetContextOutput(
             report_id=str(report.id),
             data_sources=data_sources_output,
             resources=resources_output,
+            tools_hint=tools_hint,
         )
         
         # Finish tracking

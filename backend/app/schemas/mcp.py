@@ -63,12 +63,27 @@ class TableInfo(BaseModel):
     referenced_instructions_count: Optional[int] = None
 
 
+class ToolInfo(BaseModel):
+    """Summary of an MCP / custom-API tool exposed by an agent's connection.
+
+    Name + description only (mirrors the internal ``<mcp_tools>`` block) to keep
+    the overview small. Fetch full input schemas with ``list_agent_tools`` before
+    calling ``execute_mcp``.
+    """
+    name: str
+    description: Optional[str] = None
+    connection_name: Optional[str] = None
+    connection_type: Optional[str] = None
+    policy: str = "allow"
+
+
 class DataSourceInfo(BaseModel):
     """Summary of a data source with its tables."""
     id: str
     name: str
     type: Optional[str] = None
     tables: List[TableInfo]
+    tools: List[ToolInfo] = Field(default_factory=list, description="MCP / custom-API tools this agent can run via execute_mcp.")
 
 
 class ResourceInfo(BaseModel):
@@ -89,6 +104,56 @@ class GetContextOutput(BaseModel):
     report_id: str
     data_sources: List[DataSourceInfo]
     resources: List[ResourceInfo]
+    tools_hint: Optional[str] = Field(default=None, description="Set when agents expose tools: how to get their full input schemas.")
+
+
+# === list_agent_tools (gateway discovery) ===
+
+class MCPListAgentToolsInput(BaseModel):
+    """Input for the list_agent_tools MCP tool."""
+    report_id: Optional[str] = Field(default=None, description="Scope to the agents attached to this report. Provide this OR data_source_ids.")
+    data_source_ids: Optional[List[str]] = Field(default=None, description="Scope to specific agent (data source) IDs. Provide this OR report_id.")
+    query: Optional[str] = Field(default=None, description="Optional case-insensitive substring to filter tools by name/description.")
+
+
+class AgentToolDetail(BaseModel):
+    """A single tool with its full input schema, ready for execute_mcp."""
+    name: str
+    description: Optional[str] = None
+    data_source_id: str
+    connection_id: str
+    connection_name: Optional[str] = None
+    connection_type: Optional[str] = None
+    policy: str = "allow"
+    input_schema: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPListAgentToolsOutput(BaseModel):
+    """Output for the list_agent_tools MCP tool."""
+    tools: List[AgentToolDetail]
+    total_count: int
+
+
+# === execute_mcp (gateway invocation) ===
+
+class MCPExecuteToolInput(BaseModel):
+    """Input for the execute_mcp MCP tool."""
+    data_source_id: str = Field(..., description="The agent (data source) ID that owns the tool. From get_context / list_agent_tools.")
+    tool_name: str = Field(..., description="Name of the tool to invoke.")
+    arguments: Dict[str, Any] = Field(default_factory=dict, description="Arguments matching the tool's input_schema (from list_agent_tools).")
+    connection_id: Optional[str] = Field(default=None, description="Optional: disambiguate when two connections on the agent expose a tool of the same name.")
+
+
+class MCPExecuteToolOutput(BaseModel):
+    """Output for the execute_mcp MCP tool."""
+    success: bool
+    content_type: Optional[str] = Field(default=None, description="tabular | text | json | binary.")
+    connection_name: Optional[str] = None
+    row_count: Optional[int] = Field(default=None, description="Number of rows when tabular.")
+    result: Optional[Any] = Field(default=None, description="The tool result (tabular rows truncated to a preview; text/json inline).")
+    truncated: bool = Field(default=False, description="True when 'result' is a truncated preview of a larger payload.")
+    error_message: Optional[str] = None
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, description="The tool's declared input schema; returned on failure so you can retry with the right arguments.")
 
 
 # === inspect_data ===

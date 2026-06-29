@@ -774,6 +774,9 @@ import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
+import EditPromptTool from '~/components/tools/EditPromptTool.vue'
+import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
@@ -1633,6 +1636,12 @@ function getToolComponent(toolName: string) {
 			return ListAgentExecutionsTool
 		case 'search_instructions':
 			return SearchInstructionsTool
+		case 'create_prompt':
+			return CreatePromptTool
+		case 'edit_prompt':
+			return EditPromptTool
+		case 'search_prompts':
+			return SearchPromptsTool
 		case 'search_evals':
 			return SearchEvalsTool
 		case 'create_eval':
@@ -2185,6 +2194,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'instructions'))
 							;(lastBlock.tool_execution.result_json as any).search_query = q
 							lastBlock.tool_execution.result_summary = `Searching instructions for ${qStr}…`
+						}
+						if ((payload.tool_name === 'create_prompt' || payload.tool_name === 'edit_prompt') && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
+						if (payload.tool_name === 'search_prompts' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 						if (payload.tool_name === 'clarify' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments

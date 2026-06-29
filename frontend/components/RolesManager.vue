@@ -185,7 +185,7 @@
                     >
                         <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <UBadge size="xs" color="blue">{{ $t('rolesManager.ds') }}</UBadge>
+                                <UBadge size="xs" :color="grant.resource_type === 'connection' ? 'gray' : 'blue'">{{ grant.resource_type === 'connection' ? $t('rolesManager.connection') : $t('rolesManager.ds') }}</UBadge>
                                 <span class="text-sm font-medium">{{ grant.resource_name }}</span>
                             </div>
                             <UButton
@@ -516,6 +516,19 @@ async function loadResources() {
                 })
             }
         }
+        // Connections — per-connection grants delegate create/manage agents and
+        // connection config without org-wide manage_connections.
+        const connResult = await useMyFetch(`/connections`)
+        if (connResult.data.value) {
+            for (const c of connResult.data.value as any[]) {
+                resources.push({
+                    label: `Connection: ${c.name}`,
+                    value: `connection:${c.id}`,
+                    type: 'connection',
+                    id: c.id,
+                })
+            }
+        }
         availableResources.value = resources
     } catch (e) {
         console.error('Failed to load resources', e)
@@ -604,6 +617,7 @@ const KNOWN_PERMISSION_KEYS = new Set([
     'manage_evals',
     'view_members',
     'manage_members',
+    'manage_service_accounts',
     'manage_settings',
     'manage_llm',
     'view_audit_logs',
@@ -612,6 +626,10 @@ const KNOWN_PERMISSION_KEYS = new Set([
     'view_schema',
     'create_entities',
     'manage',
+    // connection-scoped
+    'manage_connection',
+    'create_data_sources',
+    'manage_data_sources',
 ])
 
 function formatPermission(perm: string) {

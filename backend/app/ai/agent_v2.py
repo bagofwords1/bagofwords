@@ -657,6 +657,33 @@ class AgentV2:
             except Exception as e:
                 logger.debug(f"Failed to remove websocket handler during cleanup: {e}")
 
+    async def _resolve_file_references(self):
+        """Materialize this report's pinned connector file references (A3) into
+        fresh, per-user session files for the current turn, appended to
+        analysis_files. The reference is durable; the bytes are fetched under the
+        current user each run (never cached) — fresh + per-user-correct."""
+        if not (self.db and self.report):
+            return
+        from sqlalchemy import select
+        from app.models.file_reference import FileReference
+        from app.models.user import User
+        from app.services.file_reference_service import ensure_materialized
+
+        refs = (await self.db.execute(
+            select(FileReference).where(FileReference.report_id == str(self.report.id))
+        )).scalars().all()
+        if not refs:
+            return
+        uid = getattr(self.head_completion, "user_id", None)
+        user = await self.db.get(User, uid) if uid else None
+        for ref in refs:
+            try:
+                f = await ensure_materialized(self.db, ref, user, self.report, self.organization)
+                if f and all(getattr(x, "id", None) != f.id for x in self.analysis_files):
+                    self.analysis_files.append(f)
+            except Exception as e:
+                logger.warning(f"_resolve_file_references: ref {getattr(ref, 'id', '?')} failed: {e}")
+
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
         try:
@@ -1887,6 +1914,14 @@ class AgentV2:
             )
             _mlog("execution_tracking_started")
 
+            # Resolve any pinned connector file references for this report into
+            # fresh, per-user session files (A3). Best-effort — never block the run.
+            try:
+                await self._resolve_file_references()
+            except Exception as e:
+                logger.warning(f"file reference resolution failed: {e}")
+            _mlog("file_references_resolved")
+
             # Telemetry in background (non-blocking)
             asyncio.create_task(self._capture_telemetry_background(
                 "agent_execution_started",
@@ -2211,6 +2246,7 @@ class AgentV2:
                         images=all_images if all_images else None,
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
+                        allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                         web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
                         web_search_enabled=self._web_search_enabled(),
@@ -3775,6 +3811,7 @@ class AgentV2:
             mode=self.mode,
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
+            allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
             web_search_enabled=self._web_search_enabled(),

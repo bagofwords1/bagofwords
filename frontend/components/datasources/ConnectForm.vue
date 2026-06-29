@@ -33,6 +33,10 @@
               </div>
               <button type="button" @click="kvAdd(field.field_name)" class="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Add parameter</button>
             </div>
+            <div v-else-if="uiType(field) === 'json'">
+              <textarea v-model="jsonTextMap[field.field_name]" @input="jsonSync(field.field_name)" :id="field.field_name" rows="6" class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-xs font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+              <p v-if="jsonErrorMap[field.field_name]" class="text-xs text-red-500 mt-1">{{ jsonErrorMap[field.field_name] }}</p>
+            </div>
             <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
           </div>
         </div>
@@ -224,6 +228,47 @@ function initKeyValueFields() {
     if ((schema?.['ui:type']) === 'keyvalue') kvInit(fieldName)
   }
 }
+
+// Raw text the user edits for any `ui:type: json` config field. The parsed value in
+// formData.config stays the source of truth that gets submitted; this text is just the
+// editable representation, synced back on every edit. jsonErrorMap surfaces parse errors.
+const jsonTextMap = reactive<Record<string, string>>({})
+const jsonErrorMap = reactive<Record<string, string>>({})
+
+function jsonDefault(fieldName: string): any {
+  const schema = fields.value?.config?.properties?.[fieldName]
+  if (schema && Object.prototype.hasOwnProperty.call(schema, 'default')) return schema.default
+  return schema?.type === 'object' ? {} : []
+}
+
+function jsonInit(fieldName: string) {
+  const cur = (formData.config as any)[fieldName]
+  jsonTextMap[fieldName] = (cur == null || cur === '') ? '' : JSON.stringify(cur, null, 2)
+  jsonErrorMap[fieldName] = ''
+}
+
+function jsonSync(fieldName: string) {
+  const raw = jsonTextMap[fieldName] ?? ''
+  if (!raw.trim()) {
+    ;(formData.config as any)[fieldName] = jsonDefault(fieldName)
+    jsonErrorMap[fieldName] = ''
+    return
+  }
+  try {
+    ;(formData.config as any)[fieldName] = JSON.parse(raw)
+    jsonErrorMap[fieldName] = ''
+  } catch {
+    jsonErrorMap[fieldName] = 'Invalid JSON'
+  }
+}
+
+// Initialize JSON editors for any `ui:type: json` config fields in the active schema.
+function initJsonFields() {
+  const configProps = fields.value?.config?.properties || {}
+  for (const [fieldName, schema] of Object.entries<any>(configProps)) {
+    if ((schema?.['ui:type']) === 'json') jsonInit(fieldName)
+  }
+}
 const selectedAuth = ref<string | undefined>(undefined)
 const is_public = ref(false)
 const require_user_auth = ref(Boolean(props.initialRequireUserAuth))
@@ -344,6 +389,7 @@ async function fetchFields() {
     const shouldSkipHydration = preserveOnNextFetch.value
     initFormDefaults(preserveOnNextFetch.value)
     initKeyValueFields()
+    initJsonFields()
     preserveOnNextFetch.value = false
     emit('change:type', selectedType.value)
     // hydrate initial values in edit mode (skip if user just toggled auth policy)
@@ -358,6 +404,7 @@ async function fetchFields() {
         const { auth_type: _ignoredAuthType, ...restConfig } = (iv.config || {})
         formData.config = { ...formData.config, ...restConfig }
         initKeyValueFields()
+        initJsonFields()
         formData.credentials = { ...formData.credentials, ...(iv.credentials || {}) }
         connectionTestPassed.value = true
         // Lock credentials if they already exist on the server
@@ -380,6 +427,7 @@ function initFormDefaults(preserveExisting: boolean = false) {
   if (configProps) {
     Object.entries(configProps).forEach(([k, v]: any) => {
       if (v?.['ui:type'] === 'keyvalue') nextConfig[k] = (v?.default && typeof v.default === 'object') ? { ...v.default } : {}
+      else if (v?.['ui:type'] === 'json') nextConfig[k] = (v?.default != null) ? v.default : (v?.type === 'object' ? {} : [])
       else nextConfig[k] = v?.default ?? ''
     })
     if (preserveExisting) {

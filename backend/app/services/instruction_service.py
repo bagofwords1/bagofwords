@@ -501,7 +501,8 @@ class InstructionService:
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
         build_id: Optional[str] = None,
-        include_global: bool = True
+        include_global: bool = True,
+        global_only: bool = False
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -538,8 +539,131 @@ class InstructionService:
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
-            current_user=current_user, kind=kind,
+            current_user=current_user, kind=kind, global_only=global_only,
         )
+
+    async def _visible_main_build_conditions(self, db, organization, current_user):
+        """Base WHERE conditions shared by the counts query and the list:
+        org-scoped, not deleted, in the main build, and visible to the caller
+        (global, or attached to a member/public data source). Mirrors
+        `_execute_instructions_query` so counts never disagree with the list."""
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+        from app.core.permission_resolver import get_member_data_source_ids
+
+        conditions = [
+            Instruction.organization_id == organization.id,
+            Instruction.deleted_at == None,  # noqa: E711
+        ]
+        main_build_id = (await db.execute(
+            select(InstructionBuild.id).where(and_(
+                InstructionBuild.organization_id == organization.id,
+                InstructionBuild.is_main == True,  # noqa: E712
+                InstructionBuild.deleted_at == None,  # noqa: E711
+            ))
+        )).scalar_one_or_none()
+        if main_build_id:
+            conditions.append(Instruction.id.in_(
+                select(BuildContent.instruction_id).where(BuildContent.build_id == main_build_id)
+            ))
+        if current_user is not None:
+            member_ds_ids = await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+            public_ds_subq = select(DataSource.id).where(and_(
+                DataSource.organization_id == organization.id,
+                DataSource.is_public == True,  # noqa: E712
+            ))
+            visible_clauses = [Instruction.data_sources.any(DataSource.id.in_(public_ds_subq))]
+            if member_ds_ids:
+                visible_clauses.append(Instruction.data_sources.any(DataSource.id.in_(member_ds_ids)))
+            conditions.append(or_(~Instruction.data_sources.any(), *visible_clauses))
+        return conditions
+
+    async def get_instruction_counts(self, db, organization, current_user) -> dict:
+        """Aggregate counts that drive the /agents tree badges WITHOUT hydrating
+        rows: global, skills, total pending, plus per-agent count and per-agent
+        pending dot. Same visibility rules as the list, so the numbers match what
+        a lazy per-agent fetch would return."""
+        assoc = instruction_data_source_association
+        base = await self._visible_main_build_conditions(db, organization, current_user)
+
+        # Main-build visible instruction ids per surface (as id sets, so pending
+        # ids can be unioned in below without double-counting ones already live).
+        global_ids = set((await db.execute(
+            select(Instruction.id).where(and_(*base, ~Instruction.data_sources.any()))
+        )).scalars().all())
+        skills_ids = set((await db.execute(
+            select(Instruction.id).where(and_(*base, Instruction.kind == 'skill'))
+        )).scalars().all())
+        agent_sets: dict = {}
+        for ds_id, iid in (await db.execute(
+            select(assoc.c.data_source_id, Instruction.id)
+            .select_from(Instruction)
+            .join(assoc, assoc.c.instruction_id == Instruction.id)
+            .where(and_(*base))
+        )).all():
+            agent_sets.setdefault(str(ds_id), set()).add(str(iid))
+
+        # Fold not-in-main pending instructions into the same surfaces so the
+        # badges match the rows the lazy list now returns (which include pending).
+        pending_ids = {str(i) for i in await self.get_pending_change_instruction_ids(db, organization, current_user)}
+        pending_by_agent: dict = {}
+        if pending_ids:
+            pid_list = list(pending_ids)
+            for iid, kind in (await db.execute(
+                select(Instruction.id, Instruction.kind).where(Instruction.id.in_(pid_list))
+            )).all():
+                if kind == 'skill':
+                    skills_ids.add(str(iid))
+            assigned = set()
+            for ds_id, iid in (await db.execute(
+                select(assoc.c.data_source_id, assoc.c.instruction_id)
+                .where(assoc.c.instruction_id.in_(pid_list))
+            )).all():
+                agent_sets.setdefault(str(ds_id), set()).add(str(iid))
+                pending_by_agent[str(ds_id)] = True
+                assigned.add(str(iid))
+            # Pending instructions attached to no agent are global.
+            for iid in pending_ids - assigned:
+                global_ids.add(iid)
+
+        by_agent = {k: len(v) for k, v in agent_sets.items()}
+
+        return {
+            "global": len(global_ids),
+            "skills": len(skills_ids),
+            "pending_total": len(pending_ids),
+            "by_agent": by_agent,
+            "pending_by_agent": pending_by_agent,
+        }
+
+    async def search_knowledge(self, db, organization, current_user, q: str, limit: int = 20) -> dict:
+        """Cross-entity search for the /agents 'Search everything' box. Returns a
+        grouped shape (distinct from the instruction list): matching agents
+        (data sources) AND matching instructions, each visibility-scoped."""
+        from app.services.data_source_service import DataSourceService
+
+        q = (q or "").strip()
+        if not q:
+            return {"agents": [], "instructions": []}
+
+        # Instructions: reuse the list path (server-side search + visibility).
+        inst_resp = await self.get_instructions(
+            db=db, organization=organization, current_user=current_user,
+            skip=0, limit=limit, search=q,
+            include_own=True, include_drafts=True, include_archived=True,
+        )
+        instructions = inst_resp.get("items", [])
+
+        # Agents: filter the caller's visible data sources by name (small list).
+        ql = q.lower()
+        agents_all = await DataSourceService().get_active_data_sources(
+            db, organization, current_user, include_unconnected=True
+        )
+        agents = [a for a in agents_all if ql in (getattr(a, "name", "") or "").lower()][:limit]
+
+        return {"agents": agents, "instructions": instructions}
 
     async def get_available_source_types(
         self,
@@ -2342,6 +2466,62 @@ class InstructionService:
         """MVP: org-level manage_instructions is the admin gate."""
         return 'manage_instructions' in user_permissions or 'full_admin_access' in user_permissions
 
+    async def _can_auto_publish_build(
+        self, db: AsyncSession, build, current_user: User, user_permissions: set,
+    ) -> bool:
+        """Whether a build should auto-approve + promote to main on finalize.
+
+        Two tiers:
+        - Org admins (`full_admin_access` / org-level `manage_instructions`)
+          publish anything, including global instructions.
+        - Agent admins (per-agent `manage`, the agent-manager tier) auto-publish
+          only when EVERY instruction in the build is attached to data source(s)
+          they hold `manage_instructions` on (via the `manage` grant) and NONE is
+          global. Authoring an org-wide global instruction stays an org-level
+          capability, so a build that touches one falls back to admin review.
+        """
+        # Org admin → always (covers global + any agent).
+        if self._is_admin_permissions(user_permissions):
+            return True
+        if current_user is None:
+            return False
+
+        from app.models.build_content import BuildContent
+        from app.core.permission_resolver import resolve_permissions
+
+        instr_ids = [
+            str(iid) for (iid,) in (await db.execute(
+                select(BuildContent.instruction_id)
+                .where(BuildContent.build_id == str(build.id))
+                .distinct()
+            )).all()
+        ]
+        if not instr_ids:
+            return False
+
+        # Map each instruction in the build to its attached data source ids.
+        assoc = instruction_data_source_association
+        rows = (await db.execute(
+            select(assoc.c.instruction_id, assoc.c.data_source_id)
+            .where(assoc.c.instruction_id.in_(instr_ids))
+        )).all()
+        ds_by_instr: dict = {}
+        for iid, ds_id in rows:
+            ds_by_instr.setdefault(str(iid), set()).add(str(ds_id))
+
+        # Any global instruction (no data source) in the build → org-admin only.
+        if any(not ds_by_instr.get(iid) for iid in instr_ids):
+            return False
+
+        resolved = await resolve_permissions(
+            db, str(current_user.id), str(build.organization_id)
+        )
+        all_ds = {ds for dss in ds_by_instr.values() for ds in dss}
+        return all(
+            resolved.has_resource_permission("data_source", ds_id, "manage_instructions")
+            for ds_id in all_ds
+        )
+
     async def _get_instruction_by_id(self, db: AsyncSession, instruction_id: str, organization: Organization) -> Instruction:
         """Get instruction by ID with proper error handling"""
         
@@ -2421,6 +2601,7 @@ class InstructionService:
         include_global: bool = True,
         current_user: Optional[User] = None,
         kind: Optional[str] = None,
+        global_only: bool = False,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -2468,7 +2649,23 @@ class InstructionService:
                 select(BuildContent.instruction_id)
                 .where(BuildContent.build_id == target_build_id)
             )
-            base_conditions.append(Instruction.id.in_(build_instruction_ids_subquery))
+            membership_clause = Instruction.id.in_(build_instruction_ids_subquery)
+            # For the default main-build list (the /agents tree), also surface
+            # instructions awaiting approval that aren't in main yet — e.g. a new
+            # instruction a non-admin proposed, or a not-yet-approved edit. They
+            # come back flagged via current_build_status (set below) so the tree
+            # can render them highlighted as "Pending review". Skip when an
+            # explicit build_id is requested (that caller wants exactly that build).
+            if build_id is None and current_user is not None:
+                pending_ids = await self.get_pending_change_instruction_ids(
+                    db, organization, current_user
+                )
+                if pending_ids:
+                    membership_clause = or_(
+                        membership_clause,
+                        Instruction.id.in_([str(i) for i in pending_ids]),
+                    )
+            base_conditions.append(membership_clause)
 
         # Per-data-source visibility — applied to EVERYONE, admins included.
         # An instruction tied to a data source (agent) is only visible to users
@@ -2514,6 +2711,9 @@ class InstructionService:
             filter_conditions.append(Instruction.status == status)
         if kind:
             filter_conditions.append(Instruction.kind == kind)
+        if global_only:
+            # Lazy "Global instructions" group: instructions attached to no agent.
+            filter_conditions.append(~Instruction.data_sources.any())
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
         if data_source_ids:
@@ -3348,11 +3548,15 @@ class InstructionService:
             # Submit the build for approval
             await self.build_service.submit_build(db, build.id)
 
-            # Check if user is admin
-            is_admin = self._is_admin_permissions(user_permissions)
+            # Auto-publish authority: org admins publish anything; agent admins
+            # (per-agent `manage`) auto-publish builds scoped entirely to their
+            # own agents. Otherwise the build stays pending for admin review.
+            can_publish = await self._can_auto_publish_build(
+                db, build, current_user, user_permissions
+            )
 
-            if is_admin:
-                # Admin: auto-approve and auto-promote to main
+            if can_publish:
+                # Auto-approve and auto-promote to main
                 await self.build_service.approve_build(
                     db, build.id, approved_by_user_id=current_user.id
                 )
@@ -3362,15 +3566,15 @@ class InstructionService:
                 else:
                     logger.info(f"Auto-approved build {build.id} (already main)")
             else:
-                # Non-admin: leave in pending_approval for admin review
-                logger.info(f"Build {build.id} submitted for admin approval (non-admin user)")
+                # No publish authority: leave in pending_approval for admin review
+                logger.info(f"Build {build.id} submitted for admin approval (no publish authority)")
 
             # Single commit for all deferred audit logs from submit/approve/promote
             await db.commit()
 
             # Surface non-admin / AI suggestions in the admin Review feed (one
             # item per changed instruction × attached agent). Never block.
-            if not is_admin and getattr(build, "source", "user") in ("user", "ai"):
+            if not can_publish and getattr(build, "source", "user") in ("user", "ai"):
                 try:
                     from app.services.review_producers import emit_instruction_suggestions_for_build
                     await emit_instruction_suggestions_for_build(

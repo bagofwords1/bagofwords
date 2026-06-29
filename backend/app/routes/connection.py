@@ -19,7 +19,7 @@ from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, requires_resource_permission
 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 from app.models.membership import Membership
 from app.schemas.connection_schema import (
@@ -274,7 +274,7 @@ async def create_connection(
 
 
 @router.get("/{connection_id}", response_model=ConnectionDetailSchema)
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def get_connection(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -334,7 +334,7 @@ async def get_connection(
 
 
 @router.put("/{connection_id}", response_model=ConnectionSchema)
-@requires_permission('manage_connections')  # Admin-only
+@requires_resource_permission('connection', 'manage_connection')
 async def update_connection(
     connection_id: str,
     data: ConnectionUpdate,
@@ -368,7 +368,7 @@ async def update_connection(
 
 
 @router.delete("/{connection_id}")
-@requires_permission('manage_connections')  # Admin-only
+@requires_resource_permission('connection', 'manage_connection')
 async def delete_connection(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -402,7 +402,7 @@ async def test_connection_params(
 
 
 @router.post("/{connection_id}/test", response_model=ConnectionTestResult)
-@requires_permission('manage_connections')  # Admin-only
+@requires_resource_permission('connection', 'manage_connection')
 async def test_connection(
     connection_id: str,
     overrides: ConnectionTestOverride = None,
@@ -565,7 +565,7 @@ async def set_connection_query_identity(
 
 
 @router.post("/{connection_id}/refresh")
-@requires_permission('manage_connections')  # Admin-only
+@requires_resource_permission('connection', 'manage_connection')
 async def refresh_connection_schema(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -588,7 +588,7 @@ async def refresh_connection_schema(
 
 
 @router.post("/{connection_id}/reindex")
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def reindex_connection(
     connection_id: str,
     force: bool = False,

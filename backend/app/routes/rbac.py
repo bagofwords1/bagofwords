@@ -22,7 +22,11 @@ from app.schemas.rbac_schema import (
     ResourceGrantCreate, ResourceGrantUpdate, ResourceGrantSchema,
 )
 
-router = APIRouter(tags=["rbac"])
+from app.core.auth import forbid_service_account_principal
+
+# Service accounts must never manage roles, groups, assignments, or grants —
+# this is the self-escalation guard (a leaked SA key cannot grant itself more).
+router = APIRouter(tags=["rbac"], dependencies=[Depends(forbid_service_account_principal)])
 
 
 # ── Permission Registry ──────────────────────────────────────────────────
@@ -341,23 +345,21 @@ async def _require_resource_manage(
     deliberately NOT sufficient — granting per-resource access requires
     per-resource authority.
     """
-    from app.models.membership import Membership
-    stmt = select(Membership).where(
-        Membership.user_id == user.id,
-        Membership.organization_id == org_id,
-    )
-    result = await db.execute(stmt)
-    if not result.scalar_one_or_none():
+    from app.core.permission_resolver import principal_belongs_to_org
+    if not await principal_belongs_to_org(db, user, org_id):
         raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
     resolved = await resolve_permissions(db, str(user.id), str(org_id))
     if FULL_ADMIN in resolved.org_permissions:
         return
-    if resolved.has_resource_permission(resource_type, str(resource_id), "manage"):
+    # The "owner-level" permission differs by resource type: `manage` on an
+    # agent, `manage_connection` on a connection.
+    owner_perm = "manage_connection" if resource_type == "connection" else "manage"
+    if resolved.has_resource_permission(resource_type, str(resource_id), owner_perm):
         return
     raise HTTPException(
         status_code=403,
-        detail=f"Requires 'manage' on {resource_type} {resource_id}",
+        detail=f"Requires '{owner_perm}' on {resource_type} {resource_id}",
     )
 
 

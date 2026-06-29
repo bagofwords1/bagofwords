@@ -43,8 +43,15 @@
             <option value="none">{{ $t('settings.mcpModal.authNone') }}</option>
             <option value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
             <option value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
-            <option value="oauth_app">OAuth (per-user sign-in)</option>
+            <option value="dcr">Sign in (auto-register / DCR)</option>
+            <option value="oauth_app">OAuth (admin-registered app)</option>
           </select>
+        </div>
+
+        <div v-if="form.auth_type === 'dcr'" class="text-xs text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
+          No setup needed. We discover the server's authorization server and register a client
+          automatically (RFC 9728/8414/7591). Each user signs in with their own account; their
+          token is stored encrypted and sent on every tool call. Only the server URL above is required.
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
@@ -123,6 +130,8 @@ const { t } = useI18n()
 const props = defineProps<{
   editConnection?: any
   existingConnections?: any[]
+  // Prefill the create form from a catalog entry (name/server_url/transport/auth).
+  prefill?: { name?: string; server_url?: string; transport?: string; auth_type?: string } | null
 }>()
 const emit = defineEmits<{
   (e: 'saved', connection: any): void
@@ -187,6 +196,16 @@ watch(() => props.editConnection, async (conn) => {
   }
 }, { immediate: true })
 
+// Apply catalog prefill in create mode (no edit connection). Runs immediately so
+// the form opens populated; the user only needs to click Connect.
+watch(() => props.prefill, (p) => {
+  if (!p || props.editConnection) return
+  if (p.name) form.name = p.name
+  if (p.server_url) form.server_url = p.server_url
+  if (p.transport) form.transport = p.transport
+  if (p.auth_type) form.auth_type = p.auth_type
+}, { immediate: true })
+
 const testing = ref(false)
 const submitting = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
@@ -209,10 +228,13 @@ function buildCredentials(): Record<string, any> | undefined {
   return undefined
 }
 
-// MCP OAuth implies per-user authentication — admin creds enable the dance,
-// but each user signs in themselves and their access token gates tool calls.
-const authPolicy = computed(() => form.auth_type === 'oauth_app' ? 'user_required' : 'system_only')
-const allowedUserAuthModes = computed(() => form.auth_type === 'oauth_app' ? ['oauth'] : undefined)
+// MCP OAuth (admin app) and DCR both imply per-user authentication — each user
+// signs in themselves and their access token gates tool calls. DCR needs no
+// admin client (the backend registers one dynamically); oauth_app uses the
+// admin-entered client.
+const PER_USER_OAUTH = ['oauth_app', 'dcr']
+const authPolicy = computed(() => PER_USER_OAUTH.includes(form.auth_type) ? 'user_required' : 'system_only')
+const allowedUserAuthModes = computed(() => PER_USER_OAUTH.includes(form.auth_type) ? ['oauth'] : undefined)
 
 async function testConnection() {
   testing.value = true

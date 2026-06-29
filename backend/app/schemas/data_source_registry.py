@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Type
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
@@ -162,6 +163,10 @@ class DataSourceRegistryEntry(BaseModel):
     description: str
     status: str = "active"
     version: str = "1.0.0"
+    # Deprecated entries stay resolvable (existing connections keep working) but
+    # are hidden from the new-connection catalog. Used to steer new connections
+    # to a replacement (e.g. native google_drive → the Google Drive MCP preset).
+    deprecated: bool = False
     config_schema: Type[BaseModel]
     credentials_auth: AuthOptions
     # Optional explicit client path; if None, fallback to dynamic resolution
@@ -205,6 +210,24 @@ class DataSourceRegistryEntry(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+class McpPreset(BaseModel):
+    """A named, ready-to-connect MCP server preset (e.g. Notion, Linear).
+
+    All presets resolve to `type="mcp"` — they are named *instances* of the mcp
+    type, not types of their own (the MCP runtime, DCR, and OAuth all gate on
+    `connection.type == "mcp"`). They differ only by `server_url`, default
+    `auth`, and `key`/`icon` (the provider brand). `auth="oauth"` means per-user
+    OAuth via Dynamic Client Registration (no admin setup); `oauth_app` needs a
+    registered client; `bearer` takes a per-user token/PAT.
+    """
+    key: str
+    title: str
+    server_url: str
+    transport: str = "streamable_http"   # streamable_http | sse
+    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer
+    description: str = ""
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -706,6 +729,35 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         requires_license="enterprise",
     ),
+    "outlook_mail": DataSourceRegistryEntry(
+        type="outlook_mail",
+        title="Outlook Mail",
+        description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
+        config_schema=OneDriveConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=OneDriveCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Each email is surfaced as a "file" so the existing list_files /
+        # search_files / read_file tools work over mail with no new tool surface.
+        client_path="app.data_sources.clients.graph_mail_client.GraphMailClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        requires_license="enterprise",
+    ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
         title="Google Drive",
@@ -732,6 +784,10 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         requires_license="enterprise",
+        # Superseded by the Google Drive MCP preset (first-party remote MCP).
+        # Hidden from new connections; existing google_drive connections keep
+        # working via this client.
+        deprecated=True,
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -952,6 +1008,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
 }
 
 
+# Named, ready-to-connect MCP servers surfaced as one-click catalog tiles. These
+# are instances of the "mcp" type above (connection.type stays "mcp") — only the
+# server_url / default auth / brand differ. The DCR set (auth="oauth") needs zero
+# admin setup — verified DCR-capable by live probe (2026-06). github/gmail need
+# an OAuth app; supabase a personal access token.
+MCP_PRESETS: List[McpPreset] = [
+    McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
+              description="Boards, items and updates from monday.com."),
+    McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
+              description="Pages, databases and search across your Notion workspace."),
+    McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
+              transport="sse", description="Jira issues and Confluence pages."),
+    McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
+              description="Issues, projects and cycles from Linear."),
+    McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
+              description="Errors, issues and releases from Sentry."),
+    McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
+              auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
+    # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
+    # client; no DCR — the authorize flow audience-binds the token to the MCP
+    # resource via RFC 8707). Files come back as blobs → materialized for analysis.
+    McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
+              auth="oauth_app", description="Files in Google Drive (needs a Google OAuth client)."),
+    McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
+              auth="oauth_app", description="Gmail messages (needs a Google OAuth client)."),
+]
+
+
 def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     entry = REGISTRY.get(ds_type)
     if not entry:
@@ -985,10 +1069,40 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
         for e in REGISTRY.values()
         if (
             e.status == "active"
+            and not e.deprecated
             and _entry_visible(e)
             and (e.is_connection or include_tool_providers)
         )
     ]
+
+
+# Authorization-server hosts that differ from the resource host (for the DCR
+# SSRF allowlist below).
+_EXTRA_DCR_HOSTS = {"auth.atlassian.com", "cf.mcp.atlassian.com", "github.com"}
+
+
+def mcp_presets() -> list[dict]:
+    """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
+    `GET /connectors/catalog` and the connector tiles."""
+    return [p.model_dump() for p in MCP_PRESETS]
+
+
+def mcp_preset(key: str) -> Optional[McpPreset]:
+    return next((p for p in MCP_PRESETS if p.key == key), None)
+
+
+def allowed_dcr_hosts() -> set:
+    """Hostnames DCR discovery/registration may target (SSRF guard): every
+    preset server_url host plus the known authorization-server hosts. Non-preset
+    custom URLs require an explicit admin allowlist (not implemented here)."""
+    hosts = set()
+    for p in MCP_PRESETS:
+        if p.server_url:
+            h = urlsplit(p.server_url).netloc
+            if h:
+                hosts.add(h)
+    hosts.update(_EXTRA_DCR_HOSTS)
+    return hosts
 
 
 def config_schema_for(ds_type: str) -> Type[BaseModel]:

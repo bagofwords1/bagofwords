@@ -4,14 +4,15 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, get_current_organization
-from app.core.auth import current_user
+from app.core.auth import current_user, forbid_service_account_principal
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.api_key_schema import ApiKeyCreate, ApiKeyResponse, ApiKeyCreated
 from app.services.api_key_service import ApiKeyService
 from app.ee.audit.service import audit_service
 
-router = APIRouter(prefix="/api_keys", tags=["api_keys"])
+# A leaked service-account key must not be able to mint more keys.
+router = APIRouter(prefix="/api_keys", tags=["api_keys"], dependencies=[Depends(forbid_service_account_principal)])
 api_key_service = ApiKeyService()
 
 

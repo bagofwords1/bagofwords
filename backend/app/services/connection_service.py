@@ -30,6 +30,47 @@ from app.ee.audit.service import audit_service
 logger = logging.getLogger(__name__)
 
 
+def _user_auth_needs_enterprise(conn_type: str) -> bool:
+    """Per-user auth (`user_required` / OAuth / OBO) is Enterprise-gated only for
+    TABULAR / warehouse connections (per-user identity / OBO into a database).
+    Integrations — tools / files / objects (MCP, OneDrive, GDrive, popular apps)
+    — get per-user sign-in for free. Unknown types default to gated (safe)."""
+    try:
+        return get_entry(conn_type).data_shape == "tables"
+    except Exception:
+        return True
+
+
+async def grant_connection_owner(
+    db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
+) -> None:
+    """Give a user full per-connection control (manage config + manage all
+    agents on it). Idempotent — skips if a grant already exists. Used when a
+    user creates a connection so non-admins can manage and build on it."""
+    from app.models.resource_grant import ResourceGrant
+
+    existing = await db.execute(
+        select(ResourceGrant).where(
+            ResourceGrant.resource_type == "connection",
+            ResourceGrant.resource_id == str(connection_id),
+            ResourceGrant.principal_type == "user",
+            ResourceGrant.principal_id == str(user_id),
+            ResourceGrant.deleted_at.is_(None),
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+    db.add(ResourceGrant(
+        organization_id=str(organization_id),
+        resource_type="connection",
+        resource_id=str(connection_id),
+        principal_type="user",
+        principal_id=str(user_id),
+        permissions=["manage_connection", "manage_data_sources"],
+    ))
+    await db.commit()
+
+
 # Human-readable noun for each data_shape; used in connection-test messages.
 _SHAPE_NOUNS = {
     "tables": ("table", "tables"),
@@ -101,11 +142,12 @@ class ConnectionService:
                 detail=f"The {type} connector requires an enterprise license."
             )
 
-        # Check enterprise license for user_required auth policy
-        if auth_policy == "user_required" and not is_enterprise_licensed():
+        # Per-user auth is free for integrations (tools/files/objects); Enterprise
+        # only for tabular/warehouse OBO. See _user_auth_needs_enterprise.
+        if auth_policy == "user_required" and _user_auth_needs_enterprise(type) and not is_enterprise_licensed():
             raise HTTPException(
                 status_code=402,
-                detail="User authentication mode requires an enterprise license."
+                detail="Per-user authentication for this connector requires an enterprise license."
             )
 
         # Default allowed_user_auth_modes for user_required connections on OBO-capable types.
@@ -166,6 +208,11 @@ class ConnectionService:
                 status_code=409,
                 detail=f"A connection named '{name}' already exists in this organization."
             )
+
+        # Grant the creator full per-connection control (manage config + manage
+        # all agents on it, which implies create) so a non-admin who creates a
+        # connection can use and manage it — mirrors agent ownership.
+        await grant_connection_owner(db, str(organization.id), str(connection.id), str(current_user.id))
 
         # Schema discovery is pushed to a background indexing job so POST
         # returns in ~ms even for slow sources (QVD/PBIRS/large warehouses).
@@ -272,10 +319,10 @@ class ConnectionService:
         new_auth_policy = updates.get("auth_policy")
         if new_auth_policy == "user_required" and connection.auth_policy != "user_required":
             from app.ee.license import is_enterprise_licensed
-            if not is_enterprise_licensed():
+            if _user_auth_needs_enterprise(connection.type) and not is_enterprise_licensed():
                 raise HTTPException(
                     status_code=402,
-                    detail="User authentication mode requires an enterprise license."
+                    detail="Per-user authentication for this connector requires an enterprise license."
                 )
 
         # Scheduled auto-reindex is an enterprise feature. Gate any attempt to

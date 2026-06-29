@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -16,6 +16,10 @@ class UsagePolicy(BaseSchema):
     monthly_token_limit = Column(Integer, nullable=True)
     monthly_query_limit = Column(Integer, nullable=True)
     monthly_data_bytes_limit = Column(BigInteger, nullable=True)
+    # Monthly LLM spend cap in USD. Enforced against the dollar cost of LLM
+    # calls (computed from per-model token rates), independent of the raw
+    # token cap above. NULL = unlimited.
+    monthly_spend_limit_usd = Column(Numeric(18, 6), nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
 
     organization = relationship("Organization")

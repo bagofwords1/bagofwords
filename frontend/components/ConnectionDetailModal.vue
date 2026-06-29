@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-3">
-          <DataSourceIcon :type="connection?.type" class="h-6" />
+          <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-6" />
           <div>
             <div class="font-medium text-gray-900 dark:text-white">{{ connection?.name }}</div>
             <div class="text-xs text-gray-400 dark:text-gray-500">{{ connection?.type }}</div>

@@ -1368,6 +1368,7 @@ class CustomAPIConfig(BaseModel):
         default={},
         title="Custom Headers",
         description="Additional headers to send with every request (e.g., ontology, results-limit)",
+        json_schema_extra={"ui:type": "keyvalue"}
     )
     endpoints: list = Field(
         default=[],

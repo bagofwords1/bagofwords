@@ -978,3 +978,19 @@ async def current_user_optional(
         return await current_user(request, jwt_user, api_key, db)
     except HTTPException:
         return None
+
+
+async def forbid_service_account_principal(user: User = Depends(current_user)) -> User:
+    """Block service-account principals from privilege-management surfaces.
+
+    A service account must never be able to mint keys, create/assign roles,
+    invite members, or manage other service accounts — otherwise a leaked key
+    could self-escalate. Applied to the RBAC, member-management, API-key, and
+    service-account routers regardless of the account's RBAC role.
+    """
+    if getattr(user, "is_service_account", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Service accounts cannot manage identities, roles, or keys",
+        )
+    return user
