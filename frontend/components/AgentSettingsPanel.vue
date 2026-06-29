@@ -6,6 +6,25 @@
         </div>
 
         <div v-else>
+            <!-- Your access — your effective role on this agent -->
+            <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Your access</div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <UBadge :color="myAccessIsPrivileged ? 'blue' : 'gray'" :variant="myAccessIsPrivileged ? 'solid' : 'subtle'" size="sm">{{ myAccessLabel }}</UBadge>
+                    <span v-if="myEffectivePerms.length" class="text-gray-300 dark:text-gray-600">·</span>
+                    <span class="flex items-center gap-1 flex-wrap">
+                        <UBadge v-for="p in myEffectivePerms" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
+                        <span v-if="!myEffectivePerms.length" class="text-[11px] text-gray-400 dark:text-gray-500" title="You can query this agent but have no extra management rights">Query only</span>
+                    </span>
+                </div>
+                <p v-if="isOwner" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                    You created this agent. As owner you can manage its settings, tables, instructions, entities, evals and members.
+                </p>
+                <p v-else-if="isFullAdmin" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                    You have full admin access across the organization.
+                </p>
+            </div>
+
             <!-- General -->
             <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
                 <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">General</div>
@@ -87,6 +106,7 @@
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-1.5">
                                         <span class="text-xs font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
+                                        <UBadge v-if="isOwnerPrincipal(m)" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
                                         <template v-if="m.principal_type === 'group'">
                                             <span class="text-[11px] text-gray-400 dark:text-gray-500">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                             <button
@@ -232,7 +252,7 @@
                                 :model-value="addPermissions.includes(perm)"
                                 @update:model-value="toggleAddPermission(perm, $event)"
                             />
-                            {{ perm }}
+                            {{ formatPermission(perm) }}
                         </label>
                     </div>
                 </div>
@@ -263,7 +283,7 @@
 </template>
 
 <script setup lang="ts">
-import { useCan } from '~/composables/usePermissions'
+import { useCan, usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -273,6 +293,7 @@ const emit = defineEmits(['updated', 'deleted'])
 
 const toast = useToast?.()
 const { organization } = useOrganization()
+const { data: currentUser } = useAuth()
 
 // Agent detail fetched directly (no parent `integration` provide())
 const integration = ref<any>(null)
@@ -342,6 +363,34 @@ const adding = ref(false)
 const dsResource = computed(() => ({ type: 'data_source', id: props.agentId }))
 const canManageDs = computed(() => useCan('manage', dsResource.value))
 const canManageDsMembers = computed(() => useCan('manage', dsResource.value))
+
+// ── Current user's role/access on THIS agent ─────────────────────────────
+// Surfaced so anyone (including the owner) can see their effective role here.
+const orgPerms = usePermissions()
+const resourcePerms = useResourcePermissions()
+const currentUserId = computed(() => (currentUser.value as any)?.id || null)
+const ownerUserId = computed(() => integration.value?.owner_user_id || null)
+const isFullAdmin = computed(() => orgPerms.value.includes('full_admin_access'))
+const isOwner = computed(() => !!currentUserId.value && currentUserId.value === ownerUserId.value)
+const isOwnerPrincipal = (m: MemberGrant) =>
+    m.principal_type === 'user' && !!ownerUserId.value && m.principal_id === ownerUserId.value
+
+// What a `manage` grant implies — mirrors RESOURCE_PERM_IMPLIES on the backend.
+const MANAGE_IMPLIES = ['manage_instructions', 'create_entities', 'manage_evals', 'manage_members']
+
+const myAccessLabel = computed(() => {
+    if (isFullAdmin.value) return 'Admin'
+    if (isOwner.value) return 'Owner'
+    if (canManageDs.value) return 'Manager'
+    return 'Member'
+})
+const myAccessIsPrivileged = computed(() => isFullAdmin.value || isOwner.value || canManageDs.value)
+// Effective per-agent capabilities for the current user, expanding `manage`.
+const myEffectivePerms = computed<string[]>(() => {
+    if (isFullAdmin.value || canManageDs.value) return ['manage', ...MANAGE_IMPLIES]
+    return resourcePerms.value[`data_source:${props.agentId}`] || []
+})
+
 const { hasFeature } = useEnterprise()
 const isEnterprise = computed(() => hasFeature('custom_roles'))
 
