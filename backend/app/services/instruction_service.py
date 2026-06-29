@@ -501,7 +501,8 @@ class InstructionService:
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
         build_id: Optional[str] = None,
-        include_global: bool = True
+        include_global: bool = True,
+        global_only: bool = False
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -538,7 +539,7 @@ class InstructionService:
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
-            current_user=current_user, kind=kind,
+            current_user=current_user, kind=kind, global_only=global_only,
         )
 
     async def _visible_main_build_conditions(self, db, organization, current_user):
@@ -2530,6 +2531,7 @@ class InstructionService:
         include_global: bool = True,
         current_user: Optional[User] = None,
         kind: Optional[str] = None,
+        global_only: bool = False,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -2623,6 +2625,9 @@ class InstructionService:
             filter_conditions.append(Instruction.status == status)
         if kind:
             filter_conditions.append(Instruction.kind == kind)
+        if global_only:
+            # Lazy "Global instructions" group: instructions attached to no agent.
+            filter_conditions.append(~Instruction.data_sources.any())
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
         if data_source_ids:
