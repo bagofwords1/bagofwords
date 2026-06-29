@@ -36,17 +36,26 @@ const normalizeType = (raw: string) => {
     return t
 }
 
-// Known connector catalog keys with a brand icon under /connector_icons.
-const CONNECTOR_ICON_KEYS = new Set([
-    'monday', 'notion', 'atlassian', 'linear', 'sentry', 'github', 'gmail', 'supabase',
-]);
+// Brand icons for known connector catalog keys. Explicit filename per key — the
+// assets live under /data_sources_icons with mixed extensions, and the catalog
+// key isn't always the filename (e.g. atlassian → jira).
+const CONNECTOR_ICON_FILE: Record<string, string> = {
+    monday: 'monday.svg',
+    notion: 'notion.png',
+    atlassian: 'jira.png',
+    linear: 'linear.png',
+    sentry: 'sentry.png',
+    github: 'github.svg',
+    gmail: 'gmail.png',
+};
 
 // Computed property to generate the icon path
 const iconPath = computed(() => {
-    // Prefer the provider brand icon for known catalog connectors.
+    // Prefer the provider brand icon for known catalog connectors (even though
+    // the underlying connection type is just "mcp").
     const ck = props.connectorKey ? normalizeType(props.connectorKey) : '';
-    if (ck && CONNECTOR_ICON_KEYS.has(ck)) {
-        return `/connector_icons/${ck}.svg`;
+    if (ck && CONNECTOR_ICON_FILE[ck]) {
+        return `/data_sources_icons/${CONNECTOR_ICON_FILE[ck]}`;
     }
     if (!props.type) {
         return FALLBACK_ICON;

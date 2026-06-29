@@ -24,29 +24,38 @@ def _ds_is_connector(d) -> bool:
     return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
 
 
-def _ds_connector_key(d):
-    """The preset key (e.g. 'notion', 'monday') for a known connector so the UI
-    can render the provider's icon. Read from a connection's config.catalog_key,
-    else matched by server_url against the mcp presets. None if not a known
-    preset connector."""
+def _conn_connector_key(conn):
+    """The preset key (e.g. 'notion', 'monday') for a single connection so the UI
+    can render the provider's icon (even though the connection type is just
+    'mcp'). Read from config.catalog_key, else matched by server_url against the
+    mcp presets. None if not a known preset connector."""
     import json as _json
     try:
         from app.schemas.data_source_registry import mcp_presets
         by_url = {p["server_url"]: p["key"] for p in mcp_presets() if p.get("server_url")}
     except Exception:
         by_url = {}
+    cfg = getattr(conn, "config", None)
+    if isinstance(cfg, str):
+        try:
+            cfg = _json.loads(cfg)
+        except Exception:
+            cfg = {}
+    cfg = cfg or {}
+    if cfg.get("catalog_key"):
+        return cfg["catalog_key"]
+    if cfg.get("server_url") in by_url:
+        return by_url[cfg["server_url"]]
+    return None
+
+
+def _ds_connector_key(d):
+    """The preset key for a data source — the first connection that resolves to a
+    known connector. None if none do."""
     for c in (getattr(d, "connections", None) or []):
-        cfg = c.config
-        if isinstance(cfg, str):
-            try:
-                cfg = _json.loads(cfg)
-            except Exception:
-                cfg = {}
-        cfg = cfg or {}
-        if cfg.get("catalog_key"):
-            return cfg["catalog_key"]
-        if cfg.get("server_url") in by_url:
-            return by_url[cfg["server_url"]]
+        key = _conn_connector_key(c)
+        if key:
+            return key
     return None
 from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
@@ -257,6 +266,7 @@ class DataSourceService:
                 user_status=user_status,
                 table_count=table_count,
                 indexing=indexing_payload,
+                connector_key=_conn_connector_key(conn),
             ))
 
         return connections_list

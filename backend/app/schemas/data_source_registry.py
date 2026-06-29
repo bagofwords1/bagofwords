@@ -991,8 +991,6 @@ MCP_PRESETS: List[McpPreset] = [
               auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
     McpPreset(key="gmail", title="Gmail", server_url="",
               auth="oauth_app", description="Gmail (needs a Google OAuth client + Workspace approval)."),
-    McpPreset(key="supabase", title="Supabase", server_url="https://mcp.supabase.com/mcp",
-              auth="bearer", description="Supabase project access via a personal access token."),
 ]
 
 
