@@ -38,20 +38,29 @@ Makes "analyze the Google sheet" run end-to-end for any MCP that returns a file.
 - Flow: `list_mcp_resources → read_mcp_resource (blob→File, session_file_id) →
   inspect_data/create_data`.
 
-### A2 — reference model + resolver (freshness + permissions)
-- `FileReference` (durable, report-associated): `connection_id`,
-  `external_file_id`, `name`, `mime`, `etag`/`modified_at`, `last_fetched_at`;
-  `source_kind` (upload|connector) on `File`.
-- `ensure_materialized(ref, user)`: etag-checked, per-user fetch via the A1
-  bridge → `File` cache; reuse when unchanged.
-- `excel_files` builder = uploads (report-wide, durable) **+**
-  `ensure_materialized(ref)` for in-scope connector references (mirror the
-  existing per-completion image-file filter). `inspect_data`/`create_data`
-  unchanged. → no stale reuse; one user's bytes never served to another.
+### A2 — freshness: ephemeral connector files  ✅ this PR
+For the **agent-driven** flow, freshness comes from re-fetching, not a cache —
+so connector-materialized files are made **ephemeral per turn**:
+- `File.source_kind` (`upload` | `connector`) — new column + migration.
+- `attach_drive_file_to_session(..., source_kind="connector")` (the default):
+  the file is stamped `connector`, made available to **this turn's** tools via
+  the `excel_files` append, but **not** durably linked into `report.files`.
+  Uploads (`source_kind="upload"`, via `file_service.upload_file`) stay durable.
+- Result: a connector file can't be reused stale next turn (it's not in
+  `report.files`); the agent re-downloads when it needs the data again — fresh,
+  and fetched under the current user. Verified: connector file is in
+  `excel_files` same-turn, absent from `report.files`; upload is present.
 
-### A3 — prompt-box file picker (optional)
-Pick a file when composing (`list_mcp_resources`/search) → create a
-`FileReference` → rides A2. Read-to-answer uses the same resolver.
+> Per-user permissions also fall out: each turn re-fetches under the requesting
+> user, so one user's bytes are never persisted into a shared report.
+
+### A3 — durable references + prompt-box picker (follow-up)
+The **pre-attach** case (user pins a file before the agent runs, reused across
+turns) does need a durable reference. That's where `FileReference`
+(`connection_id`/`external_file_id`/`etag`/`last_fetched_at`) +
+`ensure_materialized(ref, user)` (etag-checked, per-user) + the
+`list_mcp_resources`/search picker live. Deferred — not needed for the
+agent-driven analysis flow (A1+A2).
 
 ## Workstream B — connectors (replace native Drive/OneDrive/SharePoint)
 

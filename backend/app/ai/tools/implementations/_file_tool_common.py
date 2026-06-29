@@ -232,6 +232,7 @@ async def attach_drive_file_to_session(
     filename: str,
     content_bytes: bytes,
     mime_type: Optional[str] = None,
+    source_kind: str = "connector",
 ) -> Optional[str]:
     """Persist Drive file bytes as a session File and link to the current report.
 
@@ -288,18 +289,23 @@ async def attach_drive_file_to_session(
             path=path,
             user_id=str(user.id),
             organization_id=str(organization.id),
+            source_kind=source_kind,
         )
         db.add(db_file)
         await db.commit()
         await db.refresh(db_file)
 
-        # Attach to the current report so it shows up in the same place
-        # uploaded files do.
-        report_q = await db.execute(select(Report).where(Report.id == str(report.id)))
-        report_row = report_q.scalar_one_or_none()
-        if report_row is not None:
-            report_row.files.append(db_file)
-            await db.commit()
+        # Durable report link ONLY for uploads. Connector files are ephemeral:
+        # they're materialized per turn for analysis and must NOT persist into
+        # report.files (next turn would reuse a stale copy). They reach the
+        # current turn's tools purely via the excel_files append below; freshness
+        # comes from the agent re-downloading when it needs the data again.
+        if source_kind != "connector":
+            report_q = await db.execute(select(Report).where(Report.id == str(report.id)))
+            report_row = report_q.scalar_one_or_none()
+            if report_row is not None:
+                report_row.files.append(db_file)
+                await db.commit()
 
         # Same-turn visibility: excel_files is the init-time snapshot of
         # report.files and isn't refreshed mid-run, so a file materialized now

@@ -13,7 +13,12 @@ class File(BaseSchema):
     filename = Column(String, index=True)
     path = Column(String, index=True)
     content_type = Column(String, index=True)
-    
+    # Where this file came from: "upload" (durable, user-attached) or "connector"
+    # (ephemeral — materialized from an MCP/Drive download for one turn's analysis,
+    # not durably linked to the report, re-fetched on demand). Keeps connector
+    # files from being reused stale across turns.
+    source_kind = Column(String, nullable=False, default="upload", server_default="upload", index=True)
+
     # Raw preview data (no LLM) - stores sheet names, raw cells, text preview, etc.
     preview = Column(JSON, nullable=True)
 
