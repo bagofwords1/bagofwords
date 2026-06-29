@@ -560,6 +560,35 @@ class LLM:
             total += (cache_read_tokens or 0) + (cache_creation_tokens or 0)
         return max(int(total), 0)
 
+    def _quota_cost_micro_usd(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+    ) -> int:
+        """Dollar cost of this call, in micro-USD, for the spend quota.
+
+        Reuses the same per-model rate math as the LLM usage recorder so the
+        spend counter and the Cost console stay consistent. Returns 0 when the
+        model has no configured rates.
+        """
+        try:
+            input_cost = LLMUsageRecorderService._calc_input_cost(
+                self.model,
+                prompt_tokens or 0,
+                cache_read_tokens or 0,
+                cache_creation_tokens or 0,
+                self.provider,
+            )
+            output_cost = LLMUsageRecorderService._calc_output_cost(
+                self.model, completion_tokens or 0
+            )
+        except Exception:
+            return 0
+        return max(int(round((input_cost + output_cost) * 1_000_000)), 0)
+
     def _check_usage_limit_sync(self, requested_tokens: int, *, should_record: bool) -> None:
         """Pre-LLM-call quota check. Routed through the context cache so
         steady-state checks are in-memory (no DB roundtrip per call).
@@ -616,6 +645,14 @@ class LLM:
             "cache_creation_tokens": cache_creation_tokens or 0,
         }
         context.add_tokens(total_tokens, metadata)
+        cost_micro = self._quota_cost_micro_usd(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
+        if cost_micro > 0:
+            context.add_cost(cost_micro, metadata)
 
     async def _record_usage_limit_async(
         self,
@@ -651,6 +688,14 @@ class LLM:
             "cache_creation_tokens": cache_creation_tokens or 0,
         }
         context.add_tokens(total_tokens, metadata)
+        cost_micro = self._quota_cost_micro_usd(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
+        if cost_micro > 0:
+            context.add_cost(cost_micro, metadata)
 
     def _schedule_usage_record(
         self,

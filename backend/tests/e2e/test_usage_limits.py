@@ -28,6 +28,7 @@ from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import (
     METRIC_DATA_BYTES,
     METRIC_DATA_QUERIES,
+    METRIC_LLM_COST,
     METRIC_LLM_TOKENS,
     SCOPE_CONNECTION,
     UsageLimitContext,
@@ -337,6 +338,113 @@ def test_whoami_includes_usage_quota_summary(create_user, login_user, whoami):
             },
         }
     ]
+
+
+@pytest.mark.e2e
+def test_usage_policy_persists_and_resolves_monthly_spend_limit_usd(test_client, create_user, login_user, whoami):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+
+    created = test_client.post(
+        f"/api/organizations/{org_id}/usage-policies",
+        json={
+            "name": "Spend cap",
+            "monthly_token_limit": None,
+            "monthly_spend_limit_usd": 12.5,
+            "assignments": [{"principal_type": "user", "principal_id": user_id}],
+        },
+        headers=_headers(token, org_id),
+    )
+    assert created.status_code == 200, created.json()
+    assert created.json()["monthly_spend_limit_usd"] == 12.5
+
+    effective = test_client.get(
+        f"/api/organizations/{org_id}/usage-policies/effective/{user_id}",
+        headers=_headers(token, org_id),
+    )
+    assert effective.status_code == 200, effective.json()
+    assert effective.json()["monthly_spend_limit_usd"] == 12.5
+
+    updated = test_client.put(
+        f"/api/organizations/{org_id}/usage-policies/{created.json()['id']}",
+        json={"monthly_spend_limit_usd": None},
+        headers=_headers(token, org_id),
+    )
+    assert updated.status_code == 200, updated.json()
+    assert updated.json()["monthly_spend_limit_usd"] is None
+
+
+@pytest.mark.e2e
+def test_record_llm_cost_counts_in_micro_usd_and_surfaces_in_summary(create_user, login_user, whoami):
+    _, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    _run(_create_policy(
+        org_id,
+        name="Spend visible",
+        monthly_token_limit=None,
+        monthly_spend_limit_usd=5.0,
+        assignments=[UsagePolicyAssignmentInput(principal_type="user", principal_id=user_id)],
+    ))
+
+    async def _record_cost():
+        async with async_session_maker() as db:
+            # $1.25 -> 1_250_000 micro-USD
+            await usage_policy_service.record_llm_cost(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                amount_micro_usd=1_250_000,
+                source="test.spend",
+            )
+            await db.commit()
+
+    _run(_record_cost())
+    assert _run(_counter_used(org_id, user_id, METRIC_LLM_COST)) == 1_250_000
+
+    async def _summary():
+        async with async_session_maker() as db:
+            return await usage_policy_service.get_user_quota_summary(db, org_id, user_id)
+
+    summary = _run(_summary())
+    assert summary.spend.limit == 5.0
+    assert summary.spend.used == 1.25
+    assert summary.spend.remaining == 3.75
+    assert summary.spend.percent == 25.0
+
+
+@pytest.mark.e2e
+def test_spend_cap_blocks_next_llm_call_once_budget_consumed(create_user, login_user, whoami):
+    _, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    _run(_create_policy(
+        org_id,
+        name="Spend block",
+        monthly_token_limit=None,
+        monthly_spend_limit_usd=1.0,
+        assignments=[UsagePolicyAssignmentInput(principal_type="user", principal_id=user_id)],
+    ))
+
+    async def _record_cost(amount_micro):
+        async with async_session_maker() as db:
+            await usage_policy_service.record_llm_cost(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                amount_micro_usd=amount_micro,
+                source="test.spend",
+            )
+            await db.commit()
+
+    # Spend exactly the $1.00 budget, then the next preflight check must block.
+    _run(_record_cost(1_000_000))
+
+    ctx = UsageLimitContext(
+        organization_id=org_id,
+        user_id=user_id,
+        source="agent",
+        source_ref_id="completion-1",
+        session_maker=async_session_maker,
+    )
+    with pytest.raises(UsageLimitExceeded) as exc_info:
+        _run(ctx.check_tokens(10))
+    assert exc_info.value.metric == METRIC_LLM_COST
 
 
 @pytest.mark.e2e

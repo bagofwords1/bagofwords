@@ -12,6 +12,14 @@ type UsageQuotaConnection = {
   data_bytes: UsageQuotaMetric
 }
 
+// Spend is expressed in USD (floats) rather than integer counts.
+type UsageQuotaSpendMetric = {
+  used: number
+  limit: number | null
+  remaining: number | null
+  percent: number | null
+}
+
 export type UsageQuotaSummary = {
   enabled: boolean
   organization_id: string
@@ -23,6 +31,7 @@ export type UsageQuotaSummary = {
   tokens: UsageQuotaMetric
   queries: UsageQuotaMetric
   data_bytes: UsageQuotaMetric
+  spend: UsageQuotaSpendMetric
   connections: UsageQuotaConnection[]
 }
 
