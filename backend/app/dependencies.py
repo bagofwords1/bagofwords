@@ -60,6 +60,32 @@ async def get_async_db() -> AsyncSession:
             except Exception:
                 pass
 
+async def release_request_db(db: AsyncSession) -> None:
+    """Return the request's pooled connection to the pool NOW, instead of when
+    FastAPI tears down ``get_async_db`` after the response is sent.
+
+    Read endpoints otherwise hold their connection (idle in transaction) across
+    response serialization, so a burst of them pins the pool for each request's
+    full wall-time and starves it (the QueuePool timeout / 500s under load).
+    Calling this right after the response object is built frees the slot before
+    serialization. Mirrors the early-release in
+    ``completion_service.create_completion_stream`` for the SSE path.
+
+    Safe ONLY when the caller will not touch ``db`` again and the value it is
+    about to return is detached-safe (a Pydantic model / plain data, not lazy
+    ORM objects). ``get_async_db``'s ``finally`` already tolerates the early
+    close (its rollback is wrapped in try/except).
+    """
+    try:
+        await db.commit()  # end the read txn; no-op commit for pure reads
+    except Exception:
+        pass
+    try:
+        await db.close()   # returns the connection to the pool
+    except Exception:
+        pass
+
+
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
