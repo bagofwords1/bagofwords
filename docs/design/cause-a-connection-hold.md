@@ -110,15 +110,30 @@ Commit/rollback right after each read so the connection is `idle` rather than
 *precondition* that makes Option 4 effective — but does **not** free the pool
 slot on its own (the session is still checked out until close).
 
-## Decision
+## Decision (updated)
 
-Only **Phase 1** and **Phase 2** are in scope. Option 3 (full 416-site refactor),
-Option 4 (PgBouncer), and the `pool_size`/`max_connections` capacity bump are
-explicitly out of scope.
+- **Phase 1 — IMPLEMENTED** (this PR). Targeted early connection release on the
+  hot read endpoints.
+- **Phase 2 — DROPPED** after investigation (see "Phase 2 — dropped" below). The
+  separate AUTOCOMMIT read session would *double* connections per request and
+  app-wide autocommit would break write atomicity; the remaining safe benefit is
+  marginal once Phase 1 is in place. Not worth the risk.
+- **Next lever for the production collapse:** the `max_connections` / pool
+  capacity item (out of scope here) — raising Postgres `max_connections` so
+  `workers × pool_size` fits. That is what actually lets a ~200-request page
+  burst through; Phase 1 only shortens how long each request holds its slot.
+- Option 3 (full 416-site refactor) and Option 4 (PgBouncer) remain out of scope.
+
+> Measurement note: the local single-worker sandbox is too noisy in the
+> contended regime to produce a clean before/after (the same config flips between
+> "all 200 OK" and pool-timeout collapse across trials, dominated by cold-start
+> and shared-CPU variance). Phase 1 is justified by the mechanism (frees the
+> pooled connection before serialization) and by mirroring the already-proven SSE
+> early-release in `completion_service`, not by a sandbox throughput delta.
 
 ---
 
-# Phase 1 — Targeted early connection release (ship first)
+# Phase 1 — Targeted early connection release (IMPLEMENTED)
 
 **Goal:** free the pooled connection back to the pool *before* response
 serialization on the highest-frequency read endpoints, so a burst of those calls
@@ -179,7 +194,31 @@ table to the PR.
 
 ---
 
-# Phase 2 — Read-only autocommit session, auto-released for GET routes (broaden)
+# Phase 2 — Read-only autocommit session (DROPPED)
+
+> **Dropped after investigation.** Two architectural blockers make the scoped
+> approach unsafe here, and the residual benefit is marginal:
+>
+> 1. **Doubles connections per request.** `current_user` (`auth.py:931`) and
+>    `get_current_organization` (`dependencies.py:92`) both `Depends(get_async_db)`.
+>    A handler using a *separate* `get_read_db` session would hold a 2nd pooled
+>    connection for the request — a regression that worsens pool pressure.
+> 2. **App-wide AUTOCOMMIT breaks writes.** Write services rely on implicit
+>    multi-statement transactions (`db.add(...)` ×N then `db.commit()`), so making
+>    the shared session autocommit would lose write atomicity.
+> 3. **Marginal residual benefit.** Phase 1 already early-releases the *heavy*
+>    holds; the remaining page-load GETs are cheap/short. And the idle-in-tx /
+>    `last_seen`-lock rationale is already handled — `_update_last_seen` commits
+>    immediately and the sampler showed `lockwait=0`.
+>
+> Net: no separate read-session mechanism is worth building. If an individually
+> heavy read endpoint shows up hot later, apply the Phase 1 `release_request_db`
+> one-liner to it (that's "more Phase 1", not a new mechanism). The real remaining
+> lever for the production burst is the capacity item.
+>
+> Original Phase 2 sketch retained below for context.
+
+## (original sketch — not implemented)
 
 **Goal:** generalize Phase 1 to *all* read endpoints and additionally stop reads
 from sitting **idle-in-transaction** (which blocks VACUUM, holds locks, and is the
