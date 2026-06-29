@@ -78,7 +78,12 @@ for perms in HIDDEN_PERMISSION_CATEGORIES.values():
 
 # ── Resource Permission Options ──────────────────────────────────────────
 # Available permission strings for resource_grants by resource type.
-# data_source only — connection/report grants are intentionally not supported.
+#
+# `connection` grants let an admin delegate, per connection:
+#   - manage_connection    → edit config / test / reindex / delete the connection
+#   - create_data_sources  → create agents on this connection
+#   - manage_data_sources  → manage ALL agents on this connection (implies
+#                            create_data_sources; cascades to per-agent `manage`)
 
 RESOURCE_PERMISSIONS = {
     "data_source": [
@@ -87,6 +92,11 @@ RESOURCE_PERMISSIONS = {
         "manage_evals",
         "manage",
         "manage_members",
+    ],
+    "connection": [
+        "manage_connection",
+        "create_data_sources",
+        "manage_data_sources",
     ],
 }
 
@@ -111,6 +121,13 @@ RESOURCE_SCOPED_GROUPS = {
             "manage_evals",
             "manage",
             "manage_members",
+        ],
+    },
+    "connection": {
+        "Permissions": [
+            "manage_connection",
+            "create_data_sources",
+            "manage_data_sources",
         ],
     },
 }

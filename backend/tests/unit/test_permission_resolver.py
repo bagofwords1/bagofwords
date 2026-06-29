@@ -132,6 +132,50 @@ def test_full_admin_passes_any_resource_prefilter():
     assert rp.has_any_resource_permission("manage_instructions")
 
 
+# ── Connection resource permissions ──────────────────────────────────────────
+
+def test_org_manage_connections_implies_connection_admin_and_create():
+    """Org connection-admin manages every connection's config and can create
+    agents on any connection — but is NOT auto-granted manage_data_sources
+    (managing other people's agents stays an explicit per-connection grant)."""
+    rp = ResolvedPermissions(org_permissions={"manage_connections"})
+    assert rp.has_resource_permission("connection", "c-1", "manage_connection")
+    assert rp.has_resource_permission("connection", "c-1", "create_data_sources")
+    assert not rp.has_resource_permission("connection", "c-1", "manage_data_sources")
+
+
+def test_connection_manage_data_sources_grant_implies_create():
+    """An explicit per-connection manage_data_sources grant implies the ability
+    to create agents on it too."""
+    rp = ResolvedPermissions(
+        resource_permissions={("connection", "c-1"): {"manage_data_sources"}},
+    )
+    assert rp.has_resource_permission("connection", "c-1", "manage_data_sources")
+    assert rp.has_resource_permission("connection", "c-1", "create_data_sources")
+
+
+def test_connection_create_grant_does_not_imply_manage():
+    """create_data_sources (build agents) must NOT confer manage_data_sources
+    (manage others' agents) or manage_connection (edit config)."""
+    rp = ResolvedPermissions(
+        resource_permissions={("connection", "c-1"): {"create_data_sources"}},
+    )
+    assert rp.has_resource_permission("connection", "c-1", "create_data_sources")
+    assert not rp.has_resource_permission("connection", "c-1", "manage_data_sources")
+    assert not rp.has_resource_permission("connection", "c-1", "manage_connection")
+
+
+def test_connection_manage_connection_grant_is_config_only():
+    """manage_connection (edit config/reindex) must NOT let you create or
+    manage agents on the connection."""
+    rp = ResolvedPermissions(
+        resource_permissions={("connection", "c-1"): {"manage_connection"}},
+    )
+    assert rp.has_resource_permission("connection", "c-1", "manage_connection")
+    assert not rp.has_resource_permission("connection", "c-1", "create_data_sources")
+    assert not rp.has_resource_permission("connection", "c-1", "manage_data_sources")
+
+
 def test_no_grant_no_org_perm_denies():
     rp = ResolvedPermissions()
     assert not rp.has_resource_permission("data_source", "ds-1", "manage_instructions")

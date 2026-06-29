@@ -32,7 +32,10 @@ ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
     "manage_instructions": {"data_source": {"manage_instructions"}},
     "manage_entities":     {"data_source": {"create_entities"}},
     "manage_evals":        {"data_source": {"manage_evals"}},
-    "manage_connections":  {"connection": {"manage_data_sources"}},
+    # Org connection-admin: manage every connection's config AND create agents
+    # on any connection. It is deliberately NOT `manage_data_sources` — managing
+    # *other people's* agents stays an explicit, opt-in per-connection grant.
+    "manage_connections":  {"connection": {"manage_connection", "create_data_sources"}},
 }
 
 # A `manage` grant on a data source is the agent-owner/manager tier: it is a
@@ -51,6 +54,10 @@ RESOURCE_PERM_IMPLIES: dict[str, dict[str, set[str]]] = {
             "view",
             "view_schema",
         },
+    },
+    "connection": {
+        # Managing all agents on a connection includes being able to create them.
+        "manage_data_sources": {"create_data_sources"},
     },
 }
 
@@ -303,11 +310,57 @@ async def _resolve_permissions_inner(
         if isinstance(perms, list):
             resource_permissions[key].update(perms)
 
+    # Connection `manage_data_sources` grant ⇒ `manage` on every agent fully
+    # backed by those connections. Expanded here (rather than at check time) so
+    # the per-agent `manage` superset (instructions/entities/evals) and list
+    # visibility both work uniformly. Only EXPLICIT per-connection grants
+    # cascade — org `manage_connections` is connection-admin, not agent-admin.
+    managed_conn_ids = [
+        rid for (rtype, rid), perms in resource_permissions.items()
+        if rtype == "connection" and "manage_data_sources" in perms
+    ]
+    for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
+        resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
+
     return ResolvedPermissions(
         org_permissions=org_permissions,
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+async def _agents_fully_backed_by_connections(
+    db: AsyncSession, connection_ids: list[str],
+) -> set[str]:
+    """Return data_source ids whose connections are ALL within ``connection_ids``.
+
+    ALL-connections semantics: an agent that draws on connections the caller
+    cannot fully manage is excluded, since it exposes data from every
+    connection it uses. Agents with no connections are excluded.
+    """
+    if not connection_ids:
+        return set()
+    from app.models.domain_connection import domain_connection
+
+    granted = set(connection_ids)
+    # Candidate agents: linked to at least one granted connection.
+    cand = await db.execute(
+        select(domain_connection.c.data_source_id)
+        .where(domain_connection.c.connection_id.in_(connection_ids))
+        .distinct()
+    )
+    candidate_ids = [r[0] for r in cand.all()]
+    if not candidate_ids:
+        return set()
+    # Pull every connection of those candidates; keep only fully-granted ones.
+    rows = await db.execute(
+        select(domain_connection.c.data_source_id, domain_connection.c.connection_id)
+        .where(domain_connection.c.data_source_id.in_(candidate_ids))
+    )
+    conns_by_ds: dict[str, set] = {}
+    for ds_id, conn_id in rows.all():
+        conns_by_ds.setdefault(ds_id, set()).add(conn_id)
+    return {ds_id for ds_id, conns in conns_by_ds.items() if conns and conns <= granted}
 
 
 async def get_accessible_data_source_ids(

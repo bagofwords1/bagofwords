@@ -41,6 +41,36 @@ def _user_auth_needs_enterprise(conn_type: str) -> bool:
         return True
 
 
+async def grant_connection_owner(
+    db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
+) -> None:
+    """Give a user full per-connection control (manage config + manage all
+    agents on it). Idempotent — skips if a grant already exists. Used when a
+    user creates a connection so non-admins can manage and build on it."""
+    from app.models.resource_grant import ResourceGrant
+
+    existing = await db.execute(
+        select(ResourceGrant).where(
+            ResourceGrant.resource_type == "connection",
+            ResourceGrant.resource_id == str(connection_id),
+            ResourceGrant.principal_type == "user",
+            ResourceGrant.principal_id == str(user_id),
+            ResourceGrant.deleted_at.is_(None),
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+    db.add(ResourceGrant(
+        organization_id=str(organization_id),
+        resource_type="connection",
+        resource_id=str(connection_id),
+        principal_type="user",
+        principal_id=str(user_id),
+        permissions=["manage_connection", "manage_data_sources"],
+    ))
+    await db.commit()
+
+
 # Human-readable noun for each data_shape; used in connection-test messages.
 _SHAPE_NOUNS = {
     "tables": ("table", "tables"),
@@ -178,6 +208,11 @@ class ConnectionService:
                 status_code=409,
                 detail=f"A connection named '{name}' already exists in this organization."
             )
+
+        # Grant the creator full per-connection control (manage config + manage
+        # all agents on it, which implies create) so a non-admin who creates a
+        # connection can use and manage it — mirrors agent ownership.
+        await grant_connection_owner(db, str(organization.id), str(connection.id), str(current_user.id))
 
         # Schema discovery is pushed to a background indexing job so POST
         # returns in ~ms even for slow sources (QVD/PBIRS/large warehouses).

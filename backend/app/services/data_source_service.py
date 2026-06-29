@@ -517,6 +517,14 @@ class DataSourceService:
                 detail=f"A data source named '{name}' already exists in this organization. Please choose a different name."
             )
 
+        # Mode 1 created a new connection inline → grant the creator ownership of
+        # it too, so they can manage it and build further agents on it.
+        if not connections_to_link:
+            from app.services.connection_service import grant_connection_owner
+            await grant_connection_owner(
+                db, str(organization.id), str(new_connection.id), str(current_user.id)
+            )
+
         # Telemetry: data source created (minimal fields only)
         try:
             await telemetry.capture(

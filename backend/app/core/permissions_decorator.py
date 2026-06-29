@@ -170,6 +170,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
 # Extend when new resource types land (post-MVP: connection, report).
 _RESOURCE_PARAM_MAP = {
     "data_source": "data_source_id",
+    "connection": "connection_id",
 }
 
 
