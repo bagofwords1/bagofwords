@@ -55,7 +55,10 @@ async def main():
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 300
     ratio = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
 
-    engine = create_async_engine("sqlite+aiosqlite:///db/app.db", future=True)
+    _u = os.environ["BOW_DATABASE_URL"]
+    _u = (_u.replace("postgresql://", "postgresql+asyncpg://", 1) if _u.startswith("postgresql://")
+          else _u.replace("sqlite:///", "sqlite+aiosqlite:///", 1) if _u.startswith("sqlite:///") else _u)
+    engine = create_async_engine(_u, future=True)
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as db:
         user = (await db.execute(select(User).where(User.email == "sandbox@bow.dev"))).scalars().first()
