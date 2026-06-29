@@ -1,7 +1,7 @@
 """add service accounts
 
 Revision ID: c2d3e4f5a6b7
-Revises: b1c2d3e4f5a6
+Revises: la1a2b3c4d5e
 Create Date: 2026-06-26 00:00:00.000000
 
 Adds the `service_accounts` table (org-managed non-human API principal, backed
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'c2d3e4f5a6b7'
-down_revision: Union[str, None] = 'b1c2d3e4f5a6'
+down_revision: Union[str, None] = 'la1a2b3c4d5e'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
