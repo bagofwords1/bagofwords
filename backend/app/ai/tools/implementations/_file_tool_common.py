@@ -204,6 +204,23 @@ _ATTACHABLE_BY_EXT = {
     "pdf": "application/pdf",
 }
 
+# Reverse map: MIME → extension. Used when materializing an MCP blob/resource
+# whose filename has no usable extension (e.g. a resource URI). Lets us still
+# pick an extension the analysis tools (read_excel_as_csv/inspect_data) accept.
+_EXT_BY_MIME = {v: k for k, v in _ATTACHABLE_BY_EXT.items()}
+_EXT_BY_MIME.update({
+    "application/vnd.ms-excel.sheet.macroenabled.12": "xlsx",
+    "text/plain; charset=utf-8": "txt",
+    "application/csv": "csv",
+})
+
+
+def ext_for_mime(mime: Optional[str]) -> Optional[str]:
+    """Best-effort extension for a MIME type, or None if not attachable."""
+    if not mime:
+        return None
+    return _EXT_BY_MIME.get(mime.strip().lower())
+
 # Hard cap on auto-attach size. Larger files still return content inline but
 # don't get persisted — the agent should reach for a more specific reader.
 _ATTACH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
@@ -244,8 +261,15 @@ async def attach_drive_file_to_session(
 
     ext = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
     if ext not in _ATTACHABLE_BY_EXT:
-        # Unknown / binary — don't litter the conversation with opaque blobs.
-        return None
+        # Filename has no attachable extension (common for MCP resources keyed by
+        # URI) — try to derive one from the MIME type before giving up.
+        mime_ext = ext_for_mime(mime_type)
+        if mime_ext:
+            ext = mime_ext
+            filename = f"{filename}.{ext}" if filename else f"resource.{ext}"
+        else:
+            # Unknown / binary — don't litter the conversation with opaque blobs.
+            return None
     resolved_mime = mime_type or _ATTACHABLE_BY_EXT[ext]
 
     try:
@@ -276,6 +300,17 @@ async def attach_drive_file_to_session(
         if report_row is not None:
             report_row.files.append(db_file)
             await db.commit()
+
+        # Same-turn visibility: excel_files is the init-time snapshot of
+        # report.files and isn't refreshed mid-run, so a file materialized now
+        # would be invisible to inspect_data / create_data called later THIS
+        # turn. Append it to the live list (same object as agent.analysis_files).
+        try:
+            ef = runtime_ctx.get("excel_files")
+            if isinstance(ef, list) and all(getattr(x, "id", None) != db_file.id for x in ef):
+                ef.append(db_file)
+        except Exception as e:
+            logger.warning("attach_drive_file_to_session: excel_files refresh failed: %s", e)
 
         # Best-effort raw preview, same as upload path.
         try:

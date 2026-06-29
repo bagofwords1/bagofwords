@@ -26,4 +26,5 @@ class ReadMcpResourceOutput(BaseModel):
     uri: Optional[str] = Field(default=None, description="The URI that was read.")
     connection_name: Optional[str] = Field(default=None, description="Name of the connection the resource was read from.")
     truncated: bool = Field(default=False, description="True if the content was truncated to fit.")
+    session_file_id: Optional[str] = Field(default=None, description="If the resource was a binary file (xlsx/pdf/exported sheet), its bytes are materialized into a session file with this id — pass it to inspect_data / create_data / read_excel_as_csv to analyze, exactly like an uploaded file.")
     error_message: Optional[str] = Field(default=None, description="Error message if the read failed.")
