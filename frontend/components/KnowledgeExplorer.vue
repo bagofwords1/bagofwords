@@ -61,14 +61,39 @@
           </UPopover>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <!-- Server-side "Search everything" results (agents + instructions). -->
+        <div v-if="searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-2">
+          <div v-if="searching" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>Searching…</span></div>
+          <template v-else>
+            <div v-if="searchResults.agents.length">
+              <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Agents</div>
+              <button v-for="a in searchResults.agents" :key="a.id" type="button" class="w-full flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 px-2" @click="onAgentClick(a)">
+                <DataSourceIcon :type="a.type" class="w-4 h-4 shrink-0" />
+                <span class="flex-1 text-start truncate">{{ a.name }}</span>
+              </button>
+            </div>
+            <div v-if="searchResults.instructions.length">
+              <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Instructions</div>
+              <InstrLeaf v-for="ins in searchResults.instructions" :key="ins.id" :ins="ins" />
+            </div>
+            <EmptyHint v-if="!searchResults.agents.length && !searchResults.instructions.length" text="No results." />
+          </template>
+        </div>
+
+        <div v-show="!searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
           <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
-            <EmptyHint v-if="listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" add @add="openCreate()" />
-            <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
+            <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
+            <template v-else>
+              <EmptyHint v-if="loadedGroups.has('global') && listFor('global').length === 0" :text="$t('agentsPage.noGlobalRules')" add @add="openCreate()" />
+              <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
+            </template>
           </TreeGroup>
           <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
-            <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
-            <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
+            <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
+            <template v-else>
+              <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
+              <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
+            </template>
           </TreeGroup>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <button v-if="canManageEvals" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'global-evals' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openGlobalEvals()">
@@ -90,13 +115,13 @@
           </div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="instrLoading ? undefined : agentCount(agent.id)" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : '')" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
-                  <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
+                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
                 <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noAccessibleTables')" :pad="48" />
               </TreeGroup>
@@ -130,11 +155,11 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="instrLoading ? undefined : listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
-                <div v-if="instrLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
+                <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                  <EmptyHint v-if="listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" add @add="openCreate({ agentId: agent.id })" :pad="48" />
+                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0" :text="$t('agentsPage.noInstructions')" add @add="openCreate({ agentId: agent.id })" :pad="48" />
                 </template>
               </TreeGroup>
 
@@ -837,11 +862,22 @@ const { isTrainingModeEnabled } = useOrgSettings()
 const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
 
 // ── State ───────────────────────────────────────────────
+// `allInstructions` is the LAZY row cache — it holds only the instruction rows
+// for groups that have been expanded (global, skills, and per-agent), not the
+// whole org. Badges come from `counts` instead, so the tree draws without
+// loading every instruction on mount.
 const allInstructions = ref<Instruction[]>([])
-// True until the first /api/instructions load resolves. Drives a Spinner on the
-// Instructions tree nodes so they don't read as "0 / No instructions yet" while
-// the list is still in flight (the rows arrive late on large orgs).
 const instrLoading = ref(true)
+// Aggregate badge counts (GET /api/instructions/counts): { global, skills,
+// pending_total, by_agent: {id:n}, pending_by_agent: {id:true} }.
+const counts = ref<any>({ global: 0, skills: 0, pending_total: 0, by_agent: {}, pending_by_agent: {} })
+// Which lazy groups have had their rows loaded into `allInstructions`.
+const loadedGroups = ref<Set<string>>(new Set())   // 'global' | 'skills' | <agentId>
+const loadingGroups = ref<Set<string>>(new Set())
+// Server-side cross-entity search results ({ agents, instructions }); non-null
+// while a search is active, which swaps the tree for a flat results view.
+const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
+const searching = ref(false)
 const agents = ref<any[]>([])
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
@@ -853,6 +889,26 @@ watch(showAllAgents, () => { fetchAgents() })
 const labels = ref<{ id: string; name: string }[]>([])
 const categories = ref<string[]>([])
 const search = ref('')
+// Server-side "Search everything": debounced call to /api/knowledge/search that
+// returns matching agents AND instructions. While a query is present we render a
+// flat grouped results view instead of the lazy tree (the tree only has loaded
+// rows, so client-side search can't see everything).
+let searchTimer: any = null
+const runSearch = async (q: string) => {
+  const term = (q || '').trim()
+  if (!term) { searchResults.value = null; searching.value = false; return }
+  searching.value = true
+  try {
+    const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 30 } })
+    searchResults.value = { agents: data.value?.agents || [], instructions: data.value?.instructions || [] }
+  } catch (e) { console.error(e); searchResults.value = { agents: [], instructions: [] } }
+  finally { searching.value = false }
+}
+watch(search, (q) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (!q.trim()) { searchResults.value = null; searching.value = false; return }
+  searchTimer = setTimeout(() => runSearch(q), 250)
+})
 
 const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSource = ref<string[]>([]); const fCategory = ref<string[]>([])
 
@@ -1852,17 +1908,57 @@ const expand = (key: string, force?: boolean) => {
   else if (expanded.value.has(key)) expanded.value.delete(key)
   else expanded.value.add(key)
   if (key.startsWith('agent:') && expanded.value.has(key)) { const id = key.slice('agent:'.length); expanded.value.add('instr:' + id); loadAgentMeta(id) }
+  // Lazy-load instruction rows on first expand of a group (rows arrive from the
+  // backend; counts/badges were already loaded on mount).
+  if (expanded.value.has(key)) {
+    if (key === 'global' || key === 'skills') loadGroup(key)
+    else if (key.startsWith('agent:')) loadGroup(key.slice('agent:'.length))
+    else if (key.startsWith('instr:')) loadGroup(key.slice('instr:'.length))
+  }
   expanded.value = new Set(expanded.value)
 }
 
-// ── Fetching ────────────────────────────────────────────
-const fetchAll = async () => {
-  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) } finally { instrLoading.value = false }
+// ── Fetching (lazy) ─────────────────────────────────────
+// Aggregate badges — one cheap call, no rows. Drives every count/dot in the tree.
+const fetchCounts = async () => {
+  try { const { data } = await useMyFetch<any>('/api/instructions/counts', { method: 'GET' }); if (data.value) counts.value = data.value } catch (e) { console.error(e) }
 }
-// Refresh BOTH the instruction list and the pending-builds map so the left tree
-// (Pending review count, top "N pending" badge, per-row amber dots) stays in
-// sync after a mutation (approve / discard / save). fetchAll alone only updates
-// instruction statuses; pendingInstrIds is what drives the pending signals.
+// Merge fetched rows into the lazy cache (dedupe by id; newest wins).
+const mergeRows = (rows: Instruction[]) => {
+  if (!rows?.length) return
+  const byId = new Map(allInstructions.value.map(i => [i.id, i]))
+  for (const r of rows) byId.set(r.id, r)
+  allInstructions.value = Array.from(byId.values())
+}
+// Lazy-load a group's rows on first expand (cached after). Keys:
+//   'global' -> global_only ; 'skills' -> kind=skill ; <agentId> -> data_source_ids
+const loadGroup = async (key: string, force = false) => {
+  if (!key) return
+  if (!force && loadedGroups.value.has(key)) return
+  if (loadingGroups.value.has(key)) return
+  loadingGroups.value = new Set(loadingGroups.value).add(key)
+  try {
+    const query: Record<string, any> = { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true }
+    if (key === 'global') query.global_only = true
+    else if (key === 'skills') query.kind = 'skill'
+    else { query.data_source_ids = key; query.include_global = false }
+    const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query })
+    mergeRows(data.value?.items || [])
+    loadedGroups.value = new Set(loadedGroups.value).add(key)
+  } catch (e) { console.error(e) } finally {
+    const s = new Set(loadingGroups.value); s.delete(key); loadingGroups.value = s
+  }
+}
+// True while a group is fetching for the first time (drives the per-node Spinner).
+const groupLoading = (key: string) => loadingGroups.value.has(key) && !loadedGroups.value.has(key)
+// Reload everything currently loaded (counts + each loaded group). Used after
+// a mutation so badges and the visible rows both stay correct.
+const fetchAll = async () => {
+  try {
+    await Promise.all([fetchCounts(), ...Array.from(loadedGroups.value).map(k => loadGroup(k, true))])
+  } finally { instrLoading.value = false }
+}
+// Refresh badges + pending dots + visible rows after a mutation.
 const refreshLists = async () => { await Promise.all([fetchAll(), fetchPendingMap()]) }
 const fetchAgents = async () => {
   try {
@@ -1953,11 +2049,13 @@ const openFile = async (f: any, agentId?: string) => {
 // Authoritative: an instruction is "pending" iff it has a real pending change
 // (from /pending-changes). Avoids the old over-count from inherited/stale rows.
 const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id)
-const pendingCount = computed(() => allInstructions.value.filter(isPending).length)
-const globalCount = computed(() => allInstructions.value.filter(i => (i.data_sources || []).length === 0).length)
-const skillCount = computed(() => allInstructions.value.filter(i => (i as any).kind === 'skill').length)
-const agentCount = (id: string) => allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id)).length
-const agentPending = (id: string) => allInstructions.value.some(i => isPending(i) && (i.data_sources || []).some(d => d.id === id))
+// Badges read from the aggregate `counts` (not from the lazy row cache), so they
+// are correct even before a group's rows have been loaded.
+const pendingCount = computed(() => counts.value?.pending_total || 0)
+const globalCount = computed(() => counts.value?.global || 0)
+const skillCount = computed(() => counts.value?.skills || 0)
+const agentCount = (id: string) => counts.value?.by_agent?.[id] || 0
+const agentPending = (id: string) => !!counts.value?.pending_by_agent?.[id]
 
 // ── Leaf lists ──────────────────────────────────────────
 const applyFilters = (list: Instruction[]) => {
@@ -1966,8 +2064,7 @@ const applyFilters = (list: Instruction[]) => {
   if (fLoad.value.length) out = out.filter(i => fLoad.value.includes(i.load_mode || 'always'))
   if (fSource.value.length) out = out.filter(i => fSource.value.includes(h.getSourceType(i)))
   if (fCategory.value.length) out = out.filter(i => fCategory.value.includes(i.category))
-  const q = search.value.trim().toLowerCase()
-  if (q) out = out.filter(i => (i.title || '').toLowerCase().includes(q) || (i.text || '').toLowerCase().includes(q))
+  // Text search is server-side now (see runSearch / searchResults) — not applied here.
   return out
 }
 const listFor = (kind: string) => {
@@ -2276,7 +2373,12 @@ const restoreFromRoute = () => {
     const insId = seg[1]
     if (selectedId.value === insId) return
     const ins = allInstructions.value.find(i => i.id === insId)
-    if (ins) openInstruction(ins)
+    if (ins) { openInstruction(ins); return }
+    // Lazy tree: the row may not be loaded — fetch the single instruction so the
+    // deep link still opens it.
+    useMyFetch<any>(`/api/instructions/${insId}`, { method: 'GET' })
+      .then(({ data }: any) => { if (data?.value) openInstruction(data.value) })
+      .catch(() => {})
     return
   }
   const agentId = seg[0]
@@ -2327,11 +2429,14 @@ const fetchActivity = async (agentId?: string) => {
 }
 
 onMounted(async () => {
-  // Render the tree as soon as agents + instructions are in. fetchPendingMap()
-  // only feeds the decorative amber "pending" dots / "N pending" badge, so it's
-  // fired without blocking — the dots fill in a beat later instead of gating the
-  // whole tree on the heaviest call.
-  await Promise.all([fetchAgents(), fetchConnections(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  // Lazy tree: load agents + aggregate counts only (no instruction rows). Each
+  // group's rows load on first expand. fetchCounts also feeds the pending dots
+  // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
+  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  instrLoading.value = false
+  // Cheap (batched) id list that drives the per-row amber "pending" dots once
+  // rows lazy-load; fired non-blocking so it never gates the tree.
+  fetchPendingMap()
   restoreFromRoute()
   fetchPendingMap()
 })
