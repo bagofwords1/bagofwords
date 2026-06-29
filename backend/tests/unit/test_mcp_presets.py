@@ -16,10 +16,9 @@ def test_dcr_presets_are_oauth():
     # The zero-setup (DCR) set connects via per-user OAuth.
     for key in ("monday", "notion", "atlassian", "linear", "sentry"):
         assert mcp_preset(key).auth == "oauth"
-    # GitHub/Gmail need an OAuth app; Supabase needs a token.
+    # GitHub/Gmail need an OAuth app.
     assert mcp_preset("github").auth == "oauth_app"
     assert mcp_preset("gmail").auth == "oauth_app"
-    assert mcp_preset("supabase").auth == "bearer"
 
 
 def test_license_gate_is_data_shape_scoped():

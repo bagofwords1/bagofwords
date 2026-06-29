@@ -33,10 +33,9 @@ Nothing is seeded automatically. An **admin** adds connectors from the "Add conn
 the modal surfaces the curated set as named one-click tiles. Picking a tile opens the MCP form
 **prefilled** with the provider's server URL + auth, so the admin just clicks **Connect**. The
 popular **ready-out-of-box (DCR)** set — **Monday, Notion, Jira/Atlassian, Linear, Sentry** (all
-verified DCR-capable, zero admin setup) — needs no client/secret; a "No setup" badge marks them and
-the form shows a note that the connector self-registers (DCR) and each user signs in with their own
-account. Non-DCR entries (GitHub/Gmail = `oauth_app`, Supabase = `bearer`) are also in the catalog
-but require a client/token.
+verified DCR-capable, zero admin setup) — needs no client/secret; the form shows a note that the
+connector self-registers (DCR) and each user signs in with their own account. Non-DCR entries
+(GitHub/Gmail = `oauth_app`) are also in the catalog but require a client.
 
 > Earlier iterations auto-seeded the DCR set on org creation (`connector_seed_service`, a startup
 > backfill, and a `seed_default_connectors` flag). That was **removed** — admins add connectors
@@ -68,7 +67,6 @@ Shared app/client per connection; per-user token (OBO). `client_secret` optional
 | Linear | DCR (`mcp.linear.app/register`) | none — auto-seed |
 | Sentry | DCR (`mcp.sentry.dev/oauth/register`) | none — auto-seed |
 | Gmail | `oauth_app` — Google Cloud OAuth client (no official remote DCR MCP) | admin registers, or bundle in catalog |
-| Supabase | `bearer`/PAT (no DCR at root) | user supplies a personal access token |
 | GitHub | OAuth (no root AS metadata; needs app) | admin/app |
 
 ### Licensing — scoped by `data_shape`
@@ -112,7 +110,7 @@ guard). The set of seeded/enabled connectors *is* the allowlist.
 - `useConnectionSignIn.ts` + `needsSignIn()` + "Connect" badge — per-user OAuth redirect (now triggers DCR).
 
 **Built this pass:**
-1. ✅ **MCP presets + `GET /connectors/catalog`** — the named connectors (Notion, Linear, Monday, Sentry, Jira/Atlassian + GitHub/Gmail/Supabase) live as a flat `MCP_PRESETS: list[McpPreset]` in the registry module, each `key`/`title`/`server_url`/`transport`/`auth`. They are **named instances of `type="mcp"`**, not types of their own — the MCP runtime, DCR, and OAuth all gate on `connection.type == "mcp"`, so a brand can't be a registry type. Helpers: `mcp_presets()`, `mcp_preset(key)`, `allowed_dcr_hosts()` (DCR SSRF guard).
+1. ✅ **MCP presets + `GET /connectors/catalog`** — the named connectors (Notion, Linear, Monday, Sentry, Jira/Atlassian + GitHub/Gmail) live as a flat `MCP_PRESETS: list[McpPreset]` in the registry module, each `key`/`title`/`server_url`/`transport`/`auth`. They are **named instances of `type="mcp"`**, not types of their own — the MCP runtime, DCR, and OAuth all gate on `connection.type == "mcp"`, so a brand can't be a registry type. Helpers: `mcp_presets()`, `mcp_preset(key)`, `allowed_dcr_hosts()` (DCR SSRF guard).
 2. ✅ **Catalog tiles in `AddConnectionModal`** — a "Connectors" section renders the presets as named one-click tiles with provider icons; picking one opens `MCPConnectionForm` **prefilled** (server URL + DCR/oauth_app/bearer). DCR tiles show a "registers itself (DCR)" note in the form. Provider icons flow end-to-end via `connector_key` (connection `config.catalog_key` → list serializer → `DataSourceIcon :connector-key`). The catalog + data-source grid share one scroll container.
 3. ✅ **`data_shape`-scoped license gate** (`_user_auth_needs_enterprise`) — per-user auth free for `tools`/`files`/`objects`, Enterprise only for `tables`. *Verified (unit).*
 4. ✅ **DCR SSRF guard** — `ensure_mcp_oauth_config` restricts discovery/registration to catalog hosts. *Verified (non-catalog host blocked).*
@@ -141,8 +139,8 @@ per-user auth **free**. All verified DCR-capable (live probe, 2026-06):
 | `linear` | Linear | `https://mcp.linear.app/mcp` | `https://mcp.linear.app/register` | `oauth` (DCR) | ✅ |
 | `sentry` | Sentry | `https://mcp.sentry.dev/mcp` | `https://mcp.sentry.dev/oauth/register` | `oauth` (DCR) | ✅ |
 
-Not in the DCR set (need a client/token — available on demand): **GitHub** (`oauth_app`, bundled or admin
-app), **Gmail** (`oauth_app` + Google verification/Workspace approval), **Supabase** (`bearer`/PAT).
+Not in the DCR set (need a client — available on demand): **GitHub** (`oauth_app`, bundled or admin
+app), **Gmail** (`oauth_app` + Google verification/Workspace approval).
 
 ---
 

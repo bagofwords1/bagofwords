@@ -104,7 +104,7 @@
               <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
-                  <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" /></template>
+                  <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" /></template>
                   <div v-for="tool in grp.tools" :key="tool.id || tool.name" class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600 dark:text-gray-400" style="padding-left:62px;padding-right:8px">
                     <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
                     <span class="flex-1 text-left truncate font-mono text-xs">{{ tool.name }}</span>
@@ -1880,10 +1880,10 @@ const toolGroups = (agentId: string) => {
   const a = agents.value.find(x => x.id === agentId)
   const connMap: Record<string, any> = {}
   for (const c of (a?.connections || [])) connMap[c.id] = c
-  const groups: Record<string, { connId: string; name: string; type?: string; tools: any[] }> = {}
+  const groups: Record<string, { connId: string; name: string; type?: string; connector_key?: string; tools: any[] }> = {}
   for (const t of tools) {
     const cid = String(t.connection_id ?? t.connection?.id ?? 'tools')
-    if (!groups[cid]) groups[cid] = { connId: cid, name: connMap[cid]?.name || t.connection_name || 'Tools', type: connMap[cid]?.type || t.connection_type, tools: [] }
+    if (!groups[cid]) groups[cid] = { connId: cid, name: connMap[cid]?.name || t.connection_name || 'Tools', type: connMap[cid]?.type || t.connection_type, connector_key: connMap[cid]?.connector_key, tools: [] }
     groups[cid].tools.push(t)
   }
   return Object.values(groups)
