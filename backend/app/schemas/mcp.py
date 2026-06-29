@@ -66,9 +66,9 @@ class TableInfo(BaseModel):
 class ToolInfo(BaseModel):
     """Summary of an MCP / custom-API tool exposed by an agent's connection.
 
-    Name + description only (no input_schema) — mirrors the internal
-    ``<mcp_tools>`` context block. Fetch the full schema with ``list_agent_tools``
-    before calling ``execute_mcp``.
+    Name + description only (mirrors the internal ``<mcp_tools>`` block) to keep
+    the overview small. Fetch full input schemas with ``list_agent_tools`` before
+    calling ``execute_mcp``.
     """
     name: str
     description: Optional[str] = None
@@ -104,6 +104,7 @@ class GetContextOutput(BaseModel):
     report_id: str
     data_sources: List[DataSourceInfo]
     resources: List[ResourceInfo]
+    tools_hint: Optional[str] = Field(default=None, description="Set when agents expose tools: how to get their full input schemas.")
 
 
 # === list_agent_tools (gateway discovery) ===

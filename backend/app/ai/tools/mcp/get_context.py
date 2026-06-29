@@ -31,7 +31,9 @@ class GetContextTool(MCPTool):
     name = "get_context"
     description = (
         "Get available data sources, tables, and metadata resources. Useful for searching or explaining metadata. "
-        "Optionally filter by regex patterns."
+        "Optionally filter by regex patterns. "
+        "Agents may also expose external tools (MCP servers / custom APIs), listed here by name only — "
+        "call list_agent_tools to get their full input schemas before invoking them with execute_mcp."
     )
     
     @property
@@ -181,10 +183,21 @@ class GetContextTool(MCPTool):
                         description=resource.get("description"),
                     ))
         
+        # Tools are listed by name only here. Point the client at list_agent_tools
+        # for their full input schemas before calling execute_mcp.
+        has_tools = any(ds.tools for ds in data_sources_output)
+        tools_hint = (
+            "Some agents expose tools (listed by name above). Call list_agent_tools "
+            "with the agent's data_source_id to get their full input schemas, then "
+            "invoke them with execute_mcp."
+            if has_tools else None
+        )
+
         output = GetContextOutput(
             report_id=str(report.id),
             data_sources=data_sources_output,
             resources=resources_output,
+            tools_hint=tools_hint,
         )
         
         # Finish tracking

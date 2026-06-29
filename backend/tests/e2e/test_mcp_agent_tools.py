@@ -119,9 +119,12 @@ def test_gateway_discovery_and_execute(
     assert is_err is False
     agents = {d["id"]: d for d in context["data_sources"]}
     assert ds_id in agents, f"agent {ds_id} missing from get_context: {context}"
-    advertised = {t["name"] for t in agents[ds_id]["tools"]}
-    print("\n[get_context] advertised tools:", sorted(advertised))
-    assert {"echo", "get_records", "search_docs"} <= advertised
+    agent_tools = {t["name"] for t in agents[ds_id]["tools"]}
+    print("\n[get_context] advertised tools:", sorted(agent_tools))
+    assert {"echo", "get_records", "search_docs"} <= agent_tools
+    # Tools are name-only here; the hint points the client to list_agent_tools.
+    print("[get_context] tools_hint:", context["tools_hint"])
+    assert "list_agent_tools" in (context["tools_hint"] or "")
 
     # 2) list_agent_tools returns full input schemas.
     listed, is_err = _tool_call(call, "list_agent_tools", {"data_source_ids": [ds_id]})
