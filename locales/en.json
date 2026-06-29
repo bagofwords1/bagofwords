@@ -1084,9 +1084,13 @@
       "view": "View",
       "view_schema": "View schema",
       "create_entities": "Manage entities",
-      "manage": "Manage settings"
+      "manage": "Manage settings",
+      "manage_connection": "Manage connection",
+      "create_data_sources": "Create agents",
+      "manage_data_sources": "Manage agents"
     },
-    "addAgent": "+ Add agent...",
+    "connection": "Connection",
+    "addAgent": "+ Add agent or connection...",
     "modelAccess": "Model access",
     "modelAccessHint": "Restricted models",
     "noRestrictedModels": "No restricted models"

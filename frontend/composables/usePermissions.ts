@@ -17,6 +17,8 @@ const ORG_PERM_IMPLIES_RESOURCE: Record<string, Record<string, string[]>> = {
   manage_instructions: { data_source: ['manage_instructions'] },
   manage_entities:     { data_source: ['create_entities'] },
   manage_evals:        { data_source: ['manage_evals'] },
+  // Org connection-admin: manage every connection's config + create agents on any.
+  manage_connections:  { connection: ['manage_connection', 'create_data_sources'] },
 }
 
 const isImpliedByOrgPerm = (
@@ -38,6 +40,10 @@ const isImpliedByOrgPerm = (
 const RESOURCE_PERM_IMPLIES: Record<string, Record<string, string[]>> = {
   data_source: {
     manage: ['manage_instructions', 'create_entities', 'manage_evals', 'manage_members', 'view', 'view_schema'],
+  },
+  connection: {
+    // Managing all agents on a connection includes being able to create them.
+    manage_data_sources: ['create_data_sources'],
   },
 }
 
