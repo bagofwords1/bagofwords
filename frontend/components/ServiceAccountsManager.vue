@@ -103,8 +103,14 @@
                 <div v-if="newKey" class="mb-4 p-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                     <p class="text-xs text-amber-800 dark:text-amber-300 mb-2">{{ $t('serviceAccounts.keyOnce') }}</p>
                     <div class="flex items-center gap-2">
-                        <code class="flex-1 text-xs break-all bg-white dark:bg-gray-800 rounded px-2 py-1 border border-amber-200 dark:border-amber-800">{{ newKey }}</code>
-                        <UButton size="xs" color="gray" icon="i-heroicons-clipboard" @click="copy(newKey)" />
+                        <input
+                            ref="keyInput"
+                            :value="newKey"
+                            readonly
+                            class="flex-1 text-xs font-mono bg-white dark:bg-gray-800 rounded px-2 py-1.5 border border-amber-200 dark:border-amber-800 select-all"
+                            @focus="(e) => (e.target as HTMLInputElement).select()"
+                        />
+                        <UButton size="xs" color="blue" icon="i-heroicons-clipboard" @click="copy(newKey)">{{ $t('serviceAccounts.copy') }}</UButton>
                     </div>
                 </div>
 
@@ -159,6 +165,7 @@ const showCreateModal = ref(false)
 const showKeysModal = ref(false)
 const activeAccount = ref<(ServiceAccount & { keys: ApiKeyRow[] }) | null>(null)
 const newKey = ref<string | null>(null)
+const keyInput = ref<HTMLInputElement | null>(null)
 const form = ref<{ name: string; description: string; role_id: string | undefined }>({ name: '', description: '', role_id: undefined })
 
 const roleOptions = computed(() => roles.value.map(r => ({ label: r.name, value: r.id })))
@@ -209,18 +216,27 @@ async function openKeys(sa: ServiceAccount) {
 
 async function createKey() {
     if (!activeAccount.value) return
-    const { data, error } = await useMyFetch(`/service_accounts/${activeAccount.value.id}/keys`, {
+    const said = activeAccount.value.id
+    const { data, error } = await useMyFetch(`/service_accounts/${said}/keys`, {
         method: 'POST', body: { name: 'key' },
     })
     if (error.value) {
         toast.add({ title: t('serviceAccounts.keyFailed'), color: 'red' })
         return
     }
-    newKey.value = (data.value as any).key
-    await openKeys(activeAccount.value)
+    const minted = (data.value as any).key
+    // Refresh the keys list WITHOUT going through openKeys() — it resets
+    // newKey, which would wipe the one-time secret before it can be shown.
+    const { data: detail, error: derr } = await useMyFetch(`/service_accounts/${said}`)
+    if (!derr.value && detail.value) activeAccount.value = detail.value as any
+    // Set after the refresh so the full key stays visible (shown only once).
+    newKey.value = minted
     showKeysModal.value = true
     await loadAccounts()
 }
+
+// Don't leak a previously-minted secret if the modal is reopened later.
+watch(showKeysModal, (open) => { if (!open) newKey.value = null })
 
 async function revokeKey(keyId: string) {
     if (!activeAccount.value) return
@@ -250,11 +266,31 @@ function rowActions(sa: ServiceAccount) {
     ]]
 }
 
-function copy(text: string | null) {
-    if (text) {
-        navigator.clipboard?.writeText(text)
-        toast.add({ title: t('serviceAccounts.copied'), color: 'green' })
+async function copy(text: string | null) {
+    if (!text) return
+    let ok = false
+    try {
+        // Clipboard API only works in secure contexts (https / localhost).
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text)
+            ok = true
+        }
+    } catch { /* fall through to legacy path */ }
+    if (!ok) {
+        // Fallback for plain-http origins: copy via a temporary selection.
+        try {
+            const el = keyInput.value || document.createElement('textarea')
+            if (!keyInput.value) { el.value = text; document.body.appendChild(el) }
+            ;(el as HTMLInputElement).select()
+            ok = document.execCommand('copy')
+            if (!keyInput.value) document.body.removeChild(el)
+        } catch { ok = false }
     }
+    toast.add(
+        ok
+            ? { title: t('serviceAccounts.copied'), color: 'green' }
+            : { title: t('serviceAccounts.copyManual'), color: 'orange' }
+    )
 }
 
 onMounted(async () => {

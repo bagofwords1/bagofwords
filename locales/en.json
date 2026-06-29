@@ -1161,6 +1161,8 @@
     "apiKeys": "API keys",
     "newKey": "Create key",
     "keyOnce": "Copy this key now — it will not be shown again.",
+    "copy": "Copy",
+    "copyManual": "Select the key and copy it manually",
     "keyName": "Name",
     "keyPrefix": "Prefix",
     "keyLastUsed": "Last used",
