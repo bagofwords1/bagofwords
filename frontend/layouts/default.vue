@@ -526,7 +526,7 @@
   const recentReports = ref<any[]>([])
   const fetchRecentReports = async () => {
     try {
-      const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50 } })
+      const resp = await useMyFetch('/reports', { method: 'GET', query: { filter: 'my', limit: 50, view: 'minimal' } })
       if ((resp as any).status?.value === 'success' && (resp as any).data?.value?.reports) {
         recentReports.value = (resp as any).data.value.reports
       }

@@ -15,7 +15,7 @@ ORG = open("/tmp/org.txt").read().strip()
 H = {"Authorization": f"Bearer {TOK}", "X-Organization-Id": ORG}
 
 MIX = [
-    "/api/reports?filter=my&limit=50",
+    "/api/reports?filter=my&limit=50&view=minimal",
     "/api/instructions?skip=0&limit=200&include_own=true&include_drafts=true&include_archived=true",
     "/api/instructions/pending-changes",
 ]
