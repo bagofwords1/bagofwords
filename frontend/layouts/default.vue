@@ -122,7 +122,7 @@
               <span class="flex items-center justify-center w-5 h-5 text-[18px]">
                 <UIcon :name="item.icon || 'i-heroicons-bell'" />
               </span>
-              <span v-if="showText" class="flex-1 text-left">{{ $t(item.label) }}</span>
+              <span v-if="showText" class="flex-1 text-start">{{ $t(item.label) }}</span>
               <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
             </template>
           </button>
@@ -157,7 +157,7 @@
             {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
           </NuxtLink>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
+        <div class="flex-1 min-h-0 overflow-y-auto -me-1 pe-1">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
             <li v-for="report in recentReports" :key="report.id" class="relative group/report">
               <NuxtLink :to="`/reports/${report.id}`" :class="[
@@ -291,7 +291,7 @@
           v-for="(action, i) in currentReportActions"
           :key="i"
           type="button"
-          class="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+          class="flex items-center gap-2 w-full px-3 py-1.5 text-start hover:bg-gray-100 dark:hover:bg-gray-800"
           :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'"
           @click="reportMenuOpen = false; action.click()"
         >
