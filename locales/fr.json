@@ -893,6 +893,53 @@
       "running": "Exécution...",
       "success": "Succès",
       "failed": "Échec"
+    },
+    "createPrompt": {
+      "savingPrefix": "Enregistrement du prompt : {title}",
+      "saving": "Enregistrement du prompt…",
+      "notSaved": "Prompt non enregistré",
+      "failed": "Échec de l'enregistrement du prompt",
+      "starter": "démarrage",
+      "paramsBadge": "{n} paramètres",
+      "scope": "Portée",
+      "mode": "Mode",
+      "conversationStarter": "amorce de conversation",
+      "agentSingular": "{n} agent",
+      "agentPlural": "{n} agents",
+      "parameters": "Paramètres :",
+      "live": "Actif",
+      "openInPrompts": "Ouvrir dans Prompts"
+    },
+    "editPrompt": {
+      "updating": "Mise à jour du prompt…",
+      "updatedPrefix": "Mis à jour : {title}",
+      "notUpdated": "Prompt non mis à jour",
+      "failed": "Échec de la mise à jour du prompt",
+      "changed": "Modifié :",
+      "noFields": "aucun champ",
+      "live": "Actif",
+      "openInPrompts": "Ouvrir dans Prompts",
+      "fieldText": "texte",
+      "fieldTitle": "titre",
+      "fieldScope": "portée",
+      "fieldMode": "mode",
+      "fieldStarter": "démarrage",
+      "fieldAgents": "agents",
+      "fieldParameters": "paramètres"
+    },
+    "searchPrompts": {
+      "searching": "Recherche de prompts pour {query}…",
+      "searched": "Prompts recherchés pour {query}",
+      "matchSingular": "{count} correspondance",
+      "matchPlural": "{count} correspondances",
+      "empty": "Aucun prompt correspondant.",
+      "open": "Ouvrir dans Prompts",
+      "untitled": "Sans titre",
+      "starter": "démarrage",
+      "queryStarters": "amorces de conversation",
+      "queryScope": "prompts {scope}",
+      "queryThisAgent": "cet agent",
+      "queryAll": "tous les prompts"
     }
   },
   "entityCreate": {

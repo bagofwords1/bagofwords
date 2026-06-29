@@ -903,6 +903,53 @@
       "running": "פועל...",
       "success": "הצלחה",
       "failed": "נכשל"
+    },
+    "createPrompt": {
+      "savingPrefix": "שומר פרומפט: {title}",
+      "saving": "שומר פרומפט…",
+      "notSaved": "הפרומפט לא נשמר",
+      "failed": "שמירת הפרומפט נכשלה",
+      "starter": "פתיח",
+      "paramsBadge": "{n} פרמטרים",
+      "scope": "היקף",
+      "mode": "מצב",
+      "conversationStarter": "פותח שיחה",
+      "agentSingular": "סוכן {n}",
+      "agentPlural": "{n} סוכנים",
+      "parameters": "פרמטרים:",
+      "live": "פעיל",
+      "openInPrompts": "פתח בפרומפטים"
+    },
+    "editPrompt": {
+      "updating": "מעדכן פרומפט…",
+      "updatedPrefix": "עודכן: {title}",
+      "notUpdated": "הפרומפט לא עודכן",
+      "failed": "עדכון הפרומפט נכשל",
+      "changed": "השתנה:",
+      "noFields": "אין שדות",
+      "live": "פעיל",
+      "openInPrompts": "פתח בפרומפטים",
+      "fieldText": "טקסט",
+      "fieldTitle": "כותרת",
+      "fieldScope": "היקף",
+      "fieldMode": "מצב",
+      "fieldStarter": "פתיח",
+      "fieldAgents": "סוכנים",
+      "fieldParameters": "פרמטרים"
+    },
+    "searchPrompts": {
+      "searching": "מחפש פרומפטים עבור {query}…",
+      "searched": "חיפוש פרומפטים עבור {query}",
+      "matchSingular": "התאמה {count}",
+      "matchPlural": "{count} התאמות",
+      "empty": "לא נמצאו פרומפטים תואמים.",
+      "open": "פתח בפרומפטים",
+      "untitled": "ללא כותרת",
+      "starter": "פתיח",
+      "queryStarters": "פותחי שיחה",
+      "queryScope": "פרומפטים של {scope}",
+      "queryThisAgent": "סוכן זה",
+      "queryAll": "כל הפרומפטים"
     }
   },
   "entityCreate": {
