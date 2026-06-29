@@ -30,6 +30,17 @@ from app.ee.audit.service import audit_service
 logger = logging.getLogger(__name__)
 
 
+def _user_auth_needs_enterprise(conn_type: str) -> bool:
+    """Per-user auth (`user_required` / OAuth / OBO) is Enterprise-gated only for
+    TABULAR / warehouse connections (per-user identity / OBO into a database).
+    Integrations — tools / files / objects (MCP, OneDrive, GDrive, popular apps)
+    — get per-user sign-in for free. Unknown types default to gated (safe)."""
+    try:
+        return get_entry(conn_type).data_shape == "tables"
+    except Exception:
+        return True
+
+
 # Human-readable noun for each data_shape; used in connection-test messages.
 _SHAPE_NOUNS = {
     "tables": ("table", "tables"),
@@ -101,11 +112,12 @@ class ConnectionService:
                 detail=f"The {type} connector requires an enterprise license."
             )
 
-        # Check enterprise license for user_required auth policy
-        if auth_policy == "user_required" and not is_enterprise_licensed():
+        # Per-user auth is free for integrations (tools/files/objects); Enterprise
+        # only for tabular/warehouse OBO. See _user_auth_needs_enterprise.
+        if auth_policy == "user_required" and _user_auth_needs_enterprise(type) and not is_enterprise_licensed():
             raise HTTPException(
                 status_code=402,
-                detail="User authentication mode requires an enterprise license."
+                detail="Per-user authentication for this connector requires an enterprise license."
             )
 
         # Default allowed_user_auth_modes for user_required connections on OBO-capable types.
@@ -272,10 +284,10 @@ class ConnectionService:
         new_auth_policy = updates.get("auth_policy")
         if new_auth_policy == "user_required" and connection.auth_policy != "user_required":
             from app.ee.license import is_enterprise_licensed
-            if not is_enterprise_licensed():
+            if _user_auth_needs_enterprise(connection.type) and not is_enterprise_licensed():
                 raise HTTPException(
                     status_code=402,
-                    detail="User authentication mode requires an enterprise license."
+                    detail="Per-user authentication for this connector requires an enterprise license."
                 )
 
         # Scheduled auto-reindex is an enterprise feature. Gate any attempt to

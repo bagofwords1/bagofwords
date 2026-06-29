@@ -34,6 +34,17 @@ async def get_available_data_sources(
 ):
     return await data_source_service.get_available_data_sources(db, organization)
 
+@router.get("/connectors/catalog", response_model=list[dict])
+async def get_connectors_catalog(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Curated catalog of pre-built MCP integrations (Monday, Notion, …) —
+    the named presets on the registry's `mcp` entry. Admins add them from the
+    Add Connection catalog; the DCR ones need no setup."""
+    from app.schemas.data_source_registry import mcp_presets
+    return mcp_presets()
+
 @router.get("/data_sources", response_model=list[DataSourceListItemSchema])
 async def get_data_sources(
     show_all: bool = Query(False, description="Admin 'show all' view: include every data source in the org (private ones too). Only honored for callers with org-wide data-source governance (full_admin_access / manage_connections); ignored otherwise."),

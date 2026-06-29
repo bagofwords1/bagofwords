@@ -46,6 +46,7 @@ def _e2e_force_enterprise_license():
     saved_initialized = ee_license._cache_initialized
     ee_license._cached_license = fake
     ee_license._cache_initialized = True
+
     try:
         yield fake
     finally:

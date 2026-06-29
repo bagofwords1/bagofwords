@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Type
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
@@ -205,6 +206,24 @@ class DataSourceRegistryEntry(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+class McpPreset(BaseModel):
+    """A named, ready-to-connect MCP server preset (e.g. Notion, Linear).
+
+    All presets resolve to `type="mcp"` — they are named *instances* of the mcp
+    type, not types of their own (the MCP runtime, DCR, and OAuth all gate on
+    `connection.type == "mcp"`). They differ only by `server_url`, default
+    `auth`, and `key`/`icon` (the provider brand). `auth="oauth"` means per-user
+    OAuth via Dynamic Client Registration (no admin setup); `oauth_app` needs a
+    registered client; `bearer` takes a per-user token/PAT.
+    """
+    key: str
+    title: str
+    server_url: str
+    transport: str = "streamable_http"   # streamable_http | sse
+    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer
+    description: str = ""
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -952,6 +971,31 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
 }
 
 
+# Named, ready-to-connect MCP servers surfaced as one-click catalog tiles. These
+# are instances of the "mcp" type above (connection.type stays "mcp") — only the
+# server_url / default auth / brand differ. The DCR set (auth="oauth") needs zero
+# admin setup — verified DCR-capable by live probe (2026-06). github/gmail need
+# an OAuth app; supabase a personal access token.
+MCP_PRESETS: List[McpPreset] = [
+    McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
+              description="Boards, items and updates from monday.com."),
+    McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
+              description="Pages, databases and search across your Notion workspace."),
+    McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
+              transport="sse", description="Jira issues and Confluence pages."),
+    McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
+              description="Issues, projects and cycles from Linear."),
+    McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
+              description="Errors, issues and releases from Sentry."),
+    McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
+              auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
+    McpPreset(key="gmail", title="Gmail", server_url="",
+              auth="oauth_app", description="Gmail (needs a Google OAuth client + Workspace approval)."),
+    McpPreset(key="supabase", title="Supabase", server_url="https://mcp.supabase.com/mcp",
+              auth="bearer", description="Supabase project access via a personal access token."),
+]
+
+
 def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     entry = REGISTRY.get(ds_type)
     if not entry:
@@ -989,6 +1033,35 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             and (e.is_connection or include_tool_providers)
         )
     ]
+
+
+# Authorization-server hosts that differ from the resource host (for the DCR
+# SSRF allowlist below).
+_EXTRA_DCR_HOSTS = {"auth.atlassian.com", "cf.mcp.atlassian.com", "github.com"}
+
+
+def mcp_presets() -> list[dict]:
+    """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
+    `GET /connectors/catalog` and the connector tiles."""
+    return [p.model_dump() for p in MCP_PRESETS]
+
+
+def mcp_preset(key: str) -> Optional[McpPreset]:
+    return next((p for p in MCP_PRESETS if p.key == key), None)
+
+
+def allowed_dcr_hosts() -> set:
+    """Hostnames DCR discovery/registration may target (SSRF guard): every
+    preset server_url host plus the known authorization-server hosts. Non-preset
+    custom URLs require an explicit admin allowlist (not implemented here)."""
+    hosts = set()
+    for p in MCP_PRESETS:
+        if p.server_url:
+            h = urlsplit(p.server_url).netloc
+            if h:
+                hosts.add(h)
+    hosts.update(_EXTRA_DCR_HOSTS)
+    return hosts
 
 
 def config_schema_for(ds_type: str) -> Type[BaseModel]:

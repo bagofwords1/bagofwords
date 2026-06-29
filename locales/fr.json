@@ -38,6 +38,7 @@
     "toolOff": "désactivé",
     "signInBadge": "Se connecter",
     "disabledBadge": "Désactivé",
+    "connectorBadge": "Connecteur",
     "tipStatus": "Statut",
     "tipPrivate": "Privé",
     "tipReload": "Recharger",

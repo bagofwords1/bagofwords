@@ -38,6 +38,7 @@
     "toolOff": "desligado",
     "signInBadge": "Entrar",
     "disabledBadge": "Desativado",
+    "connectorBadge": "Conector",
     "tipStatus": "Status",
     "tipPrivate": "Privado",
     "tipReload": "Recarregar",

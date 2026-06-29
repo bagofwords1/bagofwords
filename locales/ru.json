@@ -38,6 +38,7 @@
     "toolOff": "выкл",
     "signInBadge": "Войти",
     "disabledBadge": "Отключено",
+    "connectorBadge": "Коннектор",
     "tipStatus": "Статус",
     "tipPrivate": "Приватный",
     "tipReload": "Перезагрузить",

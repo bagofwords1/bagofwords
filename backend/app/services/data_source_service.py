@@ -11,7 +11,43 @@ from app.schemas.data_source_registry import (
     config_schema_for,
     default_credentials_schema_for,
     resolve_client_class,
+    tool_provider_types,
 )
+
+
+def _ds_is_connector(d) -> bool:
+    """True when every connection on a data source is a tool provider
+    (mcp / custom_api, data_shape="tools"). Such a data source is a
+    "connector": a lightweight, tools-only source surfaced in /agents."""
+    tps = tool_provider_types()
+    conns = getattr(d, "connections", None) or []
+    return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
+
+
+def _ds_connector_key(d):
+    """The preset key (e.g. 'notion', 'monday') for a known connector so the UI
+    can render the provider's icon. Read from a connection's config.catalog_key,
+    else matched by server_url against the mcp presets. None if not a known
+    preset connector."""
+    import json as _json
+    try:
+        from app.schemas.data_source_registry import mcp_presets
+        by_url = {p["server_url"]: p["key"] for p in mcp_presets() if p.get("server_url")}
+    except Exception:
+        by_url = {}
+    for c in (getattr(d, "connections", None) or []):
+        cfg = c.config
+        if isinstance(cfg, str):
+            try:
+                cfg = _json.loads(cfg)
+            except Exception:
+                cfg = {}
+        cfg = cfg or {}
+        if cfg.get("catalog_key"):
+            return cfg["catalog_key"]
+        if cfg.get("server_url") in by_url:
+            return by_url[cfg["server_url"]]
+    return None
 from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
@@ -561,6 +597,25 @@ class DataSourceService:
             await db.commit()
             await db.refresh(new_data_source)
 
+        # Tool-provider connections (mcp / custom_api) carry no schema to index;
+        # instead discover their tools now so the connector is immediately usable
+        # by the agent (execute_mcp gates on ConnectionTool rows). Members can't
+        # call the connection refresh-tools route, so we do it here on create.
+        try:
+            tps = tool_provider_types()
+            conns_for_tools = connections_to_link if connections_to_link else [new_connection]
+            tool_conns = [c for c in conns_for_tools if getattr(c, "type", None) in tps]
+            if tool_conns:
+                from app.services.connection_service import ConnectionService
+                _csvc = ConnectionService()
+                for c in tool_conns:
+                    try:
+                        await _csvc.refresh_tools(db, c, current_user)
+                    except Exception as _te:
+                        logger.warning(f"create_data_source: tool discovery failed for connection {getattr(c,'id',None)}: {_te}")
+        except Exception as _te:
+            logger.warning(f"create_data_source: tool-provider refresh skipped: {_te}")
+
         # Reload the data source with relationships to avoid serialization issues
         stmt = (
             select(DataSource)
@@ -1052,6 +1107,8 @@ class DataSourceService:
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
+                is_connector=_ds_is_connector(d),
+                connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
@@ -1195,6 +1252,8 @@ class DataSourceService:
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
+                is_connector=_ds_is_connector(d),
+                connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
@@ -1280,6 +1339,8 @@ class DataSourceService:
                 publish_status=getattr(d, "publish_status", "published") or "published",
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
                 connections=connections_list,
+                is_connector=_ds_is_connector(d),
+                connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
                 user_status=connections_list[0].user_status if connections_list else None,
@@ -1577,6 +1638,18 @@ class DataSourceService:
             connection_status = await client.atest_connection()
             if not connection_status.get("success"):
                 return connection_status
+
+            # Tool-provider connectors (mcp / custom_api) expose tools, not a
+            # tabular schema — connectivity (which lists tools) is the only
+            # meaningful validation. Skip schema introspection for them.
+            if data_source_type in tool_provider_types():
+                return {
+                    "success": True,
+                    "message": connection_status.get("message", "Connected"),
+                    "connectivity": True,
+                    "schema_access": True,
+                    "table_count": 0,
+                }
 
             # Step 2: Validate schema access by attempting to get tables
             schema_status = await self._avalidate_schema_access(client)

@@ -38,6 +38,7 @@
     "toolOff": "av",
     "signInBadge": "Logga in",
     "disabledBadge": "Inaktiverad",
+    "connectorBadge": "Anslutning",
     "tipStatus": "Status",
     "tipPrivate": "Privat",
     "tipReload": "Ladda om",
