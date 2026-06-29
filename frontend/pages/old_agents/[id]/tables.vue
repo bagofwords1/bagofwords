@@ -217,7 +217,9 @@ async function startSignIn() {
 }
 
 const permissionsLoaded = usePermissionsLoaded()
-const canUpdateDataSource = computed(() => useCan('update_data_source'))
+// Editing this agent's tables requires `manage` on the data source
+// (full_admin bypasses; otherwise a per-resource `manage` grant).
+const canUpdateDataSource = computed(() => useCan('manage', { type: 'data_source', id: id.value }))
 
 // Tables state is managed by TablesSelector component
 

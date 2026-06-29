@@ -1398,8 +1398,8 @@ const usesServiceAccount = (a: any) => {
   if (conns.length) return conns.some((c: any) => c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials && c.user_status?.effective_auth === 'system')
   return a.user_status?.has_user_credentials !== true && a.user_status?.effective_auth === 'system'
 }
-// Editing tables/tools requires manage on the data source (org-wide or on this resource).
-const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || useCan('update_data_source', { type: 'data_source', id })) : false
+// Editing tables/tools requires manage on the data source (full_admin bypasses; otherwise a per-resource `manage` grant).
+const canManageAgent = (id?: string) => id ? useCan('manage', { type: 'data_source', id }) : false
 // Global Evals is an org-admin surface, gated by the org-level manage_evals perm.
 const canManageEvals = computed(() => useCan('manage_evals'))
 const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))

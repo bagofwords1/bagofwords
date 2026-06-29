@@ -213,7 +213,7 @@ async def get_data_source_full_schema(
     return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user, with_stats=with_stats)
 
 @router.put("/data_sources/{data_source_id}/update_schema", response_model=DataSourceSchema)
-@requires_resource_permission('data_source', 'view_schema')
+@requires_resource_permission('data_source', 'manage')
 async def update_table_status_in_schema(
     data_source_id: str,
     tables: list[DataSourceTableSchema],
@@ -235,7 +235,7 @@ async def update_table_status_in_schema(
 
 
 @router.post("/data_sources/{data_source_id}/bulk_update_tables", response_model=DeltaUpdateTablesResponse)
-@requires_resource_permission('data_source', 'view_schema')
+@requires_resource_permission('data_source', 'manage')
 async def bulk_update_tables(
     data_source_id: str,
     request: BulkUpdateTablesRequest,
@@ -270,7 +270,7 @@ async def bulk_update_tables(
 
 
 @router.put("/data_sources/{data_source_id}/update_tables_status", response_model=DeltaUpdateTablesResponse)
-@requires_resource_permission('data_source', 'view_schema')
+@requires_resource_permission('data_source', 'manage')
 async def update_tables_status_delta(
     data_source_id: str,
     request: DeltaUpdateTablesRequest,
