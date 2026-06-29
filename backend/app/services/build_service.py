@@ -463,17 +463,25 @@ class BuildService:
                 db, org_id, source=source, user_id=user_id, agent_id=agent_execution_id
             )
 
-        # For user sources (or ai without execution id), check for existing draft build
+        # For user sources (or ai without execution id), check for existing draft build.
+        # Scope reuse to the build's creator: a draft build is one user's pending,
+        # not-yet-published changes. Reusing another user's (or a lingering
+        # auto_finalize=False generation) draft would entangle unrelated changes —
+        # then a single user's finalize evaluates/promotes the whole shared build,
+        # which both falsely flags their own scoped change as un-publishable ("a
+        # non-admin proposed this instruction change") and could promote another
+        # user's pending instruction to main without their authority.
+        conditions = [
+            InstructionBuild.organization_id == org_id,
+            InstructionBuild.status == 'draft',
+            InstructionBuild.source == source,
+            InstructionBuild.deleted_at == None,
+        ]
+        if user_id is not None:
+            conditions.append(InstructionBuild.created_by_user_id == user_id)
         result = await db.execute(
             select(InstructionBuild)
-            .where(
-                and_(
-                    InstructionBuild.organization_id == org_id,
-                    InstructionBuild.status == 'draft',
-                    InstructionBuild.source == source,
-                    InstructionBuild.deleted_at == None
-                )
-            )
+            .where(and_(*conditions))
             .order_by(InstructionBuild.created_at.desc())
             .limit(1)
         )
