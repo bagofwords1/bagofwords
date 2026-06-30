@@ -29,6 +29,7 @@
     "settings": "Ajustes",
     "noRulesAttached": "No hay reglas adjuntas.",
     "noAccessibleTables": "No hay tablas accesibles.",
+    "noActiveTables": "No hay tablas activas.",
     "noToolsConnected": "No hay herramientas conectadas.",
     "noFiles": "No hay archivos.",
     "noInstructions": "Aún no hay instrucciones.",

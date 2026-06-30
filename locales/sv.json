@@ -29,6 +29,7 @@
     "settings": "Inställningar",
     "noRulesAttached": "Inga regler kopplade.",
     "noAccessibleTables": "Inga åtkomliga tabeller.",
+    "noActiveTables": "Inga aktiva tabeller.",
     "noToolsConnected": "Inga verktyg anslutna.",
     "noFiles": "Inga filer.",
     "noInstructions": "Inga instruktioner ännu.",

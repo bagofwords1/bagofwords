@@ -118,12 +118,12 @@
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
-                <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
+              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? (activeTables(agent.id).length || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
-                <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noAccessibleTables')" :pad="48" />
+                <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
 
               <TreeGroup :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
@@ -2090,6 +2090,10 @@ const listFor = (kind: string) => {
 const hasTableRef = (ins: Instruction) => (ins.references || []).some((r: any) => r.object_type === 'datasource_table')
 const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id) && !hasTableRef(i)))
 const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && (i.references || []).some((r: any) => r.object_type === 'datasource_table' && String(r.object_id) === tableId)))
+// The tree only surfaces ACTIVE (in-scope) tables — the lean working set the
+// agent actually reasons with. The full catalog (active + inactive) lives on the
+// agent's Tables page; the tree is not a schema browser.
+const activeTables = (agentId: string) => (agentTables.value[agentId] || []).filter((t: any) => t.is_active)
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {

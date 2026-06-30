@@ -29,6 +29,7 @@
     "settings": "Настройки",
     "noRulesAttached": "Правила не прикреплены.",
     "noAccessibleTables": "Нет доступных таблиц.",
+    "noActiveTables": "Нет активных таблиц.",
     "noToolsConnected": "Инструменты не подключены.",
     "noFiles": "Нет файлов.",
     "noInstructions": "Пока нет инструкций.",
