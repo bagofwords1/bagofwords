@@ -32,8 +32,43 @@ ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
     "manage_instructions": {"data_source": {"manage_instructions"}},
     "manage_entities":     {"data_source": {"create_entities"}},
     "manage_evals":        {"data_source": {"manage_evals"}},
-    "manage_connections":  {"connection": {"manage_data_sources"}},
+    # Org connection-admin: manage every connection's config AND create agents
+    # on any connection. It is deliberately NOT `manage_data_sources` — managing
+    # *other people's* agents stays an explicit, opt-in per-connection grant.
+    "manage_connections":  {"connection": {"manage_connection", "create_data_sources"}},
 }
+
+# A `manage` grant on a data source is the agent-owner/manager tier: it is a
+# superset that implies the specific management permissions enforced across the
+# agent's surfaces (instructions, entities, evals, membership). This is what
+# lets a non-admin who creates/owns an agent fully manage *that* agent without
+# extra per-permission grants, while still scoping them to their own agents —
+# unlike the org-level `manage_*` perms which apply to every data source.
+RESOURCE_PERM_IMPLIES: dict[str, dict[str, set[str]]] = {
+    "data_source": {
+        "manage": {
+            "manage_instructions",
+            "create_entities",
+            "manage_evals",
+            "manage_members",
+            "view",
+            "view_schema",
+        },
+    },
+    "connection": {
+        # Managing all agents on a connection includes being able to create them.
+        "manage_data_sources": {"create_data_sources"},
+    },
+}
+
+
+def _grant_implies(resource_type: str, granted: set, permission: str) -> bool:
+    """True if any held resource grant implies `permission` (e.g. `manage`)."""
+    by_perm = RESOURCE_PERM_IMPLIES.get(resource_type, {})
+    for held in granted:
+        if permission in by_perm.get(held, set()):
+            return True
+    return False
 
 
 @dataclass
@@ -52,7 +87,9 @@ class ResolvedPermissions:
         """Check if user has a specific resource-level permission.
 
         Tiers: full_admin → implicit view/view_schema (any grant) →
-        org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → explicit grant.
+        org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → grant implications
+        (RESOURCE_PERM_IMPLIES, e.g. `manage` ⇒ manage_instructions) →
+        explicit grant.
         """
         if FULL_ADMIN in self.org_permissions:
             return True
@@ -68,8 +105,30 @@ class ResolvedPermissions:
             implied = ORG_PERM_IMPLIES_RESOURCE.get(org_perm, {}).get(resource_type)
             if implied and permission in implied:
                 return True
+        granted = self.resource_permissions.get(key, set())
+        # Implied by a superset grant on this resource (e.g. `manage`).
+        if _grant_implies(resource_type, granted, permission):
+            return True
         # Explicit grant
-        return permission in self.resource_permissions.get(key, set())
+        return permission in granted
+
+    def has_any_resource_permission(self, permission: str, resource_type: str | None = None) -> bool:
+        """True if the user holds `permission` on at least one resource, via an
+        explicit grant or a superset grant (e.g. `manage`).
+
+        Used by resource-scoped route gating as a cheap pre-filter before the
+        specific resource_id is checked in the route body — it must honour the
+        same grant implications as ``has_resource_permission`` so an agent
+        manager (holding only `manage`) isn't rejected at the door.
+        """
+        if FULL_ADMIN in self.org_permissions:
+            return True
+        for (rtype, _rid), perms in self.resource_permissions.items():
+            if resource_type is not None and rtype != resource_type:
+                continue
+            if permission in perms or _grant_implies(rtype, perms, permission):
+                return True
+        return False
 
     def has_resource_membership(self, resource_type: str, resource_id: str) -> bool:
         """Binary check — is user a member of this resource at all? (non-enterprise path)"""
@@ -77,6 +136,37 @@ class ResolvedPermissions:
             return True
         key = (resource_type, resource_id)
         return key in self.resource_permissions
+
+
+async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
+    """Whether a principal is bound to an organization.
+
+    Humans are bound via a ``Membership`` row. Service accounts have no
+    ``Membership`` (so they consume no seat and never appear in member lists);
+    they are bound via a ``ServiceAccount`` row whose ``organization_id``
+    matches and which is not disabled/deleted.
+    """
+    from app.models.membership import Membership
+
+    if getattr(user, "is_service_account", False):
+        from app.models.service_account import ServiceAccount
+        result = await db.execute(
+            select(ServiceAccount).where(
+                ServiceAccount.user_id == str(user.id),
+                ServiceAccount.organization_id == str(org_id),
+                ServiceAccount.disabled_at.is_(None),
+                ServiceAccount.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == str(user.id),
+            Membership.organization_id == str(org_id),
+        )
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def resolve_permissions(
@@ -220,11 +310,57 @@ async def _resolve_permissions_inner(
         if isinstance(perms, list):
             resource_permissions[key].update(perms)
 
+    # Connection `manage_data_sources` grant ⇒ `manage` on every agent fully
+    # backed by those connections. Expanded here (rather than at check time) so
+    # the per-agent `manage` superset (instructions/entities/evals) and list
+    # visibility both work uniformly. Only EXPLICIT per-connection grants
+    # cascade — org `manage_connections` is connection-admin, not agent-admin.
+    managed_conn_ids = [
+        rid for (rtype, rid), perms in resource_permissions.items()
+        if rtype == "connection" and "manage_data_sources" in perms
+    ]
+    for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
+        resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
+
     return ResolvedPermissions(
         org_permissions=org_permissions,
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+async def _agents_fully_backed_by_connections(
+    db: AsyncSession, connection_ids: list[str],
+) -> set[str]:
+    """Return data_source ids whose connections are ALL within ``connection_ids``.
+
+    ALL-connections semantics: an agent that draws on connections the caller
+    cannot fully manage is excluded, since it exposes data from every
+    connection it uses. Agents with no connections are excluded.
+    """
+    if not connection_ids:
+        return set()
+    from app.models.domain_connection import domain_connection
+
+    granted = set(connection_ids)
+    # Candidate agents: linked to at least one granted connection.
+    cand = await db.execute(
+        select(domain_connection.c.data_source_id)
+        .where(domain_connection.c.connection_id.in_(connection_ids))
+        .distinct()
+    )
+    candidate_ids = [r[0] for r in cand.all()]
+    if not candidate_ids:
+        return set()
+    # Pull every connection of those candidates; keep only fully-granted ones.
+    rows = await db.execute(
+        select(domain_connection.c.data_source_id, domain_connection.c.connection_id)
+        .where(domain_connection.c.data_source_id.in_(candidate_ids))
+    )
+    conns_by_ds: dict[str, set] = {}
+    for ds_id, conn_id in rows.all():
+        conns_by_ds.setdefault(ds_id, set()).add(conn_id)
+    return {ds_id for ds_id, conns in conns_by_ds.items() if conns and conns <= granted}
 
 
 async def get_accessible_data_source_ids(

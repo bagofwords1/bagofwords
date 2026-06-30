@@ -4,12 +4,12 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from app.ee.audit.service import audit_service
-from app.dependencies import get_async_db, get_current_organization
+from app.dependencies import get_async_db, get_current_organization, release_request_db
 from app.errors import AppError, ErrorCode
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission, check_resource_permissions
+from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import (
     InstructionCreate,
@@ -69,6 +69,13 @@ async def create_global_instruction(
             db, str(current_user.id), str(organization.id),
             "data_source", instruction.data_source_ids, "manage_instructions",
         )
+    else:
+        # Truly org-wide (no data source) → stays an org-level capability.
+        # An agent manager's per-DS `manage` must NOT let them author global
+        # instructions that apply to every agent.
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_instructions",
+        )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
 # LIST INSTRUCTIONS
@@ -97,6 +104,7 @@ async def get_instructions(
     search: Optional[str] = Query(None, description="Search in instruction text and title"),
     build_id: Optional[str] = Query(None, description="Load from specific build (defaults to main build)"),
     include_global: bool = Query(True, description="Include global instructions (no data sources) when filtering by data_source_ids"),
+    global_only: bool = Query(False, description="Return only global instructions (attached to no agent) — used by the lazy 'Global instructions' group"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -137,7 +145,7 @@ async def get_instructions(
     elif data_source_id:
         parsed_data_source_ids = [data_source_id]
     
-    return await instruction_service.get_instructions(
+    result = await instruction_service.get_instructions(
         db, organization, current_user,
         skip=skip, limit=limit,
         status=status.value if status else None,
@@ -154,8 +162,36 @@ async def get_instructions(
         label_ids=parsed_label_ids,
         search=search,
         build_id=build_id,
-        include_global=include_global
+        include_global=include_global,
+        global_only=global_only
     )
+    await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
+    return result
+
+
+# COUNTS — drives the /agents tree badges (per-agent count + pending dot,
+# global/skills/total-pending) without hydrating instruction rows. Declared
+# before /instructions/{instruction_id} so "counts" isn't captured as an id.
+@router.get("/instructions/counts")
+async def get_instruction_counts(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await instruction_service.get_instruction_counts(db, organization, current_user)
+
+
+# CROSS-ENTITY SEARCH for the /agents "Search everything" box — grouped shape
+# (agents + instructions), distinct from the instruction list.
+@router.get("/knowledge/search")
+async def search_knowledge(
+    q: str = Query("", description="Search query (matches agent names and instruction text/title)"),
+    limit: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await instruction_service.search_knowledge(db, organization, current_user, q, limit=limit)
 
 
 # BULK UPDATE
@@ -379,6 +415,7 @@ async def get_pending_change_instruction_ids(
     pending = await instruction_service.get_pending_change_instruction_ids(
         db, organization=organization, current_user=current_user
     )
+    await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return {"instruction_ids": sorted(pending)}
 
 

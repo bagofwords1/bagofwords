@@ -7,7 +7,7 @@ from inspect import signature
 from app.models.membership import Membership
 from app.models.instruction import Instruction
 from app.settings.config import settings
-from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+from app.core.permission_resolver import resolve_permissions, principal_belongs_to_org, FULL_ADMIN
 
 _perm_logger = _logging.getLogger(__name__)
 
@@ -74,15 +74,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             if not all([user, organization, db]):
                 raise HTTPException(status_code=400, detail="Missing required parameters")
 
-            # Check user membership and role in organization
-            stmt = select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == organization.id
-            )
-            result = await db.execute(stmt)
-            membership = result.scalar_one_or_none()
-
-            if not membership:
+            # Check that the principal belongs to the organization. Humans bind
+            # via a Membership; service accounts bind via a ServiceAccount row.
+            if not await principal_belongs_to_org(db, user, organization.id):
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
@@ -157,11 +151,11 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 # grants from creating resources with empty data_source_ids.
                 if resource_scoped:
                     perm_to_check = permission if isinstance(permission, str) else list(permission)[0]
-                    has_any_resource = any(
-                        perm_to_check in perms
-                        for perms in resolved.resource_permissions.values()
-                    )
-                    if has_any_resource:
+                    # Honour grant implications (e.g. a `manage` grant implies
+                    # manage_instructions) so an agent manager passes this
+                    # pre-filter; the specific resource_id is still enforced in
+                    # the route body via check_resource_permissions.
+                    if resolved.has_any_resource_permission(perm_to_check):
                         return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
@@ -176,6 +170,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
 # Extend when new resource types land (post-MVP: connection, report).
 _RESOURCE_PARAM_MAP = {
     "data_source": "data_source_id",
+    "connection": "connection_id",
 }
 
 
@@ -220,14 +215,8 @@ def requires_resource_permission(resource_type: str, permission: str):
             if not user.is_verified and settings.bow_config.features.verify_emails:
                 raise HTTPException(status_code=403, detail="User is not verified")
 
-            # Org membership check
-            stmt = select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.organization_id == organization.id,
-            )
-            result = await db.execute(stmt)
-            membership = result.scalar_one_or_none()
-            if not membership:
+            # Org membership check (Membership for humans, ServiceAccount for SAs)
+            if not await principal_belongs_to_org(db, user, organization.id):
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
@@ -315,3 +304,25 @@ async def check_resource_permissions(
                 status_code=403,
                 detail=f"Access denied to {resource_type} {rid} for '{permission}'",
             )
+
+
+async def require_org_permission(
+    db: AsyncSession,
+    user_id: str,
+    org_id: str,
+    permission: str,
+) -> None:
+    """Raise 403 unless the user holds `permission` at the org level.
+
+    `full_admin_access` bypasses. Used for org-wide actions that have no
+    per-resource scope — e.g. creating a *global* (data-source-less)
+    instruction or entity, which must stay an org-admin capability even
+    though the per-resource (`resource_scoped`) routes that share the same
+    handler let agent managers act on their own data sources.
+    """
+    resolved = await resolve_permissions(db, user_id, org_id)
+    if not resolved.has_org_permission(permission):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Org-level '{permission}' required",
+        )

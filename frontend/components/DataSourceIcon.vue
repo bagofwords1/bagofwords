@@ -9,6 +9,9 @@ import { computed, ref, watch } from 'vue';
 // Props to accept the type of data source and class
 const props = defineProps<{
     type: string | null | undefined;
+    // Optional catalog key for a known connector (e.g. "notion", "monday"). When
+    // set, the provider's brand icon is preferred over the generic type icon.
+    connectorKey?: string | null;
     class?: string;
 }>();
 
@@ -33,8 +36,28 @@ const normalizeType = (raw: string) => {
     return t
 }
 
+// Brand icons for known connector catalog keys. Explicit filename per key — the
+// assets live under /data_sources_icons with mixed extensions, and the catalog
+// key isn't always the filename (e.g. atlassian → jira).
+const CONNECTOR_ICON_FILE: Record<string, string> = {
+    monday: 'monday.svg',
+    notion: 'notion.png',
+    atlassian: 'jira.png',
+    linear: 'linear.png',
+    sentry: 'sentry.png',
+    github: 'github.svg',
+    gmail: 'gmail.png',
+    google_drive: 'google_drive.png',
+};
+
 // Computed property to generate the icon path
 const iconPath = computed(() => {
+    // Prefer the provider brand icon for known catalog connectors (even though
+    // the underlying connection type is just "mcp").
+    const ck = props.connectorKey ? normalizeType(props.connectorKey) : '';
+    if (ck && CONNECTOR_ICON_FILE[ck]) {
+        return `/data_sources_icons/${CONNECTOR_ICON_FILE[ck]}`;
+    }
     if (!props.type) {
         return FALLBACK_ICON;
     }

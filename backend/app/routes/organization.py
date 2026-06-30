@@ -8,7 +8,7 @@ from app.schemas.organization_schema import MembershipCreate, MembershipSchema, 
 from app.schemas.organization_schema import MembershipImportReport
 from app.models.user import User
 from app.models.organization import Organization
-from app.core.auth import current_user
+from app.core.auth import current_user, forbid_service_account_principal
 from typing import List
 from app.dependencies import get_current_organization
 from app.core.permissions_decorator import requires_permission
@@ -22,7 +22,7 @@ organization_service = OrganizationService()
 async def create_organization(organization: OrganizationCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
     return await organization_service.create_organization(db, organization, current_user)
 
-@router.post("/organizations/{organization_id}/members", response_model=MembershipSchema)
+@router.post("/organizations/{organization_id}/members", response_model=MembershipSchema, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def add_member(
     organization_id: str,
@@ -51,7 +51,7 @@ async def add_member(
 async def get_members(organization_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await organization_service.get_members(db, organization, current_user)
 
-@router.delete("/organizations/{organization_id}/members/{membership_id}", status_code=204)
+@router.delete("/organizations/{organization_id}/members/{membership_id}", status_code=204, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def remove_member(
     organization_id: str,
@@ -72,7 +72,7 @@ async def remove_member(
     )
     return await organization_service.remove_member(db, organization_id, membership_id, current_user, organization)
 
-@router.put("/organizations/{organization_id}/members/{membership_id}", response_model=MembershipSchema)
+@router.put("/organizations/{organization_id}/members/{membership_id}", response_model=MembershipSchema, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def update_member(
     organization_id: str,
@@ -100,7 +100,7 @@ async def update_member(
     return result
 
 
-@router.post("/organizations/{organization_id}/members/{membership_id}/resend", response_model=MembershipSchema)
+@router.post("/organizations/{organization_id}/members/{membership_id}/resend", response_model=MembershipSchema, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def resend_invite(
     organization_id: str,
@@ -139,7 +139,7 @@ async def get_invite_link(
     return await organization_service.get_invite_link(db, membership_id, organization_id)
 
 
-@router.post("/organizations/{organization_id}/members/import", response_model=MembershipImportReport)
+@router.post("/organizations/{organization_id}/members/import", response_model=MembershipImportReport, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def import_members(
     organization_id: str,

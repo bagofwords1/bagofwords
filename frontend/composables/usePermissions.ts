@@ -17,6 +17,8 @@ const ORG_PERM_IMPLIES_RESOURCE: Record<string, Record<string, string[]>> = {
   manage_instructions: { data_source: ['manage_instructions'] },
   manage_entities:     { data_source: ['create_entities'] },
   manage_evals:        { data_source: ['manage_evals'] },
+  // Org connection-admin: manage every connection's config + create agents on any.
+  manage_connections:  { connection: ['manage_connection', 'create_data_sources'] },
 }
 
 const isImpliedByOrgPerm = (
@@ -27,6 +29,33 @@ const isImpliedByOrgPerm = (
   for (const orgPerm of orgPerms) {
     const implied = ORG_PERM_IMPLIES_RESOURCE[orgPerm]?.[resourceType]
     if (implied && implied.includes(permission)) return true
+  }
+  return false
+}
+
+// Mirror of backend RESOURCE_PERM_IMPLIES in app/core/permission_resolver.py.
+// A `manage` grant on a resource is a superset implying the per-resource
+// management permissions — so an agent owner/manager sees the same edit
+// affordances (instructions, entities, evals, members) the backend allows.
+const RESOURCE_PERM_IMPLIES: Record<string, Record<string, string[]>> = {
+  data_source: {
+    manage: ['manage_instructions', 'create_entities', 'manage_evals', 'manage_members', 'view', 'view_schema'],
+  },
+  connection: {
+    // Managing all agents on a connection includes being able to create them.
+    manage_data_sources: ['create_data_sources'],
+  },
+}
+
+const isImpliedByGrant = (
+  grantedPerms: string[],
+  resourceType: string,
+  permission: string,
+): boolean => {
+  const byPerm = RESOURCE_PERM_IMPLIES[resourceType]
+  if (!byPerm) return false
+  for (const held of grantedPerms) {
+    if (byPerm[held]?.includes(permission)) return true
   }
   return false
 }
@@ -53,7 +82,11 @@ export const useCan = (permission: string, resource?: { type: string; id: string
 
   const resourcePerms = useResourcePermissions()
   const key = `${resource.type}:${resource.id}`
-  return resourcePerms.value[key]?.includes(permission) ?? false
+  const granted = resourcePerms.value[key]
+  if (!granted) return false
+  // Superset grant (e.g. `manage`) implies the management sub-permissions.
+  if (isImpliedByGrant(granted, resource.type, permission)) return true
+  return granted.includes(permission)
 }
 
 // Two-tier OR check: org-level permission OR has it on ANY resource of given type.
@@ -75,8 +108,10 @@ export const useCanAny = (permission: string, resourceType?: string) => {
   if (isImpliedByOrgPerm(permissions.value, resourceType, permission)) return true
 
   // Check if ANY resource grant of this type includes the permission
+  // (directly or via a superset grant like `manage`).
   for (const [key, perms] of Object.entries(resourcePerms.value)) {
-    if (key.startsWith(`${resourceType}:`) && perms.includes(permission)) {
+    if (!key.startsWith(`${resourceType}:`)) continue
+    if (perms.includes(permission) || isImpliedByGrant(perms, resourceType, permission)) {
       return true
     }
   }

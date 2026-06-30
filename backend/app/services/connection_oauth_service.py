@@ -139,20 +139,24 @@ def get_oauth_params(connection: Connection) -> dict:
         # server itself); the per-user dance is standard authorization-code +
         # PKCE. RFC 8707 resource indicator is optional but recommended so the
         # issued token is audience-bound to the MCP server URL.
+        # Endpoints + client may be admin-supplied OR obtained via Dynamic Client
+        # Registration (mcp_dcr_service.ensure_mcp_oauth_config, run before this in
+        # the authorize route). client_secret is OPTIONAL — DCR public clients
+        # (token_endpoint_auth_method="none", e.g. Notion) use PKCE only.
         authorize_url = creds.get("authorize_url")
         token_url = creds.get("token_url")
         client_id = creds.get("client_id")
         client_secret = creds.get("client_secret")
-        if not (authorize_url and token_url and client_id and client_secret):
+        if not (authorize_url and token_url and client_id):
             raise ValueError(
                 f"MCP connection {connection.id} OAuth is missing authorize_url / token_url / "
-                "client_id / client_secret in credentials."
+                "client_id (run discovery + DCR, or supply them in credentials)."
             )
         return {
             "authorize_url": authorize_url,
             "token_url": token_url,
             "client_id": client_id,
-            "client_secret": client_secret,
+            "client_secret": client_secret,  # may be None (public client)
             "scopes": creds.get("scopes") or "",
             "audience": creds.get("audience"),
             "provider_name": "mcp",
@@ -196,8 +200,10 @@ async def exchange_code_for_tokens(
         "code": code,
         "redirect_uri": redirect_uri,
         "client_id": oauth_params["client_id"],
-        "client_secret": oauth_params["client_secret"],
     }
+    # Public clients (DCR token_endpoint_auth_method="none") have no secret.
+    if oauth_params.get("client_secret"):
+        data["client_secret"] = oauth_params["client_secret"]
     if code_verifier:
         data["code_verifier"] = code_verifier
     # RFC 8707 resource indicator — audience-binds the token. Used by MCP
@@ -242,8 +248,9 @@ async def refresh_access_token(
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
         "client_id": oauth_params["client_id"],
-        "client_secret": oauth_params["client_secret"],
     }
+    if oauth_params.get("client_secret"):
+        data["client_secret"] = oauth_params["client_secret"]
     if oauth_params.get("audience"):
         data["resource"] = oauth_params["audience"]
 

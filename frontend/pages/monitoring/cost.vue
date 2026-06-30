@@ -50,7 +50,7 @@
                     <button
                         v-for="opt in metricOptions"
                         :key="opt.value"
-                        class="px-3 py-1 text-xs font-medium transition border-l first:border-l-0 border-gray-200"
+                        class="px-3 py-1 text-xs font-medium transition border-s first:border-s-0 border-gray-200"
                         :class="selectedMetric === opt.value ? 'bg-gray-100 text-gray-900' : 'bg-white text-gray-500 hover:text-gray-700'"
                         @click="selectedMetric = opt.value"
                     >
@@ -61,7 +61,7 @@
             <div class="p-6">
                 <div class="h-72">
                     <div v-if="isLoading" class="flex items-center justify-center h-full">
-                        <div class="flex items-center space-x-2">
+                        <div class="flex items-center gap-2">
                             <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                             <span class="text-gray-600">{{ $t('monitoring.cost.loading') }}</span>
                         </div>
@@ -274,6 +274,7 @@ const trendOptions = computed((): EChartsOption | null => {
     const series = data.value?.timeseries || []
     if (!series.length) return null
     const isCost = selectedMetric.value === 'cost'
+    const metricLabel = isCost ? t('monitoring.cost.metricCost') : t('monitoring.cost.metricTokens')
     const dates = series.map(p => p.date)
     const values = series.map(p => isCost ? Number(p.cost_usd || 0) : Number(p.tokens || 0))
     const fmt = isCost ? (v: number) => `$${v.toFixed(2)}` : (v: number) => compactNum(v)
@@ -283,7 +284,7 @@ const trendOptions = computed((): EChartsOption | null => {
             formatter: (params: any) => {
                 const p = params?.[0]
                 if (!p) return ''
-                return `<div class="text-sm"><div class="font-semibold">${p.axisValue}</div><div>${isCost ? 'Cost' : 'Tokens'}: ${fmt(p.value)}</div></div>`
+                return `<div class="text-sm"><div class="font-semibold">${p.axisValue}</div><div>${metricLabel}: ${fmt(p.value)}</div></div>`
             }
         },
         grid: { left: '3%', right: '4%', bottom: '3%', top: '8%', containLabel: true },
@@ -298,7 +299,7 @@ const trendOptions = computed((): EChartsOption | null => {
             axisLabel: { color: '#666', fontSize: 11, formatter: (v: number) => fmt(v) }
         },
         series: [{
-            name: isCost ? 'Cost' : 'Tokens',
+            name: metricLabel,
             type: 'line', smooth: true, showSymbol: false, data: values,
             lineStyle: { color: '#3b82f6', width: 2 },
             areaStyle: { color: 'rgba(59,130,246,0.06)' },

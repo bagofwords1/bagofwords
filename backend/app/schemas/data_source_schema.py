@@ -89,6 +89,9 @@ class ConnectionEmbedded(BaseModel):
     # Latest schema indexing run, if any. Frontend derives the "indexing"
     # effective status from this plus user_status.connection.
     indexing: Optional[Dict[str, Any]] = None
+    # Catalog key for a known connector (e.g. "notion") so the UI can render the
+    # provider icon even though `type` is just "mcp". None otherwise.
+    connector_key: Optional[str] = None
 
     @validator('config', 'allowed_user_auth_modes', pre=True)
     def parse_json_fields(cls, v):
@@ -205,6 +208,14 @@ class DataSourceListItemSchema(BaseModel):
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
+
+    # True when every connection is a tool provider (mcp/custom_api, i.e.
+    # data_shape="tools"). Lets /agents surface these as "connectors" — a
+    # lightweight, often private, tools-only data source — vs analytical agents.
+    is_connector: bool = False
+    # Catalog key for a known connector (e.g. "notion", "monday"), so the UI can
+    # render the provider's icon instead of the generic MCP glyph. None otherwise.
+    connector_key: Optional[str] = None
 
     # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None

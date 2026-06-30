@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.dependencies import get_db, get_async_db
+from app.dependencies import get_db, get_async_db, release_request_db
 from app.dependencies import get_current_organization
 from app.ee.audit.service import audit_service
 
@@ -90,7 +90,9 @@ async def get_reports(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view)
+    result = await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view)
+    await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
+    return result
 
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)

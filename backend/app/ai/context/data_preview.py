@@ -29,6 +29,64 @@ def _row_bytes(row: Any) -> int:
         return len(str(row).encode("utf-8")) + 2
 
 
+# Per-column stat keys that are pure structure/aggregates — they never reproduce
+# an individual raw cell value, so they are safe to share even when the LLM is
+# not allowed to see data.
+_SAFE_COLUMN_STAT_KEYS = (
+    "dtype", "non_null_count", "null_count", "unique_count", "count", "unique",
+    "mean", "std",
+)
+
+
+def gate_stats_for_privacy(info: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip raw cell values from a ``get_df_info`` stats dict for privacy mode.
+
+    ``df.describe(include='all')`` populates ``column_info`` with values that are
+    *verbatim cells*: ``top`` (most-frequent value), ``min``/``max`` and the
+    percentiles. These must not reach the LLM when ``allow_llm_see_data`` is off.
+
+    Kept (never echo a single row): structural counts and derived aggregates
+    (mean/std, plus an exact ``sum`` derived as mean*count). Date/time columns
+    additionally keep ``min``/``max`` as a low-sensitivity time-range. Categorical
+    columns keep only structural counts (``top``/``freq`` are dropped).
+    """
+    if not isinstance(info, dict):
+        return info
+
+    safe: Dict[str, Any] = {
+        k: info[k]
+        for k in ("total_rows", "total_columns", "memory_usage", "dtypes_count")
+        if k in info
+    }
+
+    cols_out: Dict[str, Any] = {}
+    for col, ci in (info.get("column_info") or {}).items():
+        if not isinstance(ci, dict):
+            cols_out[col] = ci
+            continue
+        dtype = str(ci.get("dtype", ""))
+        safe_ci: Dict[str, Any] = {k: ci[k] for k in _SAFE_COLUMN_STAT_KEYS if k in ci}
+        if "datetime" in dtype or "date" in dtype:
+            # Time extent (range) is an explicit allowed exception — useful for
+            # reasoning about windows, low sensitivity.
+            for k in ("min", "max"):
+                if k in ci:
+                    safe_ci[k] = ci[k]
+        else:
+            # Numeric columns: expose an exact aggregate sum (= mean * count)
+            # without revealing min/max/percentiles.
+            mean, count = ci.get("mean"), ci.get("count")
+            if (
+                isinstance(mean, (int, float)) and not isinstance(mean, bool)
+                and isinstance(count, (int, float)) and not isinstance(count, bool)
+            ):
+                safe_ci["sum"] = mean * count
+        cols_out[col] = safe_ci
+
+    safe["column_info"] = cols_out
+    return safe
+
+
 def build_data_preview(
     formatted: Dict[str, Any],
     *,
@@ -58,7 +116,15 @@ def build_data_preview(
         return {
             "columns": [{"field": c.get("field")} for c in columns if isinstance(c, dict)],
             "row_count": total,
-            "stats": info,
+            "stats": gate_stats_for_privacy(info),
+            "data_hidden": True,
+            "note": (
+                "Row-level data is hidden by organization policy "
+                "(allow_llm_see_data is off). Only columns, row_count, and "
+                "aggregate stats are available — do not attempt to retrieve raw "
+                "values (e.g. via inspect_data); reason from the structure and "
+                "aggregates provided."
+            ),
         }
 
     # Does the whole result fit the budget?

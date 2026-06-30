@@ -9,9 +9,10 @@ out one item per agent, so training/eval fired from the item stays agent-scoped)
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.review_item import (
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_WINDOW_HOURS = 24 * 7
 SLOW_QUERY_MS = 90_000                        # > 90s is "slow"
 QUERY_TOOLS = ("create_data", "read_query")   # tools that run a data query
+LOW_CONFIDENCE_MIN_OCCURRENCES = 5            # only notify after the 5th low score in the window
 
 
 async def _org_and_data_sources_for_report(db, report_id) -> Tuple[Optional[str], List[str]]:
@@ -80,10 +82,32 @@ async def emit_slow_query_for_tool_execution(db, te) -> int:
 
 
 # ── low confidence (event emitter, fired when the judge scores a completion) ──
+async def _recent_low_confidence_count(db, data_source_id: str) -> int:
+    """Count distinct completions scored below 3/5 on this agent within the
+    rolling window. Drives the 'notify only after N in a week' floor — the
+    completions table is the ledger, so no per-event state is needed."""
+    from app.models.completion import Completion
+    from app.models.report_data_source_association import report_data_source_association as assoc
+    window_start = datetime.utcnow() - timedelta(hours=DEFAULT_WINDOW_HOURS)
+    return (await db.execute(
+        select(func.count(func.distinct(Completion.id)))
+        .join(assoc, assoc.c.report_id == Completion.report_id)
+        .where(and_(
+            assoc.c.data_source_id == str(data_source_id),
+            Completion.response_score.isnot(None),
+            Completion.response_score < 3,
+            Completion.created_at >= window_start,
+        ))
+    )).scalar() or 0
+
+
 async def emit_low_confidence_for_completion(db, completion) -> int:
-    """Bump a per-agent low-confidence item when a completion is scored below
-    3/5. Fired once per low score from the judge-score persist path;
-    ``group_count`` accumulates occurrences until resolved/dismissed."""
+    """Surface a per-agent low-confidence item once an agent accumulates
+    ``LOW_CONFIDENCE_MIN_OCCURRENCES`` answers scored below 3/5 within the
+    rolling week window. Fired once per low score from the judge-score persist
+    path; below the floor the low score is tracked silently (it lives in the
+    completions table) and no item/notification is emitted. ``group_count``
+    reflects the windowed occurrence count."""
     score = getattr(completion, "response_score", None)
     if score is None or score >= 3:
         return 0
@@ -99,13 +123,17 @@ async def emit_low_confidence_for_completion(db, completion) -> int:
         return 0
     n = 0
     for ds_id in ds_ids:
+        recent = await _recent_low_confidence_count(db, ds_id)
+        if recent < LOW_CONFIDENCE_MIN_OCCURRENCES:
+            continue  # below the weekly floor — track silently, don't notify yet
         await review_service.emit(
             db, organization_id=org_id, type=TYPE_LOW_CONFIDENCE,
             data_source_id=ds_id, severity=SEVERITY_WARNING,
             title="Low-confidence answers",
-            why="An answer on this agent was scored below 3/5. Run training to close the gaps.",
+            why=f"{recent} answers on this agent were scored below 3/5 in the past week. Run training to close the gaps.",
             group_key=f"low_confidence:{ds_id}",
             subject={"kind": "low_confidence"},
+            occurrences=recent,
             respect_dismissal=True, resurface_after_hours=DEFAULT_WINDOW_HOURS,
         )
         n += 1

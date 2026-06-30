@@ -24,7 +24,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
-from app.ai.context.data_preview import build_data_preview
+from app.ai.context.data_preview import build_data_preview, gate_stats_for_privacy
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
@@ -475,15 +475,21 @@ class CreateDataTool(Tool):
         column_info = info.get("column_info") or {}
         cols = []
         for name, meta in (column_info.items() if isinstance(column_info, dict) else []):
-            cols.append({
+            col = {
                 "name": name,
                 "dtype": meta.get("dtype"),
                 "non_null_count": meta.get("non_null_count"),
                 "unique_count": meta.get("unique_count"),
                 "null_count": meta.get("null_count"),
-                "min": meta.get("min"),
-                "max": meta.get("max"),
-            })
+            }
+            # min/max are verbatim cell values. Expose them only when the LLM may
+            # see data, except date/time ranges which stay as low-sensitivity
+            # metadata useful for axis scaling.
+            _dtype = str(meta.get("dtype", ""))
+            if allow_llm_see_data or "datetime" in _dtype or "date" in _dtype:
+                col["min"] = meta.get("min")
+                col["max"] = meta.get("max")
+            cols.append(col)
         profile: Dict[str, Any] = {
             "row_count": info.get("total_rows"),
             "column_count": info.get("total_columns"),
@@ -1535,7 +1541,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         observation = {
             "summary": result_summary,
             "data_preview": data_preview,
-            "stats": info,
+            "stats": info if allow_llm_see_data else gate_stats_for_privacy(info),
             "analysis_complete": False,
             "final_answer": None,
         }

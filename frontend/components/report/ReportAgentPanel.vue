@@ -565,7 +565,6 @@ function onCredentialsSaved() {
 }
 
 // Permissions
-const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const canViewBuilds = computed(() => useCan('view_builds'))
 const canManageTests = computed(() => useCan('manage_tests'))
 
@@ -581,6 +580,13 @@ const openBuildExplorer = (bid: string) => {
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const selectedAgentId = ref<string | null>(null)
+// Editing the selected agent (tables, starters, …) requires `manage` on that
+// data source (full_admin bypasses; otherwise a per-resource `manage` grant).
+const canUpdateDataSource = computed(() =>
+  selectedAgentId.value
+    ? useCan('manage', { type: 'data_source', id: selectedAgentId.value })
+    : false
+)
 // Synthetic "Global" entry (instructions attached to no agent). Callers that
 // want it — e.g. the home Instructions modal — append { id: GLOBAL_AGENT_ID,
 // name: 'Global', isGlobal: true } to `agents`. The report never does, so its

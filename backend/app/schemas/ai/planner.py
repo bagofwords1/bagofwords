@@ -122,6 +122,11 @@ class PlannerInput(BaseModel):
     # Org-wide limits
     limit_row_count: Optional[int] = None
 
+    # Privacy: when False, the org has disabled "Allow LLM to see data", so tools
+    # return only columns + aggregate stats (no raw rows). Surfaced to the planner
+    # so it knows not to attempt to retrieve raw values.
+    allow_llm_see_data: bool = True
+
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False

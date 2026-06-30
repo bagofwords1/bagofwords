@@ -57,6 +57,7 @@ from app.routes import (
     completion,
     completion_feedback,
     file,
+    file_reference,
     organization,
     data_source,
     agent_reliability,
@@ -87,6 +88,7 @@ from app.routes import (
     user_data_source_credentials,
     mentions,
     api_key,
+    service_account,
     mcp,
     build,
     connection,
@@ -233,6 +235,7 @@ app.include_router(entity.router, prefix="/api")
 app.include_router(completion.router)
 app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
+app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")
@@ -259,6 +262,7 @@ app.include_router(onboarding.router, prefix="/api")
 app.include_router(user_data_source_credentials.router, prefix="/api")
 app.include_router(mentions.router, prefix="/api")
 app.include_router(api_key.router, prefix="/api")
+app.include_router(service_account.router, prefix="/api")
 app.include_router(mcp.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*

@@ -6,7 +6,7 @@ from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission, check_resource_permissions
+from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.errors import AppError, ErrorCode
 
 from app.models.entity import Entity
@@ -56,6 +56,11 @@ async def create_global_entity(
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", payload.data_source_ids, "create_entities",
+        )
+    else:
+        # Truly org-wide (no data source) → stays an org-level capability.
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "create_entities",
         )
     entity = await service.create_entity(db, payload, current_user, organization)
     return EntitySchema.model_validate(entity)

@@ -123,6 +123,7 @@
 
 <script setup lang="ts">
 definePageMeta({ auth: true })
+import { useCan } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
@@ -171,7 +172,12 @@ async function loadConnections() {
   loadingConnections.value = true
   try {
     const response = await useMyFetch('/connections', { method: 'GET' })
-    connections.value = (response.data.value || []) as Connection[]
+    const all = (response.data.value || []) as Connection[]
+    // Only offer connections the user can actually build an agent on, so we
+    // don't surface a connection that would be rejected on Save.
+    connections.value = all.filter(c =>
+      useCan('create_data_sources', { type: 'connection', id: (c as any).id })
+    )
   } catch (err) {
     console.error('Failed to load connections:', err)
   } finally {

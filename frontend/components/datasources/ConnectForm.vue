@@ -248,7 +248,7 @@ const jsonErrorMap = reactive<Record<string, boolean>>({})
 
 function isJsonField(field: any): boolean {
   const t = field?.type
-  return (t === 'object' || t === 'array') && uiType(field) !== 'keyvalue'
+  return ((t === 'object' || t === 'array') || uiType(field) === 'json') && uiType(field) !== 'keyvalue'
 }
 
 function jsonInit(field: any) {
@@ -441,7 +441,7 @@ function initFormDefaults(preserveExisting: boolean = false) {
   if (configProps) {
     Object.entries(configProps).forEach(([k, v]: any) => {
       if (v?.['ui:type'] === 'keyvalue') nextConfig[k] = (v?.default && typeof v.default === 'object') ? { ...v.default } : {}
-      else if (v?.type === 'object' || v?.type === 'array') nextConfig[k] = (v?.default != null) ? v.default : (v?.type === 'array' ? [] : {})
+      else if (v?.type === 'object' || v?.type === 'array' || v?.['ui:type'] === 'json') nextConfig[k] = (v?.default != null) ? v.default : (v?.type === 'object' ? {} : [])
       else nextConfig[k] = v?.default ?? ''
     })
     if (preserveExisting) {
