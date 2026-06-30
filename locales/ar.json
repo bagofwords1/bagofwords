@@ -29,6 +29,7 @@
     "settings": "الإعدادات",
     "noRulesAttached": "لا توجد قواعد مرفقة.",
     "noAccessibleTables": "لا توجد جداول يمكن الوصول إليها.",
+    "noActiveTables": "لا توجد جداول نشطة.",
     "noToolsConnected": "لا توجد أدوات متصلة.",
     "noFiles": "لا توجد ملفات.",
     "noInstructions": "لا توجد تعليمات بعد.",

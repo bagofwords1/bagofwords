@@ -29,6 +29,7 @@
     "settings": "Paramètres",
     "noRulesAttached": "Aucune règle associée.",
     "noAccessibleTables": "Aucune table accessible.",
+    "noActiveTables": "Aucune table active.",
     "noToolsConnected": "Aucun outil connecté.",
     "noFiles": "Aucun fichier.",
     "noInstructions": "Aucune instruction pour le moment.",
