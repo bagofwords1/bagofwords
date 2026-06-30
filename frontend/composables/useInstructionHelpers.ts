@@ -50,9 +50,16 @@ export interface Instruction {
   // derive a "Pending review" effective status for display.
   current_build_id?: string | null
   current_build_status?: 'draft' | 'pending_approval' | 'approved' | 'rejected' | null
+  // Provenance of the live pending change (newest non-main draft/pending build
+  // that actually altered this instruction). Populated by the list endpoint so
+  // the "Pending changes" view can show who proposed it and when.
+  pending_source?: 'user' | 'ai' | 'git' | null
+  pending_created_by?: string | null
+  pending_created_at?: string | null
 
   // Unified Instructions System fields
   source_type?: 'user' | 'ai' | 'git'
+  source_file_path?: string | null
   source_metadata_resource_id?: string | null
   source_git_commit_sha?: string | null
   source_sync_enabled?: boolean

@@ -47,7 +47,7 @@ from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 from app.models.completion import Completion
 from app.models.report import Report
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, literal
 import re
 from datetime import datetime, timedelta
 import logging
@@ -502,7 +502,8 @@ class InstructionService:
         search: Optional[str] = None,
         build_id: Optional[str] = None,
         include_global: bool = True,
-        global_only: bool = False
+        global_only: bool = False,
+        pending_only: bool = False,
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -540,6 +541,7 @@ class InstructionService:
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
             current_user=current_user, kind=kind, global_only=global_only,
+            pending_only=pending_only,
         )
 
     async def _visible_main_build_conditions(self, db, organization, current_user):
@@ -2599,6 +2601,7 @@ class InstructionService:
         current_user: Optional[User] = None,
         kind: Optional[str] = None,
         global_only: bool = False,
+        pending_only: bool = False,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -2736,6 +2739,27 @@ class InstructionService:
         if global_only:
             # Lazy "Global instructions" group: instructions attached to no agent.
             filter_conditions.append(~Instruction.data_sources.any())
+        if pending_only:
+            # "Pending changes" view: only instructions with a LIVE pending change.
+            # The set is computed by the shared, access-scoped helper (same rule as
+            # /instructions/pending-changes and the per-instruction review), so this
+            # never widens visibility beyond the base_conditions above. Scope the
+            # (CPU-heavy) sweep to the requested agents/global subset when present.
+            pending_candidates: Optional[List[str]] = None
+            if data_source_ids:
+                pending_candidates = [
+                    str(r[0]) for r in (await db.execute(
+                        select(instruction_data_source_association.c.instruction_id)
+                        .where(instruction_data_source_association.c.data_source_id.in_(data_source_ids))
+                    )).all()
+                ]
+            pending_ids = await self.get_pending_change_instruction_ids(
+                db, organization, current_user, candidate_ids=pending_candidates
+            ) if current_user is not None else set()
+            filter_conditions.append(
+                Instruction.id.in_([str(i) for i in pending_ids]) if pending_ids
+                else literal(False)
+            )
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
         if data_source_ids:
@@ -2911,15 +2935,24 @@ class InstructionService:
                     )
                 )
                 main_ver: dict = {str(iid): vid for iid, vid in main_rows.all()}
-                # non-main draft/pending builds, newest first
+                # non-main draft/pending builds, newest first. Pull build
+                # provenance (source / creator / created_at) in the same pass so
+                # the "Pending changes" view can show who+when without a per-row
+                # round-trip.
+                from app.models.user import User as _User
                 build_rows = await db.execute(
                     select(
                         BuildContent.instruction_id,
                         InstructionBuild.id,
                         InstructionBuild.status,
                         BuildContent.instruction_version_id,
+                        InstructionBuild.source,
+                        InstructionBuild.created_at,
+                        _User.name,
+                        _User.email,
                     )
                     .join(InstructionBuild, BuildContent.build_id == InstructionBuild.id)
+                    .outerjoin(_User, _User.id == InstructionBuild.created_by_user_id)
                     .where(
                         BuildContent.instruction_id.in_(inst_ids),
                         InstructionBuild.organization_id == str(organization.id),
@@ -2931,13 +2964,19 @@ class InstructionService:
                     .order_by(InstructionBuild.created_at.desc())
                 )
                 latest_by_inst: dict = {}
-                for inst_id, b_id, b_status, ver_id in build_rows.all():
+                pending_meta_by_inst: dict = {}
+                for inst_id, b_id, b_status, ver_id, b_source, b_created_at, u_name, u_email in build_rows.all():
                     key = str(inst_id)
                     mv = main_ver.get(key)
                     if mv is not None and ver_id == mv:
                         continue  # inherited the main version — not a real pending change
                     if key not in latest_by_inst:  # rows are newest-first
                         latest_by_inst[key] = (str(b_id), b_status)
+                        pending_meta_by_inst[key] = {
+                            "source": b_source,
+                            "created_by": (u_name or u_email),
+                            "created_at": b_created_at,
+                        }
                 # Gate on the authoritative pending set (same rule as
                 # /instructions/pending-changes and the single-instruction
                 # detail). A build whose version differs from main but whose
@@ -2955,6 +2994,10 @@ class InstructionService:
                     hit = latest_by_inst.get(str(it.id))
                     if hit and str(it.id) in pending_ids:
                         it.current_build_id, it.current_build_status = hit
+                        meta = pending_meta_by_inst.get(str(it.id)) or {}
+                        it.pending_source = meta.get("source")
+                        it.pending_created_by = meta.get("created_by")
+                        it.pending_created_at = meta.get("created_at")
             except Exception as e:
                 logger.warning(f"Failed to batch-resolve current builds for instruction list: {e}")
 
