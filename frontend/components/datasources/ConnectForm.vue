@@ -33,9 +33,20 @@
               </div>
               <button type="button" @click="kvAdd(field.field_name)" class="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Add parameter</button>
             </div>
-            <div v-else-if="uiType(field) === 'json'">
-              <textarea v-model="jsonTextMap[field.field_name]" @input="jsonSync(field.field_name)" :id="field.field_name" rows="6" class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-xs font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
-              <p v-if="jsonErrorMap[field.field_name]" class="text-xs text-red-500 mt-1">{{ jsonErrorMap[field.field_name] }}</p>
+            <!-- Object/array config (e.g. custom headers, endpoint definitions): edit the
+                 actual JSON instead of rendering "[object Object]" into a text input. -->
+            <div v-else-if="isJsonField(field)">
+              <textarea
+                v-model="jsonTextMap[field.field_name]"
+                @input="jsonSync(field)"
+                :id="field.field_name"
+                rows="4"
+                spellcheck="false"
+                :placeholder="field.type === 'array' ? '[ ... ]' : '{ ... }'"
+                class="block w-full px-3 py-1.5 border rounded-md focus:outline-none text-xs font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                :class="jsonErrorMap[field.field_name] ? 'border-red-400 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'"
+              />
+              <p v-if="jsonErrorMap[field.field_name]" class="mt-1 text-[11px] text-red-500">Invalid JSON — fix to continue.</p>
             </div>
             <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
           </div>
@@ -229,44 +240,47 @@ function initKeyValueFields() {
   }
 }
 
-// Raw text the user edits for any `ui:type: json` config field. The parsed value in
-// formData.config stays the source of truth that gets submitted; this text is just the
-// editable representation, synced back on every edit. jsonErrorMap surfaces parse errors.
+// JSON editors for object/array config fields (custom headers, endpoints, …).
+// formData.config stays the source of truth; jsonTextMap is the editable string
+// representation we parse back on every edit.
 const jsonTextMap = reactive<Record<string, string>>({})
-const jsonErrorMap = reactive<Record<string, string>>({})
+const jsonErrorMap = reactive<Record<string, boolean>>({})
 
-function jsonDefault(fieldName: string): any {
-  const schema = fields.value?.config?.properties?.[fieldName]
-  if (schema && Object.prototype.hasOwnProperty.call(schema, 'default')) return schema.default
-  return schema?.type === 'object' ? {} : []
+function isJsonField(field: any): boolean {
+  const t = field?.type
+  return ((t === 'object' || t === 'array') || uiType(field) === 'json') && uiType(field) !== 'keyvalue'
 }
 
-function jsonInit(fieldName: string) {
-  const cur = (formData.config as any)[fieldName]
-  jsonTextMap[fieldName] = (cur == null || cur === '') ? '' : JSON.stringify(cur, null, 2)
-  jsonErrorMap[fieldName] = ''
+function jsonInit(field: any) {
+  const fn = field.field_name
+  const cur = (formData.config as any)[fn]
+  jsonTextMap[fn] = (cur == null || cur === '') ? '' : JSON.stringify(cur, null, 2)
+  jsonErrorMap[fn] = false
 }
 
-function jsonSync(fieldName: string) {
-  const raw = jsonTextMap[fieldName] ?? ''
-  if (!raw.trim()) {
-    ;(formData.config as any)[fieldName] = jsonDefault(fieldName)
-    jsonErrorMap[fieldName] = ''
+function jsonSync(field: any) {
+  const fn = field.field_name
+  const txt = jsonTextMap[fn] ?? ''
+  if (!txt.trim()) {
+    ;(formData.config as any)[fn] = field.type === 'array' ? [] : {}
+    jsonErrorMap[fn] = false
+    clearTestResult()
     return
   }
   try {
-    ;(formData.config as any)[fieldName] = JSON.parse(raw)
-    jsonErrorMap[fieldName] = ''
+    ;(formData.config as any)[fn] = JSON.parse(txt)
+    jsonErrorMap[fn] = false
   } catch {
-    jsonErrorMap[fieldName] = 'Invalid JSON'
+    jsonErrorMap[fn] = true
   }
+  clearTestResult()
 }
 
-// Initialize JSON editors for any `ui:type: json` config fields in the active schema.
 function initJsonFields() {
   const configProps = fields.value?.config?.properties || {}
   for (const [fieldName, schema] of Object.entries<any>(configProps)) {
-    if ((schema?.['ui:type']) === 'json') jsonInit(fieldName)
+    const field = { field_name: fieldName, ...schema }
+    if (isJsonField(field)) jsonInit(field)
   }
 }
 const selectedAuth = ref<string | undefined>(undefined)
@@ -427,7 +441,7 @@ function initFormDefaults(preserveExisting: boolean = false) {
   if (configProps) {
     Object.entries(configProps).forEach(([k, v]: any) => {
       if (v?.['ui:type'] === 'keyvalue') nextConfig[k] = (v?.default && typeof v.default === 'object') ? { ...v.default } : {}
-      else if (v?.['ui:type'] === 'json') nextConfig[k] = (v?.default != null) ? v.default : (v?.type === 'object' ? {} : [])
+      else if (v?.type === 'object' || v?.type === 'array' || v?.['ui:type'] === 'json') nextConfig[k] = (v?.default != null) ? v.default : (v?.type === 'object' ? {} : [])
       else nextConfig[k] = v?.default ?? ''
     })
     if (preserveExisting) {

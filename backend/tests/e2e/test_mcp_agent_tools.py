@@ -59,20 +59,28 @@ def _tool_call(call, name, arguments):
 
 def _full_setup(
     *, create_user, login_user, whoami, create_api_key, enable_mcp,
-    create_mcp_connection, create_domain_from_connection, test_client,
+    create_domain_from_connection, test_client,
+    create_mcp_connection=None, make_connection=None,
     mock=None, verbose=False,
 ):
-    """Stand up a user + org + MCP agent with discovered tools + a report."""
+    """Stand up a user + org + tool-providing agent + a report.
+
+    By default creates an ``mcp`` connection; pass ``make_connection(token, org_id)``
+    to back the agent with a different connection type (e.g. ``custom_api``).
+    """
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
     api_key = create_api_key(user_token=token, org_id=org_id)["key"]
     enable_mcp(user_token=token, org_id=org_id)
 
-    conn = create_mcp_connection(
-        name="Mock MCP", server_url="http://mock:3000/mcp",
-        user_token=token, org_id=org_id,
-    )
+    if make_connection is not None:
+        conn = make_connection(token, org_id)
+    else:
+        conn = create_mcp_connection(
+            name="Mock MCP", server_url="http://mock:3000/mcp",
+            user_token=token, org_id=org_id,
+        )
     with _patch_provider(mock) as client:
         # Persist ConnectionTool rows from the provider's list_tools().
         r = test_client.post(
@@ -245,3 +253,58 @@ def test_gateway_blocks_non_allow_policy(
         })
     assert out["success"] is False
     assert "policy" in out["error_message"].lower()
+
+
+@pytest.mark.e2e
+def test_gateway_supports_custom_api(
+    create_user, login_user, whoami, create_api_key, enable_mcp,
+    create_custom_api_connection, create_domain_from_connection, test_client, capsys,
+):
+    """An agent backed by a custom_api connection is gatewayed identically to MCP.
+
+    Same connection-type resolution, ConnectionTool rows, policy and execute path
+    — the only difference is the underlying client (CustomApiClient vs McpClient),
+    which construct_client picks by connection type.
+    """
+    def make_conn(token, org_id):
+        # Name an endpoint to match the mock provider's call_tool handler so the
+        # execute path returns deterministic data (the mock backs construct_client).
+        return create_custom_api_connection(
+            name="Mock API", base_url="https://api.example.com/v1",
+            endpoints=[{
+                "name": "get_records", "method": "GET", "path": "/records",
+                "description": "List records",
+                "parameters": [{"name": "count", "in": "query", "type": "integer",
+                                "description": "Max results"}],
+            }],
+            user_token=token, org_id=org_id,
+        )
+
+    ctx = _full_setup(
+        create_user=create_user, login_user=login_user, whoami=whoami,
+        create_api_key=create_api_key, enable_mcp=enable_mcp,
+        create_domain_from_connection=create_domain_from_connection,
+        make_connection=make_conn, test_client=test_client, verbose=True,
+    )
+    call, ds_id, report_id = ctx["call"], ctx["ds_id"], ctx["report_id"]
+
+    # get_context advertises the custom_api agent's tools, tagged as custom_api.
+    context, _ = _tool_call(call, "get_context", {"report_id": report_id})
+    agent = next(d for d in context["data_sources"] if d["id"] == ds_id)
+    tool_names = {t["name"] for t in agent["tools"]}
+    print("\n[custom_api get_context] tools:", sorted(tool_names),
+          "types:", {t["connection_type"] for t in agent["tools"]})
+    assert "get_records" in tool_names
+    assert all(t["connection_type"] == "custom_api" for t in agent["tools"])
+
+    # execute_mcp runs a custom_api tool through the gateway.
+    with _patch_provider(ctx["client"]):
+        out, is_err = _tool_call(call, "execute_mcp", {
+            "data_source_id": ds_id, "tool_name": "get_records",
+            "arguments": {"count": 2},
+        })
+    print("[custom_api execute_mcp get_records] ->", json.dumps(out))
+    assert is_err is False
+    assert out["success"] is True
+    assert out["connection_name"] == "Mock API"
+    assert out["row_count"] == 2
