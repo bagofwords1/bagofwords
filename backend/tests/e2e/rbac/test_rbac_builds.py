@@ -53,8 +53,12 @@ def builds_world(
     )
     assert grant_resp.status_code == 200, grant_resp.json()
 
-    # Create one author-owned instruction touching ds_a — this lands the
-    # author into a pending_approval build (non-admin auto-finalize path).
+    # Create one author-owned instruction touching ds_a. Since the
+    # "agent admins publish their own instructions live" change, an agent
+    # admin (a per-DS ``manage_instructions`` holder) auto-publishes a build
+    # scoped entirely to their own DS — so this instruction is approved and
+    # promoted to main immediately. It does NOT sit in pending_approval for
+    # admin review the way an org-wide / cross-DS proposal would.
     author_inst = test_client.post(
         "/api/instructions",
         json={
@@ -66,19 +70,19 @@ def builds_world(
         headers=_hdr(ds_a_author["token"], org_id),
     )
     assert author_inst.status_code == 200, author_inst.text
+    author_inst_id = author_inst.json()["id"]
 
-    # Find the pending_approval build (non-admin → not promoted to main).
-    pending_resp = test_client.get(
+    # Locate the author's build (now approved + promoted to main) by its
+    # contents. status=all so the lookup is independent of the build's state.
+    all_resp = test_client.get(
         "/api/builds",
-        params={"status": "pending_approval"},
+        params={"status": "all"},
         headers=_hdr(admin["token"], org_id),
     )
-    assert pending_resp.status_code == 200, pending_resp.text
-    pending_items = pending_resp.json()["items"]
+    assert all_resp.status_code == 200, all_resp.text
 
-    # Find the build that touches ds_a only.
     ds_a_build_id = None
-    for b in pending_items:
+    for b in all_resp.json()["items"]:
         contents = test_client.get(
             f"/api/builds/{b['id']}/contents",
             headers=_hdr(admin["token"], org_id),
@@ -86,7 +90,7 @@ def builds_world(
         if contents.status_code != 200:
             continue
         items = contents.json().get("items", [])
-        if any(item["instruction_id"] == author_inst.json()["id"] for item in items):
+        if any(item["instruction_id"] == author_inst_id for item in items):
             ds_a_build_id = b["id"]
             break
 
@@ -99,8 +103,8 @@ def builds_world(
             "member": member,
             "ds_a_author": ds_a_author,
         },
-        "pending_ds_a_build_id": ds_a_build_id,
-        "author_instruction_id": author_inst.json()["id"],
+        "ds_a_build_id": ds_a_build_id,
+        "author_instruction_id": author_inst_id,
     }
 
 
@@ -128,31 +132,39 @@ def test_list_builds_open_to_org_members(test_client, builds_world):
 
 @pytest.mark.e2e
 def test_list_builds_status_filter(test_client, builds_world):
-    """status=pending_approval and status=approved both return well-shaped pages."""
+    """status=pending_approval and status=approved both return well-shaped pages.
+
+    The fixture's per-DS author auto-publishes their own-DS instruction, so the
+    build it produced lands in the ``approved`` bucket (and main), not in
+    ``pending_approval``. The approved page is therefore non-empty; the
+    pending_approval page must still be well-shaped but may legitimately be
+    empty now that own-DS proposals go live without review.
+    """
     org_id = builds_world["org_id"]
     admin_token = builds_world["principals"]["admin"]["token"]
 
-    pending = test_client.get(
-        "/api/builds",
-        params={"status": "pending_approval"},
-        headers=_hdr(admin_token, org_id),
-    )
-    assert pending.status_code == 200, pending.text
-    body = pending.json()
-    assert "items" in body and "total" in body
-    assert body["total"] >= 1
-    # Paginated response: ``total`` is the full match count, ``items`` is
-    # the current page, so items must fit inside total. We also expect at
-    # least one item to come back since total >= 1.
-    assert len(body["items"]) <= body["total"]
-    assert len(body["items"]) >= 1
+    def _page(status):
+        r = test_client.get(
+            "/api/builds",
+            params={"status": status},
+            headers=_hdr(admin_token, org_id),
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "items" in body and "total" in body
+        # Paginated response: ``total`` is the full match count, ``items`` is
+        # the current page, so the page can never exceed the total.
+        assert len(body["items"]) <= body["total"]
+        return body
 
-    approved = test_client.get(
-        "/api/builds",
-        params={"status": "approved"},
-        headers=_hdr(admin_token, org_id),
-    )
-    assert approved.status_code == 200, approved.text
+    # pending_approval: well-shaped page (may be empty — own-DS proposals
+    # auto-publish and so never land here).
+    _page("pending_approval")
+
+    # approved: the auto-published author build lives here, so it is non-empty.
+    approved = _page("approved")
+    assert approved["total"] >= 1
+    assert len(approved["items"]) >= 1
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -161,36 +173,46 @@ def test_list_builds_status_filter(test_client, builds_world):
 
 
 @pytest.mark.e2e
-def test_publish_build_requires_per_ds_grant(test_client, builds_world):
-    """Per-DS author can publish a build that only touches their DS.
+def test_per_ds_author_autopublishes_own_ds(test_client, builds_world):
+    """A per-DS author's own-DS instruction goes live immediately.
 
-    The author owns ``manage_instructions`` on ds_a; the pending build
-    only touches ds_a; therefore _enforce_build_ds_access should pass
-    and publish should succeed.
+    The author owns ``manage_instructions`` on ds_a and the build they create
+    touches only ds_a, so it auto-approves and promotes to main — no separate
+    publish step, and nothing left in pending_approval. A member with no grant
+    cannot even propose an instruction on that DS.
     """
     org_id = builds_world["org_id"]
-    build_id = builds_world["pending_ds_a_build_id"]
-    if build_id is None:
-        pytest.skip("Could not locate the pending_approval build for ds_a")
-
-    author = builds_world["principals"]["ds_a_author"]
+    admin_token = builds_world["principals"]["admin"]["token"]
     member = builds_world["principals"]["member"]
+    author_inst_id = builds_world["author_instruction_id"]
 
-    # Member with no grants cannot publish even an empty build
+    # The author's build was auto-published and is now the org's main build.
+    main = test_client.get("/api/builds/main", headers=_hdr(admin_token, org_id))
+    assert main.status_code == 200, main.text
+    main_build_id = main.json()["id"]
+    assert builds_world["ds_a_build_id"] == main_build_id
+
+    # …and the author's instruction is live inside it (no review required).
+    contents = test_client.get(
+        f"/api/builds/{main_build_id}/contents",
+        headers=_hdr(admin_token, org_id),
+    )
+    assert contents.status_code == 200, contents.text
+    live_ids = {it["instruction_id"] for it in contents.json().get("items", [])}
+    assert author_inst_id in live_ids
+
+    # A member with no grant cannot propose an instruction on ds_a at all.
     r_member = test_client.post(
-        f"/api/builds/{build_id}/publish",
-        json={},
+        "/api/instructions",
+        json={
+            "text": "member tries ds_a",
+            "status": "draft",
+            "category": "general",
+            "data_source_ids": [builds_world["ds_a"]["id"]],
+        },
         headers=_hdr(member["token"], org_id),
     )
     assert r_member.status_code == 403, r_member.text
-
-    # Per-DS author can publish (build touches only ds_a, they hold manage_instructions on ds_a)
-    r_author = test_client.post(
-        f"/api/builds/{build_id}/publish",
-        json={},
-        headers=_hdr(author["token"], org_id),
-    )
-    assert r_author.status_code == 200, r_author.text
 
 
 @pytest.mark.e2e
