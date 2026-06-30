@@ -99,16 +99,110 @@ class DataSourceService:
     def __init__(self):
         pass
 
+    async def _bulk_connection_aux(self, db: AsyncSession, data_sources: list):
+        """Precompute the per-connection indexing rows and table counts for MANY
+        data sources in a handful of grouped queries.
+
+        The list endpoints (e.g. the agents sidebar, especially the admin
+        "show all" view) build a ConnectionEmbedded for every connection of
+        every data source. Done naively that issues one latest-indexing query
+        per data source plus one (or two) table-count queries per connection —
+        an N+1 whose cost grows with the number of agents, which is exactly what
+        makes "show all" slow. This batches all of it into three queries and
+        returns maps keyed by connection id / data source id for
+        ``_build_connections_list`` to read.
+        """
+        from app.models.connection_indexing import ConnectionIndexing
+        from app.models.connection_table import ConnectionTable
+
+        conn_ids = [str(c.id) for d in data_sources for c in (getattr(d, "connections", None) or [])]
+        ds_ids = [str(d.id) for d in data_sources]
+        indexing_by_conn: dict = {}
+        table_count_by_conn: dict = {}
+        legacy_count_by_ds: dict = {}
+        if not conn_ids:
+            return indexing_by_conn, table_count_by_conn, legacy_count_by_ds
+
+        # Latest indexing row per connection (portable MAX(created_at) join).
+        try:
+            latest_subq = (
+                select(
+                    ConnectionIndexing.connection_id,
+                    func.max(ConnectionIndexing.created_at).label("max_created"),
+                )
+                .where(ConnectionIndexing.connection_id.in_(conn_ids))
+                .group_by(ConnectionIndexing.connection_id)
+                .subquery()
+            )
+            rows = await db.execute(
+                select(ConnectionIndexing).join(
+                    latest_subq,
+                    (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                    & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+                )
+            )
+            for idx in rows.scalars().all():
+                indexing_by_conn[str(idx.connection_id)] = idx
+        except Exception:
+            logger.exception("indexing.bulk_lookup_failed_multi")
+
+        # Active table count grouped by connection — one query for all connections.
+        try:
+            count_rows = await db.execute(
+                select(ConnectionTable.connection_id, func.count(DataSourceTable.id))
+                .select_from(DataSourceTable)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id.in_(ds_ids),
+                    DataSourceTable.is_active == True,
+                    ConnectionTable.connection_id.in_(conn_ids),
+                )
+                .group_by(ConnectionTable.connection_id)
+            )
+            for cid, cnt in count_rows.all():
+                table_count_by_conn[str(cid)] = cnt or 0
+        except Exception:
+            logger.exception("table_count.bulk_lookup_failed")
+
+        # Legacy fallback: active tables with no connection_table link, per data source.
+        try:
+            legacy_rows = await db.execute(
+                select(DataSourceTable.datasource_id, func.count(DataSourceTable.id))
+                .where(
+                    DataSourceTable.datasource_id.in_(ds_ids),
+                    DataSourceTable.is_active == True,
+                    DataSourceTable.connection_table_id == None,
+                )
+                .group_by(DataSourceTable.datasource_id)
+            )
+            for dsid, cnt in legacy_rows.all():
+                legacy_count_by_ds[str(dsid)] = cnt or 0
+        except Exception:
+            logger.exception("legacy_table_count.bulk_lookup_failed")
+
+        return indexing_by_conn, table_count_by_conn, legacy_count_by_ds
+
     async def _build_connections_list(
         self,
         db: AsyncSession,
         data_source: DataSource,
         current_user: User = None,
-        live_test: bool = False
+        live_test: bool = False,
+        indexing_by_conn: dict | None = None,
+        table_count_by_conn: dict | None = None,
+        legacy_count_by_ds: dict | None = None,
     ) -> List[ConnectionEmbedded]:
         """
         Build list of ConnectionEmbedded from all connections of a DataSource.
         Includes user_status if current_user is provided.
+
+        ``indexing_by_conn`` / ``table_count_by_conn`` / ``legacy_count_by_ds``
+        are optional precomputed maps. List endpoints that build many data
+        sources at once (e.g. the agents sidebar "show all" view) pass these in
+        so the latest-indexing and table-count lookups are batched once across
+        the whole list instead of run per-connection — avoiding an N+1 that
+        scales with the agent count. Single-data-source callers omit them and
+        keep the original per-call queries.
         """
         if not data_source.connections:
             return []
@@ -121,33 +215,35 @@ class DataSourceService:
         # GET /data_sources/{id} which is polled every ~2s while indexing runs.
         # Postgres has DISTINCT ON; we use a portable correlated subquery with
         # MAX(created_at) so SQLite + Postgres + others all behave the same.
+        # Skipped entirely when the caller supplied a batched map.
         connection_ids = [str(c.id) for c in data_source.connections]
-        indexing_by_conn: dict[str, ConnectionIndexing] = {}
-        if connection_ids:
-            try:
-                latest_subq = (
-                    select(
-                        ConnectionIndexing.connection_id,
-                        func.max(ConnectionIndexing.created_at).label("max_created"),
+        if indexing_by_conn is None:
+            indexing_by_conn = {}
+            if connection_ids:
+                try:
+                    latest_subq = (
+                        select(
+                            ConnectionIndexing.connection_id,
+                            func.max(ConnectionIndexing.created_at).label("max_created"),
+                        )
+                        .where(ConnectionIndexing.connection_id.in_(connection_ids))
+                        .group_by(ConnectionIndexing.connection_id)
+                        .subquery()
                     )
-                    .where(ConnectionIndexing.connection_id.in_(connection_ids))
-                    .group_by(ConnectionIndexing.connection_id)
-                    .subquery()
-                )
-                rows = await db.execute(
-                    select(ConnectionIndexing).join(
-                        latest_subq,
-                        (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
-                        & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+                    rows = await db.execute(
+                        select(ConnectionIndexing).join(
+                            latest_subq,
+                            (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                            & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+                        )
                     )
-                )
-                for idx in rows.scalars().all():
-                    indexing_by_conn[str(idx.connection_id)] = idx
-            except Exception:
-                logger.exception(
-                    "indexing.bulk_lookup_failed",
-                    extra={"data_source_id": str(data_source.id)},
-                )
+                    for idx in rows.scalars().all():
+                        indexing_by_conn[str(idx.connection_id)] = idx
+                except Exception:
+                    logger.exception(
+                        "indexing.bulk_lookup_failed",
+                        extra={"data_source_id": str(data_source.id)},
+                    )
 
         connections_list = []
 
@@ -169,30 +265,39 @@ class DataSourceService:
                     logging.getLogger(__name__).warning(f"Failed to build user_status for connection {conn.name}: {e}")
 
             # Get table count for this specific connection
-            # Count DataSourceTables that reference ConnectionTables belonging to this connection
-            table_count_result = await db.execute(
-                select(func.count(DataSourceTable.id))
-                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
-                .where(
-                    DataSourceTable.datasource_id == str(data_source.id),
-                    DataSourceTable.is_active == True,
-                    ConnectionTable.connection_id == str(conn.id)
-                )
-            )
-            table_count = table_count_result.scalar() or 0
-
-            # Fallback: count legacy tables without connection_table_id
-            # This handles data sources created before the ConnectionTable architecture
-            if table_count == 0:
-                legacy_count_result = await db.execute(
+            # Count DataSourceTables that reference ConnectionTables belonging to this connection.
+            # When the caller supplied batched maps, read the counts from them
+            # instead of issuing per-connection queries (avoids the N+1).
+            if table_count_by_conn is not None:
+                table_count = table_count_by_conn.get(str(conn.id), 0)
+                # Fallback to legacy (connection_table_id IS NULL) tables, mirroring
+                # the per-connection path below.
+                if table_count == 0 and legacy_count_by_ds is not None:
+                    table_count = legacy_count_by_ds.get(str(data_source.id), 0)
+            else:
+                table_count_result = await db.execute(
                     select(func.count(DataSourceTable.id))
+                    .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                     .where(
                         DataSourceTable.datasource_id == str(data_source.id),
                         DataSourceTable.is_active == True,
-                        DataSourceTable.connection_table_id == None
+                        ConnectionTable.connection_id == str(conn.id)
                     )
                 )
-                table_count = legacy_count_result.scalar() or 0
+                table_count = table_count_result.scalar() or 0
+
+                # Fallback: count legacy tables without connection_table_id
+                # This handles data sources created before the ConnectionTable architecture
+                if table_count == 0:
+                    legacy_count_result = await db.execute(
+                        select(func.count(DataSourceTable.id))
+                        .where(
+                            DataSourceTable.datasource_id == str(data_source.id),
+                            DataSourceTable.is_active == True,
+                            DataSourceTable.connection_table_id == None
+                        )
+                    )
+                    table_count = legacy_count_result.scalar() or 0
 
             # User-scoped count: for a user_required connection, the count the UI
             # shows should reflect what THIS user can actually see — their per-user
@@ -1197,7 +1302,14 @@ class DataSourceService:
 
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
-        
+
+        # Batch the per-connection indexing + table-count lookups across the
+        # whole list so building N agents doesn't issue N×(queries) — the N+1
+        # that made the admin "show all" view slow as the org's agent count grew.
+        indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
+            await self._bulk_connection_aux(db, data_sources)
+        )
+
         # Compute once whether the current user has admin-level access to data sources
         # (full_admin_access or org-level create_data_source).
         has_update_perm = False
@@ -1250,12 +1362,16 @@ class DataSourceService:
             # Channel availability gating (external channels only).
             if not d.is_available_in(channel):
                 continue
-            # Build connections list
+            # Build connections list (table counts + indexing read from the
+            # batched maps above instead of per-connection queries).
             connections_list = await self._build_connections_list(
                 db=db,
                 data_source=d,
                 current_user=current_user,
-                live_test=False
+                live_test=False,
+                indexing_by_conn=indexing_by_conn,
+                table_count_by_conn=table_count_by_conn,
+                legacy_count_by_ds=legacy_count_by_ds,
             )
             conn = d.connections[0] if d.connections else None
 
@@ -1328,6 +1444,11 @@ class DataSourceService:
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
 
+        # Batch per-connection indexing + table-count lookups (avoid N+1).
+        indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
+            await self._bulk_connection_aux(db, data_sources)
+        )
+
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
             # Channel availability gating (external channels only).
@@ -1344,7 +1465,10 @@ class DataSourceService:
                 db=db,
                 data_source=d,
                 current_user=None,
-                live_test=False
+                live_test=False,
+                indexing_by_conn=indexing_by_conn,
+                table_count_by_conn=table_count_by_conn,
+                legacy_count_by_ds=legacy_count_by_ds,
             )
 
             s = DataSourceListItemSchema(
