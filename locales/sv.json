@@ -600,7 +600,7 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Steg: {id}",
     "viewAgentTrace": "Visa agentspår",
-    "followUp": "Follow up"
+    "followUp": "Följdfrågor"
   },
   "tools": {
     "common": {

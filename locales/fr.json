@@ -600,7 +600,7 @@
     "widgetRef": "→ Widget : {id}",
     "stepRef": "→ Étape : {id}",
     "viewAgentTrace": "Voir la trace de l'agent",
-    "followUp": "Follow up"
+    "followUp": "Questions de suivi"
   },
   "tools": {
     "common": {

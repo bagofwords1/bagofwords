@@ -600,7 +600,7 @@
     "widgetRef": "→ Виджет: {id}",
     "stepRef": "→ Шаг: {id}",
     "viewAgentTrace": "Просмотр трассировки агента",
-    "followUp": "Follow up"
+    "followUp": "Дополнительные вопросы"
   },
   "tools": {
     "common": {
