@@ -2993,11 +2993,13 @@ class DataSourceService:
                     trigger=TRIGGER_TABLE_CHANGE,
                     changed_hint=f"{activated_count} table(s) activated",
                 )
-                from app.services.review_producers import emit_schema_changed
-                await emit_schema_changed(
-                    db, str(organization.id), str(data_source_id),
-                    summary=f"{activated_count} table(s) activated on this connection.",
-                )
+                # NOTE: intentionally NO "Connection schema changed" review/notification
+                # here. Activating tables is a deliberate user action in the table
+                # selector — not a backend schema change — so notifying about it is
+                # noise. The schema-changed alert is reserved for genuine upstream
+                # structural drift detected during a schema sync (see
+                # sync_domain_tables, which emits emit_schema_changed on a real
+                # table/column structure change).
             except Exception:
                 logger.debug("update_tables_status_delta: reliability trigger skipped", exc_info=True)
 
