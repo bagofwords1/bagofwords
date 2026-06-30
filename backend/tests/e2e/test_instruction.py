@@ -770,3 +770,129 @@ def test_pending_status_consistent_between_list_and_detail(
     assert effective(single) == "published"
     assert effective(row) == "published", "list must not show pending when detail shows Active"
     assert effective(single) == effective(row)
+
+
+@pytest.mark.e2e
+def test_agent_count_matches_list_under_inaccessible_table(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Regression for the /agents tree 3->0 flicker.
+
+    An agent's Instructions node first renders the badge count
+    (GET /api/instructions/counts -> by_agent[agent]) then switches to the
+    per-agent lazy list length once it loads. When a table-pinned instruction's
+    only referenced table is in the user's per-user inaccessible-table overlay,
+    the list filters it out (_filter_list_items_by_table_accessibility) — so the
+    counts MUST apply the same cut, otherwise the badge counts an instruction the
+    list then drops and the node flickers 3 -> 0 / "No instructions yet".
+    """
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    me = whoami(token)
+    org_id = me["organizations"][0]["id"]
+    user_id = me["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    ds_id = str(uuid.uuid4())
+    table_id = str(uuid.uuid4())
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    now = datetime.datetime.utcnow()
+    try:
+        with engine.begin() as conn:
+            # Agent (data source) the user is a member of, with one active table.
+            conn.execute(
+                text(
+                    "INSERT INTO data_sources (id,created_at,updated_at,name,is_active,organization_id,"
+                    "is_public,use_llm_sync,publish_status,reliability_status)"
+                    " VALUES (:id,:ca,:ua,:name,:active,:org,:pub,:llm,:pubst,:rel)"
+                ),
+                {"id": ds_id, "ca": now, "ua": now, "name": "Pinned Agent", "active": True,
+                 "org": org_id, "pub": False, "llm": False, "pubst": "published", "rel": "unknown"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO data_source_memberships (id,created_at,updated_at,data_source_id,principal_type,principal_id,config)"
+                    " VALUES (:id,:ca,:ua,:ds,:pt,:pid,:cfg)"
+                ),
+                {"id": str(uuid.uuid4()), "ca": now, "ua": now, "ds": ds_id,
+                 "pt": "user", "pid": user_id, "cfg": '{"role": "owner"}'},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO datasource_tables (id,created_at,updated_at,name,datasource_id,is_active,columns,no_rows,pks,fks)"
+                    " VALUES (:id,:ca,:ua,:name,:ds,:active,:cols,:nr,:pks,:fks)"
+                ),
+                {"id": table_id, "ca": now, "ua": now, "name": "orders", "ds": ds_id, "active": True,
+                 "cols": "[]", "nr": 0, "pks": "[]", "fks": "[]"},
+            )
+    finally:
+        engine.dispose()
+
+    # Create an instruction PINNED to that table via the real API (so it gets a
+    # main-build version and a datasource_table reference through the service).
+    resp = test_client.post(
+        "/api/instructions",
+        json={
+            "text": "Pinned instruction for orders",
+            "status": "published",
+            "category": "general",
+            "data_source_ids": [ds_id],
+            "references": [{
+                "object_type": "datasource_table",
+                "object_id": table_id,
+                "display_text": "orders",
+            }],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+    def by_agent_count():
+        r = test_client.get("/api/instructions/counts", headers=headers)
+        assert r.status_code == 200, r.json()
+        return r.json()["by_agent"].get(ds_id, 0)
+
+    def list_count():
+        r = test_client.get(
+            "/api/instructions",
+            params={"data_source_ids": ds_id, "include_global": "false", "limit": 200,
+                    "include_own": "true", "include_drafts": "true", "include_archived": "true"},
+            headers=headers,
+        )
+        assert r.status_code == 200, r.json()
+        return len(r.json()["items"])
+
+    # Table accessible (no overlay): badge and list agree at 1.
+    assert by_agent_count() == 1
+    assert list_count() == 1
+    assert by_agent_count() == list_count()
+
+    # Mark the table inaccessible for this user. Now the list hides the
+    # instruction; the count must match (no 3->0 flicker).
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO user_data_source_tables (id,created_at,updated_at,data_source_id,user_id,"
+                    "table_name,data_source_table_id,is_accessible,status)"
+                    " VALUES (:id,:ca,:ua,:ds,:uid,:tn,:tid,:acc,:st)"
+                ),
+                {"id": str(uuid.uuid4()), "ca": now, "ua": now, "ds": ds_id, "uid": user_id,
+                 "tn": "orders", "tid": table_id, "acc": False, "st": "inaccessible"},
+            )
+    finally:
+        engine.dispose()
+
+    assert list_count() == 0, "list must hide an instruction whose only table is inaccessible"
+    assert by_agent_count() == 0, "badge count must match the list (no 3->0 flicker)"
+    assert by_agent_count() == list_count()
