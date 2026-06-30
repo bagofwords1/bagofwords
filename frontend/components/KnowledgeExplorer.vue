@@ -1921,7 +1921,18 @@ const expand = (key: string, force?: boolean) => {
 // ── Fetching (lazy) ─────────────────────────────────────
 // Aggregate badges — one cheap call, no rows. Drives every count/dot in the tree.
 const fetchCounts = async () => {
-  try { const { data } = await useMyFetch<any>('/api/instructions/counts', { method: 'GET' }); if (data.value) counts.value = data.value } catch (e) { console.error(e) }
+  try {
+    const { data } = await useMyFetch<any>('/api/instructions/counts', { method: 'GET' })
+    if (data.value) {
+      counts.value = data.value
+      // Counts already carries the full per-instruction pending set, so the
+      // per-row "pending" dots come from this one call — no separate org-wide
+      // /pending-changes sweep needed on the hot path.
+      if (Array.isArray(data.value.pending_instruction_ids)) {
+        pendingInstrIds.value = new Set<string>(data.value.pending_instruction_ids.map((x: any) => String(x)))
+      }
+    }
+  } catch (e) { console.error(e) }
 }
 // Merge fetched rows into the lazy cache (dedupe by id; newest wins).
 const mergeRows = (rows: Instruction[]) => {
@@ -1958,8 +1969,10 @@ const fetchAll = async () => {
     await Promise.all([fetchCounts(), ...Array.from(loadedGroups.value).map(k => loadGroup(k, true))])
   } finally { instrLoading.value = false }
 }
-// Refresh badges + pending dots + visible rows after a mutation.
-const refreshLists = async () => { await Promise.all([fetchAll(), fetchPendingMap()]) }
+// Refresh badges + pending dots + visible rows after a mutation. fetchAll() runs
+// fetchCounts(), which also refreshes the per-row pending-dot set — so no extra
+// /pending-changes sweep is needed here.
+const refreshLists = async () => { await fetchAll() }
 const fetchAgents = async () => {
   try {
     // include_unconnected=true so members also see user_required (OBO) agents
@@ -2435,11 +2448,9 @@ onMounted(async () => {
   // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
   await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   instrLoading.value = false
-  // Cheap (batched) id list that drives the per-row amber "pending" dots once
-  // rows lazy-load; fired non-blocking so it never gates the tree.
-  fetchPendingMap()
+  // fetchCounts already populated the per-row "pending" dot set from its own
+  // response, so no separate org-wide /pending-changes sweep is needed here.
   restoreFromRoute()
-  fetchPendingMap()
 })
 </script>
 
