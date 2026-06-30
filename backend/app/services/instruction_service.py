@@ -636,6 +636,10 @@ class InstructionService:
             "pending_total": len(pending_ids),
             "by_agent": by_agent,
             "pending_by_agent": pending_by_agent,
+            # The full per-instruction pending set, already computed above. Returned
+            # so the client can drive the per-row "pending review" dots from this
+            # single call instead of a second org-wide /pending-changes sweep.
+            "pending_instruction_ids": sorted(pending_ids),
         }
 
     async def search_knowledge(self, db, organization, current_user, q: str, limit: int = 20) -> dict:
@@ -1344,25 +1348,7 @@ class InstructionService:
         from app.models.build_content import BuildContent
 
         org_id = str(organization.id)
-        cand_stmt = (
-            select(BuildContent.instruction_id)
-            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
-            .where(and_(
-                InstructionBuild.organization_id == org_id,
-                InstructionBuild.is_main.is_(False),
-                InstructionBuild.deleted_at.is_(None),
-                InstructionBuild.status.in_(["draft", "pending_approval"]),
-                InstructionBuild.source.in_(["user", "ai", "git"]),
-            ))
-            .distinct()
-        )
-        if candidate_ids is not None:
-            if not candidate_ids:
-                return set()
-            cand_stmt = cand_stmt.where(BuildContent.instruction_id.in_([str(i) for i in candidate_ids]))
-
-        cand_ids = [str(iid) for (iid,) in (await db.execute(cand_stmt)).all()]
-        if not cand_ids:
+        if candidate_ids is not None and not candidate_ids:
             return set()
 
         from app.models.instruction_version import InstructionVersion as _IV
@@ -1374,7 +1360,35 @@ class InstructionService:
         # fixed handful of bulk queries + an in-memory diff pass instead of
         # O(instructions × builds) serialized round-trips.
 
-        # (1) Live main text per candidate (authoritative is_main build content),
+        # (1) Every pending suggestion build, with its proposed text and build
+        #     metadata (rejected_hunks + base_build_id are already-loaded columns,
+        #     no lazy load). The WHERE already selects exactly the pending
+        #     suggestion rows, so the candidate instruction ids are DERIVED from
+        #     these rows — we deliberately do NOT additionally filter by a
+        #     separately-materialized id list in the org-wide case: feeding a
+        #     thousands-element IN(...) here made SQLite pick a pathological plan
+        #     (~40x slower). candidate_ids (the on-screen subset, small) is the
+        #     one case where narrowing helps, so it's applied then.
+        sug_where = [
+            InstructionBuild.is_main.is_(False),
+            InstructionBuild.organization_id == org_id,
+            InstructionBuild.deleted_at.is_(None),
+            InstructionBuild.status.in_(["draft", "pending_approval"]),
+            InstructionBuild.source.in_(["user", "ai", "git"]),
+        ]
+        if candidate_ids is not None:
+            sug_where.append(BuildContent.instruction_id.in_([str(i) for i in candidate_ids]))
+        sug_rows = (await db.execute(
+            select(BuildContent.instruction_id, InstructionBuild, _IV.text)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .join(_IV, _IV.id == BuildContent.instruction_version_id)
+            .where(and_(*sug_where))
+        )).all()
+        if not sug_rows:
+            return set()
+        cand_ids = list({str(iid) for iid, _b, _t in sug_rows})
+
+        # (2) Live main text per candidate (authoritative is_main build content),
         #     with a fallback to the live instruction row for legacy instructions
         #     that predate main-build content — mirrors _main_text_of().
         main_text: dict = {}
@@ -1396,23 +1410,6 @@ class InstructionService:
                 select(Instruction.id, Instruction.text).where(Instruction.id.in_(missing_main))
             )).all():
                 main_text[str(iid)] = txt or ""
-
-        # (2) Every pending suggestion build for all candidates, with its proposed
-        #     text and build metadata (rejected_hunks + base_build_id come from the
-        #     ORM row — both are already-loaded columns, no lazy load).
-        sug_rows = (await db.execute(
-            select(BuildContent.instruction_id, InstructionBuild, _IV.text)
-            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
-            .join(_IV, _IV.id == BuildContent.instruction_version_id)
-            .where(and_(
-                InstructionBuild.is_main.is_(False),
-                InstructionBuild.organization_id == org_id,
-                InstructionBuild.deleted_at.is_(None),
-                InstructionBuild.status.in_(["draft", "pending_approval"]),
-                InstructionBuild.source.in_(["user", "ai", "git"]),
-                BuildContent.instruction_id.in_(cand_ids),
-            ))
-        )).all()
 
         # (3) Base text for each (base_build_id, instruction_id) pair the
         #     suggestions forked from — what _build_base_text() resolves per build.
@@ -2657,8 +2654,33 @@ class InstructionService:
             # can render them highlighted as "Pending review". Skip when an
             # explicit build_id is requested (that caller wants exactly that build).
             if build_id is None and current_user is not None:
+                # The pending merge only needs to surface pending rows THIS list
+                # would actually show. When scoped to specific agents (or the
+                # global group), restrict the CPU-heavy per-hunk sweep to that
+                # subset instead of the whole org — output-identical (the
+                # data_source_ids / global_only filters below already exclude
+                # everything else) but bounded by the page, not the org. Without
+                # this, expanding one agent recomputes every pending change in the
+                # org (seconds at thousands of pending).
+                pending_candidates: Optional[List[str]] = None
+                if data_source_ids:
+                    pending_candidates = [
+                        str(r[0]) for r in (await db.execute(
+                            select(instruction_data_source_association.c.instruction_id)
+                            .where(instruction_data_source_association.c.data_source_id.in_(data_source_ids))
+                        )).all()
+                    ]
+                elif global_only:
+                    pending_candidates = [
+                        str(r[0]) for r in (await db.execute(
+                            select(Instruction.id).where(and_(
+                                Instruction.organization_id == organization.id,
+                                ~Instruction.data_sources.any(),
+                            ))
+                        )).all()
+                    ]
                 pending_ids = await self.get_pending_change_instruction_ids(
-                    db, organization, current_user
+                    db, organization, current_user, candidate_ids=pending_candidates
                 )
                 if pending_ids:
                     membership_clause = or_(
