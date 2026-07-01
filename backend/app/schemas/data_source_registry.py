@@ -30,6 +30,7 @@ from app.schemas.data_sources.configs import (
     PinotConfig,
     DruidConfig,
     DruidTokenCredentials,
+    DruidBasicTokenCredentials,
     MongoDBConfig,
     PostHogConfig,
     # DuckDB
@@ -433,7 +434,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         config_schema=DruidConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"]),
-            "token": AuthVariant(title="API Token", schema=DruidTokenCredentials, scopes=["system","user"]),
+            "token": AuthVariant(title="API Token (Bearer)", schema=DruidTokenCredentials, scopes=["system","user"]),
+            "basic_token": AuthVariant(title="API Token (Basic)", schema=DruidBasicTokenCredentials, scopes=["system","user"]),
         }),
         client_path=None,
         version="beta",

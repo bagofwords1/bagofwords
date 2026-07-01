@@ -108,6 +108,99 @@ class TestConnectKwargs:
         assert kw["jwt"] == "tok"
         assert "user" not in kw and "password" not in kw
 
+    def test_basic_token_sets_no_pydruid_auth_kwargs(self):
+        # basic_token is handled by the raw-HTTP path, not pydruid, and wins over
+        # every other auth field.
+        c = DruidClient(
+            host="h", user="u", password="p", token="tok", basic_token="pok_abc"
+        )
+        kw = c._connect_kwargs
+        assert "jwt" not in kw
+        assert "user" not in kw and "password" not in kw
+
+
+# ---------- raw Basic-token auth path ---------- #
+
+
+class _FakeResponse:
+    def __init__(self, status_code, json_data=None, text=""):
+        self.status_code = status_code
+        self._json = json_data if json_data is not None else []
+        self.text = text
+
+    def json(self):
+        return self._json
+
+
+class _CapturingPost:
+    """Stand-in for ``requests.post`` that records the call and returns a
+    canned :class:`_FakeResponse`."""
+
+    def __init__(self, response):
+        self._response = response
+        self.calls = []
+
+    def __call__(self, url, **kwargs):
+        self.calls.append({"url": url, **kwargs})
+        return self._response
+
+
+class TestBasicTokenAuth:
+    def test_execute_query_sends_verbatim_basic_header(self, monkeypatch):
+        post = _CapturingPost(_FakeResponse(200, [{"day": "2026-06-16", "cnt": 5}]))
+        monkeypatch.setattr(
+            "app.data_sources.clients.druid_client.requests.post", post
+        )
+        c = DruidClient(
+            host="broker.example",
+            port=443,
+            secure=True,
+            path="/v1/projects/p/query/sql/",
+            basic_token="pok_abc123",
+        )
+        df = c.execute_query("SELECT day, cnt FROM druid.events")
+
+        # DataFrame is built from the object-format rows.
+        assert list(df.columns) == ["day", "cnt"]
+        assert list(df["cnt"]) == [5]
+
+        # The token is sent raw after ``Basic`` — no base64, no Bearer.
+        call = post.calls[0]
+        assert call["url"] == "https://broker.example:443/v1/projects/p/query/sql/"
+        assert call["headers"]["Authorization"] == "Basic pok_abc123"
+        assert call["json"]["query"] == "SELECT day, cnt FROM druid.events"
+
+    def test_non_200_raises(self, monkeypatch):
+        post = _CapturingPost(_FakeResponse(401, [], text="Unauthorized"))
+        monkeypatch.setattr(
+            "app.data_sources.clients.druid_client.requests.post", post
+        )
+        c = DruidClient(host="h", basic_token="pok_bad")
+        with pytest.raises(RuntimeError, match="401"):
+            c.execute_query("SELECT 1")
+
+    def test_get_tables_maps_rows(self, monkeypatch):
+        rows = [
+            {"TABLE_SCHEMA": "druid", "TABLE_NAME": "events",
+             "COLUMN_NAME": "page", "DATA_TYPE": "VARCHAR"},
+        ]
+        post = _CapturingPost(_FakeResponse(200, rows))
+        monkeypatch.setattr(
+            "app.data_sources.clients.druid_client.requests.post", post
+        )
+        c = DruidClient(host="h", basic_token="pok_x")
+        tables = c.get_tables()
+        assert [t.name for t in tables] == ["druid.events"]
+        assert tables[0].columns[0].name == "page"
+
+    def test_test_connection_success(self, monkeypatch):
+        post = _CapturingPost(_FakeResponse(200, [{"EXPR$0": 1}]))
+        monkeypatch.setattr(
+            "app.data_sources.clients.druid_client.requests.post", post
+        )
+        res = DruidClient(host="h", basic_token="pok_x").test_connection()
+        assert res["success"] is True
+
 
 class TestSchemaParsing:
     def test_comma_separated_dedup_and_order(self):
@@ -250,6 +343,28 @@ class TestRegistryWiring:
         assert creds.token == "abc123"
         with pytest.raises(Exception):
             DruidTokenCredentials()  # token is required
+
+    def test_basic_token_auth_variant_registered(self):
+        from app.schemas.data_source_registry import (
+            credentials_schema_for,
+            get_entry,
+        )
+        from app.schemas.data_sources.configs import DruidBasicTokenCredentials
+
+        entry = get_entry("druid")
+        assert "basic_token" in entry.credentials_auth.by_auth
+        assert (
+            credentials_schema_for("druid", "basic_token")
+            is DruidBasicTokenCredentials
+        )
+
+    def test_basic_token_credentials_validate(self):
+        from app.schemas.data_sources.configs import DruidBasicTokenCredentials
+
+        creds = DruidBasicTokenCredentials(basic_token="pok_abc")
+        assert creds.basic_token == "pok_abc"
+        with pytest.raises(Exception):
+            DruidBasicTokenCredentials()  # basic_token is required
 
     def test_dynamic_resolution_returns_druid_client(self):
         from app.schemas.data_source_registry import resolve_client_class
