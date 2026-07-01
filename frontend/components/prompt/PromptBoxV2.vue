@@ -968,10 +968,13 @@ async function hydrateReportDataSources(reportId?: string, { showSpinner = true 
         isHydratingDataSources.value = true
     }
     try {
-        const res = await useMyFetch(`/reports/${reportId}`, { method: 'GET' })
-        const report = (res as any)?.data?.value as any
-        if (report && Array.isArray(report.data_sources)) {
-            selectedDataSources.value = report.data_sources
+        // Lightweight endpoint: only the report's data sources, not the full
+        // report payload (widgets/queries/artifacts/counts/etc.). Keeps the
+        // prompt box (e.g. scheduled-task modal) from hanging on hydration.
+        const res = await useMyFetch(`/reports/${reportId}/data-sources`, { method: 'GET' })
+        const dataSources = (res as any)?.data?.value as any
+        if (Array.isArray(dataSources)) {
+            selectedDataSources.value = dataSources
         } else {
             selectedDataSources.value = []
         }

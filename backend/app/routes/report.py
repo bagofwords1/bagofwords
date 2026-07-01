@@ -11,6 +11,7 @@ from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
 from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate
+from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
@@ -103,6 +104,17 @@ async def update_report(report_id: str, report: ReportUpdate, current_user: User
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
     return await report_service.get_report(db, report_id, current_user, organization)
+
+
+@router.get("/reports/{report_id}/data-sources", response_model=List[DataSourceReportSchema])
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def get_report_data_sources(report_id: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
+    """Lightweight endpoint returning only the report's data sources.
+
+    Used to hydrate the prompt box (e.g. the scheduled-task modal) without
+    paying for the full report payload.
+    """
+    return await report_service.get_report_data_sources(db, report_id)
 
 
 @router.delete("/reports/{report_id}", response_model=ReportSchema)

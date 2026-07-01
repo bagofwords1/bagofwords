@@ -103,6 +103,91 @@ def test_get_report_includes_conversation_share_status(
     assert fetched["conversation_share_token"] == payload["token"]
 
 
+@pytest.mark.e2e
+def test_get_report_data_sources_lightweight(
+    test_client,
+    create_report,
+    create_data_source,
+    create_user,
+    login_user,
+    whoami,
+):
+    """The lightweight /reports/{id}/data-sources endpoint returns just the
+    report's data sources (used to hydrate the prompt box without loading the
+    full report payload)."""
+    from pathlib import Path
+    db_path = (Path(__file__).resolve().parent.parent / "config" / "chinook.sqlite").resolve()
+    if not db_path.exists():
+        pytest.skip(f"SQLite test database missing at {db_path}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+
+    data_source = create_data_source(
+        name="DS Hydration",
+        type="sqlite",
+        config={"database": str(db_path)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    report = create_report(
+        title="Report with DS",
+        user_token=user_token,
+        org_id=org_id,
+        data_sources=[data_source["id"]],
+    )
+
+    resp = test_client.get(f"/api/reports/{report['id']}/data-sources", headers=headers)
+    assert resp.status_code == 200, resp.json()
+    payload = resp.json()
+    assert isinstance(payload, list)
+    assert len(payload) == 1
+    assert payload[0]["id"] == data_source["id"]
+    assert payload[0]["name"] == "DS Hydration"
+    # Shape matches what the full report returns for data_sources.
+    assert "connections" in payload[0]
+
+
+@pytest.mark.e2e
+def test_get_report_data_sources_empty_and_404(
+    test_client,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+):
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+
+    report = create_report(
+        title="Report no DS",
+        user_token=user_token,
+        org_id=org_id,
+        data_sources=[],
+    )
+
+    resp = test_client.get(f"/api/reports/{report['id']}/data-sources", headers=headers)
+    assert resp.status_code == 200, resp.json()
+    assert resp.json() == []
+
+    missing = test_client.get("/api/reports/does-not-exist/data-sources", headers=headers)
+    assert missing.status_code == 404
+
+
 # --- Fork Report Tests ---
 
 def _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client=None):

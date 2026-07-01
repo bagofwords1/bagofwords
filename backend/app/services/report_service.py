@@ -301,6 +301,30 @@ class ReportService:
         return settings.version
         
 
+    async def get_report_data_sources(self, db: AsyncSession, report_id: str) -> list[DataSourceReportSchema]:
+        """Return only the report's data sources.
+
+        This is a lightweight alternative to `get_report` for callers that just
+        need the data-source list (e.g. hydrating the prompt box in the
+        scheduled-task modal). It avoids the full report payload — no lazy loads
+        of widgets/queries/artifacts/shares, no count queries, no app-version
+        detection or fork-lineage enrichment — so the request stays fast.
+        """
+        result = await db.execute(
+            select(Report)
+            .options(
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
+            )
+            .filter(Report.id == report_id)
+        )
+        report = result.unique().scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return [DataSourceReportSchema.from_orm(ds) for ds in (report.data_sources or [])]
+
     async def get_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> ReportSchema:
         # Same pattern as get_reports: suppress only the DataSource cascade
         # (the actual cost), let Report's own lazy="selectin" fire so
