@@ -1676,6 +1676,8 @@
     "createAgent": "Datenagent erstellen",
     "showAllAgents": "Alle anzeigen",
     "showAllAgentsHint": "Admin-Ansicht: enthält private Datenagenten, in denen Sie kein Mitglied sind.",
+    "showDisabledAgents": "Deaktivierte anzeigen",
+    "showDisabledAgentsHint": "Ihre deaktivierten Datenagenten einbeziehen, damit Sie sie wieder aktivieren können.",
     "adminOnlyTag": "Admin",
     "adminOnlyHint": "Privater Datenagent – für Sie als Admin sichtbar. Sie sind kein Mitglied.",
     "trySample": "Probieren Sie eine Beispieldatenbank:",

@@ -609,26 +609,80 @@ class InstructionService:
 
         # Fold not-in-main pending instructions into the same surfaces so the
         # badges match the rows the lazy list now returns (which include pending).
+        #
+        # CRITICAL: apply the SAME visibility scoping the list uses. The pending
+        # fold must never surface (or count) a pending instruction on an agent
+        # the caller can't see, otherwise by_agent[X] over-counts vs. the list
+        # (the confirmed "3→0" badge bug). Visibility here mirrors
+        # `_visible_main_build_conditions`: an instruction is visible iff it's
+        # global (attached to no agent) OR attached to a member/public agent —
+        # and only its member/public agents get a per-agent count.
         pending_ids = {str(i) for i in await self.get_pending_change_instruction_ids(db, organization, current_user)}
         pending_by_agent: dict = {}
         if pending_ids:
             pid_list = list(pending_ids)
-            for iid, kind in (await db.execute(
-                select(Instruction.id, Instruction.kind).where(Instruction.id.in_(pid_list))
-            )).all():
-                if kind == 'skill':
-                    skills_ids.add(str(iid))
-            assigned = set()
+
+            # Data sources the caller may see (member + public). Used to scope the
+            # pending fold. When there's no user (service context) we don't
+            # restrict — matches _visible_main_build_conditions skipping the
+            # visibility clause when current_user is None.
+            visible_ds_ids: Optional[set] = None
+            if current_user is not None:
+                from app.core.permission_resolver import get_member_data_source_ids
+                member_ds_ids = {
+                    str(m) for m in await get_member_data_source_ids(
+                        db, str(current_user.id), str(organization.id)
+                    )
+                }
+                public_ds_ids = {
+                    str(r) for r in (await db.execute(
+                        select(DataSource.id).where(and_(
+                            DataSource.organization_id == organization.id,
+                            DataSource.is_public == True,  # noqa: E712
+                        ))
+                    )).scalars().all()
+                }
+                visible_ds_ids = member_ds_ids | public_ds_ids
+
+            # Every (agent, pending instruction) association, then split into
+            # visible vs. not so we can (a) count only visible agents and (b)
+            # decide global/visibility correctly. A pending instruction is
+            # VISIBLE iff it is global (no agent) OR attached to a member/public
+            # agent — matching `_visible_main_build_conditions`.
+            assigned_any = set()       # attached to at least one agent (any visibility)
+            visible_pending = set()    # attached to at least one visible agent
             for ds_id, iid in (await db.execute(
                 select(assoc.c.data_source_id, assoc.c.instruction_id)
                 .where(assoc.c.instruction_id.in_(pid_list))
             )).all():
-                agent_sets.setdefault(str(ds_id), set()).add(str(iid))
+                sid = str(iid)
+                assigned_any.add(sid)
+                if visible_ds_ids is not None and str(ds_id) not in visible_ds_ids:
+                    continue  # agent not visible to caller — do not count/surface
+                visible_pending.add(sid)
+                agent_sets.setdefault(str(ds_id), set()).add(sid)
                 pending_by_agent[str(ds_id)] = True
-                assigned.add(str(iid))
-            # Pending instructions attached to no agent are global.
-            for iid in pending_ids - assigned:
-                global_ids.add(iid)
+
+            # A pending instruction attached to no agent at all is global.
+            # (Instructions attached only to invisible agents are neither global
+            # nor per-agent — invisible, matching the list.)
+            unassigned = pending_ids - assigned_any
+            for iid, kind in (await db.execute(
+                select(Instruction.id, Instruction.kind).where(Instruction.id.in_(pid_list))
+            )).all():
+                sid = str(iid)
+                if sid in unassigned:
+                    global_ids.add(sid)
+                # Skills surface: count a pending skill only when it is visible
+                # (global or attached to a visible agent).
+                if kind == 'skill' and (sid in unassigned or sid in visible_pending):
+                    skills_ids.add(sid)
+
+            # Drop pending ids that ended up invisible (attached only to agents
+            # the caller can't see) so pending_total matches the visible rows.
+            invisible_pending = assigned_any - visible_pending
+            if invisible_pending:
+                pending_ids -= invisible_pending
 
         # Apply the SAME per-user table-accessibility cut the list applies
         # (_filter_list_items_by_table_accessibility), so a table-pinned

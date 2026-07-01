@@ -47,7 +47,7 @@ async def get_connectors_catalog(
 
 @router.get("/data_sources", response_model=list[DataSourceListItemSchema])
 async def get_data_sources(
-    show_all: bool = Query(False, description="Admin 'show all' view: include every data source in the org (private ones too). Only honored for callers with org-wide data-source governance (full_admin_access / manage_connections); ignored otherwise."),
+    show_all: bool = Query(False, description="Deprecated/no-op: the list is always scoped to public + explicit-member data sources; this flag no longer reveals other members' private agents (even for admins)."),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -57,7 +57,7 @@ async def get_data_sources(
 @router.get("/data_sources/active", response_model=list[DataSourceListItemSchema])
 async def get_active_data_sources(
     include_unconnected: bool = Query(False, description="Include user_required data sources the user hasn't connected yet (returned with user_status so the client can offer a Connect action)"),
-    show_all: bool = Query(False, description="Admin-only: include every agent in the org (not just the caller's memberships); admin-only entries are flagged with admin_only"),
+    show_all: bool = Query(False, description="Reveal the caller's OWN disabled/draft agents (that they can manage) in addition to their published ones. Does NOT reveal other members' private agents — the list is always scoped to public + explicit membership, even for admins."),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
