@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -29,6 +29,12 @@ class BuildContent(BaseSchema):
     # Ensure only one version of each instruction per build
     __table_args__ = (
         UniqueConstraint('build_id', 'instruction_id', name='uq_build_content_build_instruction'),
+        # FK columns are not auto-indexed by SQLite/Postgres. The pending sweep
+        # (get_pending_change_instruction_ids) filters instruction_id directly and
+        # joins on build_id; without these it seq-scans this (large) table.
+        Index('ix_build_contents_instruction_id', 'instruction_id'),
+        Index('ix_build_contents_build_id', 'build_id'),
+        Index('ix_build_contents_instruction_version_id', 'instruction_version_id'),
     )
     
     def __repr__(self):
