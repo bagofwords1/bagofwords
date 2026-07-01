@@ -7,8 +7,9 @@
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
       <div class="flex items-center gap-2.5">
-        <button v-if="false && reviewCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors" @click="openReview(null)">
-          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.toReview', { n: reviewCount }) }}
+        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
+          <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
@@ -61,8 +62,43 @@
           </UPopover>
         </div>
 
+        <!-- "Pending changes" view: flat list of instructions with a live pending
+             change, grouped by agent. Reuses the InstrLeaf row + the same
+             openInstruction() click as the tree. Computed server-side (cheap,
+             access-scoped) so we don't lazy-load every agent. -->
+        <div v-if="pendingView" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-2">
+          <div class="px-2 pt-1 pb-1 flex items-center justify-between">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">{{ $t('agentsPage.pendingChanges') }}</span>
+            <button type="button" class="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center gap-0.5" @click="exitPendingView()">
+              <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3 rtl:scale-x-[-1]" />{{ $t('agentsPage.pendingChangesBack') }}
+            </button>
+          </div>
+          <div v-if="pendingLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+          <template v-else>
+            <div v-for="grp in pendingGroups" :key="grp.id">
+              <div class="px-2 py-1 flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+                <DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-3.5 h-3.5 shrink-0" />
+                <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
+                <span class="flex-1 truncate">{{ grp.name }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ grp.rows.length }}</span>
+              </div>
+              <div v-for="ins in grp.rows" :key="ins.id">
+                <InstrLeaf :ins="ins" />
+                <div class="flex items-center gap-1.5 -mt-0.5 mb-0.5 text-[10px] text-gray-400 dark:text-gray-500" style="padding-inline-start:34px;padding-inline-end:8px">
+                  <UIcon :name="pendingSourceIcon(ins)" class="w-3 h-3 shrink-0" />
+                  <span class="truncate">{{ pendingSourceLabel(ins) }}</span>
+                  <span v-if="pendingDate(ins)" class="opacity-60">·</span>
+                  <span v-if="pendingDate(ins)" class="shrink-0">{{ pendingDate(ins) }}</span>
+                  <span v-if="ins.source_type === 'git' && ins.source_file_path" class="ms-auto font-mono truncate opacity-80" :title="ins.source_file_path">{{ ins.source_file_path }}</span>
+                </div>
+              </div>
+            </div>
+            <EmptyHint v-if="!pendingGroups.length" :text="$t('agentsPage.pendingChangesEmpty')" />
+          </template>
+        </div>
+
         <!-- Server-side "Search everything" results (agents + instructions). -->
-        <div v-if="searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-2">
+        <div v-if="!pendingView && searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-2">
           <div v-if="searching" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>Searching…</span></div>
           <template v-else>
             <div v-if="searchResults.agents.length">
@@ -80,7 +116,7 @@
           </template>
         </div>
 
-        <div v-show="!searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
           <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
@@ -906,6 +942,8 @@ const runSearch = async (q: string) => {
 }
 watch(search, (q) => {
   if (searchTimer) clearTimeout(searchTimer)
+  // Typing a query leaves the "Pending changes" view (search takes over the pane).
+  if (q.trim() && pendingView.value) pendingView.value = false
   if (!q.trim()) { searchResults.value = null; searching.value = false; return }
   searchTimer = setTimeout(() => runSearch(q), 250)
 })
@@ -1331,6 +1369,76 @@ const fetchPendingMap = async () => {
     const { data } = await useMyFetch<any>('/api/instructions/pending-changes', { method: 'GET' })
     pendingInstrIds.value = new Set<string>((data.value?.instruction_ids || []).map((x: any) => String(x)))
   } catch {}
+}
+
+// ── "Pending changes" view ──────────────────────────────────────────────────
+// Activated from the amber badge in the header. Swaps the lazy tree for a flat
+// list of ONLY the instructions with a live pending change, grouped by agent.
+// The set is computed server-side (cheap, access-scoped) via
+// /api/instructions?pending_only=true — we do NOT lazy-load every agent.
+const pendingView = ref(false)
+const pendingRows = ref<Instruction[]>([])
+const pendingLoading = ref(false)
+const loadPendingChanges = async () => {
+  pendingLoading.value = true
+  try {
+    const { data } = await useMyFetch<any>('/api/instructions', {
+      method: 'GET',
+      query: { skip: 0, limit: 200, pending_only: true, include_drafts: true, include_archived: true },
+    })
+    pendingRows.value = (data.value?.items || []) as Instruction[]
+    // Keep the lazy cache + dot set in sync so opening a row from here behaves
+    // identically to opening it from the tree.
+    mergeRows(pendingRows.value)
+  } catch (e) { console.error(e); pendingRows.value = [] }
+  finally { pendingLoading.value = false }
+}
+// Group pending rows by agent (data source). Global instructions (no agent)
+// collapse into one synthetic "Global" group. Each group keeps a stable label
+// and icon so the flat list reads like the tree's agent sections.
+const pendingGroups = computed(() => {
+  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; rows: Instruction[] }>()
+  for (const ins of pendingRows.value) {
+    const dss = ins.data_sources || []
+    if (!dss.length) {
+      const key = '__global__'
+      if (!map.has(key)) map.set(key, { id: key, name: t('agentsPage.globalInstructions'), type: undefined, rows: [] })
+      map.get(key)!.rows.push(ins)
+    } else {
+      for (const ds of dss) {
+        if (!map.has(ds.id)) {
+          const agent = agents.value.find(a => a.id === ds.id)
+          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, connector_key: agent?.connector_key, rows: [] })
+        }
+        map.get(ds.id)!.rows.push(ins)
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+})
+const enterPendingView = () => {
+  search.value = ''
+  pendingView.value = true
+  loadPendingChanges()
+}
+const exitPendingView = () => { pendingView.value = false }
+// Source label (who proposed the change) for a pending row.
+const pendingSourceLabel = (ins: Instruction) => {
+  const s = ins.pending_source || ins.source_type || 'user'
+  if (s === 'ai') return t('agentsPage.pendingSourceAi')
+  if (s === 'git') return t('agentsPage.pendingSourceGit')
+  return ins.pending_created_by || t('agentsPage.pendingSourceUser')
+}
+const pendingSourceIcon = (ins: Instruction) => {
+  const s = ins.pending_source || ins.source_type || 'user'
+  if (s === 'ai') return 'i-heroicons-sparkles'
+  if (s === 'git') return 'i-heroicons-code-bracket'
+  return 'i-heroicons-user'
+}
+const pendingDate = (ins: Instruction) => {
+  const raw = ins.pending_created_at || ins.updated_at
+  if (!raw) return ''
+  try { return new Date(raw).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '' }
 }
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
 const activeSuggestion = ref<any | null>(null)

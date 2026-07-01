@@ -238,6 +238,14 @@ class InstructionListSchema(BaseModel):
     # derive a "Pending review" status the same way the detail view does.
     current_build_id: Optional[str] = None
     current_build_status: Optional[str] = None
+    # Provenance of the live pending change (the newest non-main draft/pending
+    # build that actually altered this instruction). Populated alongside
+    # current_build_* so the "Pending changes" view can show who proposed it and
+    # when without a per-instruction round-trip. None when there's no pending
+    # change.
+    pending_source: Optional[str] = None          # 'user' | 'ai' | 'git'
+    pending_created_by: Optional[str] = None       # proposer name/email
+    pending_created_at: Optional[UTCDatetime] = None
 
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []

@@ -105,6 +105,7 @@ async def get_instructions(
     build_id: Optional[str] = Query(None, description="Load from specific build (defaults to main build)"),
     include_global: bool = Query(True, description="Include global instructions (no data sources) when filtering by data_source_ids"),
     global_only: bool = Query(False, description="Return only global instructions (attached to no agent) — used by the lazy 'Global instructions' group"),
+    pending_only: bool = Query(False, description="Return only instructions that have a LIVE pending change — drives the 'Pending changes' view. Access-scoped exactly like the normal list."),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -163,7 +164,8 @@ async def get_instructions(
         search=search,
         build_id=build_id,
         include_global=include_global,
-        global_only=global_only
+        global_only=global_only,
+        pending_only=pending_only,
     )
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
