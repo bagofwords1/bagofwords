@@ -40,9 +40,16 @@ class PromptService:
 
     @staticmethod
     def _active_ds_ids(prompt: Prompt) -> List[str]:
+        """Agents still usable by this prompt: connected/healthy (``is_active``),
+        not soft-deleted, and not intentionally turned off
+        (``publish_status == 'disabled'``). Hard-deleted agents never appear
+        here — the relationship stops yielding a DataSource once its row is gone.
+        """
         return [
             str(ds.id) for ds in (prompt.data_sources or [])
-            if getattr(ds, 'is_active', False) and getattr(ds, 'deleted_at', None) is None
+            if getattr(ds, 'is_active', False)
+            and getattr(ds, 'deleted_at', None) is None
+            and getattr(ds, 'publish_status', 'published') != 'disabled'
         ]
 
     @staticmethod
@@ -115,11 +122,18 @@ class PromptService:
         rows = await db.execute(q)
         prompts = list(rows.scalars().unique().all())
 
-        visible = [
-            self._to_response(p, resolved, str(current_user.id))
-            for p in prompts
-            if self._is_visible(resolved, p, str(current_user.id), self._active_ds_ids(p))
-        ]
+        visible = []
+        for p in prompts:
+            active_ds_ids = self._active_ds_ids(p)
+            if not self._is_visible(resolved, p, str(current_user.id), active_ds_ids):
+                continue
+            # Hide agent-scoped prompts whose agents are ALL gone/unusable
+            # (inactive, disabled, or deleted). They can't be run and would
+            # otherwise surface a bare agent id in the UI. Global/private
+            # prompts are never gated on agents.
+            if p.scope == 'agent' and not active_ds_ids:
+                continue
+            visible.append(self._to_response(p, resolved, str(current_user.id)))
         visible.sort(key=lambda r: r["created_at"] or datetime.min, reverse=True)
         return {"prompts": visible, "meta": {"total": len(visible)}}
 
