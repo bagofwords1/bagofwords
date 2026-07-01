@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.dependencies import get_async_db, get_current_organization
+from app.dependencies import get_async_db, get_current_organization, release_request_db
 from app.services.console_service import ConsoleService
 from app.models.user import User
 from app.models.organization import Organization
@@ -36,7 +36,9 @@ async def get_console_metrics(
     current_user: User = Depends(current_user)
 ):
     """Get console metrics with optional date filtering"""
-    return await console_service.get_organization_metrics(db, organization, params)
+    _result = await console_service.get_organization_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/comparison", response_model=MetricsComparison)
 @requires_permission('manage_settings')
@@ -47,7 +49,9 @@ async def get_console_metrics_comparison(
     current_user: User = Depends(current_user)
 ):
     """Get console metrics with previous period comparison"""
-    return await console_service.get_metrics_with_comparison(db, organization, params)
+    _result = await console_service.get_metrics_with_comparison(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/recent-widgets")
 @requires_permission('manage_settings')
@@ -59,7 +63,9 @@ async def get_recent_widgets(
     current_user: User = Depends(current_user)
 ):
     """Get recent widgets for the console with pagination"""
-    return await console_service.get_recent_widgets(db, organization, current_user, offset, limit)
+    _result = await console_service.get_recent_widgets(db, organization, current_user, offset, limit)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/timeseries", response_model=TimeSeriesMetrics)
 @requires_permission('manage_settings')
@@ -70,7 +76,9 @@ async def get_timeseries_metrics(
     current_user: User = Depends(current_user)
 ):
     """Get time-series metrics data for charts"""
-    return await console_service.get_timeseries_metrics(db, organization, params)
+    _result = await console_service.get_timeseries_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/table-usage", response_model=TableUsageMetrics)
 @requires_permission("manage_settings")
@@ -81,7 +89,9 @@ async def get_table_usage(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get table usage statistics"""
-    return await console_service.get_table_usage_metrics(db, organization, params)
+    _result = await console_service.get_table_usage_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/table-joins-heatmap", response_model=TableJoinsHeatmap)
 @requires_permission("manage_settings") 
@@ -92,7 +102,9 @@ async def get_table_joins_heatmap(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get table joins heatmap data"""
-    return await console_service.get_table_joins_heatmap(db, organization, params)
+    _result = await console_service.get_table_joins_heatmap(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/top-users", response_model=TopUsersMetrics)
 @requires_permission("manage_settings")
@@ -103,7 +115,9 @@ async def get_top_users(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get top users by activity with trend analysis"""
-    return await console_service.get_top_users_metrics(db, organization, params)
+    _result = await console_service.get_top_users_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/tool-usage", response_model=ToolUsageMetrics)
 @requires_permission("manage_settings")
@@ -114,7 +128,9 @@ async def get_tool_usage(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get tool usage counts for key tools."""
-    return await console_service.get_tool_usage_metrics(db, organization, params)
+    _result = await console_service.get_tool_usage_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/llm-usage", response_model=LLMUsageMetrics)
 @requires_permission("manage_settings")
@@ -125,7 +141,9 @@ async def get_llm_usage(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Get aggregated LLM token/cost usage per model."""
-    return await console_service.get_llm_usage_metrics(db, organization, params)
+    _result = await console_service.get_llm_usage_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/cost", response_model=CostMetrics)
 @require_enterprise(feature="cost_dashboard")
@@ -139,7 +157,9 @@ async def get_cost_metrics(
 ):
     """Get LLM cost/token spend broken down by a dimension (model, provider,
     user, data_source, group, scope) with a daily timeseries."""
-    return await console_service.get_cost_metrics(db, organization, params, group_by=group_by)
+    _result = await console_service.get_cost_metrics(db, organization, params, group_by=group_by)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/metrics/recent-negative-feedback", response_model=RecentNegativeFeedbackMetrics)
 @requires_permission("manage_settings")
@@ -150,7 +170,9 @@ async def get_recent_negative_feedback(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get recent negative feedback with completion context"""
-    return await console_service.get_recent_negative_feedback_metrics(db, organization, params)
+    _result = await console_service.get_recent_negative_feedback_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 
 
@@ -165,7 +187,9 @@ async def get_trace_data(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get detailed trace data for debugging"""
-    return await console_service.get_trace_data(db, organization, report_id, completion_id)
+    _result = await console_service.get_trace_data(db, organization, report_id, completion_id)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/issues/compact", response_model=CompactIssuesResponse)
 @requires_permission("manage_settings")
@@ -179,7 +203,9 @@ async def get_compact_issues(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Compact completion-anchored issues list (tool errors or negative feedback)."""
-    return await console_service.get_compact_issues(db, organization, params, page, page_size, filter)
+    _result = await console_service.get_compact_issues(db, organization, params, page, page_size, filter)
+    await release_request_db(db)
+    return _result
 
 
 @router.get("/console/agent_executions/summaries", response_model=AgentExecutionSummariesResponse)
@@ -196,9 +222,11 @@ async def get_agent_execution_summaries(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Agent execution summaries joined with completion, feedback, and tool stats."""
-    return await console_service.get_agent_execution_summaries(
+    _result = await console_service.get_agent_execution_summaries(
         db, organization, params, page, page_size, filter, tool_name, prompt_search
     )
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/diagnosis/metrics")
 @requires_permission("manage_settings")
@@ -209,7 +237,9 @@ async def get_diagnosis_dashboard_metrics(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get dashboard metrics for diagnosis page."""
-    return await console_service.get_diagnosis_dashboard_metrics(db, organization, params)
+    _result = await console_service.get_diagnosis_dashboard_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
 
 @router.get("/console/diagnosis/timeseries", response_model=DiagnosisTimeSeriesMetrics)
 @requires_permission("manage_settings")
@@ -220,5 +250,7 @@ async def get_diagnosis_timeseries(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get agent executions bucketed daily by status for the diagnosis activity chart."""
-    return await console_service.get_diagnosis_timeseries(db, organization, params)
+    _result = await console_service.get_diagnosis_timeseries(db, organization, params)
+    await release_request_db(db)
+    return _result
 

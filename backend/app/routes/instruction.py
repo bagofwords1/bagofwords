@@ -180,7 +180,9 @@ async def get_instruction_counts(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await instruction_service.get_instruction_counts(db, organization, current_user)
+    _result = await instruction_service.get_instruction_counts(db, organization, current_user)
+    await release_request_db(db)
+    return _result
 
 
 # CROSS-ENTITY SEARCH for the /agents "Search everything" box — grouped shape
