@@ -1,9 +1,75 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
+import requests
 from typing import List, Generator, Optional, Dict, Any
 from contextlib import contextmanager
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+
+
+class _BasicTokenCursor:
+    """Minimal cursor that runs Druid SQL over HTTP with a verbatim
+    ``Authorization: Basic <token>`` header.
+
+    pydruid can only emit ``Bearer <token>`` (its ``jwt`` kwarg) or
+    ``Basic base64(user:password)`` (its user/password kwargs). Imply Polaris
+    authenticates its ``pok_…`` API keys with the token placed *raw* after
+    ``Basic`` — not base64-encoded — so that mode needs its own tiny client.
+    Only the surface that execute_query()/get_tables() rely on is implemented:
+    execute(), fetchall(), a ``description`` attribute, and close().
+    """
+
+    def __init__(self, url: str, token: str, ssl_verify_cert: bool):
+        self._url = url
+        self._token = token
+        self._ssl_verify_cert = ssl_verify_cert
+        self.description: Optional[List[tuple]] = None
+        self._rows: List[tuple] = []
+
+    def execute(self, sql: str, params: Any = None) -> "_BasicTokenCursor":
+        resp = requests.post(
+            self._url,
+            json={"query": sql, "resultFormat": "object", "header": False},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Basic {self._token}",
+            },
+            verify=self._ssl_verify_cert,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Druid SQL request failed [{resp.status_code}]: {resp.text.strip()}"
+            )
+        # Druid's ``object`` result format returns a JSON array of row objects
+        # keyed by column name, in projection order. Derive the column list from
+        # the first row and read every row positionally so the tuples match what
+        # execute_query()/get_tables() expect.
+        data = resp.json() or []
+        cols = list(data[0].keys()) if data else []
+        self.description = [(c, None, None, None, None, None, None) for c in cols]
+        self._rows = [tuple(row.get(c) for c in cols) for row in data]
+        return self
+
+    def fetchall(self) -> List[tuple]:
+        return self._rows
+
+    def close(self) -> None:
+        pass
+
+
+class _BasicTokenConnection:
+    """Connection wrapper that hands out :class:`_BasicTokenCursor` instances."""
+
+    def __init__(self, url: str, token: str, ssl_verify_cert: bool):
+        self._url = url
+        self._token = token
+        self._ssl_verify_cert = ssl_verify_cert
+
+    def cursor(self) -> _BasicTokenCursor:
+        return _BasicTokenCursor(self._url, self._token, self._ssl_verify_cert)
+
+    def close(self) -> None:
+        pass
 
 
 class DruidClient(DataSourceClient):
@@ -15,6 +81,11 @@ class DruidClient(DataSourceClient):
     metadata approach the engine exposes to any SQL client. Datasources live
     in the ``druid`` schema; the ``sys`` and ``INFORMATION_SCHEMA`` schemas
     are Druid internals and are always excluded from discovery.
+
+    Authentication supports HTTP Basic (user/password), a bearer ``token``, and
+    a ``basic_token`` sent verbatim as ``Authorization: Basic <token>`` — the
+    form Imply Polaris expects for its ``pok_…`` API keys (the token is used
+    raw, not base64-encoded).
     """
 
     # Druid-internal schemas that should never surface as user tables.
@@ -27,6 +98,7 @@ class DruidClient(DataSourceClient):
         user: Optional[str] = None,
         password: Optional[str] = None,
         token: Optional[str] = None,
+        basic_token: Optional[str] = None,
         secure: bool = False,
         path: str = "/druid/v2/sql/",
         schema: Optional[str] = None,
@@ -37,6 +109,7 @@ class DruidClient(DataSourceClient):
         self.user = user
         self.password = password
         self.token = token
+        self.basic_token = basic_token
         self.secure = secure
         self.path = path
         self.schema = schema
@@ -61,11 +134,18 @@ class DruidClient(DataSourceClient):
             "scheme": ("https" if self.secure else "http"),
             "ssl_verify_cert": self.ssl_verify_cert,
         }
-        # Auth selection: a bearer token (e.g. Imply Polaris API token) maps to
-        # pydruid's ``jwt`` kwarg (Authorization: Bearer <token>). The driver
-        # prefers Basic over Bearer when ``user`` is set, so token auth must NOT
-        # also send user/password — they are mutually exclusive here, token wins.
-        if self.token:
+        # Auth selection (mutually exclusive, in precedence order):
+        #   1. basic_token — sent verbatim as ``Authorization: Basic <token>``
+        #      via the raw-HTTP path in connect(); pydruid cannot emit this, so
+        #      no pydruid auth kwargs are set here.
+        #   2. token — a bearer token (e.g. an Imply Polaris JWT) mapped to
+        #      pydruid's ``jwt`` kwarg (Authorization: Bearer <token>).
+        #   3. user/password — HTTP Basic as ``base64(user:password)``.
+        # The driver prefers Basic over Bearer when ``user`` is set, so a token
+        # must NOT also send user/password.
+        if self.basic_token:
+            pass
+        elif self.token:
             self._connect_kwargs["jwt"] = self.token
         else:
             if self.user:
@@ -80,6 +160,14 @@ class DruidClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[Any, None, None]:
+        # Raw ``Authorization: Basic <token>`` mode bypasses pydruid entirely
+        # (see _BasicTokenCursor). No connection resource needs closing.
+        if self.basic_token:
+            scheme = "https" if self.secure else "http"
+            url = f"{scheme}://{self.host}:{self.port}{self.path}"
+            yield _BasicTokenConnection(url, self.basic_token, self.ssl_verify_cert)
+            return
+
         from pydruid.db import connect as druid_connect
 
         conn = None
