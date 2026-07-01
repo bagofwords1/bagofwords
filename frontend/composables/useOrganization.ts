@@ -2,7 +2,7 @@
 const STORAGE_KEY = 'bow.selectedOrganizationId'
 
 export const useOrganization = () => {
-  const { getSession } = useAuth()
+  const { getSession, data: sessionData } = useAuth()
   // Initialize with null to indicate not loaded yet
   const organization = useState('organization', () => ({
     id: null as string | null,
@@ -22,9 +22,14 @@ export const useOrganization = () => {
     } catch {}
   }
 
-  // Fetch organization from session data
+  // Fetch organization from session data.
+  // Reuse the session already loaded by the auth middleware / permissions
+  // plugin instead of forcing a fresh whoami — this used to fire an extra
+  // (forced) whoami on every boot on top of the one just fetched. Only hit the
+  // network when we genuinely have no session yet.
   const fetchOrganizationFromSession = async () => {
-    const session = await getSession({ force: true })
+    const cached = sessionData?.value as any
+    const session = (cached && cached.organizations) ? cached : await getSession()
     const orgs = session?.organizations || []
     if (orgs.length > 0) {
       const persistedId = readPersistedOrgId()
