@@ -1890,6 +1890,8 @@
     "createAgent": "Create Data Agent",
     "showAllAgents": "Show all",
     "showAllAgentsHint": "Admin view: include private data agents you're not a member of.",
+    "showDisabledAgents": "Show disabled",
+    "showDisabledAgentsHint": "Include your disabled data agents so you can re-enable them.",
     "adminOnlyTag": "Admin",
     "adminOnlyHint": "Private data agent — visible to you as an admin. You're not a member.",
     "trySample": "Try a sample database:",

@@ -265,13 +265,15 @@ def test_admin_does_not_auto_see_other_admins_data_source(
 
 
 @pytest.mark.e2e
-def test_admin_show_all_reveals_private_data_source(
+def test_admin_show_all_does_not_reveal_non_member_private_data_source(
     test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
 ):
-    """show_all=true lets a full admin see a private DS they neither created
-    nor joined, flagged admin_only=true. A plain member's show_all is ignored
-    (no org-wide governance capability), and the admin's default list is
-    still scoped (admin_only never set without the toggle).
+    """Least-privilege: show_all=true must NOT reveal a private DS the caller
+    (even a full admin) neither created nor joined. The list is always scoped
+    to is_public OR explicit membership; show_all no longer bypasses membership.
+    admin_only is a dead field and is always False.
+
+    Capability bypass for single-DS access is preserved (direct GET still works).
     """
     creator = bootstrap_admin("creator")
     org_id = creator["org_id"]
@@ -284,28 +286,89 @@ def test_admin_show_all_reveals_private_data_source(
     )
     member = invite_user_to_org(org_id=org_id, admin_token=creator["token"])
 
-    # Default list (no toggle) still hides it from the second admin.
+    # Default list hides it from the non-member second admin.
     default_resp = test_client.get(
         "/api/data_sources", headers=_hdr(second_admin["token"], org_id)
     )
     assert default_resp.status_code == 200, default_resp.json()
     assert ds_id not in {d["id"] for d in default_resp.json()}
 
-    # show_all=true reveals it for the admin, flagged admin_only.
+    # show_all=true STILL hides it — membership scoping always applies.
     show_all_resp = test_client.get(
         "/api/data_sources?show_all=true", headers=_hdr(second_admin["token"], org_id)
     )
     assert show_all_resp.status_code == 200, show_all_resp.json()
     revealed = {d["id"]: d for d in show_all_resp.json()}
-    assert ds_id in revealed, f"show_all should reveal {ds_id}; got {revealed.keys()}"
-    assert revealed[ds_id]["admin_only"] is True
+    assert ds_id not in revealed, (
+        f"show_all must NOT reveal non-member private {ds_id}; got {list(revealed.keys())}"
+    )
+    # admin_only is dead — never True on any returned row.
+    assert all(d.get("admin_only") is not True for d in revealed.values())
 
-    # A plain member without governance capability gets the toggle ignored.
+    # A plain member's show_all is likewise scoped.
     member_resp = test_client.get(
         "/api/data_sources?show_all=true", headers=_hdr(member["token"], org_id)
     )
     assert member_resp.status_code == 200, member_resp.json()
     assert ds_id not in {d["id"] for d in member_resp.json()}
+
+    # Capability bypass preserved: admin can still open the DS directly by id.
+    detail = test_client.get(
+        f"/api/data_sources/{ds_id}", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert detail.status_code == 200, detail.text
+
+
+@pytest.mark.e2e
+def test_active_show_all_scoped_to_membership_for_admin(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """The proving test for /data_sources/active?show_all=true:
+
+    - a full admin who is NOT a member of a private agent does NOT see it,
+      even with show_all=true;
+    - the admin still sees their own agent and a public agent;
+    - a member sees the agent they belong to.
+    """
+    creator = bootstrap_admin("creator")
+    org_id = creator["org_id"]
+
+    # Private agent owned by the creator (creator is a member; second_admin is not).
+    private_ds = sqlite_data_source(
+        name="private_agent", user_token=creator["token"], org_id=org_id
+    )
+    private_id = private_ds["id"]
+
+    # A public agent — visible to everyone with org access.
+    public_ds = sqlite_data_source(
+        name="public_agent", user_token=creator["token"], org_id=org_id, is_public=True
+    )
+    public_id = public_ds["id"]
+
+    second_admin = invite_user_to_org(
+        org_id=org_id, admin_token=creator["token"], role="admin"
+    )
+
+    def active_show_all(token):
+        r = test_client.get(
+            "/api/data_sources/active?include_unconnected=true&show_all=true",
+            headers=_hdr(token, org_id),
+        )
+        assert r.status_code == 200, r.text
+        return {d["id"]: d for d in r.json()}
+
+    # Non-member full admin: private agent hidden even with show_all; public shown.
+    admin_view = active_show_all(second_admin["token"])
+    assert private_id not in admin_view, (
+        f"non-member admin must not see private agent {private_id} via show_all"
+    )
+    assert public_id in admin_view, "admin should still see the public agent"
+    assert all(d.get("admin_only") is not True for d in admin_view.values())
+
+    # The creator (a member) sees their own private agent.
+    creator_view = active_show_all(creator["token"])
+    assert private_id in creator_view, "creator/member should see their own private agent"
+    assert public_id in creator_view
 
 
 # ────────────────────────────────────────────────────────────────────
