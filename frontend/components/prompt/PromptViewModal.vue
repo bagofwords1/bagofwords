@@ -155,7 +155,9 @@ function placeholder(name: string): string {
 
 const agentChips = computed(() => {
   const ids = props.prompt?.data_source_ids || []
-  return ids.map(id => ({ id, name: props.agentMap?.[id]?.name || id, type: props.agentMap?.[id]?.type }))
+  // Fall back to the generic "Agent" label (matching PromptCard) when an agent
+  // id can't be resolved to a name — never leak a bare UUID into the UI.
+  return ids.map(id => ({ id, name: props.agentMap?.[id]?.name || t('prompts.scopeAgent'), type: props.agentMap?.[id]?.type }))
 })
 
 const authorName = computed(() => {

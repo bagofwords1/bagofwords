@@ -22,8 +22,10 @@
       class="absolute z-50 w-80 max-h-80 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-md text-start"
       :style="dropdownStyle"
     >
-      <!-- Loading state -->
-      <div v-if="isLoadingMentions" class="p-2 text-start text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+      <!-- Loading state — only blocks when there is genuinely nothing to show
+           yet. Category names are available immediately (rebuilt on mount), so
+           a slow/hung items fetch never leaves the menu stuck on "Loading…". -->
+      <div v-if="isLoadingMentions && !categoryList.length" class="p-2 text-start text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
         <Spinner class="w-3 h-3" />
         <span>{{ $t('mentionInput.loading') }}</span>
       </div>
@@ -1415,10 +1417,12 @@ async function fetchAvailableMentions() {
 
   // Each category is fetched independently so one failing/forbidden endpoint
   // (e.g. /files 403 for users without manage_files) never blanks the menu.
+  // Each request is time-boxed so a slow/hung endpoint can't pin the menu in a
+  // permanent "Loading…" state (the reset below is also guaranteed via finally).
   const tasks = [
     (async () => {
       try {
-        const { data, error } = await useMyFetch('/data_sources/active', { method: 'GET', query: { include_unconnected: true } })
+        const { data, error } = await useMyFetch('/data_sources/active', { method: 'GET', query: { include_unconnected: true }, timeout: 8000 })
         if (!error.value && Array.isArray(data.value)) {
           agentCategoryItems.value = (data.value as any[]).map((ds: any) => ({
             id: String(ds.id),
@@ -1436,7 +1440,7 @@ async function fetchAvailableMentions() {
     })(),
     (async () => {
       try {
-        const { data, error } = await useMyFetch('/files', { method: 'GET' })
+        const { data, error } = await useMyFetch('/files', { method: 'GET', timeout: 8000 })
         if (!error.value && Array.isArray(data.value)) {
           fileCategoryItems.value = (data.value as any[]).map((file: any) => ({
             id: String(file.id),
@@ -1449,7 +1453,7 @@ async function fetchAvailableMentions() {
     })(),
     (async () => {
       try {
-        const { data, error } = await useMyFetch('/mentions/available?categories=entities', { method: 'GET' })
+        const { data, error } = await useMyFetch('/mentions/available?categories=entities', { method: 'GET', timeout: 8000 })
         if (!error.value && data.value) {
           const apiData = data.value as any
           entityCategoryItems.value = (apiData.entities || []).map((entity: any) => ({
@@ -1464,9 +1468,12 @@ async function fetchAvailableMentions() {
     })(),
   ]
 
-  await Promise.allSettled(tasks)
-  rebuildCategories()
-  isLoadingMentions.value = false
+  try {
+    await Promise.allSettled(tasks)
+    rebuildCategories()
+  } finally {
+    isLoadingMentions.value = false
+  }
 }
 
 // Instructions and skills are listed together (one category). Sourced from
@@ -1518,6 +1525,10 @@ onMounted(() => {
     textContent.value = props.modelValue
   }
 
+  // Populate the category NAMES immediately (empty item lists) so the '@' menu
+  // renders its categories right away instead of a blocking "Loading…" while
+  // the per-category item fetches are still in flight.
+  rebuildCategories()
   fetchAvailableMentions()
   fetchPromptMentions()
   fetchInstructionMentions()
