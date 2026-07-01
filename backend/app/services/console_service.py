@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal, Integer
+from sqlalchemy import select, func, text, literal, Integer, case
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -352,7 +352,81 @@ class ConsoleService:
             intervals.append((current, next_day))
             current = next_day
 
-        # Get data for each day
+        # --- Aggregate the whole range in 3 grouped queries (was 7 per day).
+        # Bucket by calendar day with a portable `date()` expression (works on
+        # both Postgres and SQLite) instead of looping day-by-day.
+        def _day_key(dt):
+            return dt.strftime('%Y-%m-%d')
+
+        # 1) Completions: messages/total + response-score sum + judge averages
+        #    (judge averages are over rows where instructions_effectiveness is set).
+        comp_day = func.date(Completion.created_at)
+        comp_query = (
+            select(
+                comp_day.label('day'),
+                func.count(Completion.id).label('messages'),
+                func.sum(Completion.response_score).label('score_sum'),
+                func.avg(case((Completion.instructions_effectiveness.isnot(None),
+                               Completion.instructions_effectiveness))).label('avg_ie'),
+                func.avg(case((Completion.instructions_effectiveness.isnot(None),
+                               Completion.context_effectiveness))).label('avg_ce'),
+                func.avg(case((Completion.instructions_effectiveness.isnot(None),
+                               Completion.response_score))).label('avg_rs'),
+            )
+            .join(Report)
+            .where(
+                Report.organization_id == organization.id,
+                Completion.created_at >= start_date,
+                Completion.created_at <= end_date,
+            )
+            .group_by(comp_day)
+        )
+        if ds_filter_subquery is not None:
+            comp_query = comp_query.where(Report.id.in_(ds_filter_subquery))
+        comp_by_day = {}
+        for row in (await db.execute(comp_query)).all():
+            comp_by_day[str(row.day)] = row
+
+        # 2) Queries (steps) per day
+        step_day = func.date(Step.created_at)
+        step_query = (
+            select(step_day.label('day'), func.count(Step.id).label('queries'))
+            .join(Widget).join(Report)
+            .where(
+                Report.organization_id == organization.id,
+                Step.created_at >= start_date,
+                Step.created_at <= end_date,
+            )
+            .group_by(step_day)
+        )
+        if ds_filter_subquery is not None:
+            step_query = step_query.where(Report.id.in_(ds_filter_subquery))
+        steps_by_day = {str(r.day): (r.queries or 0) for r in (await db.execute(step_query)).all()}
+
+        # 3) Feedback totals + positive per day
+        fb_day = func.date(CompletionFeedback.created_at)
+        fb_query = (
+            select(
+                fb_day.label('day'),
+                func.count(CompletionFeedback.id).label('total'),
+                func.sum(case((CompletionFeedback.direction > 0, 1), else_=0)).label('positive'),
+            )
+            .join(Completion, CompletionFeedback.completion_id == Completion.id)
+            .join(Report, Completion.report_id == Report.id)
+            .where(
+                Report.organization_id == organization.id,
+                CompletionFeedback.created_at >= start_date,
+                CompletionFeedback.created_at <= end_date,
+            )
+            .group_by(fb_day)
+        )
+        if ds_filter_subquery is not None:
+            fb_query = fb_query.where(Report.id.in_(ds_filter_subquery))
+        fb_by_day = {}
+        for r in (await db.execute(fb_query)).all():
+            fb_by_day[str(r.day)] = (r.total or 0, r.positive or 0)
+
+        # Build the dense day series (unchanged output shape + smoothing).
         messages_data = []
         queries_data = []
         accuracy_data = []
@@ -361,135 +435,30 @@ class ConsoleService:
         context_effectiveness_data = []
         response_quality_data = []
         feedback_data = []
-        
+
         # For smoothing - keep track of last non-zero values
         last_instructions_effectiveness = 0.0
         last_context_effectiveness = 0.0
         last_response_quality = 0.0
-        
+
         for interval_start, interval_end in intervals:
-            # Messages count for this day
-            messages_query = (
-                select(func.count(Completion.id))
-                .join(Report)
-                .where(
-                    Report.organization_id == organization.id,
-                    Completion.created_at >= interval_start,
-                    Completion.created_at < interval_end
-                )
-            )
-            if ds_filter_subquery is not None:
-                messages_query = messages_query.where(Report.id.in_(ds_filter_subquery))
-            messages_result = await db.execute(messages_query)
-            messages_count = messages_result.scalar() or 0
-
-            # Queries count for this day
-            queries_query = (
-                select(func.count(Step.id))
-                .join(Widget).join(Report)
-                .where(
-                    Report.organization_id == organization.id,
-                    Step.created_at >= interval_start,
-                    Step.created_at < interval_end
-                )
-            )
-            if ds_filter_subquery is not None:
-                queries_query = queries_query.where(Report.id.in_(ds_filter_subquery))
-            queries_result = await db.execute(queries_query)
-            queries_count = queries_result.scalar() or 0
-
-            # Calculate accuracy rate from response scores for this day
-            # Count ALL completions for this day
-            total_completions_query = (
-                select(func.count(Completion.id))
-                .join(Report)
-                .where(
-                    Report.organization_id == organization.id,
-                    Completion.created_at >= interval_start,
-                    Completion.created_at < interval_end
-                )
-            )
-            if ds_filter_subquery is not None:
-                total_completions_query = total_completions_query.where(Report.id.in_(ds_filter_subquery))
-            total_completions_result = await db.execute(total_completions_query)
-            total_completions = total_completions_result.scalar() or 0
-
-            # Sum response scores (only non-null ones)
-            response_score_query = (
-                select(func.sum(Completion.response_score))
-                .join(Report)
-                .where(
-                    Report.organization_id == organization.id,
-                    Completion.created_at >= interval_start,
-                    Completion.created_at < interval_end,
-                    Completion.response_score.isnot(None)
-                )
-            )
-            if ds_filter_subquery is not None:
-                response_score_query = response_score_query.where(Report.id.in_(ds_filter_subquery))
-            response_score_result = await db.execute(response_score_query)
-            response_score_sum = response_score_result.scalar() or 0
+            day_key = _day_key(interval_start)
+            comp_row = comp_by_day.get(day_key)
+            messages_count = (comp_row.messages if comp_row else 0) or 0
+            total_completions = messages_count
+            response_score_sum = (comp_row.score_sum if comp_row else 0) or 0
+            queries_count = steps_by_day.get(day_key, 0)
 
             # Calculate accuracy: sum of scores / total completions * 20
             accuracy_rate = (response_score_sum / total_completions * 20) if total_completions > 0 else 0
 
-            # Positive feedback rate for this day (for feedback metric)
-            total_feedbacks_query = (
-                select(func.count(CompletionFeedback.id))
-                .join(Completion, CompletionFeedback.completion_id == Completion.id)
-                .join(Report, Completion.report_id == Report.id)
-                .where(
-                    Report.organization_id == organization.id,
-                    CompletionFeedback.created_at >= interval_start,
-                    CompletionFeedback.created_at < interval_end
-                )
-            )
-            if ds_filter_subquery is not None:
-                total_feedbacks_query = total_feedbacks_query.where(Report.id.in_(ds_filter_subquery))
-            total_feedbacks_result = await db.execute(total_feedbacks_query)
-            total_feedbacks = total_feedbacks_result.scalar() or 0
-
-            positive_feedbacks_query = (
-                select(func.count(CompletionFeedback.id))
-                .join(Completion, CompletionFeedback.completion_id == Completion.id)
-                .join(Report, Completion.report_id == Report.id)
-                .where(
-                    Report.organization_id == organization.id,
-                    CompletionFeedback.created_at >= interval_start,
-                    CompletionFeedback.created_at < interval_end,
-                    CompletionFeedback.direction > 0
-                )
-            )
-            if ds_filter_subquery is not None:
-                positive_feedbacks_query = positive_feedbacks_query.where(Report.id.in_(ds_filter_subquery))
-            positive_feedbacks_result = await db.execute(positive_feedbacks_query)
-            positive_feedbacks = positive_feedbacks_result.scalar() or 0
+            total_feedbacks, positive_feedbacks = fb_by_day.get(day_key, (0, 0))
             positive_rate = (positive_feedbacks / total_feedbacks * 100) if total_feedbacks > 0 else 0
 
-            # Calculate judge metrics for this day
-            judge_metrics_query = (
-                select(
-                    func.avg(Completion.instructions_effectiveness).label('avg_instructions_effectiveness'),
-                    func.avg(Completion.context_effectiveness).label('avg_context_effectiveness'),
-                    func.avg(Completion.response_score).label('avg_response_score')
-                )
-                .join(Report)
-                .where(
-                    Report.organization_id == organization.id,
-                    Completion.created_at >= interval_start,
-                    Completion.created_at < interval_end,
-                    Completion.instructions_effectiveness.isnot(None)
-                )
-            )
-            if ds_filter_subquery is not None:
-                judge_metrics_query = judge_metrics_query.where(Report.id.in_(ds_filter_subquery))
-            judge_metrics_result = await db.execute(judge_metrics_query)
-            judge_data = judge_metrics_result.first()
-            
             # Apply smoothing logic and convert to 1-100 scale
-            current_instructions_effectiveness = (judge_data.avg_instructions_effectiveness or 0.0) * 20
-            current_context_effectiveness = (judge_data.avg_context_effectiveness or 0.0) * 20
-            current_response_quality = (judge_data.avg_response_score or 0.0) * 20
+            current_instructions_effectiveness = ((comp_row.avg_ie if comp_row else 0.0) or 0.0) * 20
+            current_context_effectiveness = ((comp_row.avg_ce if comp_row else 0.0) or 0.0) * 20
+            current_response_quality = ((comp_row.avg_rs if comp_row else 0.0) or 0.0) * 20
             
             # For smoothing: if no queries (scores are 0), keep last non-zero value
             if current_instructions_effectiveness > 0:
