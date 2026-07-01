@@ -323,6 +323,14 @@ function parseCronToStructured(cron: string) {
     }
 }
 
+// Hydrate the schedule form from the existing cron on setup. The watch below is
+// not `immediate` (and can't be — its callback touches refs declared further
+// down), so without this the first mount would keep the default schedule and
+// show e.g. "day at 08:00" instead of the task's saved time.
+if (props.scheduledPrompt?.cron_schedule) {
+    parseCronToStructured(props.scheduledPrompt.cron_schedule)
+}
+
 // Reset form when scheduledPrompt changes
 watch(() => props.scheduledPrompt, (sp) => {
     isActive.value = sp?.is_active ?? true
