@@ -630,6 +630,29 @@ class InstructionService:
             for iid in pending_ids - assigned:
                 global_ids.add(iid)
 
+        # Apply the SAME per-user table-accessibility cut the list applies
+        # (_filter_list_items_by_table_accessibility), so a table-pinned
+        # instruction the user can't see in the lazy list is not counted in the
+        # tree badge. Without this, the Instructions node shows the badge count
+        # (e.g. 3) then drops to the list length (0) once the rows load → the
+        # reported 3→0 flicker / "No instructions yet".
+        if current_user is not None:
+            all_counted = global_ids | skills_ids
+            for v in agent_sets.values():
+                all_counted |= v
+            hidden = await self._table_inaccessible_instruction_ids(
+                db, list(all_counted), str(current_user.id)
+            )
+            if hidden:
+                global_ids -= hidden
+                skills_ids -= hidden
+                for ds_id in list(agent_sets.keys()):
+                    agent_sets[ds_id] -= hidden
+                    if not agent_sets[ds_id]:
+                        del agent_sets[ds_id]
+                        pending_by_agent.pop(ds_id, None)
+                pending_ids -= hidden
+
         by_agent = {k: len(v) for k, v in agent_sets.items()}
 
         return {
@@ -3016,6 +3039,64 @@ class InstructionService:
             "pages": (total + limit - 1) // limit if limit > 0 else 1
         }
 
+    async def _table_inaccessible_instruction_ids(
+        self,
+        db: AsyncSession,
+        instruction_ids: List[str],
+        user_id: str,
+    ) -> set:
+        """Subset of ``instruction_ids`` that are HIDDEN from the user because
+        every datasource_table reference they carry is in the user's per-user
+        inaccessible-table overlay (``UserDataSourceTable.is_accessible == False``).
+
+        This is the single source of truth for the table-accessibility cut so the
+        list (``_filter_list_items_by_table_accessibility``) and the /agents tree
+        badges (``get_instruction_counts``) agree — otherwise a badge counts an
+        instruction the lazy list then drops, producing the 3→0 flicker.
+
+        Rules (an instruction is hidden iff ALL its table refs are inaccessible):
+        - No table references → not hidden (global / text-only instruction)
+        - At least one referenced table accessible → not hidden
+        - No inaccessible overlay rows for the user → nothing hidden
+        """
+        from app.models.user_data_source_overlay import UserDataSourceTable
+        from app.models.instruction_reference import InstructionReference
+
+        ids = [str(i) for i in instruction_ids]
+        if not ids:
+            return set()
+
+        # Get the set of table IDs this user cannot access
+        result = await db.execute(
+            select(UserDataSourceTable.data_source_table_id)
+            .where(
+                UserDataSourceTable.user_id == user_id,
+                UserDataSourceTable.is_accessible == False,
+                UserDataSourceTable.data_source_table_id.isnot(None),
+            )
+        )
+        inaccessible = {row[0] for row in result.all()}
+        if not inaccessible:
+            return set()
+
+        ref_result = await db.execute(
+            select(InstructionReference.instruction_id, InstructionReference.object_id)
+            .where(
+                InstructionReference.instruction_id.in_(ids),
+                InstructionReference.object_type == "datasource_table",
+            )
+        )
+        refs_by_instruction: dict[str, set[str]] = {}
+        for inst_id, table_id in ref_result.all():
+            refs_by_instruction.setdefault(str(inst_id), set()).add(table_id)
+
+        hidden: set = set()
+        for inst_id, table_refs in refs_by_instruction.items():
+            # All refs inaccessible (and there is at least one ref) → hidden.
+            if table_refs and not (table_refs - inaccessible):
+                hidden.add(inst_id)
+        return hidden
+
     async def _filter_list_items_by_table_accessibility(
         self,
         db: AsyncSession,
@@ -3030,47 +3111,14 @@ class InstructionService:
         - At least one referenced table accessible → keep
         - No overlay rows for user → keep all (no filtering)
         """
-        from app.models.user_data_source_overlay import UserDataSourceTable
-        from app.models.instruction_reference import InstructionReference
-
-        # Get the set of table IDs this user cannot access
-        result = await db.execute(
-            select(UserDataSourceTable.data_source_table_id)
-            .where(
-                UserDataSourceTable.user_id == user_id,
-                UserDataSourceTable.is_accessible == False,
-                UserDataSourceTable.data_source_table_id.isnot(None),
-            )
-        )
-        inaccessible = {row[0] for row in result.all()}
-        if not inaccessible:
+        if not items:
             return items
-
-        # Batch-load table references for all instruction IDs
-        item_ids = [str(item.id) for item in items]
-        if not item_ids:
-            return items
-
-        ref_result = await db.execute(
-            select(InstructionReference.instruction_id, InstructionReference.object_id)
-            .where(
-                InstructionReference.instruction_id.in_(item_ids),
-                InstructionReference.object_type == "datasource_table",
-            )
+        hidden = await self._table_inaccessible_instruction_ids(
+            db, [str(item.id) for item in items], user_id
         )
-        refs_by_instruction: dict[str, set[str]] = {}
-        for inst_id, table_id in ref_result.all():
-            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
-
-        filtered = []
-        for item in items:
-            table_refs = refs_by_instruction.get(str(item.id))
-            if not table_refs:
-                filtered.append(item)
-            elif table_refs - inaccessible:
-                filtered.append(item)
-            # else: all refs inaccessible → exclude
-        return filtered
+        if not hidden:
+            return items
+        return [item for item in items if str(item.id) not in hidden]
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
         """Get user's org-level permissions via the RBAC resolver."""
