@@ -86,7 +86,14 @@ async def release_request_db(db: AsyncSession) -> None:
         pass
 
 
-async def get_user_db(session: AsyncSession = Depends(get_async_session)):
+async def get_user_db(session: AsyncSession = Depends(get_async_db)):
+    # Share the request's main DB session (get_async_db) instead of opening a
+    # second one via get_async_session. FastAPI caches get_async_db per request,
+    # so the fastapi-users auth lookup, current_user, and the route handler all
+    # use ONE pooled connection — previously every authenticated request checked
+    # out TWO connections from the same pool for its whole lifetime, halving
+    # effective concurrency (the pool-exhaustion knee sat at ~pool_size/2). This
+    # also lets release_request_db actually free the request's only connection.
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
 async def get_current_organization(request: Request, db: AsyncSession = Depends(get_async_db)) -> Organization:
