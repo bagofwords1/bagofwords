@@ -93,6 +93,12 @@ class InstructionBuild(BaseSchema):
     # Composite index for finding the main build per org
     __table_args__ = (
         Index('ix_instruction_builds_org_is_main', 'organization_id', 'is_main'),
+        # Covers the pending-sweep candidate predicate
+        # (organization_id, is_main, status, source) so the sweep seeks the few
+        # live draft/pending_approval suggestion builds instead of scanning every
+        # non-main build for the org.
+        Index('ix_instruction_builds_pending_sweep',
+              'organization_id', 'is_main', 'status', 'source', 'deleted_at'),
     )
     
     def __repr__(self):
