@@ -181,8 +181,14 @@ async def resolve_permissions(
     4. Find all resource grants for user or their groups → resource_permissions
     5. Fallback to old Membership.role if no role_assignments exist (dual-read)
     """
+    memo = _rbac_memo(db)
+    if memo is not None and (user_id, org_id) in memo:
+        return memo[(user_id, org_id)]
     try:
-        return await _resolve_permissions_inner(db, user_id, org_id)
+        resolved = await _resolve_permissions_inner(db, user_id, org_id)
+        if memo is not None:
+            memo[(user_id, org_id)] = resolved
+        return resolved
     except Exception:
         logger.error(
             "Permission resolution failed for user=%s org=%s",
@@ -361,6 +367,142 @@ async def _agents_fully_backed_by_connections(
     for ds_id, conn_id in rows.all():
         conns_by_ds.setdefault(ds_id, set()).add(conn_id)
     return {ds_id for ds_id, conns in conns_by_ds.items() if conns and conns <= granted}
+
+
+async def resolve_permissions_bulk(
+    db: AsyncSession, user_id: str, org_ids: list[str]
+) -> dict[str, ResolvedPermissions]:
+    """Resolve permissions for a user across MANY orgs in a constant number of
+    queries (instead of ``resolve_permissions`` once per org).
+
+    whoami loops every org the user belongs to; calling ``resolve_permissions``
+    per org is ~3 queries × N orgs (serialized round-trips). This collapses the
+    group / role / grant lookups into three org-spanning queries and reconstructs
+    each org's ``ResolvedPermissions`` in Python, mirroring
+    ``_resolve_permissions_inner`` exactly. Returns a dict keyed by org id (every
+    requested org is present, empty perms if nothing matched).
+    """
+    result: dict[str, ResolvedPermissions] = {oid: ResolvedPermissions() for oid in org_ids}
+    if not org_ids:
+        return result
+    try:
+        # 1. Group memberships across all requested orgs (1 query).
+        group_rows = (await db.execute(
+            select(Group.organization_id, GroupMembership.group_id)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .where(GroupMembership.user_id == user_id,
+                   Group.organization_id.in_(org_ids))
+        )).all()
+        groups_by_org: dict[str, list] = {}
+        all_group_ids: list = []
+        for org_id, group_id in group_rows:
+            groups_by_org.setdefault(org_id, []).append(group_id)
+            all_group_ids.append(group_id)
+
+        # 2. Role assignments + role data (1 query). Mirrors the per-org filter:
+        #    RoleAssignment.organization_id == org AND principal is the user or one
+        #    of the user's groups. Bucketed by org in Python.
+        role_principal = [and_(RoleAssignment.principal_type == "user",
+                               RoleAssignment.principal_id == user_id)]
+        if all_group_ids:
+            role_principal.append(and_(RoleAssignment.principal_type == "group",
+                                       RoleAssignment.principal_id.in_(all_group_ids)))
+        role_rows = (await db.execute(
+            select(RoleAssignment.organization_id, RoleAssignment.principal_type,
+                   RoleAssignment.principal_id, Role.id, Role.name, Role.permissions)
+            .join(RoleAssignment, RoleAssignment.role_id == Role.id)
+            .where(or_(*role_principal),
+                   RoleAssignment.organization_id.in_(org_ids),
+                   RoleAssignment.deleted_at.is_(None),
+                   Role.deleted_at.is_(None))
+        )).all()
+        org_perms: dict[str, set] = {oid: set() for oid in org_ids}
+        role_names_by_org: dict[str, list] = {oid: [] for oid in org_ids}
+        role_ids_by_org: dict[str, list] = {oid: [] for oid in org_ids}
+        for org_id, p_type, p_id, role_id, role_name, perms in role_rows:
+            if org_id not in org_perms:
+                continue
+            # Per-org principal check (a group id belongs to exactly one org).
+            if p_type == "group" and p_id not in groups_by_org.get(org_id, ()):
+                continue
+            role_ids_by_org[org_id].append(role_id)
+            role_names_by_org[org_id].append(role_name)
+            if isinstance(perms, list):
+                org_perms[org_id].update(perms)
+        all_role_ids = [rid for ids in role_ids_by_org.values() for rid in ids]
+
+        # 3. Resource grants (1 query) for user / groups / roles across all orgs.
+        grant_principal = [and_(ResourceGrant.principal_type == "user",
+                                ResourceGrant.principal_id == user_id)]
+        if all_group_ids:
+            grant_principal.append(and_(ResourceGrant.principal_type == "group",
+                                        ResourceGrant.principal_id.in_(all_group_ids)))
+        if all_role_ids:
+            grant_principal.append(and_(ResourceGrant.principal_type == "role",
+                                        ResourceGrant.principal_id.in_(all_role_ids)))
+        grant_rows = (await db.execute(
+            select(ResourceGrant.organization_id, ResourceGrant.principal_type,
+                   ResourceGrant.principal_id, ResourceGrant.resource_type,
+                   ResourceGrant.resource_id, ResourceGrant.permissions)
+            .where(or_(*grant_principal),
+                   ResourceGrant.organization_id.in_(org_ids),
+                   ResourceGrant.deleted_at.is_(None))
+        )).all()
+        res_perms_by_org: dict[str, dict] = {oid: {} for oid in org_ids}
+        for org_id, p_type, p_id, r_type, r_id, perms in grant_rows:
+            if org_id not in res_perms_by_org:
+                continue
+            if p_type == "group" and p_id not in groups_by_org.get(org_id, ()):
+                continue
+            if p_type == "role" and p_id not in role_ids_by_org.get(org_id, ()):
+                continue
+            key = (r_type, r_id)
+            bucket = res_perms_by_org[org_id]
+            if key not in bucket:
+                bucket[key] = set()
+            if isinstance(perms, list):
+                bucket[key].update(perms)
+
+        # 4. Expand connection manage_data_sources → per-agent manage. Rare (only
+        #    when the user holds explicit per-connection grants); ~free otherwise
+        #    (early return on empty). Kept per-org for exact parity.
+        for org_id in org_ids:
+            res_perms = res_perms_by_org[org_id]
+            managed_conn_ids = [rid for (rtype, rid), perms in res_perms.items()
+                                if rtype == "connection" and "manage_data_sources" in perms]
+            for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
+                res_perms.setdefault(("data_source", ds_id), set()).add("manage")
+            result[org_id] = ResolvedPermissions(
+                org_permissions=org_perms[org_id],
+                resource_permissions=res_perms,
+                role_names=role_names_by_org[org_id],
+            )
+        # Warm the per-request memo so later single-org lookups are free.
+        memo = _rbac_memo(db)
+        if memo is not None:
+            for org_id, resolved in result.items():
+                memo[(user_id, org_id)] = resolved
+        return result
+    except Exception:
+        logger.error("Bulk permission resolution failed for user=%s", user_id, exc_info=True)
+        # Fall back to per-org resolution so a batch bug never denies access.
+        for org_id in org_ids:
+            result[org_id] = await resolve_permissions(db, user_id, org_id)
+        return result
+
+
+def _rbac_memo(db: AsyncSession):
+    """Per-request (per-session) memo dict for resolved permissions, or None.
+
+    Stored on the session's ``.info`` mapping, which lives for exactly one
+    request (the session is created per request via ``get_async_db``). This makes
+    repeated ``resolve_permissions`` calls for the same (user, org) within one
+    request free — several list endpoints resolve permissions 2-4× per request.
+    """
+    try:
+        return db.info.setdefault("_rbac_memo", {})
+    except Exception:
+        return None
 
 
 async def get_accessible_data_source_ids(

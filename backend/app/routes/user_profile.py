@@ -14,7 +14,7 @@ from app.models.user import User
 from app.models.membership import Membership
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.dependencies import get_async_db, get_current_organization
+from app.dependencies import get_async_db, get_current_organization, release_request_db
 from app.schemas.user_profile_schema import UserProfileSchema
 from app.schemas.organization_schema import OrganizationAndRoleSchema, MEMBERSHIP_NOTE_MAX_LENGTH
 from app.services.organization_service import OrganizationService
@@ -44,15 +44,19 @@ async def _get_current_membership(
 async def get_user_profile(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
     # Fetch organizations for the current user
     organizations = await organization_service.get_user_organizations(db, current_user)
-    
+
     # Convert current_user to a dictionary
     user_data = current_user.dict() if hasattr(current_user, 'dict') else vars(current_user)
-    
-    # Return the user profile with formatted organizations
-    return UserProfileSchema(
+
+    # Build the (detached-safe) response, then release the pooled DB connection
+    # before FastAPI serializes/sends it — whoami runs on every navigation, so
+    # holding the connection through serialization is a real pool cost.
+    payload = UserProfileSchema(
         **user_data,
         organizations=organizations
     )
+    await release_request_db(db)
+    return payload
 
 
 @router.get("/users/me/instructions", response_model=UserInstructionsSchema)
