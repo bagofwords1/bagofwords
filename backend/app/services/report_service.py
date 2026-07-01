@@ -1313,6 +1313,12 @@ class ReportService:
                 noload(Report.files),
                 noload(Report.shares),
                 noload(Report.stars),
+                # Only counted (query_count / scheduled_prompt_count), never
+                # serialized — hydrating every Query/ScheduledPrompt row just to
+                # call len() is wasteful. noload here; counts come from the
+                # batched GROUP BY queries below.
+                noload(Report.queries),
+                noload(Report.scheduled_prompts),
             ).order_by(
                 is_starred_order.desc(),
                 # Sort by real conversation activity (new message / finalized agent
@@ -1375,6 +1381,33 @@ class ReportService:
                 wh_result = await db.execute(wh_query)
                 webhook_counts = {str(row[0]): row[1] for row in wh_result.all()}
 
+            # Batch query_count (matches len(report.queries) — the relationship
+            # has no soft-delete filter, so count every row for the report).
+            query_counts: dict[str, int] = {}
+            if report_ids:
+                from app.models.query import Query
+                qc_result = await db.execute(
+                    select(Query.report_id, func.count(Query.id))
+                    .where(Query.report_id.in_(report_ids))
+                    .group_by(Query.report_id)
+                )
+                query_counts = {str(row[0]): row[1] for row in qc_result.all()}
+
+            # Batch active scheduled-prompt count (is_active AND not deleted).
+            active_sp_counts: dict[str, int] = {}
+            if report_ids:
+                from app.models.scheduled_prompt import ScheduledPrompt
+                sp_result = await db.execute(
+                    select(ScheduledPrompt.report_id, func.count(ScheduledPrompt.id))
+                    .where(
+                        ScheduledPrompt.report_id.in_(report_ids),
+                        ScheduledPrompt.is_active == True,
+                        ScheduledPrompt.deleted_at.is_(None),
+                    )
+                    .group_by(ScheduledPrompt.report_id)
+                )
+                active_sp_counts = {str(row[0]): row[1] for row in sp_result.all()}
+
             # Convert to schemas
             report_schemas = []
             for report in reports:
@@ -1402,17 +1435,14 @@ class ReportService:
                     for ds in (report.data_sources or [])
                 ]
 
-                # Summary counts
-                report_schema.query_count = len(report.queries or [])
+                # Summary counts (from batched GROUP BY queries above)
+                report_schema.query_count = query_counts.get(str(report.id), 0)
                 report_schema.artifact_count = len(report.artifacts or [])
 
-                # Check for active scheduled prompts
-                active_sps = [
-                    sp for sp in (report.scheduled_prompts or [])
-                    if sp.is_active and sp.deleted_at is None
-                ]
-                report_schema.has_scheduled_prompts = len(active_sps) > 0
-                report_schema.scheduled_prompt_count = len(active_sps)
+                # Active scheduled prompts (from batch query)
+                active_sp_count = active_sp_counts.get(str(report.id), 0)
+                report_schema.has_scheduled_prompts = active_sp_count > 0
+                report_schema.scheduled_prompt_count = active_sp_count
 
                 # Instruction count (from batch query)
                 report_schema.instruction_count = instruction_counts.get(str(report.id), 0)
