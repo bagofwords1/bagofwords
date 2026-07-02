@@ -1533,10 +1533,13 @@ class InstructionService:
                 await db.commit()
 
     async def accept_all_hunks(self, db: AsyncSession, instruction_id: str, *,
-                               against_main_version_id: Optional[str], organization: Organization, current_user: User):
+                               against_main_version_id: Optional[str], organization: Organization, current_user: User,
+                               build_id: Optional[str] = None):
         """Accept EVERY live hunk in one pass: apply them all cumulatively onto
         main (newest suggestion wins on overlap), promote a SINGLE new build, and
-        record every accepted hunk. One request, one build — no per-hunk churn."""
+        record every accepted hunk. One request, one build — no per-hunk churn.
+        `build_id` narrows the pass to one suggestion build (accept just that
+        suggestion's live hunks, leaving sibling suggestions pending)."""
         from app.services.text_hunks import rebased_hunks_against_main
         user_permissions = await self._get_user_permissions(db, current_user, organization)
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
@@ -1546,6 +1549,8 @@ class InstructionService:
         if against_main_version_id and main_vid and str(against_main_version_id) != str(main_vid):
             return None, "conflict"
         rows = await self._pending_suggestion_builds(db, instruction_id, organization)  # newest first
+        if build_id:
+            rows = [r for r in rows if str(r[0].id) == str(build_id)]
         new_text = main_text
         accepted = []  # (build, key)
         for build, proposed_text, _vid in rows:
@@ -1583,14 +1588,18 @@ class InstructionService:
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
 
     async def reject_all_hunks(self, db: AsyncSession, instruction_id: str, *,
-                               organization: Organization, current_user: User):
-        """Reject every live hunk in one pass (records them; main unchanged)."""
+                               organization: Organization, current_user: User,
+                               build_id: Optional[str] = None):
+        """Reject every live hunk in one pass (records them; main unchanged).
+        `build_id` narrows the pass to one suggestion build."""
         from app.services.text_hunks import rebased_hunks_against_main
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
             return None, "not_found"
         main_text, _vid, _meta = await self._main_text_of(db, instruction)
         rows = await self._pending_suggestion_builds(db, instruction_id, organization)
+        if build_id:
+            rows = [r for r in rows if str(r[0].id) == str(build_id)]
         for build, proposed_text, _v in rows:
             rejected = self._rejected_keys(build, instruction_id)
             base_text = await self._build_base_text(db, build, instruction_id)
@@ -1600,8 +1609,15 @@ class InstructionService:
                 await self._record_resolved_hunk(db, build, instruction_id, h["key"], "reject", commit=False)
         await db.commit()
         try:
-            from app.services.review_service import review_service
-            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
+            # Build-scoped rejection may leave sibling suggestions live — only
+            # clear the Review-feed item when nothing remains pending.
+            resolved_all = not build_id
+            if build_id:
+                remaining = await self.review_hunks(db, instruction_id, organization=organization, current_user=current_user)
+                resolved_all = bool(remaining) and not remaining.get("suggestions")
+            if resolved_all:
+                from app.services.review_service import review_service
+                await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
         except Exception:
             pass
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
