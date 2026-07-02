@@ -1661,6 +1661,17 @@
       "connected": "MCP-Server verbunden",
       "failedUpdate": "Aktualisierung fehlgeschlagen",
       "failedConnect": "Verbindung fehlgeschlagen"
+    },
+    "weekStart": {
+      "label": "Beginn der Arbeitswoche",
+      "description": "Der erste Tag Ihrer Arbeitswoche. Die KI nutzt dies, um „diese Woche“ und „letzte Woche“ zu interpretieren. Automatisch richtet sich nach der Organisationssprache.",
+      "auto": "Automatisch ({day})",
+      "saveError": "Beginn der Arbeitswoche konnte nicht aktualisiert werden",
+      "days": {
+        "sunday": "Sonntag",
+        "monday": "Montag",
+        "saturday": "Samstag"
+      }
     }
   },
   "data": {

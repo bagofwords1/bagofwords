@@ -772,6 +772,212 @@ def test_pending_status_consistent_between_list_and_detail(
     assert effective(single) == effective(row)
 
 
+def _inject_suggestion_build(org_id, instruction_id, proposed_text, source="ai", status="pending_approval"):
+    """Insert a non-main pending suggestion build (forked from main) proposing
+    `proposed_text` for the instruction, straight into the test DB — a REAL
+    live suggestion, unlike the covered/no-op build above. Returns the build id.
+    Same portability notes as the injection in
+    test_pending_status_consistent_between_list_and_detail."""
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            main = conn.execute(
+                text(
+                    """SELECT bc.build_id AS build_id
+                         FROM build_contents bc
+                         JOIN instruction_builds ib ON ib.id = bc.build_id
+                        WHERE bc.instruction_id = :iid AND ib.is_main = :is_main
+                          AND ib.deleted_at IS NULL"""
+                ),
+                {"iid": instruction_id, "is_main": True},
+            ).mappings().fetchone()
+            assert main is not None, "instruction should be in the main build"
+            now = datetime.datetime.utcnow()
+            vid, bid, bcid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+            vnum = conn.execute(
+                text("SELECT COALESCE(MAX(version_number),0)+1 FROM instruction_versions WHERE instruction_id=:iid"),
+                {"iid": instruction_id},
+            ).scalar()
+            bnum = conn.execute(
+                text("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=:org"),
+                {"org": org_id},
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash)"
+                    " VALUES (:id,:ca,:ua,:iid,:vnum,:txt,:status,:load_mode,:chash)"
+                ),
+                {"id": vid, "ca": now, "ua": now, "iid": instruction_id, "vnum": vnum, "txt": proposed_text,
+                 "status": "published", "load_mode": "always", "chash": "h" + uuid.uuid4().hex[:12]},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,base_build_id,title)"
+                    " VALUES (:id,:ca,:ua,:bnum,:status,:source,:is_main,:org,:base,:title)"
+                ),
+                {"id": bid, "ca": now, "ua": now, "bnum": bnum, "status": status, "source": source,
+                 "is_main": False, "org": org_id, "base": main["build_id"], "title": "suggestion build"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                ),
+                {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": instruction_id, "vid": vid},
+            )
+    finally:
+        engine.dispose()
+    return bid
+
+
+@pytest.mark.e2e
+def test_pending_builds_agrees_with_review_hunks_after_reject_all(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Regression: /pending-builds must follow the same authoritative per-hunk
+    rule as /review-hunks. A suggestion whose every hunk was rejected in the
+    per-hunk review used to stay in /pending-builds, so the Report agent panel
+    kept showing "changes" the /agents tracked-changes review had already
+    dropped (and could re-publish rejected content via build publish)."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="alpha beta gamma delta", user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    bid = _inject_suggestion_build(org_id, iid, "alpha beta gamma delta epsilon")
+
+    # Both surfaces agree the suggestion is pending.
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert [b["build_id"] for b in pending] == [bid]
+    assert pending[0]["in_main"] is True
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert [s["build_id"] for s in review["suggestions"]] == [bid]
+
+    # Reject everything through the per-hunk review (what the /agents page does).
+    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == []
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert pending == [], "a fully-rejected suggestion must not resurface in /pending-builds"
+    # Main text untouched by the rejection.
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == "alpha beta gamma delta"
+
+
+@pytest.mark.e2e
+def test_pending_builds_partial_reject_shows_only_live_hunks(
+    test_client,
+    create_global_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """With one of two hunks rejected, /pending-builds must render the pending
+    text as main + the LIVE hunk only — diffing the raw snapshot would
+    resurrect the rejected change in every tracked-changes client."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="one two three four", user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    bid = _inject_suggestion_build(org_id, iid, "one TWO three four five")
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    hunks = review["suggestions"][0]["hunks"]
+    assert len(hunks) == 2, hunks
+    replaced = next(h for h in hunks if "TWO" in h["after"])
+
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject",
+        json={"build_id": bid, "hunk_key": replaced["key"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert [b["build_id"] for b in pending] == [bid]
+    assert pending[0]["pending_text"] == "one two three four five"
+    assert "TWO" not in pending[0]["pending_text"]
+    # base_text is current main so clients diff exactly the live hunks.
+    assert pending[0]["base_text"] == "one two three four"
+
+
+@pytest.mark.e2e
+def test_accept_and_reject_all_scoped_to_build(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """hunks/accept-all and hunks/reject-all with a build_id resolve ONLY that
+    suggestion, leaving siblings pending — the resolution model used by the
+    tracked-changes banner (Report agent panel / tool cards)."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="start middle end", user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    build_a = _inject_suggestion_build(org_id, iid, "start MIDDLE end")
+    build_b = _inject_suggestion_build(org_id, iid, "start middle end tail")
+
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert {b["build_id"] for b in pending} == {build_a, build_b}
+
+    # Accept ONLY build A.
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        json={"build_id": build_a},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == "start MIDDLE end"
+
+    # B is still pending on BOTH surfaces, rebased onto the new main.
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert [s["build_id"] for s in review["suggestions"]] == [build_b]
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert [b["build_id"] for b in pending] == [build_b]
+    assert pending[0]["pending_text"] == "start MIDDLE end tail"
+
+    # Reject ONLY build B -> nothing pending anywhere, main unchanged.
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json={"build_id": build_b},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == []
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert pending == []
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == "start MIDDLE end"
+
+
 @pytest.mark.e2e
 def test_agent_count_matches_list_under_inaccessible_table(
     test_client,

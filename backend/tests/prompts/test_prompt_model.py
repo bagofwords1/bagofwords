@@ -138,6 +138,29 @@ async def test_prompt_model_access_and_parameters():
 
 
 @pytest.mark.asyncio
+async def test_list_prompts_limit():
+    """`limit` caps the returned prompts after visibility filtering and
+    sorting, while meta.total keeps the full visible count. The command
+    palette relies on this (`/prompts?limit=5`)."""
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        for i in range(7):
+            await prompt_service.create_prompt(
+                db, PromptCreate(title=f"P{i}", text=f"prompt {i}", scope="global", data_source_ids=[]), admin, org)
+
+        res = await prompt_service.list_prompts(db, admin, org, limit=5)
+        assert len(res["prompts"]) == 5
+        assert res["meta"]["total"] == 7
+
+        res_all = await prompt_service.list_prompts(db, admin, org)
+        assert len(res_all["prompts"]) == 7
+        assert res_all["meta"]["total"] == 7
+        print("[limit] limit=5 caps results, meta.total stays 7")
+
+
+@pytest.mark.asyncio
 async def test_materialize_starters_idempotent():
     """The agent-creation path: a data source's conversation_starters become
     agent-scoped starter Prompts (idempotent), visible via starters_only."""
