@@ -1723,6 +1723,17 @@
       "systemDefault": "Use system default (UTC)",
       "saveError": "Could not update timezone"
     },
+    "weekStart": {
+      "label": "Work week start",
+      "description": "The first day of your work week. The AI uses this to interpret \"this week\" and \"last week\". Auto follows the organization language.",
+      "auto": "Automatic ({day})",
+      "saveError": "Could not update work week start",
+      "days": {
+        "sunday": "Sunday",
+        "monday": "Monday",
+        "saturday": "Saturday"
+      }
+    },
     "workspacePlaceholder": "Workspace name",
     "changeIcon": "Change Icon",
     "uploadIconButton": "Upload Icon",

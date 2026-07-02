@@ -107,6 +107,15 @@ class PlannerInput(BaseModel):
     # "current time" the model sees. None -> server-local fallback.
     timezone: Optional[str] = None
 
+    # Org locale (e.g. "he", "en") — used to render the per-turn time block's
+    # week convention (Hebrew/Arabic orgs default to a Sunday-start work week).
+    locale: Optional[str] = None
+
+    # Org first-day-of-week override ("sunday"/"monday"/"saturday", or
+    # None/"auto" to derive from ``locale``). Governs how "this week"/"last
+    # week" boundaries are presented to the model.
+    week_start: Optional[str] = None
+
     # Active artifact context (most recent artifact in the current report)
     active_artifact: Optional[Dict[str, Any]] = None
 

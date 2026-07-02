@@ -76,6 +76,18 @@
                 <div class="text-xs text-gray-500">{{ $t('settings.timezone.description') }}</div>
             </div>
 
+            <!-- Work week start -->
+            <div class="md:w-2/3 space-y-2">
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.weekStart.label') }}</div>
+                <USelect
+                    v-model="form.week_start"
+                    :options="weekStartOptions"
+                    option-attribute="label"
+                    value-attribute="value"
+                />
+                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.weekStart.description') }}</div>
+            </div>
+
             <div class="md:w-2/3 pt-2">
                 <UButton color="blue" @click="saveAll" :loading="saving">{{ $t('common.saveChanges') }}</UButton>
             </div>
@@ -127,11 +139,12 @@ definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings
 const loading = ref(true)
 const error = ref('')
 const general = ref<GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
-const form = ref<{ organization_name?: string; locale: string; timezone: string } & GeneralConfig>({
+const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string } & GeneralConfig>({
     ai_analyst_name: 'AI Analyst',
     bow_credit: true,
     locale: '',
     timezone: '',
+    week_start: '',
 })
 // Empty string represents "no org override" (system default). Tracking the
 // initial value lets saveAll skip the PUT when the user hasn't touched it.
@@ -141,6 +154,10 @@ const systemDefaultLocale = ref<string>('en')
 // Timezone: '' === no override (UTC). Track initial to skip an untouched PUT.
 const initialTimezone = ref<string>('')
 const supportedTimezones = ref<string[]>([])
+// Work week start: '' === auto (derive from locale). Track initial to skip an
+// untouched PUT. ``effectiveWeekStart`` is what the AI actually uses.
+const initialWeekStart = ref<string>('')
+const effectiveWeekStart = ref<string>('monday')
 const pendingIconFile = ref<File | null>(null)
 const removeIcon = ref(false)
 const saving = ref(false)
@@ -166,15 +183,29 @@ const timezoneOptions = computed(() => {
     return opts
 })
 
+const weekStartOptions = computed(() => {
+    // Auto shows the locale-derived value so admins know what the AI will use.
+    const autoLabel = t('settings.weekStart.auto', {
+        day: t(`settings.weekStart.days.${effectiveWeekStart.value}`),
+    })
+    return [
+        { label: autoLabel, value: '' },
+        { label: t('settings.weekStart.days.sunday'), value: 'sunday' },
+        { label: t('settings.weekStart.days.monday'), value: 'monday' },
+        { label: t('settings.weekStart.days.saturday'), value: 'saturday' },
+    ]
+})
+
 const fetchSettings = async () => {
     loading.value = true
     error.value = ''
     try {
-        const [settingsResp, localeResp, tzResp, tzListResp] = await Promise.all([
+        const [settingsResp, localeResp, tzResp, tzListResp, weekResp] = await Promise.all([
             useMyFetch('/api/organization/settings'),
             useMyFetch('/api/organization/locale'),
             useMyFetch('/api/organization/timezone'),
             useMyFetch('/api/organization/timezones'),
+            useMyFetch('/api/organization/week_start'),
         ])
         if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
         const cfg = (settingsResp.data.value as SettingsResponse)?.config
@@ -191,9 +222,14 @@ const fetchSettings = async () => {
         initialTimezone.value = orgTimezone
         supportedTimezones.value = (tzListResp.data.value as { timezones?: string[] } | null)?.timezones ?? []
 
+        const week = weekResp.data.value as { org_week_start?: string | null; effective_week_start?: string } | null
+        const orgWeekStart = week?.org_week_start ?? ''
+        initialWeekStart.value = orgWeekStart
+        effectiveWeekStart.value = week?.effective_week_start ?? 'monday'
+
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
-        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, ...general.value }
+        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, ...general.value }
     } catch (e: any) {
         error.value = e.message || t('settings.failedToLoad')
         toast.add({ title: t('common.error'), description: error.value, color: 'red' })
@@ -254,6 +290,15 @@ const saveAll = async () => {
             const tzResp = await useMyFetch('/api/organization/timezone', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: tzBody })
             if (tzResp.status.value !== 'success') throw new Error(tzResp.error?.value?.data?.detail || t('settings.timezone.saveError'))
             initialTimezone.value = form.value.timezone
+        }
+
+        // 6) Save org work-week start (empty string clears it to auto/locale).
+        if (form.value.week_start !== initialWeekStart.value) {
+            const weekBody = JSON.stringify({ week_start: form.value.week_start || null })
+            const weekResp = await useMyFetch('/api/organization/week_start', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: weekBody })
+            if (weekResp.status.value !== 'success') throw new Error(weekResp.error?.value?.data?.detail || t('settings.weekStart.saveError'))
+            effectiveWeekStart.value = (weekResp.data?.value as any)?.effective_week_start ?? effectiveWeekStart.value
+            initialWeekStart.value = form.value.week_start
         }
 
         toast.add({ title: t('settings.saved'), color: 'green' })
