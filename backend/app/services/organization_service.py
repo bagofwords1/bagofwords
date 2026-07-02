@@ -358,7 +358,7 @@ class OrganizationService:
         return schema
     
     async def get_user_organizations(self, db: AsyncSession, current_user: User) -> List[OrganizationAndRoleSchema]:
-        from app.core.permission_resolver import resolve_permissions
+        from app.core.permission_resolver import resolve_permissions_bulk
 
         result = await db.execute(
             select(Organization, Membership.role)
@@ -375,8 +375,18 @@ class OrganizationService:
             for s in sres.scalars().all():
                 settings_map[s.organization_id] = s
 
-        formatted = []
+        # Resolve RBAC permissions for ALL orgs in a constant number of queries
+        # (was ~3 queries × N orgs, serialized — the dominant whoami cost).
+        uid = str(current_user.id)
+        resolved_by_org = await resolve_permissions_bulk(db, uid, [str(o) for o in org_ids])
+
+        # License + usage-limit checks are org-independent here — hoist out of the
+        # loop so we don't re-check (and, when quotas are enabled, batch) per org.
+        from app.ee.license import has_feature
+        is_enterprise = has_feature("custom_roles")
+
         from app.services.usage_policy_service import usage_policy_service
+        formatted = []
         for org, role in results:
             icon_url = None
             ai_analyst_name = "AI Analyst"  # Default value
@@ -386,8 +396,10 @@ class OrganizationService:
                 icon_url = general.get('icon_url')
                 ai_analyst_name = general.get('ai_analyst_name') or "AI Analyst"
 
-            # Resolve RBAC permissions
-            resolved = await resolve_permissions(db, str(current_user.id), str(org.id))
+            resolved = resolved_by_org.get(str(org.id))
+            if resolved is None:
+                from app.core.permission_resolver import ResolvedPermissions
+                resolved = ResolvedPermissions()
 
             # Build resource_permissions dict for frontend
             resource_perms = {}
@@ -395,13 +407,10 @@ class OrganizationService:
                 key = f"{res_type}:{res_id}"
                 resource_perms[key] = sorted(perms)
 
-            # Check enterprise license
-            from app.ee.license import has_feature
-            is_enterprise = has_feature("custom_roles")
+            # Usage quota: when usage_limits is off (the common case) this issues
+            # no queries and returns the disabled summary cheaply.
             usage_quota = await usage_policy_service.get_user_quota_summary(
-                db,
-                str(org.id),
-                str(current_user.id),
+                db, str(org.id), uid,
             )
 
             formatted.append(OrganizationAndRoleSchema(
