@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.429 (July 2, 2026)
+- **Faster page navigation (#513)** — batched whoami's per-org RBAC resolution, fixed the monitoring/reports N+1s, added hot-path indexes, and share one DB connection per request; pages load noticeably faster and no longer stall under load.
+
 ## Version 0.0.428 (June 29, 2026)
 - **File references + MCP file materialization (#497)** — adds a `file_reference` model/route/service and materializes files surfaced by connector tools (MCP resources, Graph mail attachments) so they can be referenced as first-class files. Wires file materialization into `execute_mcp` / `read_mcp_resource` / the MCP client and adds a Graph mail client path. Backed by two migrations (`filesrc01` adds a file source-kind, `fileref01` adds the file-references table), chaining off the service-accounts head. Adds unit tests for the reference service and MCP file materialization.
 - **/agents tree — lazy-load instructions + server-side search (#494)** — the Agents tree no longer loads **all** instructions on mount (`GET /instructions?limit=200`) and derives everything client-side. It now draws from cheap aggregate **counts** and loads rows **lazily on expand**. New backend endpoints: `GET /instructions/counts` (badge aggregates with no row hydration, same visibility filter as the list), `GET /knowledge/search?q=` (cross-entity grouped search over agents + instructions), and an `?global_only=true` list filter. The frontend mounts with counts + agents only, lazy-loads rows per group/agent on expand (with per-node spinners), turns "search everything" into a grouped server-side results view, and keeps a deduped lazy row cache. Validated with `tests/e2e/test_instruction.py` (17 passed).
