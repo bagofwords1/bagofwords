@@ -1385,15 +1385,16 @@ class InstructionService:
         # fixed handful of bulk queries + an in-memory diff pass instead of
         # O(instructions × builds) serialized round-trips.
 
-        # (1) Every pending suggestion build, with its proposed text and build
-        #     metadata (rejected_hunks + base_build_id are already-loaded columns,
-        #     no lazy load). The WHERE already selects exactly the pending
-        #     suggestion rows, so the candidate instruction ids are DERIVED from
-        #     these rows — we deliberately do NOT additionally filter by a
-        #     separately-materialized id list in the org-wide case: feeding a
-        #     thousands-element IN(...) here made SQLite pick a pathological plan
-        #     (~40x slower). candidate_ids (the on-screen subset, small) is the
-        #     one case where narrowing helps, so it's applied then.
+        # (1) Every pending suggestion build, with its proposed version/text and
+        #     build metadata (rejected_hunks + base_build_id are already-loaded
+        #     columns, no lazy load). The WHERE already selects exactly the
+        #     pending suggestion rows, so the candidate instruction ids are
+        #     DERIVED from these rows — we deliberately do NOT additionally
+        #     filter by a separately-materialized id list in the org-wide case:
+        #     feeding a thousands-element IN(...) here made SQLite pick a
+        #     pathological plan (~40x slower). candidate_ids (the on-screen
+        #     subset, small) is the one case where narrowing helps, so it's
+        #     applied then.
         sug_where = [
             InstructionBuild.is_main.is_(False),
             InstructionBuild.organization_id == org_id,
@@ -1404,16 +1405,66 @@ class InstructionService:
         if candidate_ids is not None:
             sug_where.append(BuildContent.instruction_id.in_([str(i) for i in candidate_ids]))
         sug_rows = (await db.execute(
-            select(BuildContent.instruction_id, InstructionBuild, _IV.text)
+            select(
+                BuildContent.instruction_id,
+                BuildContent.instruction_version_id,
+                InstructionBuild,
+                _IV.text,
+            )
             .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
             .join(_IV, _IV.id == BuildContent.instruction_version_id)
             .where(and_(*sug_where))
         )).all()
         if not sug_rows:
             return set()
+
+        # (2) Base text/version for each (base_build_id, instruction_id) pair
+        #     the suggestions forked from — what _build_base_text() resolves per
+        #     build. A build snapshots every instruction, so most pending
+        #     BuildContent rows are inherited carry-over rows. If the proposed
+        #     version is exactly the base version, there is no intended change;
+        #     skip it before loading main text or running the word-level diff.
+        base_pairs = {
+            (str(build.base_build_id), str(iid))
+            for iid, _proposed_vid, build, _proposed in sug_rows
+            if build.base_build_id
+        }
+        base_text: dict = {}
+        base_version: dict = {}
+        if base_pairs:
+            base_bids = {bid for bid, _ in base_pairs}
+            base_iids = {iid for _, iid in base_pairs}
+            for bid, iid, vid, txt in (await db.execute(
+                select(
+                    BuildContent.build_id,
+                    BuildContent.instruction_id,
+                    BuildContent.instruction_version_id,
+                    _IV.text,
+                )
+                .join(_IV, _IV.id == BuildContent.instruction_version_id)
+                .where(and_(
+                    BuildContent.build_id.in_(base_bids),
+                    BuildContent.instruction_id.in_(base_iids),
+                ))
+            )).all():
+                key = (str(bid), str(iid))
+                base_version[key] = str(vid)
+                base_text[key] = txt or ""
+
+        changed_rows = []
+        for iid, proposed_vid, build, proposed in sug_rows:
+            if build.base_build_id:
+                base_key = (str(build.base_build_id), str(iid))
+                if base_version.get(base_key) == str(proposed_vid):
+                    continue
+            changed_rows.append((iid, build, proposed))
+        sug_rows = changed_rows
+        if not sug_rows:
+            return set()
+
         cand_ids = list({str(iid) for iid, _b, _t in sug_rows})
 
-        # (2) Live main text per candidate (authoritative is_main build content),
+        # (3) Live main text per candidate (authoritative is_main build content),
         #     with a fallback to the live instruction row for legacy instructions
         #     that predate main-build content — mirrors _main_text_of().
         main_text: dict = {}
@@ -1435,23 +1486,6 @@ class InstructionService:
                 select(Instruction.id, Instruction.text).where(Instruction.id.in_(missing_main))
             )).all():
                 main_text[str(iid)] = txt or ""
-
-        # (3) Base text for each (base_build_id, instruction_id) pair the
-        #     suggestions forked from — what _build_base_text() resolves per build.
-        base_pairs = {(str(b.base_build_id), str(iid)) for iid, b, _ in sug_rows if b.base_build_id}
-        base_text: dict = {}
-        if base_pairs:
-            base_bids = {bid for bid, _ in base_pairs}
-            base_iids = {iid for _, iid in base_pairs}
-            for bid, iid, txt in (await db.execute(
-                select(BuildContent.build_id, BuildContent.instruction_id, _IV.text)
-                .join(_IV, _IV.id == BuildContent.instruction_version_id)
-                .where(and_(
-                    BuildContent.build_id.in_(base_bids),
-                    BuildContent.instruction_id.in_(base_iids),
-                ))
-            )).all():
-                base_text[(str(bid), str(iid))] = txt or ""
 
         # (4) Pure-Python pass — no awaits in the loop.
         pending: set = set()
@@ -2647,6 +2681,8 @@ class InstructionService:
             Instruction.organization_id == organization.id,
             Instruction.deleted_at == None
         ]
+        live_pending_ids_for_list: Optional[set] = None
+        live_pending_candidate_ids: Optional[set] = None
         
         # Get the target build (specific or main)
         target_build_id = build_id
@@ -2707,6 +2743,10 @@ class InstructionService:
                     ]
                 pending_ids = await self.get_pending_change_instruction_ids(
                     db, organization, current_user, candidate_ids=pending_candidates
+                )
+                live_pending_ids_for_list = {str(i) for i in pending_ids}
+                live_pending_candidate_ids = (
+                    set(pending_candidates) if pending_candidates is not None else None
                 )
                 if pending_ids:
                     membership_clause = or_(
@@ -2776,9 +2816,34 @@ class InstructionService:
                         .where(instruction_data_source_association.c.data_source_id.in_(data_source_ids))
                     )).all()
                 ]
-            pending_ids = await self.get_pending_change_instruction_ids(
-                db, organization, current_user, candidate_ids=pending_candidates
-            ) if current_user is not None else set()
+            elif global_only:
+                pending_candidates = [
+                    str(r[0]) for r in (await db.execute(
+                        select(Instruction.id).where(and_(
+                            Instruction.organization_id == organization.id,
+                            ~Instruction.data_sources.any(),
+                        ))
+                    )).all()
+                ]
+            pending_candidate_ids = (
+                set(pending_candidates) if pending_candidates is not None else None
+            )
+            if current_user is None:
+                pending_ids = set()
+            elif (
+                live_pending_ids_for_list is not None
+                and (
+                    live_pending_candidate_ids is None
+                    or pending_candidate_ids == live_pending_candidate_ids
+                )
+            ):
+                pending_ids = live_pending_ids_for_list
+            else:
+                pending_ids = await self.get_pending_change_instruction_ids(
+                    db, organization, current_user, candidate_ids=pending_candidates
+                )
+                live_pending_ids_for_list = {str(i) for i in pending_ids}
+                live_pending_candidate_ids = pending_candidate_ids
             filter_conditions.append(
                 Instruction.id.in_([str(i) for i in pending_ids]) if pending_ids
                 else literal(False)
@@ -3007,10 +3072,23 @@ class InstructionService:
                 # must NOT read as "Pending review" here when it reads "Active"
                 # everywhere else.
                 if latest_by_inst and current_user is not None:
-                    pending_ids = await self.get_pending_change_instruction_ids(
-                        db, organization, current_user,
-                        candidate_ids=list(latest_by_inst.keys()),
-                    )
+                    latest_ids = {str(iid) for iid in latest_by_inst.keys()}
+                    if (
+                        live_pending_ids_for_list is not None
+                        and (
+                            live_pending_candidate_ids is None
+                            or latest_ids.issubset(live_pending_candidate_ids)
+                        )
+                    ):
+                        pending_ids = {
+                            iid for iid in latest_ids
+                            if iid in live_pending_ids_for_list
+                        }
+                    else:
+                        pending_ids = await self.get_pending_change_instruction_ids(
+                            db, organization, current_user,
+                            candidate_ids=list(latest_by_inst.keys()),
+                        )
                 else:
                     pending_ids = set()
                 for it in list_items:

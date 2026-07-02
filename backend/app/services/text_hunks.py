@@ -81,6 +81,8 @@ def compute_hunks(base: str, proposed: str) -> List[Hunk]:
     """The suggestion's intent: hunks transforming base -> proposed (word-level).
     Each hunk records the base token range it replaces so it can be applied onto
     a possibly-moved `main`."""
+    if (base or "") == (proposed or ""):
+        return []
     ta, tb = _tokenize(base), _tokenize(proposed)
     sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
     hunks: List[Hunk] = []
