@@ -25,6 +25,10 @@ export interface PendingBuild {
   pending_version_number: number | null
   pending_text: string
   pending_title: string | null
+  // false = a create suggestion (the instruction isn't in main yet). Those are
+  // resolved by publishing/discarding the build; edits go through the per-hunk
+  // cherry-pick endpoints so they stay consistent with the /agents review.
+  in_main?: boolean
 }
 
 export type DiffOpType = -1 | 0 | 1
@@ -83,16 +87,26 @@ export function useTrackedChanges(
     }
   }
 
+  // Accept/reject go through the per-hunk cherry-pick endpoints (scoped to the
+  // suggestion's build) — the same resolution model as the /agents review, so
+  // hunks rejected there can't be re-published from here. Create suggestions
+  // (in_main === false) have no hunks against main: those keep the whole-build
+  // publish/discard semantics.
   async function accept() {
     const build = currentBuild.value
     const id = instructionId.value
     if (!build || !id || isResolving.value) return false
     isResolving.value = true
     try {
-      const { error } = await useMyFetch(`/builds/${build.build_id}/publish`, {
-        method: 'POST',
-        body: { instruction_ids: [id] },
-      })
+      const { error } = build.in_main === false
+        ? await useMyFetch(`/builds/${build.build_id}/publish`, {
+            method: 'POST',
+            body: { instruction_ids: [id] },
+          })
+        : await useMyFetch(`/instructions/${id}/hunks/accept-all`, {
+            method: 'POST',
+            body: { build_id: build.build_id },
+          })
       if (error.value) return false
       dispatchInstructionResolved({ instructionId: id, buildId: build.build_id, action: 'accept' })
       await refresh()
@@ -108,10 +122,12 @@ export function useTrackedChanges(
     if (!build || !id || isResolving.value) return false
     isResolving.value = true
     try {
-      const { error } = await useMyFetch(
-        `/builds/${build.build_id}/contents/${id}`,
-        { method: 'DELETE' },
-      )
+      const { error } = build.in_main === false
+        ? await useMyFetch(`/builds/${build.build_id}/contents/${id}`, { method: 'DELETE' })
+        : await useMyFetch(`/instructions/${id}/hunks/reject-all`, {
+            method: 'POST',
+            body: { build_id: build.build_id },
+          })
       if (error.value) return false
       dispatchInstructionResolved({ instructionId: id, buildId: build.build_id, action: 'reject' })
       await refresh()

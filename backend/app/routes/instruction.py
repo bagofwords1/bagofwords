@@ -929,6 +929,13 @@ async def reject_instruction_hunk(
 
 class AcceptAllRequest(BaseModel):
     against_main_version_id: Optional[str] = None
+    # Narrow the pass to one suggestion build (accept just that suggestion).
+    build_id: Optional[str] = None
+
+
+class RejectAllRequest(BaseModel):
+    # Narrow the pass to one suggestion build (reject just that suggestion).
+    build_id: Optional[str] = None
 
 
 @router.post("/instructions/{instruction_id}/hunks/accept-all", response_model=InstructionSchema)
@@ -950,7 +957,7 @@ async def accept_all_instruction_hunks(
         await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
     resolved, status = await instruction_service.accept_all_hunks(
         db, instruction_id, against_main_version_id=body.against_main_version_id,
-        organization=organization, current_user=current_user,
+        organization=organization, current_user=current_user, build_id=body.build_id,
     )
     if status == "conflict":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
@@ -960,6 +967,7 @@ async def accept_all_instruction_hunks(
         await audit_service.log(
             db=db, organization_id=organization.id, action="instruction.hunks_accepted_all",
             user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"build_id": body.build_id} if body.build_id else None,
             request=request,
         )
     except Exception:
@@ -972,6 +980,7 @@ async def accept_all_instruction_hunks(
 async def reject_all_instruction_hunks(
     instruction_id: str,
     request: Request,
+    body: RejectAllRequest = RejectAllRequest(),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -984,7 +993,7 @@ async def reject_all_instruction_hunks(
     if existing_ds_ids:
         await check_resource_permissions(db, str(current_user.id), str(organization.id), "data_source", existing_ds_ids, "manage_instructions")
     resolved, _status = await instruction_service.reject_all_hunks(
-        db, instruction_id, organization=organization, current_user=current_user,
+        db, instruction_id, organization=organization, current_user=current_user, build_id=body.build_id,
     )
     if resolved is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
@@ -992,6 +1001,7 @@ async def reject_all_instruction_hunks(
         await audit_service.log(
             db=db, organization_id=organization.id, action="instruction.hunks_rejected_all",
             user_id=current_user.id, resource_type="instruction", resource_id=str(instruction_id),
+            details={"build_id": body.build_id} if body.build_id else None,
             request=request,
         )
     except Exception:
@@ -1096,7 +1106,12 @@ async def get_instruction_pending_builds(
 ):
     """List all pending/draft builds containing this instruction, with the
     pending version text. Used by the tracked-changes UI to show suggested
-    edits awaiting approval."""
+    edits awaiting approval.
+
+    Pendingness follows the same authoritative per-hunk rule as
+    GET /review-hunks (see live_hunks_by_build below), so this surface can
+    never disagree with the /agents tracked-changes review about whether an
+    instruction still has changes to review."""
     existing = await instruction_service.get_instruction(
         db, instruction_id, organization, current_user
     )
@@ -1226,6 +1241,26 @@ async def get_instruction_pending_builds(
         # No recorded base → fall back to comparing against current main.
         return main_version_id is None or str(version.id) != str(main_version_id)
 
+    # The authoritative per-hunk rule — same as GET /review-hunks: once the
+    # instruction exists in main, a suggestion build is only pending while it
+    # still has at least one LIVE hunk (not resolved via hunks/accept|reject,
+    # still anchorable onto current main, and actually changing it). Without
+    # this, a suggestion fully rejected in the per-hunk review kept resurfacing
+    # here — e.g. the Report agent panel showed "changes" the /agents review
+    # had already dropped. `None` marks a create suggestion (the instruction
+    # isn't in main yet), which stays reviewable as a whole snapshot.
+    from app.services.text_hunks import rebased_hunks_against_main
+    live_hunks_by_build: dict = {}
+    for _c, build, version in rows:
+        if main_text is None:
+            live_hunks_by_build[str(build.id)] = None
+            continue
+        rejected = instruction_service._rejected_keys(build, instruction_id)
+        live_hunks_by_build[str(build.id)] = [
+            h for h in rebased_hunks_against_main(_base_text_for(build), version.text or "", main_text)
+            if h["key"] not in rejected
+        ]
+
     # Resolve the originating report for AI suggestions, so the UI can show a
     # "generated from <report>" provenance link on each suggestion. The chain is
     # build.agent_execution_id -> AgentExecution.report_id.
@@ -1248,6 +1283,11 @@ async def get_instruction_pending_builds(
     def _passes_basic(build, version) -> bool:
         # Only builds that intentionally changed THIS instruction (vs their base).
         if not _build_changed_instruction(build, version):
+            return False
+        # Authoritative per-hunk rule: everything this build proposed was
+        # already resolved (accepted/rejected) or no longer applies to main.
+        live = live_hunks_by_build.get(str(build.id))
+        if live is not None and not live:
             return False
         # Skip intermediate snapshots of a chained edit — only the leaf (the
         # build no other pending build forked from) is a real suggestion.
@@ -1288,6 +1328,19 @@ async def get_instruction_pending_builds(
             continue  # an intermediate snapshot a later sibling already covers
         creator = getattr(build, "created_by_user", None)
         trace = trace_by_exec.get(str(build.agent_execution_id)) if getattr(build, "agent_execution_id", None) else None
+        # Render exactly the LIVE hunks: main + this build's unresolved changes.
+        # Diffing the raw snapshot against live text would resurrect hunks the
+        # user already rejected/accepted in the per-hunk review. Creates (not in
+        # main yet) keep the raw snapshot — the whole text IS the suggestion.
+        live = live_hunks_by_build.get(str(build.id))
+        if live is None:
+            pending_text = version.text or ""
+            base_text = _base_text_for(build)
+        else:
+            pending_text = main_text or ""
+            for h in sorted(live, key=lambda x: x["start"], reverse=True):
+                pending_text = pending_text[:h["start"]] + h["after"] + pending_text[h["end"]:]
+            base_text = main_text or ""
         result.append({
             "build_id": str(build.id),
             "build_number": build.build_number,
@@ -1300,11 +1353,14 @@ async def get_instruction_pending_builds(
             ),
             "pending_version_id": str(version.id),
             "pending_version_number": version.version_number,
-            "pending_text": version.text or "",
+            "pending_text": pending_text,
             # The text this suggestion forked from — lets the client rebase the
             # intended change onto current text (3-way merge) so siblings stay
             # applicable after one is accepted.
-            "base_text": _base_text_for(build),
+            "base_text": base_text,
+            # False = a create suggestion (instruction not in main yet): clients
+            # resolve it via build publish/discard, not the per-hunk endpoints.
+            "in_main": live is not None,
             "pending_title": version.title,
             # Build-level "commit message": auto-generated summary + free-text rationale.
             "build_title": build.title,
