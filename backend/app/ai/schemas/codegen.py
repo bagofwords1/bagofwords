@@ -29,6 +29,9 @@ class CodeGenContext(BaseModel):
     successful_queries: List[str] = []
     # New: optional targeting info to drive snippet retrieval
     tables_by_source: Optional[List[Dict[str, Any]]] = None
+    # The visualization type the result will render as (e.g. "metric_card"),
+    # when known before codegen. Lets the coder shape the DataFrame for it.
+    target_visualization_type: Optional[str] = None
 
 
 class CodeGenRequest(BaseModel):

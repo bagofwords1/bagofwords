@@ -10,6 +10,7 @@ async def build_codegen_context(
     interpreted_prompt: str | None,
     schemas_excerpt: str,
     tables_by_source: list | None = None,
+    target_visualization_type: str | None = None,
 ) -> CodeGenContext:
     """
     Build a CodeGenContext from runtime_ctx (ContextHub/ContextView) with safe fallbacks.
@@ -162,6 +163,7 @@ async def build_codegen_context(
         past_observations=past_observations,
         last_observation=last_observation,
         tables_by_source=norm_tables_by_source,
+        target_visualization_type=target_visualization_type,
     )
 
 

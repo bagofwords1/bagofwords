@@ -77,22 +77,48 @@ const subtitle = computed(() =>
   viewConfig.value?.subtitle || viewConfig.value?.description || ''
 )
 
-// Get value column from view or first numeric column
+// Parse a raw or display-formatted numeric cell ("1234", "₪29,134,139",
+// "4,125.04", "45.2%") into a number. Returns null for anything else (dates,
+// labels, mixed text). parseFloat must never be used on cell values here: it
+// silently truncates at the first separator (parseFloat("29,134,139") === 29).
+function parseNumericLike(val: any): number | null {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null
+  if (typeof val !== 'string') return null
+  let s = val.trim()
+  if (!s) return null
+  s = s.replace(/[₪$€£¥,\s  ]/g, '')
+  if (s.endsWith('%')) s = s.slice(0, -1)
+  if (!/^[+-]?\d+(\.\d+)?$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+// Get value column from view (validated against the data), else auto-detect a
+// numeric-looking column. Never falls back to an arbitrary first column — a
+// label column rendered as the metric ("תאריך") is worse than showing '—'.
 const valueColumn = computed(() => {
-  const v = viewConfig.value?.value
-  if (v) return v.toLowerCase()
-  
-  // Fallback: first column from data
   const rows = props.data?.rows
-  if (Array.isArray(rows) && rows.length > 0) {
-    const firstRow = rows[0]
-    const keys = Object.keys(firstRow || {})
-    // Prefer numeric columns
-    for (const k of keys) {
-      if (typeof firstRow[k] === 'number') return k.toLowerCase()
-    }
-    return keys[0]?.toLowerCase()
+  const firstRow = (Array.isArray(rows) && rows.length > 0) ? rows[0] : null
+  const keys = Object.keys(firstRow || {})
+
+  const v = viewConfig.value?.value
+  if (v) {
+    const wanted = String(v).toLowerCase()
+    // Only trust the configured column if it exists in the data; otherwise
+    // (hallucinated/renamed column) fall through to auto-detection.
+    if (!firstRow || keys.some(k => k.toLowerCase() === wanted)) return wanted
   }
+
+  if (!firstRow) return null
+  // Prefer truly numeric cells, then numeric-looking strings ("₪1,234").
+  for (const k of keys) {
+    if (typeof firstRow[k] === 'number') return k.toLowerCase()
+  }
+  for (const k of keys) {
+    if (typeof firstRow[k] === 'string' && parseNumericLike(firstRow[k]) !== null) return k.toLowerCase()
+  }
+  // A single-column result is a deliberate single value even if non-numeric.
+  if (keys.length === 1) return keys[0].toLowerCase()
   return null
 })
 
@@ -151,8 +177,8 @@ const rawValue = computed(() => {
       if (!row) continue
       const key = Object.keys(row).find(k => k.toLowerCase() === col)
       if (!key) continue
-      const num = Number(row[key])
-      if (!Number.isNaN(num)) values.push(num)
+      const num = parseNumericLike(row[key])
+      if (num !== null) values.push(num)
     }
     return aggregateNumbers(values, fn)
   }
@@ -162,11 +188,41 @@ const rawValue = computed(() => {
 
   if (col) {
     const key = Object.keys(firstRow).find(k => k.toLowerCase() === col)
-    if (key) return firstRow[key]
+    if (key) {
+      // Melted label/value table with no row selector (no filter narrowed the
+      // rows, no aggregation): rows[0] is an arbitrary metric's row — showing
+      // its value would be silently wrong. '—' is the honest render.
+      if (looksMeltedWithoutRowSelector(rows, col)) return null
+      return firstRow[key]
+    }
   }
 
-  return Object.values(firstRow)[0]
+  // No resolvable value column: show '—' rather than an arbitrary first cell
+  // (which is how a melted table's label ended up rendered as the metric).
+  return null
 })
+
+const TIME_NAME_RE = /(date|time|day|month|week|year|period|timestamp|תאריך|חודש|שנה|יום|שבוע)/i
+const DATE_STR_RE = /^\d{4}-\d{1,2}-\d{1,2}([ T].*)?$|^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$|^\d{4}[./]\d{1,2}[./]\d{1,2}$/
+
+// A melted KPI table is a label column next to the value column, one row per
+// metric ("מדד | ערך"). Time-series data (a date/month column next to the
+// measure) is NOT melted — that's the legit "latest value + sparkline" card
+// and keeps the legacy rows[0] behaviour.
+function looksMeltedWithoutRowSelector(rows: any[], col: string): boolean {
+  if (!Array.isArray(rows) || rows.length < 2) return false
+  const keys = Object.keys(rows[0] || {})
+  const others = keys.filter(k => k.toLowerCase() !== col)
+  if (others.length !== 1) return false
+  const label = others[0]
+  if (TIME_NAME_RE.test(label)) return false
+  const cells = rows.slice(0, 50).map(r => r?.[label]).filter(v => v !== null && v !== undefined)
+  if (!cells.length) return false
+  const allNonNumeric = cells.every(v => parseNumericLike(v) === null)
+  const mostlyDates = cells.filter(v => typeof v === 'string' && DATE_STR_RE.test(v.trim())).length / cells.length >= 0.8
+  const mostlyDistinct = new Set(cells.map(v => String(v))).size / cells.length >= 0.9
+  return allNonNumeric && !mostlyDates && mostlyDistinct
+}
 
 const comparisonValue = computed(() => {
   if (!comparisonColumn.value) return null
@@ -191,8 +247,9 @@ const invertTrend = computed(() => viewConfig.value?.invertTrend === true)
 
 function formatNumber(val: any, format?: string): string {
   if (val === null || val === undefined) return '—'
-  
-  const num = typeof val === 'number' ? val : parseFloat(String(val))
+
+  const parsed = parseNumericLike(val)
+  const num = parsed === null ? NaN : parsed
   if (isNaN(num)) return String(val)
   
   const fmt = format || formatType.value
@@ -235,9 +292,8 @@ const formattedValue = computed(() => {
 
 const formattedComparison = computed(() => {
   if (comparisonValue.value === null) return ''
-  const num = typeof comparisonValue.value === 'number' 
-    ? comparisonValue.value 
-    : parseFloat(String(comparisonValue.value))
+  const parsed = parseNumericLike(comparisonValue.value)
+  const num = parsed === null ? NaN : parsed
   if (isNaN(num)) return ''
   
   const sign = num >= 0 ? '+' : ''
@@ -260,10 +316,8 @@ const trendDirection = computed(() => {
   
   // Infer from comparison value
   if (comparisonValue.value !== null) {
-    const num = typeof comparisonValue.value === 'number' 
-      ? comparisonValue.value 
-      : parseFloat(String(comparisonValue.value))
-    if (!isNaN(num)) {
+    const num = parseNumericLike(comparisonValue.value)
+    if (num !== null) {
       if (num > 0) return 'up'
       if (num < 0) return 'down'
       return 'flat'
