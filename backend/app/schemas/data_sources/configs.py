@@ -974,6 +974,40 @@ class QVDConfig(BaseModel):
     )
 
 
+# CSV Files (comma/delimiter-separated values)
+class CSVCredentials(BaseModel):
+    """No credentials needed - file system access only."""
+    class Config:
+        extra = "allow"
+
+
+class CSVConfig(BaseModel):
+    file_paths: str = Field(
+        ...,
+        title="File Paths",
+        description="CSV file paths or glob patterns (one per line). e.g., /data/*.csv",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+    delimiter: str = Field(
+        "",
+        title="Delimiter",
+        description="Column delimiter. Leave blank to auto-detect. e.g., ',' ';' '|' or '\\t' for tab.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    has_header: bool = Field(
+        True,
+        title="Has Header Row",
+        description="Whether the first row contains column names.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    encoding: str = Field(
+        "utf-8",
+        title="Encoding",
+        description="File encoding. e.g., utf-8, latin-1.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Qlik Sense (live connector — Qlik Cloud)
 class QlikSenseApiKeyCredentials(BaseModel):
     api_key: str = Field(
@@ -1439,6 +1473,8 @@ __all__ = [
     "PinotConfig",
     "MongoDBConfig",
     "PostHogConfig",
+    "CSVConfig",
+    "CSVCredentials",
     "DuckDBNoAuthCredentials",
     "DuckDBAwsCredentials",
     "DuckDBGcpCredentials",
