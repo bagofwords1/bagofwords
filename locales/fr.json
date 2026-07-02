@@ -1661,6 +1661,17 @@
       "connected": "Serveur MCP connecté",
       "failedUpdate": "Échec de la mise à jour",
       "failedConnect": "Échec de la connexion"
+    },
+    "weekStart": {
+      "label": "Début de la semaine de travail",
+      "description": "Le premier jour de votre semaine de travail. L'IA l'utilise pour interpréter « cette semaine » et « la semaine dernière ». Automatique suit la langue de l'organisation.",
+      "auto": "Automatique ({day})",
+      "saveError": "Impossible de mettre à jour le début de la semaine de travail",
+      "days": {
+        "sunday": "Dimanche",
+        "monday": "Lundi",
+        "saturday": "Samedi"
+      }
     }
   },
   "data": {

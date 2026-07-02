@@ -114,6 +114,12 @@ class OrganizationSettingsConfig(BaseModel):
     # Validated against zoneinfo at the service layer.
     timezone: Optional[str] = None
 
+    # First day of the work week, governing how the AI interprets "this week" /
+    # "last week". One of "sunday" | "monday" | "saturday", or None/"auto" to
+    # derive from ``locale`` (Hebrew/Arabic -> Sunday, otherwise Monday/ISO).
+    # Validated at the service layer. Presentation only; storage stays UTC.
+    week_start: Optional[str] = None
+
     # Signup policy (domain allowlist). Gate: full_admin_access.
     class SignupPolicy(BaseModel):
         enabled: bool = False

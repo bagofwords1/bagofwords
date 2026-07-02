@@ -1661,6 +1661,17 @@
       "connected": "MCP-server ansluten",
       "failedUpdate": "Det gick inte att uppdatera",
       "failedConnect": "Det gick inte att ansluta"
+    },
+    "weekStart": {
+      "label": "Arbetsveckans start",
+      "description": "Den första dagen i din arbetsvecka. AI:n använder detta för att tolka \"denna vecka\" och \"förra veckan\". Automatiskt följer organisationens språk.",
+      "auto": "Automatiskt ({day})",
+      "saveError": "Det gick inte att uppdatera arbetsveckans start",
+      "days": {
+        "sunday": "Söndag",
+        "monday": "Måndag",
+        "saturday": "Lördag"
+      }
     }
   },
   "data": {
