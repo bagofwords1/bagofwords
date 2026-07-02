@@ -610,7 +610,7 @@
     "widgetRef": "← عنصر: {id}",
     "stepRef": "← خطوة: {id}",
     "viewAgentTrace": "عرض أثر الوكيل",
-    "followUp": "Follow up"
+    "followUp": "أسئلة للمتابعة"
   },
   "tools": {
     "common": {
