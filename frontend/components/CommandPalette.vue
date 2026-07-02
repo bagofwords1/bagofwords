@@ -227,7 +227,7 @@ const promptsGroup = computed(() => ({
   commands: promptItems.value.map((p: any) => ({
     id: `prompt-${p.id}`,
     label: p.title || truncate(p.text),
-    icon: 'i-heroicons-command-line',
+    icon: 'i-heroicons-book-open',
     suffix: (p.parameters && p.parameters.length) ? `${p.parameters.length} ${p.parameters.length === 1 ? 'param' : 'params'}` : undefined,
     prompt: p,
   })),
