@@ -958,6 +958,56 @@ class GoogleDriveConfig(BaseModel):
     pass
 
 
+# Network Directory (local / mounted file share — SMB/NFS/local path)
+class NetworkDirCredentials(BaseModel):
+    """A network directory is accessed via the filesystem (a local path or an
+    already-mounted SMB/NFS share), so the app itself needs no credentials —
+    mount-level auth is handled by the OS. `extra = 'allow'` keeps the schema
+    forgiving if a deployment later stashes mount hints here."""
+    class Config:
+        extra = "allow"
+
+
+class NetworkDirConfig(BaseModel):
+    root_path: str = Field(
+        ...,
+        title="Directory Path",
+        description=(
+            "Absolute path to the directory to expose (a local folder or an "
+            "already-mounted network share, e.g. '/mnt/contracts'). All reads, "
+            "searches and writes are confined to this directory."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of file extensions to include (e.g. 'csv,xlsx,pdf,png'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    recursive: bool = Field(
+        True,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders when listing / searching.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    writable: bool = Field(
+        False,
+        title="Allow Writes",
+        description=(
+            "Permit the agent to create / overwrite files in this directory "
+            "(the write_file tool). Leave off for a read-only connection."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_file_mb: int = Field(
+        100,
+        title="Max File Size (MB)",
+        description="Skip files larger than this when reading. Guards against loading huge files into memory.",
+        json_schema_extra={"ui:type": "number"}
+    )
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""
