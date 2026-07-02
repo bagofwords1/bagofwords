@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.430 (July 2, 2026)
+- Faster instruction loading
+- Instructions view in reportagent vs knowledge view
+- Prompt to support week day start
+
+
 ## Version 0.0.429 (July 2, 2026)
 - **Faster page navigation (#513)** — batched whoami's per-org RBAC resolution, fixed the monitoring/reports N+1s, added hot-path indexes, and share one DB connection per request; pages load noticeably faster and no longer stall under load.
 
