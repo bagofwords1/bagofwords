@@ -98,6 +98,7 @@ class PromptService:
         data_source_id: Optional[str] = None,
         created_by: Optional[str] = None, scope: Optional[str] = None,
         search: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> dict:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
         q = (
@@ -135,7 +136,12 @@ class PromptService:
                 continue
             visible.append(self._to_response(p, resolved, str(current_user.id)))
         visible.sort(key=lambda r: r["created_at"] or datetime.min, reverse=True)
-        return {"prompts": visible, "meta": {"total": len(visible)}}
+        # Visibility is resolved in Python, so the limit must apply here
+        # rather than in SQL. meta.total stays the pre-limit visible count.
+        total = len(visible)
+        if limit is not None:
+            visible = visible[:limit]
+        return {"prompts": visible, "meta": {"total": total}}
 
     async def get_prompt_or_404(self, db, prompt_id, organization) -> Prompt:
         rows = await db.execute(

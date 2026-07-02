@@ -24,6 +24,7 @@ async def list_prompts(
     created_by: Optional[str] = None,
     scope: Optional[str] = None,
     search: Optional[str] = None,
+    limit: Optional[int] = Query(default=None, ge=1),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -31,7 +32,7 @@ async def list_prompts(
     return await prompt_service.list_prompts(
         db, current_user, organization,
         category=category, starters_only=starters_only, data_source_id=data_source_id,
-        created_by=created_by, scope=scope, search=search,
+        created_by=created_by, scope=scope, search=search, limit=limit,
     )
 
 
