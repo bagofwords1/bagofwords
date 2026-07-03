@@ -1,0 +1,13 @@
+import { chromium } from '@playwright/test';
+const EXE='/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const ROOT='tests/mobile-ui/output';
+const b=await chromium.launch({headless:true,executablePath:EXE});
+const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,storageState:`${ROOT}/state.json`});
+const p=await ctx.newPage();
+await p.goto('http://localhost:3000/dashboards',{waitUntil:'commit',timeout:90000});
+await p.waitForTimeout(3000);
+await p.click('button[aria-label="Open menu"]');
+await p.waitForTimeout(700);
+await p.screenshot({path:`${ROOT}/after/12-drawer-open.png`});
+console.log('drawer captured');
+await b.close();

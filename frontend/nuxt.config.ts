@@ -71,6 +71,7 @@ export default defineNuxtConfig({
   css: [
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
+    '~/assets/css/mobile.css',
   ],
 
   imports: {
