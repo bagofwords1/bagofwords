@@ -1,6 +1,13 @@
 """
-Perf reproduction: public report/artifact pages ("/r/{id}") are extremely slow
-when the report's queries hold a lot of data.
+Perf reproduction + regression guard: public report/artifact pages
+("/r/{id}") were extremely slow when the report's queries hold a lot of data.
+
+Now that the public endpoints (report_service.py) and the permission
+decorator use lazyload("*") whitelists, test_public_endpoints_* asserts the
+FIXED behavior: metadata endpoints never touch steps.data, and only the
+served step row is ever hydrated. test_plain_select_* still documents the
+mapper-level hazard (a bare select(Report) cascades) — that is WHY the
+endpoints must opt out explicitly.
 
 Reported symptom: on a published report with large datasets, the browser shows
 GET /r/{id} ~18s and GET /r/{id}/artifacts ~17s even though both responses are
@@ -327,17 +334,26 @@ def test_public_endpoints_scale_with_stored_step_data(test_client):
     total_large = sum(v[0] for v in large_t.values())
     print(f"[endpoints] full page waterfall: small={total_small*1000:.0f}ms large={total_large*1000:.0f}ms")
 
-    # The artifacts LIST returns a tiny payload yet its latency scales with the
-    # stored step data (the visibility check's select(Report) cascade).
-    l_dt, l_size, l_sql, l_steps_sql = large_t["GET /r/{id}/artifacts"]
+    # --- REGRESSION GUARDS (post-fix behavior) ---------------------------
+    # The public endpoints use lazyload("*") whitelists (report_service.py),
+    # so metadata endpoints must never hydrate steps.data.
+    for label in ("GET /r/{id}", "GET /r/{id}/artifacts",
+                  "GET /r/{id}/artifacts/{aid}", "GET /r/{id}/queries"):
+        assert large_t[label][3] == 0, (
+            f"{label} queried the steps table {large_t[label][3]}x — the "
+            f"lazy='selectin' cascade is back; it must not load step data")
+
+    # The step endpoint serves exactly ONE step per call (the default one),
+    # never every historical version of every query.
+    step_label = f"{len(large['query_ids'])} serial /step calls"
+    assert large_t[step_label][3] == len(large["query_ids"]), (
+        f"expected 1 steps SELECT per /step call, got {large_t[step_label][3]}")
+
+    # The artifacts LIST returns a tiny payload and its latency must no
+    # longer scale with the stored step data.
+    l_dt, l_size, l_sql, _ = large_t["GET /r/{id}/artifacts"]
     s_dt = small_t["GET /r/{id}/artifacts"][0]
     assert l_size < 5_000, "artifacts list response should be tiny"
-    assert l_steps_sql >= 1, "artifacts list should not touch steps at all — cascade proven if it does"
-    assert l_dt > s_dt * 3, (
-        f"artifacts list latency should scale with stored data if the cascade exists "
-        f"(small={s_dt*1000:.0f}ms large={l_dt*1000:.0f}ms)")
-
-    # GET /r/{id} runs the cascade twice (service + fork-eligibility re-select)
-    r_sql = large_t["GET /r/{id}"][2]
-    a_sql = large_t["GET /r/{id}/artifacts"][2]
-    print(f"[endpoints] GET /r/{{id}} SQL statements: {r_sql} (~2x the artifacts list's {a_sql}: cascade runs twice)")
+    assert l_dt < max(s_dt * 3, 0.5), (
+        f"artifacts list latency scales with stored data again "
+        f"(small={s_dt*1000:.0f}ms large={l_dt*1000:.0f}ms) — cascade regression")

@@ -193,21 +193,80 @@ at 5 s).
 - All step **versions** load (N× data duplication), and the frontend's serial
   `/step` loop multiplies the cascade by the number of queries before render.
 
-## Candidate fix (not yet implemented — for discussion)
+## The fix (implemented, validated below)
 
-1. Remove the mapper-level `lazy="selectin"` defaults on
-   `Report`/`Query`/`Step` relationships (use lazy `select`/`raiseload` and
-   opt in per-endpoint with explicit `selectinload()` where genuinely needed).
-2. Mark `Step.data` as a `deferred()` column so result rows load only where
-   they are actually served (`get_public_step`, step detail routes).
-3. Make `_check_visibility` / fork-eligibility read only the columns they need
-   (`artifact_visibility`, `user_id`, `organization_id`) instead of hydrating
-   a full `Report`.
-4. Frontend: fetch steps with `Promise.all` (or a batch endpoint) instead of
-   the serial for-loop, and consider capping rows inlined into the iframe
-   `srcdoc` (`frontend/utils/artifactIframe.ts:48`).
+The mapper-level `lazy="selectin"` defaults are left in place (too many
+consumers to audit in one change); instead, every hot path opts out with
+`lazyload("*")` whitelists — the same pattern `get_reports` already used:
 
-Items 1–3 should take the 4.5–18 s requests to milliseconds; the repro's
-assertions (`artifacts list latency scales with stored data`,
-`steps hydrated == queries × versions`) are written to **fail once the fix
-lands**, flipping this loop into a regression test.
+1. **Public `/r` endpoints** (`report_service.py`): every `select(Report)`
+   visibility check, `select(Query)`, `select(Step)` and `select(Artifact)`
+   now carries `lazyload("*")`; `get_public_report` explicitly whitelists
+   only what `ReportSchema` serializes (user+external_user_mappings,
+   external_platform, widgets, dashboard_layout_versions,
+   data_sources→connections). `get_public_queries` loads only
+   `Query.visualizations`.
+2. **Fork-eligibility re-selects** (`routes/report.py`): `lazyload("*")` +
+   data_sources→connections only.
+3. **Authed `get_report`** (`report_service.py`): same whitelist, and the
+   sidebar summary counts (`query_count`, `artifact_count`,
+   `scheduled_prompt_count`) are now `COUNT(*)` queries instead of
+   `len(relationship)` — counting queries used to hydrate every step
+   version's data.
+4. **`ArtifactService.get/list_by_report/get_latest_by_report`**
+   (`artifact_service.py`): `lazyload("*")` — `Artifact.report` cascaded the
+   whole graph back in on every artifact fetch.
+5. **`@requires_permission` decorator** (`permissions_decorator.py`): the
+   object check (`select(model)`) reads scalar columns only, now with
+   `lazyload("*")` — this removed the cascade from EVERY authed
+   object-scoped route.
+6. **Frontend waterfall**: `pages/r/[id]/index.vue` and
+   `components/dashboard/ArtifactFrame.vue` fetch all step data with
+   `Promise.all` instead of a serial `for`-loop.
+
+### Result — Loop A (same run, after fix)
+
+```
+[endpoints] endpoint                                   small     large   ratio  resp(large)   SQL steps-SQL
+[endpoints] GET /r/{id}                                261ms      22ms    0.1x        1.9kB     9         0
+[endpoints] GET /r/{id}/artifacts                       18ms      12ms    0.7x        0.7kB     2         0
+[endpoints] GET /r/{id}/artifacts/{aid}                 13ms      12ms    0.9x      110.6kB     2         0
+[endpoints] GET /r/{id}/queries                         18ms      16ms    0.9x        1.2kB     5         0
+[endpoints] 4 serial /step calls                        50ms     228ms    4.5x     9902.6kB    12         4
+[endpoints] full page waterfall: small=362ms large=289ms   (was 33945ms)
+```
+
+The artifacts list went **4498 ms → 12 ms**; metadata endpoints no longer
+touch the `steps` table at all (steps-SQL 0), and `/step` hydrates exactly
+one step row per call (4, not 52). The test's assertions now guard this
+fixed behavior and fail if the cascade comes back.
+
+### Result — Loop B (real browser, after fix)
+
+```
+=== large report ===  iframe (all API data fetched): 3879 ms (was 37064), charts rendered: 32189 ms (was 59184)
+      1347 ms  200   2388.4 kB  /api/r/{id}/queries/{uuid}/step   (now parallel)
+       315 ms  200   2388.4 kB  /api/r/{id}/queries/{uuid}/step
+       252 ms  200   2388.4 kB  /api/r/{id}/queries/{uuid}/step
+       186 ms  200   2388.4 kB  /api/r/{id}/queries/{uuid}/step
+        43 ms  200      3.7 kB  /api/r/{id}/artifacts/{aid}       (was 4566 ms)
+        38 ms  200      1.8 kB  /api/r/{id}                       (was 9043 ms)
+        30 ms  200      1.3 kB  /api/r/{id}/queries               (was 6339 ms)
+        28 ms  200      0.3 kB  /api/r/{id}/artifacts             (was 9080 ms)
+=== summary ===
+time to artifact iframe: small=3186 ms, large=3879 ms (1.2x slower — was 8.0x)
+```
+
+Regression check: `tests/e2e/test_report.py test_public_routes.py
+test_report_sharing.py test_report_starring.py` (45 passed),
+`test_rbac.py + rbac/` (125 passed), `test_rbac_policies.py` (9 passed,
+6 skipped — pre-existing skips).
+
+### Known remaining cost (out of scope here)
+
+With the API fixed, the large report still takes ~28 s of pure browser time
+between "data fetched" and "charts painted": all raw rows (~10 MB) are
+inlined into the iframe `srcdoc` (`frontend/utils/artifactIframe.ts:48`) and
+re-parsed/Babel-transformed inside the iframe. Fixing that means changing the
+artifact data contract (aggregate server-side, cap rows, or postMessage
+chunks) — a product decision to take separately.
