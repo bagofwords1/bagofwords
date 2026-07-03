@@ -113,6 +113,9 @@ user credentials ("Kerberos SSO" mode).
 Delegation must be configured on the **app's service account** — this is the
 piece the AD team has to approve:
 
+0. The service account **must have its own SPN** (e.g. `setspn -S bow/apphost
+   CORP\svc-bow`). The KDC only issues an S4U2Self evidence ticket to an account
+   that is itself a service (has an SPN).
 1. **Classic KCD with protocol transition** (single domain): in ADUC →
    `svc-bow` → *Delegation* tab →
    *"Trust this user for delegation to specified services only"* →
@@ -166,8 +169,19 @@ Per-user auth on tabular sources requires an **enterprise license**.
   serialized around the driver's connect handshake. Concurrent queries by
   different users queue for milliseconds at connect time; established
   connections are unaffected.
-- Do not enable unixODBC connection pooling: pooled integrated-auth connections
-  can be reused across identities.
+- **Connection pooling / cross-user reuse:** under integrated auth every user's
+  ODBC connection string is otherwise identical (the identity comes from
+  `KRB5CCNAME`, not the string), so a shared connection pool could hand user B a
+  connection authenticated as user A. The client defends against this by binding
+  a per-identity `APP=BagOfWords-<principal>` token into the connection string,
+  giving each impersonated user its own pool bucket. (Still prefer leaving
+  unixODBC pooling off as defence in depth.)
+- **`forwardable = true` is required** in `krb5.conf`: S4U2Proxy is refused
+  unless the S4U2Self evidence ticket is forwardable, which needs a forwardable
+  service TGT. The example config above already sets it.
+- **SQL Server host must be domain-joined** (SSSD or winbind) so it can resolve
+  AD users to SIDs — `CREATE LOGIN ... FROM WINDOWS` and Kerberos ticket→login
+  mapping both need it. Verify with `id DOMAIN\\user` before creating logins.
 - Indexing/schema refresh (no user in context) always runs as the service
   account.
 - If SQL Server is **2022+ and Azure Arc-enabled**, Entra-token authentication

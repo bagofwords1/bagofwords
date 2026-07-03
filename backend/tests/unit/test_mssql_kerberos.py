@@ -73,6 +73,32 @@ def test_additional_params_cannot_flip_auth_scheme():
     assert params["applicationintent"] == "ReadOnly"
 
 
+def test_kerberos_per_user_pool_discriminator():
+    """Each impersonated identity gets a distinct APP token so the ODBC driver's
+    connection pool can't hand user B a connection authenticated as user A
+    (regression test for the cross-user pooling hole found in the Kerberos lab)."""
+    alice = MSSQLClient("db.corp.example.com", 1433, "dwh", use_kerberos=True,
+                        kerberos_impersonate="alice@CORP.EXAMPLE.COM")
+    bob = MSSQLClient("db.corp.example.com", 1433, "dwh", use_kerberos=True,
+                      kerberos_impersonate="bob@CORP.EXAMPLE.COM")
+    app_alice = _odbc_params(alice)["app"]
+    app_bob = _odbc_params(bob)["app"]
+    assert app_alice != app_bob
+    assert "alice" in app_alice.lower()
+    assert "bob" in app_bob.lower()
+
+
+def test_kerberos_app_discriminator_cannot_be_overridden():
+    """A user-supplied APP in additional_params must not replace the security
+    discriminator."""
+    client = MSSQLClient(
+        "db.corp.example.com", 1433, "dwh", use_kerberos=True,
+        kerberos_impersonate="alice@CORP.EXAMPLE.COM",
+        additional_params={"APP": "attacker"},
+    )
+    assert _odbc_params(client)["app"] == "BagOfWords-alice@CORP.EXAMPLE.COM"
+
+
 def test_kerberos_principals_normalized():
     client = MSSQLClient(
         "db.corp.example.com", 1433, "dwh", use_kerberos=True,

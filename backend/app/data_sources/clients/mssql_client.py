@@ -22,6 +22,9 @@ class MSSQLClient(DataSourceClient):
         "driver", "server", "database", "uid", "pwd",
         "encrypt", "trustservercertificate",
         "trusted_connection", "authentication", "integrated security",
+        # "app" carries the per-identity pool discriminator under Kerberos SSO;
+        # letting a user override it could re-open the cross-user pooling hole.
+        "app",
     }
 
     def __init__(self, host, port, database, user=None, password=None, schema: Optional[str] = None,
@@ -71,6 +74,16 @@ class MSSQLClient(DataSourceClient):
             # credential cache active at connect time. No NTLM fallback exists
             # on Linux, and the SPN cannot be overridden (always MSSQLSvc/host:port).
             params += "Trusted_Connection=yes;"
+            # SECURITY: under integrated auth the identity comes from KRB5CCNAME
+            # at connect time, NOT from the connection string — so every user's
+            # string is otherwise identical. ODBC driver-manager connection
+            # pooling keys on the string, so without a per-identity discriminator
+            # user B can be handed a pooled connection still authenticated as
+            # user A. Bind the app-name to the impersonated principal so each
+            # identity gets its own pool bucket (verified in the Kerberos lab).
+            ident = self.kerberos_impersonate or self.kerberos_principal or "service"
+            safe_ident = "".join(c if c.isalnum() or c in "@._-" else "_" for c in ident)[:96]
+            params += f"APP=BagOfWords-{safe_ident};"
         else:
             params += (
                 f"UID={self.user};"
