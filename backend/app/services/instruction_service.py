@@ -582,6 +582,49 @@ class InstructionService:
             conditions.append(or_(~Instruction.data_sources.any(), *visible_clauses))
         return conditions
 
+    async def _visible_pending_instruction_ids(self, db, organization, current_user, pending_ids: set) -> set:
+        """Re-scope the pending sweep's output through the same instruction-row
+        filters the "Pending changes" list applies (GET /instructions?pending_only=
+        true with include_own/include_drafts/include_archived, as the explorer
+        sends it). The sweep (get_pending_change_instruction_ids) reads builds and
+        versions only — it knows nothing about instruction rows — so without this
+        cut the "N pending" badge counts rows that view can never return: a
+        soft-deleted instruction whose suggestion build is still live, one
+        attached to a private agent the caller isn't a member of, or another
+        user's hidden/is_seen=False row."""
+        from app.core.permission_resolver import get_member_data_source_ids
+
+        if not pending_ids:
+            return set()
+        conditions = [
+            Instruction.id.in_([str(i) for i in pending_ids]),
+            Instruction.organization_id == organization.id,
+            Instruction.deleted_at == None,  # noqa: E711
+        ]
+        if current_user is not None:
+            member_ds_ids = await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+            public_ds_subq = select(DataSource.id).where(and_(
+                DataSource.organization_id == organization.id,
+                DataSource.is_public == True,  # noqa: E712
+            ))
+            visible_clauses = [Instruction.data_sources.any(DataSource.id.in_(public_ds_subq))]
+            if member_ds_ids:
+                visible_clauses.append(Instruction.data_sources.any(DataSource.id.in_(member_ds_ids)))
+            conditions.append(or_(~Instruction.data_sources.any(), *visible_clauses))
+            user_permissions = await self._get_user_permissions(db, current_user, organization)
+            conditions.append(or_(
+                self._get_own_instructions_condition(current_user.id),
+                self._get_others_instructions_condition(
+                    current_user.id, user_permissions,
+                    include_drafts=True, include_archived=True, include_hidden=False,
+                ),
+            ))
+        return {str(i) for i in (await db.execute(
+            select(Instruction.id).where(and_(*conditions))
+        )).scalars().all()}
+
     async def get_instruction_counts(self, db, organization, current_user) -> dict:
         """Aggregate counts that drive the /agents tree badges WITHOUT hydrating
         rows: global, skills, total pending, plus per-agent count and per-agent
@@ -610,6 +653,7 @@ class InstructionService:
         # Fold not-in-main pending instructions into the same surfaces so the
         # badges match the rows the lazy list now returns (which include pending).
         pending_ids = {str(i) for i in await self.get_pending_change_instruction_ids(db, organization, current_user)}
+        pending_ids = await self._visible_pending_instruction_ids(db, organization, current_user, pending_ids)
         pending_by_agent: dict = {}
         if pending_ids:
             pid_list = list(pending_ids)
@@ -1621,6 +1665,32 @@ class InstructionService:
         await db.commit()
         return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
 
+    async def _void_pending_suggestions(self, db: AsyncSession, instruction, *, organization: Organization) -> None:
+        """Record every live hunk of every pending suggestion build as rejected
+        for this instruction, and clear its Review-feed item. Called on delete:
+        the org-wide pending sweep reads builds only (it never sees
+        Instruction.deleted_at), so a leftover live suggestion build would keep
+        a deleted instruction counting as "pending" forever. Hunk keys are
+        derived from the immutable base->proposed intent, so the rejections stay
+        matched no matter how main moves afterwards. Leaves the rejections
+        uncommitted — they ride the caller's commit (the review-feed resolve may
+        commit earlier; both changes are final either way)."""
+        from app.services.text_hunks import rebased_hunks_against_main
+        iid = str(instruction.id)
+        main_text, _vid, _meta = await self._main_text_of(db, instruction)
+        for build, proposed_text, _v in await self._pending_suggestion_builds(db, iid, organization):
+            rejected = self._rejected_keys(build, iid)
+            base_text = await self._build_base_text(db, build, iid)
+            for h in rebased_hunks_against_main(base_text, proposed_text or "", main_text):
+                if h["key"] in rejected:
+                    continue
+                await self._record_resolved_hunk(db, build, iid, h["key"], "reject", commit=False)
+        try:
+            from app.services.review_service import review_service
+            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=iid)
+        except Exception:
+            pass
+
     async def reject_all_hunks(self, db: AsyncSession, instruction_id: str, *,
                                organization: Organization, current_user: User,
                                build_id: Optional[str] = None):
@@ -1754,6 +1824,14 @@ class InstructionService:
             raise HTTPException(status_code=404, detail="Instruction not found")
 
         # Permission check is handled by the decorator, so we can proceed with deletion
+        # Void live suggestion builds BEFORE the soft delete (the reject path
+        # resolves rows through queries that filter deleted_at) so the deleted
+        # instruction stops counting as a pending change everywhere.
+        try:
+            await self._void_pending_suggestions(db, instruction, organization=organization)
+        except Exception as e:
+            logger.warning(f"Failed to void pending suggestions for deleted instruction {instruction_id}: {e}")
+
         # Soft delete (using BaseSchema's soft delete functionality)
         from datetime import datetime
         instruction.deleted_at = datetime.utcnow()
@@ -2120,8 +2198,15 @@ class InstructionService:
         # Apply soft deletes
         for instruction in instructions:
             try:
+                # Void live suggestion builds first — same reason as the single
+                # delete: the pending sweep never sees deleted_at.
+                try:
+                    await self._void_pending_suggestions(db, instruction, organization=organization)
+                except Exception as e:
+                    logger.warning(f"Failed to void pending suggestions for deleted instruction {instruction.id}: {e}")
+
                 instruction.deleted_at = datetime.utcnow()
-                
+
                 # Remove from build if we have one
                 if bulk_build:
                     try:
