@@ -32,8 +32,8 @@ default_llm:
         is_default: true
         is_small_default: true
         is_enabled: true
-      - model_id: claude-sonnet-4-5-20250929
-        model_name: Claude Sonnet 4.5
+      - model_id: claude-sonnet-5
+        model_name: Claude Sonnet 5
         is_default: false
         is_small_default: false
         is_enabled: true
