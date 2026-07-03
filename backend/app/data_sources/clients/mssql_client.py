@@ -17,14 +17,17 @@ class MSSQLClient(DataSourceClient):
     SUPPORTED_ODBC_DRIVERS = {17, 18}
     # ODBC keywords the client owns; user-supplied additional params can never
     # override these (case-insensitive), so the escape hatch can't weaken TLS,
-    # repoint the driver, or swap credentials.
+    # repoint the driver, swap credentials, or flip the auth scheme.
     PROTECTED_ODBC_KEYS = {
         "driver", "server", "database", "uid", "pwd",
         "encrypt", "trustservercertificate",
+        "trusted_connection", "authentication", "integrated security",
     }
 
-    def __init__(self, host, port, database, user, password, schema: Optional[str] = None,
-                 odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None):
+    def __init__(self, host, port, database, user=None, password=None, schema: Optional[str] = None,
+                 odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None,
+                 use_kerberos: bool = False, kerberos_principal: Optional[str] = None,
+                 kerberos_impersonate: Optional[str] = None):
         self.host = host
         self.port = port
         self.database = database
@@ -36,6 +39,15 @@ class MSSQLClient(DataSourceClient):
             raise ValueError(f"Unsupported ODBC driver version: {self.odbc_driver}. Supported: {sorted(self.SUPPORTED_ODBC_DRIVERS)}")
         self.encrypt = encrypt
         self.additional_params = additional_params or {}
+        # Kerberos / Windows Integrated auth. The driver derives the target SPN
+        # as MSSQLSvc/<host>:<port> — `host` must be the FQDN, not an IP.
+        #   - use_kerberos alone: default credential cache (service keytab).
+        #   - kerberos_principal: initiate as this principal from the client keytab.
+        #   - kerberos_impersonate: per-user constrained delegation (S4U) — the
+        #     app impersonates this UPN and queries as that user.
+        self.use_kerberos = bool(use_kerberos)
+        self.kerberos_principal = (kerberos_principal or "").strip() or None
+        self.kerberos_impersonate = (kerberos_impersonate or "").strip() or None
         self._schemas = []
         if isinstance(self.schema, str) and self.schema.strip():
             parts = [s.strip() for s in self.schema.split(",") if s.strip()]
@@ -53,10 +65,20 @@ class MSSQLClient(DataSourceClient):
             f"DRIVER={driver_name};"
             f"SERVER={self.host},{self.port};"
             f"DATABASE={self.database};"
-            f"UID={self.user};"
-            f"PWD={self.password};"
-            f"TrustServerCertificate=yes;"
-            f"LoginTimeout=30;"
+        )
+        if self.use_kerberos:
+            # Integrated auth: the driver authenticates via GSSAPI from the
+            # credential cache active at connect time. No NTLM fallback exists
+            # on Linux, and the SPN cannot be overridden (always MSSQLSvc/host:port).
+            params += "Trusted_Connection=yes;"
+        else:
+            params += (
+                f"UID={self.user};"
+                f"PWD={self.password};"
+            )
+        params += (
+            "TrustServerCertificate=yes;"
+            "LoginTimeout=30;"
         )
         if not self.encrypt:
             params += "Encrypt=no;"
@@ -69,14 +91,34 @@ class MSSQLClient(DataSourceClient):
             params += f"{k}={value};"
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(params)}"
 
+    def _kerberos_ccache(self) -> Optional[str]:
+        """Resolve the credential cache to use for this connection, if any."""
+        if not self.use_kerberos:
+            return None
+        from app.data_sources.kerberos import get_ticket_manager
+        manager = get_ticket_manager()
+        if self.kerberos_impersonate:
+            return manager.delegated_ccache(self.kerberos_impersonate)
+        return manager.service_ccache(self.kerberos_principal)
+
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a SQL Server database."""
         engine = None
         conn = None
         try:
-            engine = sqlalchemy.create_engine(self.sql_server_uri)
-            conn = engine.connect()
+            if self.use_kerberos:
+                from app.data_sources.kerberos import get_ticket_manager
+                ccache = self._kerberos_ccache()
+                engine = sqlalchemy.create_engine(self.sql_server_uri)
+                # KRB5CCNAME is process-global; hold the activation lock only
+                # while the driver performs the GSS handshake. The established
+                # connection stays bound to its identity afterwards.
+                with get_ticket_manager().activate(ccache):
+                    conn = engine.connect()
+            else:
+                engine = sqlalchemy.create_engine(self.sql_server_uri)
+                conn = engine.connect()
             yield conn
         except Exception as e:
             raise RuntimeError(f"{e}")

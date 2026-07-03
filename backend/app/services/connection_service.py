@@ -157,6 +157,11 @@ class ConnectionService:
             from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
             if type in ENTRA_OBO_CONNECTION_TYPES:
                 allowed_user_auth_modes = ["oauth"]
+            elif type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
+                # System auth is Kerberos → per-user auth means Kerberos SSO via
+                # constrained delegation (no per-user secret; UPN derived at
+                # query time from the login identity).
+                allowed_user_auth_modes = ["kerberos_delegated"]
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
@@ -370,6 +375,12 @@ class ConnectionService:
             target_type = updates.get("type", connection.type)
             if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
                 updates["allowed_user_auth_modes"] = ["oauth"]
+            elif target_type == "MSSQL" and not (connection.allowed_user_auth_modes or []):
+                cfg = updates.get("config")
+                if cfg is None:
+                    cfg = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+                if (cfg or {}).get("auth_type") == "kerberos":
+                    updates["allowed_user_auth_modes"] = ["kerberos_delegated"]
 
         # Track if connection-relevant fields changed
         connection_changed = False
@@ -1125,6 +1136,15 @@ class ConnectionService:
                 ),
             )
 
+        # --- Kerberos SSO (per-user constrained delegation) ---
+        # No stored secret is involved: the app impersonates the user's AD
+        # principal via S4U at connect time, so a missing credential row is not
+        # an error — the principal is derived from the login identity unless the
+        # user saved an explicit override.
+        kerberos_creds = self._kerberos_delegated_credentials(connection, current_user, row)
+        if kerberos_creds is not None:
+            return kerberos_creds
+
         # --- Legacy path: non-delegated user_required connections (e.g. user/pass) ---
         if not row:
             # Owner/admin fallback: allow owner or admin to use system creds
@@ -1176,6 +1196,45 @@ class ConnectionService:
                 return row.decrypt_credentials()
 
         return row.decrypt_credentials()
+
+    @staticmethod
+    def _kerberos_delegated_credentials(connection: Connection, user: User, row) -> Optional[dict]:
+        """Per-user Kerberos SSO credentials, or None when it doesn't apply.
+
+        Applies when the connection allows the ``kerberos_delegated`` user auth
+        mode and the user hasn't connected with a different real auth mode. The
+        returned dict feeds the MSSQL client's constrained-delegation path.
+        """
+        modes = connection.allowed_user_auth_modes or []
+        if "kerberos_delegated" not in modes:
+            return None
+
+        creds: dict = {}
+        if row is not None:
+            from app.services.connection_identity import SERVICE_ACCOUNT_MARKER_MODE
+            if row.auth_mode == "kerberos_delegated":
+                try:
+                    creds = row.decrypt_credentials() or {}
+                except Exception:
+                    creds = {}
+            elif row.auth_mode != SERVICE_ACCOUNT_MARKER_MODE:
+                # The user connected with a different real auth mode (e.g. a
+                # personal SQL login) — honor that instead of impersonation.
+                return None
+
+        principal = (creds.get("kerberos_impersonate") or "").strip()
+        if not principal:
+            principal = (getattr(user, "email", None) or "").strip()
+            if "@" not in principal:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Kerberos SSO requires an Active Directory principal (UPN). "
+                        "Your login identity has no UPN-shaped email — save your AD "
+                        "principal in your connection credentials."
+                    ),
+                )
+        return {"use_kerberos": True, "kerberos_impersonate": principal}
 
     def _resolve_client_by_type(
         self,

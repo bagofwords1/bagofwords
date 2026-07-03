@@ -396,6 +396,21 @@ class UserDataSourceCredentialsService:
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
+        # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
+        # the login identity at save time so resolvers never see an empty one.
+        if payload.auth_mode == "kerberos_delegated":
+            creds = dict(payload.credentials or {})
+            if not (creds.get("kerberos_impersonate") or "").strip():
+                email = (getattr(user, "email", None) or "").strip()
+                if "@" not in email:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Kerberos SSO requires an Active Directory principal (UPN); your login identity has none — provide one explicitly.",
+                    )
+                creds["kerberos_impersonate"] = email
+            creds["use_kerberos"] = True
+            payload.credentials = creds
+
         # Find existing (active) row
         stmt = (
             select(UserDataSourceCredentials)
