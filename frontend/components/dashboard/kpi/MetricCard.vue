@@ -239,6 +239,27 @@ const comparisonValue = computed(() => {
 
 // Formatting
 const formatType = computed(() => viewConfig.value?.format || 'number')
+const currencyCode = computed(() => {
+  const c = viewConfig.value?.currency
+  return (typeof c === 'string' && /^[A-Za-z]{3}$/.test(c.trim())) ? c.trim().toUpperCase() : 'USD'
+})
+
+// Legacy salvage: older widgets store display-formatted strings ("₪4,125.04").
+// The parser strips the symbol to get the number — instead of losing it,
+// promote the detected symbol to a prefix when the view doesn't specify one.
+const detectedPrefix = computed(() => {
+  if (viewConfig.value?.prefix || formatType.value !== 'number') return ''
+  const rows = props.data?.rows
+  if (!Array.isArray(rows) || rows.length === 0) return ''
+  const col = valueColumn.value
+  if (!col) return ''
+  const firstRow = rows[0] || {}
+  const key = Object.keys(firstRow).find(k => k.toLowerCase() === col)
+  const cell = key ? firstRow[key] : null
+  if (typeof cell !== 'string') return ''
+  const m = cell.match(/[₪$€£¥]/)
+  return m ? m[0] : ''
+})
 const comparisonFormatType = computed(() => viewConfig.value?.comparisonFormat || 'percent')
 const prefix = computed(() => viewConfig.value?.prefix || '')
 const suffix = computed(() => viewConfig.value?.suffix || '')
@@ -256,12 +277,20 @@ function formatNumber(val: any, format?: string): string {
   
   switch (fmt) {
     case 'currency':
-      return new Intl.NumberFormat('en-US', { 
-        style: 'currency', 
-        currency: 'USD',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2
-      }).format(num)
+      try {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: currencyCode.value,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2
+        }).format(num)
+      } catch {
+        // Unknown currency code: fall back to a plain grouped number.
+        return new Intl.NumberFormat('en-US', {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2
+        }).format(num)
+      }
     
     case 'percent':
       return new Intl.NumberFormat('en-US', { 
@@ -287,7 +316,10 @@ function formatNumber(val: any, format?: string): string {
 const formattedValue = computed(() => {
   const formatted = formatNumber(rawValue.value)
   if (formatted === '—') return formatted
-  return `${prefix.value}${formatted}${suffix.value}`
+  // Salvaged symbol applies only when the value actually parsed as a number
+  // (a raw unparseable string passes through untouched, symbol included).
+  const salvage = (!prefix.value && parseNumericLike(rawValue.value) !== null) ? detectedPrefix.value : ''
+  return `${prefix.value || salvage}${formatted}${suffix.value}`
 })
 
 const formattedComparison = computed(() => {

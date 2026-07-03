@@ -211,6 +211,8 @@ class CountView(BaseView):
     type: Literal["count"] = "count"
     value: Optional[str] = None
     format: Literal["number", "currency", "percent", "compact"] = "number"
+    # ISO-4217 code used when format == "currency" (e.g. "ILS", "USD")
+    currency: Optional[str] = None
     prefix: Optional[str] = None
     suffix: Optional[str] = None
     palette: Palette = Field(default_factory=Palette)
@@ -232,6 +234,8 @@ class MetricCardView(BaseView):
     value: str                                    # Column for main value (first row)
     comparison: Optional[str] = None              # Column for trend % (first row)
     format: Literal["number", "currency", "percent", "compact"] = "number"
+    # ISO-4217 code used when format == "currency" (e.g. "ILS", "USD")
+    currency: Optional[str] = None
     prefix: Optional[str] = None
     suffix: Optional[str] = None
     # Trend configuration

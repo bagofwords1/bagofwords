@@ -8,8 +8,10 @@ repairs what it can deterministically and demotes to table otherwise.
 import pytest
 
 from app.ai.tools.implementations.create_data import (
+    build_view_from_data_model,
     ensure_single_value_card_renderable,
     finalize_inferred_data_model,
+    sanitize_display_options,
     _parse_numeric_like,
     _pick_value_column,
 )
@@ -213,3 +215,83 @@ class TestCardGuard:
         }
         out = ensure_single_value_card_renderable(dm, formatted)
         assert out["type"] == "metric_card"
+
+
+class TestDisplayFormatting:
+    def test_sanitize_valid_currency(self):
+        assert sanitize_display_options({"format": "currency", "currency": "ils"}) == {
+            "format": "currency",
+            "currency": "ILS",
+        }
+
+    def test_currency_code_implies_currency_format(self):
+        assert sanitize_display_options({"currency": "USD"}) == {
+            "format": "currency",
+            "currency": "USD",
+        }
+
+    def test_sanitize_drops_garbage(self):
+        assert sanitize_display_options({"format": "bold", "currency": "shekels"}) is None
+        assert sanitize_display_options({"prefix": "x" * 20}) is None
+        assert sanitize_display_options("currency") is None
+        assert sanitize_display_options(None) is None
+
+    def test_sanitize_prefix_suffix(self):
+        assert sanitize_display_options({"format": "percent", "suffix": " pts"}) == {
+            "format": "percent",
+            "suffix": "pts",
+        }
+
+    def test_display_carried_from_inference(self):
+        inferred = {
+            "type": "metric_card",
+            "series": [{"name": "Revenue", "value": "revenue"}],
+            "display": {"format": "currency", "currency": "ILS"},
+        }
+        dm = finalize_inferred_data_model("metric_card", inferred)
+        assert dm["display"] == {"format": "currency", "currency": "ILS"}
+
+    def test_display_flows_into_metric_card_view(self):
+        dm = {
+            "type": "metric_card",
+            "series": [{"name": "Revenue", "value": "revenue"}],
+            "display": {"format": "currency", "currency": "ILS"},
+        }
+        view = build_view_from_data_model(dm, title="t", palette_theme="default")
+        v = view.model_dump(exclude_none=True)["view"]
+        assert v["format"] == "currency"
+        assert v["currency"] == "ILS"
+
+    def test_display_flows_into_count_view(self):
+        dm = {
+            "type": "count",
+            "series": [{"name": "Share", "value": "share"}],
+            "display": {"format": "percent"},
+        }
+        view = build_view_from_data_model(dm, title="t", palette_theme="default")
+        v = view.model_dump(exclude_none=True)["view"]
+        assert v["format"] == "percent"
+        assert "currency" not in v
+
+    def test_display_survives_guard_repair(self):
+        dm = {
+            "type": "metric_card",
+            "series": [],
+            "display": {"format": "currency", "currency": "ILS"},
+        }
+        formatted = _formatted(
+            ["Label", "Revenue"], [{"Label": "Total", "Revenue": 99.5}]
+        )
+        out = ensure_single_value_card_renderable(dm, formatted)
+        assert out["type"] == "metric_card"
+        assert out["display"] == {"format": "currency", "currency": "ILS"}
+
+    def test_invalid_display_ignored_by_view_builder(self):
+        dm = {
+            "type": "metric_card",
+            "series": [{"name": "Revenue", "value": "revenue"}],
+            "display": {"format": "sparkles"},
+        }
+        view = build_view_from_data_model(dm, title="t", palette_theme="default")
+        v = view.model_dump(exclude_none=True)["view"]
+        assert v["format"] == "number"

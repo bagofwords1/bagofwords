@@ -192,7 +192,37 @@ def _first_series_aggregation(series: List[Dict[str, Any]]) -> Optional[str]:
 # (e.g. a `Metric | Value | Format` KPI table) down to the one relevant row.
 # Dropping it makes count/metric_card render the first (unfiltered) row — the
 # date or the metric label — instead of the value the user asked for.
-_INFERRED_DM_CARRY_KEYS = ("series", "group_by", "sort", "limit", "filters")
+# `display` carries presentation formatting (currency/percent/prefix) — the
+# data itself stays raw numeric; symbols are applied at render time.
+_INFERRED_DM_CARRY_KEYS = ("series", "group_by", "sort", "limit", "filters", "display")
+
+
+_ALLOWED_DISPLAY_FORMATS = {"number", "currency", "percent", "compact"}
+_CURRENCY_CODE_RE = re.compile(r"^[A-Za-z]{3}$")
+
+
+def sanitize_display_options(d: Any) -> Optional[Dict[str, str]]:
+    """Validate the inference-emitted `display` object down to safe values.
+
+    Presentation only — format/currency/prefix/suffix for single-value cards.
+    Anything malformed is dropped rather than propagated to the view.
+    """
+    if not isinstance(d, dict):
+        return None
+    out: Dict[str, str] = {}
+    fmt = str(d.get("format") or "").strip().lower()
+    if fmt in _ALLOWED_DISPLAY_FORMATS:
+        out["format"] = fmt
+    cur = d.get("currency")
+    if isinstance(cur, str) and _CURRENCY_CODE_RE.match(cur.strip()):
+        out["currency"] = cur.strip().upper()
+        # A currency code implies currency formatting unless stated otherwise.
+        out.setdefault("format", "currency")
+    for key in ("prefix", "suffix"):
+        v = d.get(key)
+        if isinstance(v, str) and 0 < len(v.strip()) <= 8:
+            out[key] = v.strip()
+    return out or None
 
 
 def finalize_inferred_data_model(
@@ -668,6 +698,10 @@ def build_view_from_data_model(
         view = TableView(title=title, defaultFilters=default_filters)
         return ViewSchema(view=view)
 
+    # Presentation formatting for single-value cards (validated upstream by
+    # sanitize_display_options; re-sanitize here so direct callers are safe too).
+    display = sanitize_display_options(data_model.get("display")) or {}
+
     # CountView - simple single value display (value is optional)
     if chart_type == "count":
         base = series[0] if series else {}
@@ -675,6 +709,10 @@ def build_view_from_data_model(
         view = CountView(
             title=title,
             value=str(value_key) if value_key else None,
+            format=display.get("format", "number"),
+            currency=display.get("currency"),
+            prefix=display.get("prefix"),
+            suffix=display.get("suffix"),
             palette=palette,
             aggregation=_first_series_aggregation(series),
             defaultFilters=default_filters,
@@ -714,13 +752,25 @@ def build_view_from_data_model(
 
         # value is REQUIRED for MetricCardView - if we don't have it, fall back to CountView
         if not value_key:
-            view = CountView(title=title, palette=palette, defaultFilters=default_filters)
+            view = CountView(
+                title=title,
+                format=display.get("format", "number"),
+                currency=display.get("currency"),
+                prefix=display.get("prefix"),
+                suffix=display.get("suffix"),
+                palette=palette,
+                defaultFilters=default_filters,
+            )
             return ViewSchema(view=view)
 
         view = MetricCardView(
             title=title,
             value=str(value_key),
             comparison=str(comparison_key) if comparison_key else None,
+            format=display.get("format", "number"),
+            currency=display.get("currency"),
+            prefix=display.get("prefix"),
+            suffix=display.get("suffix"),
             comparisonLabel=comparison_label,
             invertTrend=invert_trend,
             sparkline=sparkline,
@@ -983,11 +1033,28 @@ Prefer aggregation when the intent is "all data, summarized". Prefer filters
 when the intent is "this specific slice". Setting both is rarely useful.
 
 ═══════════════════════════════════════════════════════════════════════════════
+DISPLAY FORMATTING (optional, for count / metric_card)
+═══════════════════════════════════════════════════════════════════════════════
+
+The data is raw numeric; presentation is applied at render time. For a
+single-value card you may add a top-level "display" object:
+
+{{"display": {{"format": "currency", "currency": "ILS"}}}}
+
+- format: "number" | "currency" | "percent" | "compact"
+- currency: ISO-4217 code (ILS, USD, EUR, ...) — set it whenever format is "currency"
+- prefix / suffix: short literal unit strings (e.g. "%", " units") when a currency code doesn't apply
+
+Choose based on the metric's meaning, the user's language/locale, and the
+organization instructions (e.g. revenue for an Israeli org → {{"format": "currency", "currency": "ILS"}};
+a ratio → {{"format": "percent"}}). Omit "display" when plain numbers are right.
+
+═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
 Return only valid JSON:
-{{"type": "...", "series": [...], "group_by": "column_name_or_null", "filters": [...]}}
+{{"type": "...", "series": [...], "group_by": "column_name_or_null", "filters": [...], "display": {{...}}}}
 
 Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
 Include "aggregation" on each series entry when rows are granular.
@@ -1030,6 +1097,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     candidate = dm.model_dump()
                 except Exception:
                     candidate = {"type": "table", "series": []}
+                # Presentation formatting (currency/percent/prefix) — validated
+                # separately since it's a view concern, not part of DataModel.
+                display = sanitize_display_options(candidate_json.get("display"))
+                if display:
+                    candidate["display"] = display
                 # Extract optional view mappings (limit/sort/colors) from candidate_json.view
                 try:
                     view = candidate_json.get("view") if isinstance(candidate_json, dict) else None
