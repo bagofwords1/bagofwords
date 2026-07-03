@@ -1,5 +1,6 @@
 import logging as _logging
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from functools import wraps
@@ -83,7 +84,13 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
             obj = None
             if model and object_id is not None:
-                stmt = select(model).where(
+                # lazyload("*"): the checks below read scalar columns only
+                # (user_id, artifact_visibility, status). Models like Report
+                # declare lazy="selectin" on every relationship, which would
+                # hydrate the entire object graph (every step version's data
+                # JSON, all artifacts, the chat history) on EVERY decorated
+                # request just to run this permission check.
+                stmt = select(model).options(lazyload("*")).where(
                     model.id == object_id,
                     model.organization_id == organization.id
                 )

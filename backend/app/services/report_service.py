@@ -302,13 +302,21 @@ class ReportService:
         
 
     async def get_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> ReportSchema:
-        # Same pattern as get_reports: suppress only the DataSource cascade
-        # (the actual cost), let Report's own lazy="selectin" fire so
-        # downstream serialization of user/widgets/etc. works unchanged.
+        # Load only the relationships this method serializes (user,
+        # external_platform, data_sources+connections, shares). Report's
+        # mapper-level lazy="selectin" would otherwise hydrate the entire
+        # graph — every step version's data JSON, every artifact version,
+        # the chat history — on every report open. The summary counts below
+        # are computed with COUNT queries instead of loading the rows.
         result = await db.execute(
             select(Report)
             .options(
-                selectinload(Report.user),
+                lazyload("*"),
+                # UserSchema serializes external_user_mappings — load it, the
+                # top-level wildcard turned User's own eager defaults off too.
+                selectinload(Report.user).selectinload(User.external_user_mappings),
+                selectinload(Report.external_platform),
+                selectinload(Report.shares).options(lazyload("*")),
                 selectinload(Report.data_sources).options(
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
@@ -371,15 +379,34 @@ class ReportService:
             # Per-user starred state
             is_starred=is_starred,
         )
-        # Summary counts (for auto-opening sidebar)
-        report_schema.query_count = len(report.queries or [])
-        report_schema.artifact_count = len(report.artifacts or [])
-        active_sps = [
-            sp for sp in (report.scheduled_prompts or [])
-            if sp.is_active and sp.deleted_at is None
-        ]
-        report_schema.has_scheduled_prompts = len(active_sps) > 0
-        report_schema.scheduled_prompt_count = len(active_sps)
+        # Summary counts (for auto-opening sidebar) — COUNT queries, not
+        # len(relationship): loading report.queries would drag in every step
+        # version's data via Query.steps' selectin cascade.
+        from app.models.artifact import Artifact
+        qc_result = await db.execute(
+            select(func.count(Query.id)).where(
+                Query.report_id == report.id,
+                Query.deleted_at.is_(None),
+            )
+        )
+        report_schema.query_count = qc_result.scalar() or 0
+        ac_result = await db.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.report_id == report.id,
+                Artifact.deleted_at.is_(None),
+            )
+        )
+        report_schema.artifact_count = ac_result.scalar() or 0
+        sp_result = await db.execute(
+            select(func.count(ScheduledPrompt.id)).where(
+                ScheduledPrompt.report_id == report.id,
+                ScheduledPrompt.is_active.is_(True),
+                ScheduledPrompt.deleted_at.is_(None),
+            )
+        )
+        sp_count = sp_result.scalar() or 0
+        report_schema.has_scheduled_prompts = sp_count > 0
+        report_schema.scheduled_prompt_count = sp_count
 
         # Instruction count
         from app.models.instruction import Instruction
@@ -564,6 +591,33 @@ class ReportService:
                             status_code=400,
                             detail="Training mode is not enabled for this organization"
                         )
+                # Per-agent authorization: entering training mode is the
+                # agent-admin capability, not an org-wide one. The actor must be
+                # able to manage instructions on EVERY agent (data source) the
+                # report is attached to — via full_admin / org-level
+                # manage_instructions, or a per-data_source `manage` grant (which
+                # implies manage_instructions). A plain member (view only) on the
+                # agent is denied, even if they manage some other agent.
+                from app.core.permission_resolver import resolve_permissions
+                if report_data.data_sources is not None:
+                    training_ds_ids = [str(x) for x in report_data.data_sources]
+                else:
+                    training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
+                resolved = await resolve_permissions(
+                    db, str(current_user.id), str(organization.id)
+                )
+                can_train = resolved.has_org_permission('manage_instructions') or (
+                    bool(training_ds_ids)
+                    and all(
+                        resolved.has_resource_permission('data_source', ds, 'manage_instructions')
+                        for ds in training_ds_ids
+                    )
+                )
+                if not can_train:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="You need manage access on this agent to enter training mode",
+                    )
             report.mode = report_data.mode
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
@@ -873,7 +927,27 @@ class ReportService:
         return {"id": str(report_id), "is_starred": starred}
 
     async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
-        result = await db.execute(select(Report).filter(Report.id == report_id))
+        # Load only what ReportSchema serializes. Report's mapper-level
+        # lazy="selectin" relationships would otherwise hydrate the entire
+        # report graph — every step version's data JSON, every artifact
+        # version, the chat history — just to render report metadata.
+        result = await db.execute(
+            select(Report)
+            .options(
+                lazyload("*"),
+                # UserSchema serializes external_user_mappings — load it, the
+                # top-level wildcard turned User's own eager defaults off too.
+                selectinload(Report.user).selectinload(User.external_user_mappings),
+                selectinload(Report.external_platform),
+                selectinload(Report.widgets).options(lazyload("*")),
+                selectinload(Report.dashboard_layout_versions).options(lazyload("*")),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
+            )
+            .filter(Report.id == report_id)
+        )
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
@@ -902,15 +976,21 @@ class ReportService:
         return schema
 
     async def get_public_layouts(self, db: AsyncSession, report_id: str, user=None):
-        # Ensure report exists and has artifact visibility
-        result = await db.execute(select(Report).where(Report.id == report_id).where(Report.report_type == 'regular'))
+        # Ensure report exists and has artifact visibility.
+        # lazyload("*") — the visibility check needs the report row only, not
+        # the selectin cascade (all step data, artifacts, completions, ...).
+        result = await db.execute(
+            select(Report).options(lazyload("*"))
+            .where(Report.id == report_id).where(Report.report_type == 'regular')
+        )
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         rows = await db.execute(
-            select(DashboardLayoutVersion).where(DashboardLayoutVersion.report_id == report_id).order_by(
+            select(DashboardLayoutVersion).options(lazyload("*"))
+            .where(DashboardLayoutVersion.report_id == report_id).order_by(
                 DashboardLayoutVersion.created_at.asc()
             )
         )
@@ -924,8 +1004,13 @@ class ReportService:
 
         If artifact_id is provided, only returns queries for visualizations used by that artifact.
         """
-        # Verify report exists and check artifact visibility
-        result = await db.execute(select(Report).where(Report.id == report_id))
+        # Verify report exists and check artifact visibility.
+        # lazyload("*") everywhere below — these endpoints only serve small
+        # payloads; without it the mapper-level lazy="selectin" cascade
+        # hydrates every step version's data JSON on each request.
+        result = await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == report_id)
+        )
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
@@ -936,7 +1021,7 @@ class ReportService:
         if artifact_id:
             from app.models.artifact import Artifact
             artifact_result = await db.execute(
-                select(Artifact).where(
+                select(Artifact).options(lazyload("*")).where(
                     Artifact.id == artifact_id,
                     Artifact.report_id == report_id,
                     Artifact.deleted_at.is_(None)
@@ -952,11 +1037,16 @@ class ReportService:
                     )
                     query_ids_filter = [row[0] for row in viz_result.all() if row[0]]
 
-        # Fetch queries that have a successful step, eagerly load visualizations
+        # Fetch queries that have a successful step, eagerly load visualizations.
+        # lazyload("*") stops Query.steps (every version, full data) / widget /
+        # report from cascading; PublicQuerySchema needs none of them.
         query_stmt = (
             select(Query)
             .join(Step, Step.id == Query.default_step_id)
-            .options(selectinload(Query.visualizations))
+            .options(
+                lazyload("*"),
+                selectinload(Query.visualizations).options(lazyload("*")),
+            )
             .where(Query.report_id == report_id, Step.status == 'success')
         )
 
@@ -972,8 +1062,13 @@ class ReportService:
 
     async def get_public_step(self, db: AsyncSession, report_id: str, query_id: str, user=None):
         """Get the default step for a query in a shared report."""
-        # Verify report exists and check artifact visibility
-        result = await db.execute(select(Report).where(Report.id == report_id))
+        # Verify report exists and check artifact visibility.
+        # lazyload("*") on every select here: PublicStepSchema serves the
+        # step's own columns; without it the selectin cascade re-hydrates
+        # the whole report graph (all step versions' data) per request.
+        result = await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == report_id)
+        )
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
@@ -981,7 +1076,8 @@ class ReportService:
 
         # Fetch query and verify it belongs to this report
         query_result = await db.execute(
-            select(Query).where(Query.id == query_id, Query.report_id == report_id)
+            select(Query).options(lazyload("*"))
+            .where(Query.id == query_id, Query.report_id == report_id)
         )
         query = query_result.scalar_one_or_none()
         if not query:
@@ -991,14 +1087,15 @@ class ReportService:
         step = None
         if query.default_step_id:
             step_result = await db.execute(
-                select(Step).where(Step.id == query.default_step_id, Step.status == 'success')
+                select(Step).options(lazyload("*"))
+                .where(Step.id == query.default_step_id, Step.status == 'success')
             )
             step = step_result.scalar_one_or_none()
 
         if not step:
             # Fallback to latest successful step
             step_result = await db.execute(
-                select(Step)
+                select(Step).options(lazyload("*"))
                 .where(Step.query_id == query_id, Step.status == 'success')
                 .order_by(Step.created_at.desc())
                 .limit(1)
@@ -1023,8 +1120,13 @@ class ReportService:
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):
         """List artifacts for a shared report."""
-        # Verify report exists and check artifact visibility
-        result = await db.execute(select(Report).where(Report.id == report_id))
+        # Verify report exists and check artifact visibility.
+        # lazyload("*"): this endpoint returns artifact metadata only; the
+        # visibility check needs one report row, and Artifact.report would
+        # otherwise selectin-cascade the whole graph back in.
+        result = await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == report_id)
+        )
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
@@ -1033,7 +1135,7 @@ class ReportService:
         # Fetch artifacts for this report
         from app.models.artifact import Artifact
         artifacts_result = await db.execute(
-            select(Artifact)
+            select(Artifact).options(lazyload("*"))
             .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
             .order_by(Artifact.created_at.desc())
         )
@@ -1044,8 +1146,11 @@ class ReportService:
 
     async def get_public_artifact(self, db: AsyncSession, report_id: str, artifact_id: str, user=None):
         """Get a specific artifact for a shared report."""
-        # Verify report exists and check artifact visibility
-        result = await db.execute(select(Report).where(Report.id == report_id))
+        # Verify report exists and check artifact visibility (row only — see
+        # get_public_artifacts).
+        result = await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == report_id)
+        )
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Not found")
@@ -1054,7 +1159,7 @@ class ReportService:
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import Artifact
         artifact_result = await db.execute(
-            select(Artifact).where(
+            select(Artifact).options(lazyload("*")).where(
                 Artifact.id == artifact_id,
                 Artifact.report_id == report_id,
                 Artifact.deleted_at.is_(None)
@@ -1552,8 +1657,12 @@ class ReportService:
         if forked_from_id:
             schema.forked_from_id = forked_from_id
             from app.models.user import User
+            # lazyload("*"): only the parent's title and owner name are read —
+            # don't cascade the parent report's whole graph.
             result = await db.execute(
-                select(Report).options(selectinload(Report.user)).where(Report.id == forked_from_id)
+                select(Report)
+                .options(lazyload("*"), selectinload(Report.user).options(lazyload("*")))
+                .where(Report.id == forked_from_id)
             )
             parent = result.scalar_one_or_none()
             if parent:

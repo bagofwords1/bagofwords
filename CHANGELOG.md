@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.432 (July 3, 2026)
+- Fix role-management RBAC ↔ legacy-role divergence and sso_only login lockout; adds backfill migration `rbacbf01` (#529)
+- Fix extreme slowness on report/artifact pages with large data (#531)
+- Fix missing numbers & empty charts in emailed/exported dashboard PDFs (#527)
+- Fix pending-changes badge counting rows the pending view can't show (#528)
+- Training-mode-for-agent-admins verification plan (#530)
+
+
 ## Version 0.0.431 (July 3, 2026)
 - CSV data source connector (#522)
 - Claude Sonnet 5 / Opus 4.8 support (#523)

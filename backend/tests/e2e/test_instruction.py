@@ -1102,3 +1102,229 @@ def test_agent_count_matches_list_under_inaccessible_table(
     assert list_count() == 0, "list must hide an instruction whose only table is inaccessible"
     assert by_agent_count() == 0, "badge count must match the list (no 3->0 flicker)"
     assert by_agent_count() == list_count()
+
+
+@pytest.mark.e2e
+def test_pending_badge_clears_when_instruction_deleted(
+    create_global_instruction,
+    delete_instruction,
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Regression: the "N pending" badge counting rows the Pending-changes view
+    can't show.
+
+    The org-wide pending sweep reads suggestion builds only — it never sees
+    Instruction.deleted_at. Deleting an instruction that still had a live
+    pending suggestion used to leave that build producing hunks forever, so
+    /instructions/counts kept reporting pending_total=N while the pending_only
+    list (which filters deleted rows) showed nothing. Delete must clear the
+    signal from ALL pending surfaces: the counts badge, the pending_only list,
+    and /instructions/pending-changes.
+    """
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text="Delete-me original alpha beta",
+        user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+
+    # Inject a REAL pending suggestion build (changed text -> live hunk).
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            main = conn.execute(
+                text(
+                    """SELECT bc.build_id AS build_id
+                         FROM build_contents bc
+                         JOIN instruction_builds ib ON ib.id = bc.build_id
+                        WHERE bc.instruction_id = :iid AND ib.is_main = :is_main
+                          AND ib.deleted_at IS NULL"""
+                ),
+                {"iid": iid, "is_main": True},
+            ).mappings().fetchone()
+            assert main is not None, "new instruction should be in the main build"
+            now = datetime.datetime.utcnow()
+            vid, bid, bcid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+            vnum = conn.execute(
+                text("SELECT COALESCE(MAX(version_number),0)+1 FROM instruction_versions WHERE instruction_id=:iid"),
+                {"iid": iid},
+            ).scalar()
+            bnum = conn.execute(
+                text("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=:org"),
+                {"org": org_id},
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash)"
+                    " VALUES (:id,:ca,:ua,:iid,:vnum,:txt,:status,:load_mode,:chash)"
+                ),
+                {"id": vid, "ca": now, "ua": now, "iid": iid, "vnum": vnum,
+                 "txt": "Delete-me PROPOSED gamma delta",
+                 "status": "published", "load_mode": "always", "chash": "h" + uuid.uuid4().hex[:12]},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,base_build_id,title)"
+                    " VALUES (:id,:ca,:ua,:bnum,:status,:source,:is_main,:org,:base,:title)"
+                ),
+                {"id": bid, "ca": now, "ua": now, "bnum": bnum, "status": "pending_approval", "source": "ai",
+                 "is_main": False, "org": org_id, "base": main["build_id"], "title": "pending suggestion"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                ),
+                {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
+            )
+    finally:
+        engine.dispose()
+
+    def pending_total():
+        r = test_client.get("/api/instructions/counts", headers=headers)
+        assert r.status_code == 200, r.json()
+        return r.json()["pending_total"]
+
+    def pending_list_ids():
+        r = test_client.get(
+            "/api/instructions",
+            params={"pending_only": "true", "include_own": "true",
+                    "include_drafts": "true", "include_archived": "true", "limit": 200},
+            headers=headers,
+        )
+        assert r.status_code == 200, r.json()
+        return [x["id"] for x in r.json()["items"]]
+
+    def sweep_ids():
+        r = test_client.get("/api/instructions/pending-changes", headers=headers)
+        assert r.status_code == 200, r.json()
+        return r.json()["instruction_ids"]
+
+    # Alive: all three pending surfaces agree the change is pending.
+    assert pending_total() == 1
+    assert pending_list_ids() == [iid]
+    assert sweep_ids() == [iid]
+
+    delete_instruction(iid, user_token=token, org_id=org_id)
+
+    # Deleted: no surface may keep counting the leftover suggestion build.
+    assert pending_list_ids() == []
+    assert pending_total() == 0, "badge must not count a deleted instruction's leftover suggestion"
+    assert sweep_ids() == []
+
+
+@pytest.mark.e2e
+def test_pending_badge_excludes_inaccessible_private_agent(
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """The pending sweep is build-based and org-wide; the counts badge must
+    re-scope it through the caller's instruction visibility. A pending change on
+    an instruction attached to a PRIVATE agent the caller is not a member of is
+    invisible in the pending_only list — so it must not be counted in
+    pending_total (or returned by /instructions/pending-changes) either.
+    """
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    now = datetime.datetime.utcnow()
+    ds_id, iid, vid, bid = (str(uuid.uuid4()) for _ in range(4))
+    try:
+        with engine.begin() as conn:
+            # Private agent with NO membership for the caller.
+            conn.execute(
+                text(
+                    "INSERT INTO data_sources (id,created_at,updated_at,name,is_active,organization_id,"
+                    "is_public,use_llm_sync,publish_status,reliability_status)"
+                    " VALUES (:id,:ca,:ua,:name,:active,:org,:pub,:llm,:pubst,:rel)"
+                ),
+                {"id": ds_id, "ca": now, "ua": now, "name": "Members-only Agent", "active": True,
+                 "org": org_id, "pub": False, "llm": False, "pubst": "published", "rel": "unknown"},
+            )
+            # Instruction attached to it (not in main; a proposed-new instruction).
+            conn.execute(
+                text(
+                    "INSERT INTO instructions (id,created_at,updated_at,text,thumbs_up,status,category,kind,"
+                    "is_seen,can_user_toggle,organization_id,source_type,load_mode)"
+                    " VALUES (:id,:ca,:ua,:txt,:tu,:status,:cat,:kind,:seen,:tog,:org,:st,:lm)"
+                ),
+                {"id": iid, "ca": now, "ua": now, "txt": "Members-only current text", "tu": 0,
+                 "status": "published", "cat": "general", "kind": "instruction",
+                 "seen": True, "tog": True, "org": org_id, "st": "ai", "lm": "always"},
+            )
+            conn.execute(
+                text("INSERT INTO instruction_data_source_association (instruction_id,data_source_id) VALUES (:iid,:ds)"),
+                {"iid": iid, "ds": ds_id},
+            )
+            bnum = conn.execute(
+                text("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=:org"),
+                {"org": org_id},
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash)"
+                    " VALUES (:id,:ca,:ua,:iid,:vnum,:txt,:status,:load_mode,:chash)"
+                ),
+                {"id": vid, "ca": now, "ua": now, "iid": iid, "vnum": 1,
+                 "txt": "Members-only PROPOSED text",
+                 "status": "published", "load_mode": "always", "chash": "h" + uuid.uuid4().hex[:12]},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,title)"
+                    " VALUES (:id,:ca,:ua,:bnum,:status,:source,:is_main,:org,:title)"
+                ),
+                {"id": bid, "ca": now, "ua": now, "bnum": bnum, "status": "pending_approval", "source": "ai",
+                 "is_main": False, "org": org_id, "title": "pending on private agent"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                ),
+                {"id": str(uuid.uuid4()), "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
+            )
+    finally:
+        engine.dispose()
+
+    counts = test_client.get("/api/instructions/counts", headers=headers)
+    assert counts.status_code == 200, counts.json()
+    assert counts.json()["pending_total"] == 0, \
+        "badge must not count a pending change on a private agent the caller can't access"
+    assert ds_id not in counts.json()["pending_by_agent"]
+    assert iid not in counts.json().get("pending_instruction_ids", [])
+
+    plist = test_client.get(
+        "/api/instructions",
+        params={"pending_only": "true", "include_own": "true",
+                "include_drafts": "true", "include_archived": "true", "limit": 200},
+        headers=headers,
+    )
+    assert plist.status_code == 200, plist.json()
+    assert plist.json()["items"] == []
+
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers)
+    assert sweep.status_code == 200, sweep.json()
+    assert sweep.json()["instruction_ids"] == []

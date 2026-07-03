@@ -526,7 +526,7 @@ import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import PendingInstructionItem from '@/components/prompt/PendingInstructionItem.vue'
-import { useCan } from '@/composables/usePermissions'
+import { useCan, useCanAny } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 import { useExcel } from '@/composables/useExcel'
 
@@ -588,7 +588,10 @@ const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
-const canCreateInstructions = computed(() => useCan('manage_instructions'))
+// Resource-scoped to the selected agent(s): an agent admin (per-DS `manage`,
+// which implies manage_instructions) can approve their own agent's build, not
+// just org admins.
+const canCreateInstructions = computed(() => canManageInstructionsForSelectedAgents.value)
 
 const isApprovingBuild = computed(() => props.isPublishingBuild)
 const isDiscardingBuild = ref(false)
@@ -908,9 +911,21 @@ const modeIcon = computed(() => {
     }
 })
 
-// Permission check for training mode - requires permission, allow_llm_see_data, and enable_training_mode enabled
-const { allowLlmSeeData, isTrainingModeEnabled } = useOrgSettings()
-const canUseTrainingMode = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
+// Training mode is the per-agent admin capability: authoring instructions for
+// the selected agent(s). Require manage_instructions on EVERY selected agent (a
+// per-data_source `manage` grant implies it, and full_admin bypasses) — mirrors
+// the backend gate in report_service.update_report. A plain member (view only)
+// on the agent is denied even if they manage a different agent.
+const { isTrainingModeEnabled } = useOrgSettings()
+const canManageInstructionsForSelectedAgents = computed(() => {
+    const dss = selectedDataSources.value || []
+    if (dss.length === 0) {
+        // No agent picked yet — offer training to anyone who manages some agent.
+        return useCanAny('manage_instructions', 'data_source')
+    }
+    return dss.every((ds: any) => useCan('manage_instructions', { type: 'data_source', id: ds.id }))
+})
+const canUseTrainingMode = computed(() => isTrainingModeEnabled.value && canManageInstructionsForSelectedAgents.value)
 
 // Model selector state - fetch from backend
 const models = ref<any[]>([])

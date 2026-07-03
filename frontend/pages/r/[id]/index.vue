@@ -372,10 +372,17 @@ async function loadVisualizationData(artifactId?: string) {
         const { data: queriesRes } = await useMyFetch(`/api/r/${report_id}/queries${queryParams}`);
         const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
+        // Fetch all steps in parallel — awaiting each one serially made the
+        // page's time-to-render scale linearly with the number of queries.
+        const stepResults = await Promise.all(
+            queries.map((query) => useMyFetch(`/api/r/${report_id}/queries/${(query as any).id}/step`))
+        );
+
         const vizData = [];
-        for (const query of queries) {
-            // Use public step endpoint - returns PublicStepSchema directly
-            const { data: step } = await useMyFetch(`/api/r/${report_id}/queries/${query.id}/step`);
+        for (let qi = 0; qi < queries.length; qi++) {
+            const query = queries[qi];
+            // Public step endpoint - returns PublicStepSchema directly
+            const { data: step } = stepResults[qi];
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];

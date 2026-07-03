@@ -185,13 +185,14 @@ class CreateInstructionTool(Tool):
         agent_execution_id = runtime_ctx.get("agent_execution_id")
         report = runtime_ctx.get("report")
 
-        # In knowledge-harness / post-analysis mode we must only attach the
-        # instruction to data sources that are actually part of the current
-        # report. Training mode is broader (user is intentionally curating the
-        # org) so we keep it org-scoped there.
+        # Both knowledge-harness and training mode must only attach the
+        # instruction to data sources that belong to the agent(s) being curated
+        # — i.e. the data sources on the current report. This keeps a training
+        # session's output scoped to the specific agent(s) and prevents an agent
+        # admin from authoring org-wide (global) or cross-agent instructions.
         mode = runtime_ctx.get("mode")
         allowed_data_source_ids = None
-        if mode == "knowledge" and report is not None:
+        if mode in ("knowledge", "training") and report is not None:
             try:
                 allowed_data_source_ids = {
                     str(ds.id) for ds in (report.data_sources or [])
@@ -311,6 +312,14 @@ class CreateInstructionTool(Tool):
                             display_text=table.name,
                         ))
                         matched_table_names.append(table.name)
+
+            # Guarantee agent-scoping: an instruction whose tables didn't resolve
+            # (or that references no tables at all — a common "always-on" rule)
+            # still applies to the agent(s) being trained rather than silently
+            # becoming a global, org-wide instruction. Falls back to the report's
+            # data sources in knowledge/training mode.
+            if not data_source_ids and allowed_data_source_ids:
+                data_source_ids = set(allowed_data_source_ids)
 
             # Create the instruction as a draft (pending admin approval) but
             # stage the version with status="published" so promote_build flips

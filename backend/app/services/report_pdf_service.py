@@ -173,6 +173,23 @@ class ReportPdfService:
         viz_result = await db.execute(viz_stmt)
         visualizations = viz_result.scalars().all()
 
+        # Dashboard code addresses visualizations BY INDEX (viz[0], viz[1], ...),
+        # and that index is defined by the artifact's ORDERED
+        # content["visualization_ids"]. Mirror the live client
+        # (frontend/components/dashboard/ArtifactFrame.vue): scope to this
+        # artifact's visualizations and order them by that list, appending any
+        # stragglers last. Without this, window.ARTIFACT_DATA would be a
+        # report-wide, unordered superset and every index-based lookup in the
+        # dashboard would bind to the wrong visualization — producing missing
+        # numbers and empty chart series in the exported/emailed PDF.
+        viz_ids = (artifact.content or {}).get("visualization_ids") or []
+        if viz_ids:
+            viz_by_id = {str(v.id): v for v in visualizations}
+            ordered = [viz_by_id[vid] for vid in viz_ids if vid in viz_by_id]
+            ordered_id_set = set(viz_ids)
+            ordered.extend(v for v in visualizations if str(v.id) not in ordered_id_set)
+            visualizations = ordered
+
         viz_data = []
         for viz in visualizations:
             if not viz.query_id:

@@ -261,6 +261,9 @@ class ScimUserService:
                 role="member",
             )
             db.add(membership)
+            # Give the user a real RBAC assignment (not just the legacy string).
+            from app.core.permission_resolver import ensure_system_role_assignment
+            await ensure_system_role_assignment(db, organization_id, str(existing_user.id), "member")
 
             # Update external ID if provided
             if data.externalId:
@@ -299,6 +302,9 @@ class ScimUserService:
             role="member",
         )
         db.add(membership)
+        # Give the user a real RBAC assignment (not just the legacy string).
+        from app.core.permission_resolver import ensure_system_role_assignment
+        await ensure_system_role_assignment(db, organization_id, str(user.id), "member")
         await db.commit()
         await db.refresh(user)
         await db.refresh(membership)

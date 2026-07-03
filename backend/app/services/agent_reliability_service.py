@@ -156,18 +156,16 @@ class AgentReliabilityService:
         (manual trigger); for system triggers pick an admin/owner of the org."""
         if preferred is not None:
             return preferred
-        stmt = (
-            select(User)
-            .join(Membership, Membership.user_id == User.id)
-            .where(
-                Membership.organization_id == str(organization_id),
-                Membership.role.in_(["admin", "owner"]),
-            )
-            .limit(1)
-        )
-        user = (await db.execute(stmt)).scalars().first()
-        if user is not None:
-            return user
+        # Prefer a real admin, decided by RBAC (the source of truth) rather than
+        # the legacy Membership.role string, which can drift from actual perms.
+        from app.core.permission_resolver import get_user_ids_with_permission, FULL_ADMIN
+        admin_ids = await get_user_ids_with_permission(db, str(organization_id), FULL_ADMIN)
+        if admin_ids:
+            user = (await db.execute(
+                select(User).where(User.id.in_(admin_ids)).limit(1)
+            )).scalars().first()
+            if user is not None:
+                return user
         # Fall back to any member.
         stmt = (
             select(User)
