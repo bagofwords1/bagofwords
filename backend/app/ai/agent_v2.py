@@ -4513,6 +4513,15 @@ class AgentV2:
                                 # Preserve existing type; only set if missing
                                 if not merged.get("type") and data_model_from_tool.get("type"):
                                     merged["type"] = data_model_from_tool.get("type")
+                                # Exception: create_data demotes an unresolvable
+                                # single-value card to a table (no value column /
+                                # no row selector). Adopt that so the step's
+                                # data_model stays consistent with the view.
+                                elif (
+                                    data_model_from_tool.get("type") == "table"
+                                    and merged.get("type") in ("count", "metric_card")
+                                ):
+                                    merged["type"] = "table"
                                 # Merge series/grouping fields. `filters` MUST be
                                 # included: it carries the default filter that
                                 # narrows a melted/long KPI table to the asked-for
