@@ -7,8 +7,8 @@ gives the agent filesystem primitives —
 | shell analogue | agent tool | capability |
 | --- | --- | --- |
 | `ls` / `find` | `list_files` | `list_files` |
-| `grep -ril` (name + content) | `search_files` | `search_files` |
-| `cat` | `read_file` | `read_file` |
+| `grep -ril` (name + content, **incl. PDF/Word/PowerPoint**) | `search_files` | `search_files` |
+| `cat` (text + extracted document text) | `read_file` | `read_file` |
 | `cp` / `put` | `write_file` | `write_file` (new) |
 
 Use case: *search contracts to find the right file, read one to confirm, then
@@ -29,6 +29,13 @@ a fresh cloud sandbox.
   always and `WRITE_FILE` only when the connection is configured writable. Every
   id resolves to a path **inside `root_path`**; traversal (`..`, absolute
   escapes, symlinks out) is rejected at a single chokepoint (`_resolve`).
+- **Document text extraction** (`backend/app/data_sources/clients/_document_text.py`)
+  — `read_file` and `search_files` extract plain text from **PDF** (pypdf),
+  **DOCX** (OOXML zip parse — no python-docx dep) and **PPTX** (python-pptx), so
+  contracts in those formats are content-searchable and readable, not opaque
+  bytes. Extraction is defensive (a corrupt/oversized file yields `""` and is
+  skipped, never breaking a search) and bounded (page/char caps). No new
+  dependency — `pypdf` + `python-pptx` were already in `pyproject.toml`.
 - **Registry entry `network_dir`** (`backend/app/schemas/data_source_registry.py`)
   — `data_shape="files"`, `catalog_ownership="shared"`, no-auth credentials
   (`NetworkDirConfig` / `NetworkDirCredentials` in
@@ -67,7 +74,8 @@ Generate the fixture directory (many CSVs + PNG charts/logos + markdown/text):
 
 ```bash
 .venv/bin/python scripts/gen_network_dir_fixtures.py /tmp/netdir_demo
-# -> contracts/ invoices/ reports/ images/ notes/ README.md  (~118 files)
+# -> contracts/ invoices/ reports/ images/ documents/ notes/ README.md
+#    (~130 files, incl. pdf/docx/pptx contracts with searchable content)
 ```
 
 ---
@@ -87,10 +95,11 @@ export BOW_DATABASE_URL="sqlite:///db/app.db"
   tests/e2e/test_network_dir_e2e.py -v
 ```
 
-**Observed (PASS):** 37 tests — list/read/search/write, filename + content
-search, CSV→DataFrame, binary→bytes, path-traversal rejected, write-on-read-only
-rejected, overwrite guard, extension filter, and the full e2e
-`search → read → write` (writable) and `write blocked` (read-only) flows.
+**Observed (PASS):** 44 tests — list/read/search/write, filename + content
+search, **PDF/DOCX/PPTX content search + text read (with a corrupt-file
+guard)**, CSV→DataFrame, binary→bytes, path-traversal rejected,
+write-on-read-only rejected, overwrite guard, extension filter, and the full
+e2e `search → read → write` (writable) and `write blocked` (read-only) flows.
 
 Regression check (read tools must be unaffected):
 

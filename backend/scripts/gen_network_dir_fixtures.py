@@ -24,6 +24,7 @@ import argparse
 import csv
 import os
 import random
+import zipfile
 from pathlib import Path
 
 import matplotlib
@@ -133,6 +134,86 @@ def gen_images(root: Path, n: int) -> int:
     return n
 
 
+def _make_docx(path: Path, paragraphs) -> None:
+    """Write a minimal but valid .docx (OOXML zip) — no python-docx needed."""
+    body = "".join(
+        f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body></w:document>"
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        "</Types>"
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+        "</Relationships>"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("word/document.xml", document)
+
+
+def _make_pdf(path: Path, title: str, lines) -> None:
+    """matplotlib PDF backend embeds selectable text, so pypdf/pdfminer can
+    extract it — no reportlab needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig = plt.figure(figsize=(8.5, 11))
+    fig.text(0.1, 0.9, title, fontsize=16, weight="bold")
+    fig.text(0.1, 0.8, "\n".join(lines), fontsize=11, va="top")
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def gen_documents(root: Path, n: int) -> int:
+    """A handful of contracts as pdf / docx / pptx with searchable content."""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    count = 0
+    for i in range(n):
+        vendor = VENDORS[i % len(VENDORS)]
+        slug = vendor.lower().replace(" ", "_").replace("&", "and")
+        term = random.choice(["indemnity", "auto-renewal", "arbitration", "force majeure"])
+        value = random.randint(50_000, 5_000_000)
+
+        # PDF
+        _make_pdf(
+            root / "documents" / f"contract_{slug}_{i:02d}.pdf",
+            f"Master Services Agreement — {vendor}",
+            [f"Governing law: Delaware.", f"Total contract value: ${value:,}.",
+             f"Key clause: {term}.", "Confidentiality applies to all parties."],
+        )
+        # DOCX
+        _make_docx(
+            root / "documents" / f"agreement_{slug}_{i:02d}.docx",
+            [f"Services Agreement with {vendor}",
+             f"This agreement includes a {term} clause.",
+             f"Contract value: ${value:,}. Governing law: Delaware."],
+        )
+        # PPTX
+        prs = Presentation()
+        s = prs.slides.add_slide(prs.slide_layouts[5])
+        s.shapes.title.text = f"{vendor} — Deal Review"
+        tb = s.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(3)).text_frame
+        tb.text = f"Vendor: {vendor}\nValue: ${value:,}\nClause: {term}\nStatus: under review"
+        (root / "documents").mkdir(parents=True, exist_ok=True)
+        prs.save(root / "documents" / f"review_{slug}_{i:02d}.pptx")
+        count += 3
+    return count
+
+
 def gen_notes(root: Path) -> int:
     (root / "notes").mkdir(parents=True, exist_ok=True)
     (root / "README.md").write_text(
@@ -148,7 +229,7 @@ def gen_notes(root: Path) -> int:
 
 
 def generate(root: Path, contracts: int = 40, invoices: int = 20,
-             reports: int = 4, images: int = 8) -> dict:
+             reports: int = 4, images: int = 8, documents: int = 4) -> dict:
     _seed()
     root.mkdir(parents=True, exist_ok=True)
     stats = {
@@ -156,6 +237,7 @@ def generate(root: Path, contracts: int = 40, invoices: int = 20,
         "invoices": gen_invoices(root, invoices),
         "reports": gen_reports_and_charts(root, reports),
         "images": gen_images(root, images),
+        "documents": gen_documents(root, documents),
         "notes": gen_notes(root),
     }
     total = sum(1 for _ in root.rglob("*") if _.is_file())
@@ -170,9 +252,11 @@ def main():
     ap.add_argument("--invoices", type=int, default=20)
     ap.add_argument("--reports", type=int, default=4)
     ap.add_argument("--images", type=int, default=8)
+    ap.add_argument("--documents", type=int, default=4)
     args = ap.parse_args()
     stats = generate(Path(args.root).expanduser().resolve(),
-                     args.contracts, args.invoices, args.reports, args.images)
+                     args.contracts, args.invoices, args.reports, args.images,
+                     args.documents)
     print(f"Populated {args.root}:")
     for k, v in stats.items():
         print(f"  {k}: {v}")

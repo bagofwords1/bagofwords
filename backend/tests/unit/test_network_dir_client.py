@@ -167,6 +167,73 @@ class TestSecurity:
 # --------------------------------------------------------------- writes
 
 
+@pytest.fixture()
+def doc_tree(tmp_path: Path) -> Path:
+    """A directory with one pdf, one docx and one pptx, each containing a
+    unique term that appears ONLY in that file's content (not its name)."""
+    from scripts.gen_network_dir_fixtures import _make_docx, _make_pdf
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    (tmp_path / "docs").mkdir()
+    _make_pdf(tmp_path / "docs" / "a.pdf", "Agreement",
+              ["This PDF mentions zebracrossing as a secret term."])
+    _make_docx(tmp_path / "docs" / "b.docx",
+               ["A Word contract containing wombatclause internally."])
+    prs = Presentation()
+    s = prs.slides.add_slide(prs.slide_layouts[5])
+    s.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(2)).text_frame.text = (
+        "Slide deck referencing quokkaterm in the body."
+    )
+    prs.save(tmp_path / "docs" / "c.pptx")
+    return tmp_path
+
+
+class TestDocumentExtraction:
+    """pdf / docx / pptx must be readable and content-searchable, not opaque."""
+
+    def test_read_pdf_returns_text(self, doc_tree):
+        c = NetworkDirClient(root_path=str(doc_tree))
+        out = c.read_file("docs/a.pdf")
+        assert isinstance(out, str)
+        assert "zebracrossing" in out
+
+    def test_read_docx_returns_text(self, doc_tree):
+        c = NetworkDirClient(root_path=str(doc_tree))
+        out = c.read_file("docs/b.docx")
+        assert isinstance(out, str)
+        assert "wombatclause" in out
+
+    def test_read_pptx_returns_text(self, doc_tree):
+        c = NetworkDirClient(root_path=str(doc_tree))
+        out = c.read_file("docs/c.pptx")
+        assert isinstance(out, str)
+        assert "quokkaterm" in out
+
+    def test_search_matches_pdf_content(self, doc_tree):
+        c = NetworkDirClient(root_path=str(doc_tree))
+        ids = {h["id"] for h in c.search_files("zebracrossing")}
+        assert "docs/a.pdf" in ids
+
+    def test_search_matches_docx_content(self, doc_tree):
+        c = NetworkDirClient(root_path=str(doc_tree))
+        ids = {h["id"] for h in c.search_files("wombatclause")}
+        assert "docs/b.docx" in ids
+
+    def test_search_matches_pptx_content(self, doc_tree):
+        c = NetworkDirClient(root_path=str(doc_tree))
+        ids = {h["id"] for h in c.search_files("quokkaterm")}
+        assert "docs/c.pptx" in ids
+
+    def test_corrupt_document_does_not_break_search(self, doc_tree):
+        # A file with a doc extension but garbage content must not raise;
+        # extraction returns "" and search simply skips it.
+        (doc_tree / "docs" / "broken.pdf").write_bytes(b"not a real pdf")
+        c = NetworkDirClient(root_path=str(doc_tree))
+        hits = c.search_files("zebracrossing")  # should still succeed
+        assert any(h["id"] == "docs/a.pdf" for h in hits)
+
+
 class TestWrites:
     def test_write_text(self, tree):
         c = NetworkDirClient(root_path=str(tree), writable=True)

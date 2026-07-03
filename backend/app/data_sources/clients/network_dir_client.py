@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients._document_text import DOC_EXTS, extract_document_text
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -35,9 +36,11 @@ from app.data_sources.clients.base import Capability, DataSourceClient
 # returned as text (if decodable) or raw bytes.
 TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
 TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml", "xml", "py", "sql"}
-# Extensions we're willing to scan for content matches in search_files. Kept to
-# text-shaped files so we never try to grep a 50 MB binary.
-GREPPABLE_EXTS = TABULAR_EXTS | TEXT_EXTS
+# Rich document formats (pdf/docx/pptx) we extract plain text from so their
+# contents are readable and searchable — see _document_text.DOC_EXTS.
+# Extensions we're willing to scan for content matches in search_files: text,
+# tabular, AND documents (extracted). Binary/unknown types are name-matched only.
+GREPPABLE_EXTS = TABULAR_EXTS | TEXT_EXTS | DOC_EXTS
 
 
 def _ext(name: str) -> str:
@@ -194,6 +197,20 @@ class NetworkDirClient(DataSourceClient):
         path = self._resolve(file_id, must_exist=True)
         if not path.is_file():
             raise ValueError(f"Not a file: {file_id}")
+
+        # Rich documents (pdf/docx/pptx): return extracted plain text so the
+        # agent can actually read them instead of receiving opaque bytes.
+        if _ext(path.name) in DOC_EXTS:
+            if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
+                raise ValueError(
+                    f"File {file_id} is {path.stat().st_size / 1024 / 1024:.1f} MB, "
+                    f"exceeds the {self.max_file_bytes / 1024 / 1024:.0f} MB limit."
+                )
+            text = extract_document_text(str(path), path.name)
+            # Fall back to raw bytes if extraction yielded nothing (scanned PDF,
+            # unusual encoding) so the caller can still attach/inspect the file.
+            return text if text else path.read_bytes()
+
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size
         if cap and size > cap and _ext(path.name) not in TABULAR_EXTS:
@@ -251,7 +268,11 @@ class NetworkDirClient(DataSourceClient):
                 try:
                     if self.max_file_bytes and p.stat().st_size > self.max_file_bytes:
                         continue
-                    text = p.read_text(encoding="utf-8", errors="ignore")
+                    if _ext(p.name) in DOC_EXTS:
+                        # pdf/docx/pptx — grep the extracted plain text.
+                        text = extract_document_text(str(p), p.name)
+                    else:
+                        text = p.read_text(encoding="utf-8", errors="ignore")
                     matched = q in text.lower()
                 except Exception:
                     matched = False
