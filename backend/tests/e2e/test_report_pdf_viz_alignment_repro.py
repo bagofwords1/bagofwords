@@ -18,18 +18,23 @@ Root-cause hypothesis being validated here:
   (/api/queries?report_id=..&artifact_id=..) and then REORDERS them to match
   artifact.content["visualization_ids"] before injecting window.ARTIFACT_DATA.
 
-  The PDF/email path (app/services/report_pdf_service.py
-  _render_artifact_pdf) does NEITHER:
-    * it selects EVERY Visualization on the report (a superset — no artifact
-      scoping), and
-    * it applies NO ordering (ignores artifact.content["visualization_ids"]).
+  Before the fix, the PDF/email path (app/services/report_pdf_service.py
+  _render_artifact_pdf) applied NO ordering — it injected every report
+  visualization in DB order, ignoring artifact.content["visualization_ids"].
+  So window.ARTIFACT_DATA.visualizations was a differently-ordered superset;
+  viz[0]/viz[1] in the dashboard code pointed at the WRONG visualizations,
+  whose rows lack the expected fields -> undefined / null KPI values (rendered
+  as "undefined" or the em-dash from fmt(null)) and empty chart series (ECharts
+  then auto-scales the value axis to its default 0..1 range and draws no
+  bars/lines).
 
-  So window.ARTIFACT_DATA.visualizations handed to the headless renderer is a
-  differently-ordered superset. viz[0]/viz[1] in the dashboard code now point
-  at the WRONG visualizations, whose rows lack the expected fields ->
-  undefined / null KPI values (rendered as "undefined" or the em-dash from
-  fmt(null)) and empty chart series (ECharts then auto-scales the value axis to
-  its default 0..1 range and draws no bars/lines).
+The fix orders the injected visualizations by
+artifact.content["visualization_ids"] (appending any stragglers last), exactly
+like the client. This test validates that:
+  * the first N injected vizs match the artifact's ordered contract, so
+    index-based lookups (viz[0], viz[1]) bind to the RIGHT data, and
+  * any non-artifact viz is pushed AFTER the contract vizs (harmless), never
+    shifting the contract indices.
 
 No Playwright/headless browser is needed: we stub ReportPdfService.generate_pdf
 to capture the exact HTML (and thus the embedded window.ARTIFACT_DATA) that
@@ -203,7 +208,7 @@ def _extract_artifact_data(html: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_pdf_visualizations_misaligned_from_artifact_contract(monkeypatch):
+async def test_pdf_visualizations_aligned_to_artifact_contract(monkeypatch):
     report_id, artifact_id, ordered_viz_ids, extra_viz_id = await _seed()
 
     # Stub the headless render: capture the HTML the renderer WOULD receive.
@@ -235,32 +240,26 @@ async def test_pdf_visualizations_misaligned_from_artifact_contract(monkeypatch)
     print(f"[pdf]      visualizations injected (in order)   = {pdf_ids}")
     print(f"[pdf]      extra (non-artifact) viz present?    = {extra_viz_id in pdf_ids}")
 
-    # --- Claim 1: SCOPE. The PDF path includes a viz that is NOT in the
-    # artifact (it selects every Visualization on the report). The client would
-    # never inject this one.
-    assert extra_viz_id in pdf_ids, (
-        "Expected repro: PDF path pulled a report-wide superset including the "
-        "extra viz not referenced by the artifact"
+    # --- ORDER. The dashboard code reads viz[0], viz[1] by index and relies on
+    # the injected order matching artifact.content['visualization_ids']. After
+    # the fix, the first N injected vizs equal the artifact's ordered ids, so
+    # index-based lookups bind to the RIGHT data (correct numbers + populated
+    # chart series).
+    assert pdf_ids[: len(ordered_viz_ids)] == ordered_viz_ids, (
+        f"Injected viz order must match the artifact contract; "
+        f"got {pdf_ids} vs contract {ordered_viz_ids}"
     )
+    assert pdf_ids[0] == ordered_viz_ids[0], "viz[0] must equal contract viz[0]"
 
-    # --- Claim 2: ORDER. The dashboard code reads viz[0], viz[1] by index and
-    # relies on the injected order matching artifact.content['visualization_ids'].
-    # The PDF path does not order by that list, so the alignment is broken:
-    # the first N injected vizs do NOT equal the artifact's ordered ids.
-    assert pdf_ids[: len(ordered_viz_ids)] != ordered_viz_ids, (
-        "Expected repro: injected viz order does not match the artifact "
-        "contract order"
-    )
-
-    # Concretely: what the dashboard would treat as viz[0] is NOT the viz the
-    # artifact says belongs at index 0 -> wrong/missing numbers & empty charts.
-    assert pdf_ids[0] != ordered_viz_ids[0], (
-        "Expected repro: viz[0] the renderer sees != viz[0] the artifact "
-        "contract declares (index-based lookups resolve to the wrong data)"
-    )
+    # --- SCOPE. Any non-artifact report viz is appended AFTER the contract
+    # vizs (mirrors ArtifactFrame.vue), so it never shifts the contract indices.
+    if extra_viz_id in pdf_ids:
+        assert pdf_ids.index(extra_viz_id) >= len(ordered_viz_ids), (
+            "A non-artifact viz must not occupy a contract index"
+        )
 
     print(
-        "[repro] CONFIRMED: PDF renderer receives a report-wide, unordered viz "
-        "list, so index-based dashboard code binds to the wrong data "
-        "(missing numbers) and empty series (no bars/lines)."
+        "[fixed] PDF renderer now receives visualizations ordered by the "
+        "artifact contract, so index-based dashboard code binds to the correct "
+        "data (numbers present, chart series populated)."
     )
