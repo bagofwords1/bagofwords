@@ -15,6 +15,16 @@ from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["prompts"])
 
+# Write authorization: prompts have no org-level permission string, and the
+# required check depends on the request BODY (scope + data_source_ids), so —
+# like the instruction routes' check_resource_permissions pattern — the policy
+# is invoked imperatively in the route body via prompt_service.authorize_write:
+#   private → author must be able to SEE every referenced data source (or none)
+#   agent   → `manage` grant on every referenced agent
+#   global  → full_admin only
+# The service re-runs the same policy inside create/update as a backstop for
+# non-HTTP callers (AI training tools call the service directly).
+
 
 @router.get("/prompts", response_model=PromptListResponse)
 async def list_prompts(
@@ -53,6 +63,10 @@ async def create_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await prompt_service.authorize_write(
+        db, current_user, organization,
+        scope=data.scope, ds_ids=data.data_source_ids, endpoint='prompt.create',
+    )
     p = await prompt_service.create_prompt(db, data, current_user, organization)
     try:
         await audit_service.log(
@@ -74,6 +88,7 @@ async def update_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await prompt_service.authorize_update(db, prompt_id, data, current_user, organization)
     p = await prompt_service.update_prompt(db, prompt_id, data, current_user, organization)
     try:
         await audit_service.log(
