@@ -5,6 +5,7 @@ from typing import Optional
 from app.schemas.prompt_schema import (
     PromptCreate, PromptUpdate, PromptResponse, PromptListResponse,
     PromptRunRequest, PromptRunResponse, PromptRunForRequest, PromptRunForResponse,
+    PromptRunForTargetsResponse,
 )
 from app.services.prompt_service import prompt_service
 from app.core.auth import current_user
@@ -14,6 +15,16 @@ from app.dependencies import get_async_db, get_current_organization
 from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["prompts"])
+
+# Write authorization: prompts have no org-level permission string, and the
+# required check depends on the request BODY (scope + data_source_ids), so —
+# like the instruction routes' check_resource_permissions pattern — the policy
+# is invoked imperatively in the route body via prompt_service.authorize_write:
+#   private → author must be able to SEE every referenced data source (or none)
+#   agent   → `manage` grant on every referenced agent
+#   global  → full_admin only
+# The service re-runs the same policy inside create/update as a backstop for
+# non-HTTP callers (AI training tools call the service directly).
 
 
 @router.get("/prompts", response_model=PromptListResponse)
@@ -54,6 +65,10 @@ async def create_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await prompt_service.authorize_write(
+        db, current_user, organization,
+        scope=data.scope, ds_ids=data.data_source_ids, endpoint='prompt.create',
+    )
     p = await prompt_service.create_prompt(db, data, current_user, organization)
     try:
         await audit_service.log(
@@ -75,6 +90,7 @@ async def update_prompt(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await prompt_service.authorize_update(db, prompt_id, data, current_user, organization)
     p = await prompt_service.update_prompt(db, prompt_id, data, current_user, organization)
     try:
         await audit_service.log(
@@ -132,6 +148,19 @@ async def run_prompt(
     except Exception:
         pass
     return result
+
+
+@router.get("/prompts/{prompt_id}/run-for/targets", response_model=PromptRunForTargetsResponse)
+async def run_prompt_for_targets(
+    prompt_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Eligible targets for the run-for picker: members who could resolve the
+    prompt themselves (the same per-target gate run-for applies), and groups
+    annotated with how many of their members are eligible."""
+    return await prompt_service.run_for_targets(db, prompt_id, current_user, organization)
 
 
 @router.post("/prompts/{prompt_id}/run-for", response_model=PromptRunForResponse)

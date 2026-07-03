@@ -334,6 +334,40 @@ class Coder:
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
         return result
     
+    _SINGLE_VALUE_VIZ_TYPES = {"count", "metric_card"}
+
+    @classmethod
+    def _build_viz_directive(cls, target_visualization_type: str | None) -> str:
+        """Data-shape contract for the visualization the result will render as.
+
+        Measures must stay raw numeric dtypes: the renderer parses cells as
+        numbers, so a display-formatted string ("₪29,134,139") breaks cards,
+        chart axes and aggregations. For single-value cards the result must be
+        a single row so the card never has to guess which row is the answer.
+        These rules outrank org instructions asking for formatted output — the
+        UI applies currency symbols and separators at display time.
+        """
+        t = (target_visualization_type or "").strip().lower()
+        if not t or t == "table":
+            return ""
+        base = (
+            "**Visualization data contract (takes precedence over any conflicting "
+            "formatting instructions):**\n"
+            f"            - The result will be rendered as a `{t}` visualization.\n"
+            "            - Keep every measure column as a raw numeric dtype (int/float). Never "
+            "format numbers into display strings — no currency symbols, no thousands "
+            "separators, no units inside values. Presentation formatting is applied by the "
+            "visualization layer, not the data.\n"
+        )
+        if t in cls._SINGLE_VALUE_VIZ_TYPES:
+            base += (
+                "            - This is a single-value KPI card: return exactly ONE row, with the "
+                "metric the user asked for as a numeric column (plus optional numeric "
+                "comparison columns). Do NOT return a label/value summary table with one row "
+                "per metric.\n"
+            )
+        return base
+
     @staticmethod
     def _build_reuse_directive(loadables_context: str, prompt_text: str) -> str:
         """Force load_step reuse when the user refers to an available step.
@@ -414,6 +448,7 @@ class Coder:
                 loadables_context,
                 f"{context.user_prompt or ''}\n{context.interpreted_prompt or ''}",
             )
+            viz_directive = self._build_viz_directive(getattr(context, "target_visualization_type", None))
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
@@ -454,6 +489,7 @@ class Coder:
             Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
             that produces a Pandas DataFrame grounded only in the provided schemas and resources.
             {reuse_directive}
+            {viz_directive}
 
             **Organization Instructions** (authored by the user; apply them):
             {instructions_context}
@@ -595,6 +631,9 @@ class Coder:
 
             6. **Data Formatting**:
                - Ensure the DataFrame is two-dimensional and handle missing values.
+               - Keep numeric measures as numeric dtypes (int/float). Do not format numbers
+                 into display strings (no currency symbols or thousands separators inside
+                 values) — the visualization layer handles presentation formatting.
 
             7. **No Extra Formatting**:
                - Return ONLY the Python function code for `generate_df`.

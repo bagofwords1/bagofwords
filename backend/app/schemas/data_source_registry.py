@@ -58,6 +58,9 @@ from app.schemas.data_sources.configs import (
     # QVD Files
     QVDConfig,
     QVDCredentials,
+    # CSV Files
+    CSVConfig,
+    CSVCredentials,
     # Qlik Sense (live connector)
     QlikSenseConfig,
     QlikSenseApiKeyCredentials,
@@ -641,6 +644,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.qvd_client.QVDClient",
         requires_license="enterprise",
+    ),
+    "csv": DataSourceRegistryEntry(
+        type="csv",
+        title="CSV",
+        description="Query CSV (.csv) files with SQL. Point at file paths or glob patterns; each file becomes a table.",
+        config_schema=CSVConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=CSVCredentials,
+                    scopes=["system"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.csv_client.CSVClient",
     ),
     "qlik_sense": DataSourceRegistryEntry(
         type="qlik_sense",

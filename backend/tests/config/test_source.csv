@@ -1,0 +1,6 @@
+OrderNumber,Product,Amount,OrderDate
+1001,Widget,19.99,2024-01-15
+1002,Gadget,49.50,2024-02-03
+1003,Widget,19.99,2024-02-20
+1004,Gizmo,5.00,2024-03-11
+1005,Gadget,49.50,2024-03-28

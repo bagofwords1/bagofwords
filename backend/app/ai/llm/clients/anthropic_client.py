@@ -30,6 +30,23 @@ _STOP_REASON_MAP = {
     "stop_sequence": "stop_sequence",
 }
 
+# Model families that reject sampling parameters (temperature/top_p/top_k)
+# with a 400. Sonnet 5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them from the
+# API — prompting is the steering mechanism there. Older models (4.6 and
+# earlier) still accept temperature.
+_NO_SAMPLING_PARAM_TAGS = (
+    "sonnet-5",
+    "opus-4-7",
+    "opus-4-8",
+    "fable-5",
+    "mythos",
+)
+
+
+def _accepts_temperature(model_id: str) -> bool:
+    mid = (model_id or "").lower()
+    return not any(tag in mid for tag in _NO_SAMPLING_PARAM_TAGS)
+
 
 class Anthropic(LLMClient):
     def __init__(self, api_key: str, base_url: str = None):
@@ -69,6 +86,9 @@ class Anthropic(LLMClient):
         return content
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
+        kwargs: dict[str, Any] = {}
+        if _accepts_temperature(model_id):
+            kwargs["temperature"] = self.temperature
         message = self.client.messages.create(
             model=model_id,
             messages=[
@@ -78,7 +98,7 @@ class Anthropic(LLMClient):
                 }
             ],
             max_tokens=self.max_tokens,
-            temperature=self.temperature,
+            **kwargs,
         )
         usage = self._extract_usage(getattr(message, "usage", None))
         self._set_last_usage(usage)
@@ -88,6 +108,9 @@ class Anthropic(LLMClient):
     async def inference_stream(
         self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
     ) -> AsyncGenerator[str, None]:
+        kwargs: dict[str, Any] = {}
+        if _accepts_temperature(model_id):
+            kwargs["temperature"] = self.temperature
         stream = await self.async_client.messages.create(
             model=model_id,
             messages=[
@@ -97,8 +120,8 @@ class Anthropic(LLMClient):
                 }
             ],
             max_tokens=self.max_tokens,
-            temperature=self.temperature,
             stream=True,
+            **kwargs,
         )
 
         prompt_tokens = 0
@@ -242,23 +265,27 @@ class Anthropic(LLMClient):
             "model": model_id,
             "messages": msgs,
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
             "stream": True,
         }
+        # Sonnet 5 / Opus 4.7+ / Fable 5 reject temperature with a 400 —
+        # only send it to models that still accept sampling params.
+        if _accepts_temperature(model_id):
+            request_kwargs["temperature"] = self.temperature
 
         # Extended thinking. The installed Anthropic SDK (<=0.40.0) doesn't
         # expose `thinking` as a top-level kwarg, but the API server does
         # accept it — pass via `extra_body` so it's appended to the request
         # JSON. We also default display="summarized" so the UI gets readable
-        # text (Opus 4.7 defaults to "omitted" otherwise) and force
-        # temperature=1.0 (required by Anthropic when thinking is on).
+        # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
+        # the default temperature when thinking is on, so drop ours entirely
+        # (omitting it is valid on every model).
         if thinking:
             t = dict(thinking)
             t.setdefault("display", "summarized")
             extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
             extra_body["thinking"] = t
             request_kwargs["extra_body"] = extra_body
-            request_kwargs["temperature"] = 1.0
+            request_kwargs.pop("temperature", None)
             # max_tokens must exceed budget_tokens; bump if needed.
             budget = int(t.get("budget_tokens") or 0)
             if budget and request_kwargs.get("max_tokens", 0) <= budget:
