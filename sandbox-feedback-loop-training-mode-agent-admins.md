@@ -298,6 +298,41 @@ Explicit backward-compat assertions folded into Loop B:
 
 ---
 
+## Observed results (this sandbox)
+
+Backend (`uv run pytest`, SQLite):
+
+```
+tests/e2e/rbac/test_rbac_training_mode.py ........................ 7 passed
+  test_agent_admin_can_enter_training_on_own_agent                 PASS
+  test_member_cannot_enter_training                                PASS
+  test_member_of_one_agent_admin_of_another_cannot_train_member_agent  PASS  ← the case
+  test_full_admin_can_train_any_agent                              PASS
+  test_training_blocked_when_org_flag_disabled                     PASS
+  test_agent_admin_instruction_writes_are_scoped                   PASS
+  test_agent_admin_eval_writes_are_scoped                          PASS
+
+Regression (unchanged): test_rbac_evals / test_rbac_instructions /
+test_rbac_agent_manager_stories / test_rbac_prompts — all pass.
+```
+
+Live API (running server, user `u` = member of agent1, admin of agent2):
+
+```
+PUT /reports/{report_on_agent1} {"mode":"training"}  → 403   (member — denied)
+PUT /reports/{report_on_agent2} {"mode":"training"}  → 200   (admin — allowed)
+```
+
+Live UI (Playwright, same logged-in user `u`):
+- `02_u_agent2_admin.png` — mode popover on the agent they manage shows **Chat /
+  Deep Analytics / Training**.
+- `03_u_agent1_member.png` — mode popover on the agent they only view shows
+  **Chat / Deep Analytics** only; **no Training**.
+
+(Full-admin UI walkthrough is gated behind first-run onboarding in a fresh org;
+its backward-compat is covered by `test_full_admin_can_train_any_agent` and the
+live 200 above.)
+
 ## What this proves
 
 - Training mode is now available to **agent admins** (per-DS `manage`), scoped to
