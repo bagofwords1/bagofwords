@@ -893,9 +893,14 @@ import { useOrgSettings } from '~/composables/useOrgSettings'
 const h = useInstructionHelpers()
 const toast = useToast()
 const { t } = useI18n()
-// Training mode is gated by org setting + permission (mirrors the legacy agents page).
+// Training mode is the per-agent admin capability: gated on the org setting plus
+// manage_instructions on the currently-open agent (a per-DS `manage` grant
+// implies it; full_admin bypasses). Mirrors the backend gate.
 const { isTrainingModeEnabled } = useOrgSettings()
-const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
+const agentCanStartTraining = computed(() => {
+  const id = agentView.value?.agentId
+  return isTrainingModeEnabled.value && !!id && useCan('manage_instructions', { type: 'data_source', id })
+})
 
 // ── State ───────────────────────────────────────────────
 // `allInstructions` is the LAZY row cache — it holds only the instruction rows
