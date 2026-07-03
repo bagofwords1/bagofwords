@@ -419,6 +419,12 @@ async def get_pending_change_instruction_ids(
     pending = await instruction_service.get_pending_change_instruction_ids(
         db, organization=organization, current_user=current_user
     )
+    # The sweep reads builds/versions only — re-scope through the caller's
+    # instruction-row visibility (deleted, private-agent membership, hidden) so
+    # these ids never disagree with the counts badge or the pending_only list.
+    pending = await instruction_service._visible_pending_instruction_ids(
+        db, organization, current_user, pending
+    )
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return {"instruction_ids": sorted(pending)}
 
