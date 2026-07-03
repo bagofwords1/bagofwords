@@ -4,8 +4,17 @@ Visibility is scoped to the caller's agent access (active data sources only):
   - global  → every org member
   - private → owner only
   - agent   → users with access to ALL of the prompt's ACTIVE agents
-Authoring an agent prompt needs `manage` on its agents; global prompts are
-admin-only. No UI, scheduling, or delivery here — just the model.
+
+Write policy (authorize_write — one source of truth for create AND update):
+  - private → any member; every referenced data source must be VISIBLE to
+              the author (public or explicit membership/grant), or none
+  - agent   → `manage` on every referenced agent (the same grant that gates
+              editing the agent itself)
+  - global  → full_admin only
+The routes invoke authorize_write explicitly (route-layer enforcement, with
+access.denied audit logging); create/update re-run it as a backstop because
+the AI training tools call this service directly, bypassing the routes.
+No UI, scheduling, or delivery here — just the model.
 """
 import logging
 import re
@@ -164,6 +173,70 @@ class PromptService:
 
     # ── writes ──
 
+    PROMPT_SCOPES = ('private', 'agent', 'global')
+
+    @staticmethod
+    async def _audit_denied(db, current_user, organization, detail: str, endpoint: str) -> None:
+        """Fire-and-forget access.denied audit entry, mirroring the
+        permissions_decorator helper so service-side denials are visible in
+        the audit log like decorator-based ones."""
+        try:
+            from app.ee.audit.service import audit_service
+            await audit_service.log(
+                db=db, organization_id=str(organization.id), action="access.denied",
+                user_id=str(current_user.id), resource_type="prompt",
+                details={"detail": detail, "endpoint": endpoint},
+            )
+        except Exception:
+            logger.debug("prompt access.denied audit failed", exc_info=True)
+
+    async def authorize_write(
+        self, db: AsyncSession, current_user: User, organization: Organization,
+        *, scope: str, ds_ids: List[str], endpoint: str = 'prompt.write',
+    ) -> List[DataSource]:
+        """Enforce the prompt write policy for a (scope, data_source_ids) pair.
+
+        private → any member, but every data source must be visible to the
+                  author (same filter report-create uses, so public data
+                  sources count); empty list is fine.
+        agent   → at least one agent and `manage` on all of them.
+        global  → full_admin only.
+
+        Returns the loaded (org-scoped, active) DataSource rows so callers can
+        attach them without re-querying. Raises 404 for unknown/inactive ids,
+        400 for a malformed scope/agent-list, 403 on policy denials (audited).
+        """
+        if scope not in self.PROMPT_SCOPES:
+            raise HTTPException(status_code=400, detail=f"invalid scope '{scope}'")
+        ds_ids = [str(i) for i in (ds_ids or [])]
+        data_sources = await self._load_data_sources(db, ds_ids, organization)
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+
+        if scope == 'global':
+            if FULL_ADMIN not in resolved.org_permissions:
+                detail = "admin required to create a global prompt"
+                await self._audit_denied(db, current_user, organization, detail, endpoint)
+                raise HTTPException(status_code=403, detail=detail)
+        elif scope == 'agent':
+            if not ds_ids:
+                raise HTTPException(status_code=400, detail="an agent prompt must reference at least one agent")
+            if not self._can_manage_all(resolved, ds_ids):
+                detail = "manage permission required on all agents"
+                await self._audit_denied(db, current_user, organization, detail, endpoint)
+                raise HTTPException(status_code=403, detail=detail)
+        else:  # private
+            if data_sources:
+                from app.services.data_source_service import DataSourceService
+                visible = await DataSourceService().filter_user_visible_data_sources(
+                    db, data_sources, current_user, organization
+                )
+                visible_ids = {str(ds.id) for ds in visible}
+                if any(str(ds.id) not in visible_ids for ds in data_sources):
+                    detail = "access denied to one or more data sources"
+                    await self._audit_denied(db, current_user, organization, detail, endpoint)
+                    raise HTTPException(status_code=403, detail=detail)
+        return data_sources
+
     async def _load_data_sources(self, db, ds_ids: List[str], organization: Organization) -> List[DataSource]:
         if not ds_ids:
             return []
@@ -186,16 +259,10 @@ class PromptService:
         return [p.dict() if hasattr(p, 'dict') else dict(p) for p in parameters]
 
     async def create_prompt(self, db, data: PromptCreate, current_user, organization) -> Prompt:
-        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        if data.scope == 'global':
-            if FULL_ADMIN not in resolved.org_permissions:
-                raise HTTPException(status_code=403, detail="admin required to create a global prompt")
-        elif data.scope == 'agent':
-            if not data.data_source_ids:
-                raise HTTPException(status_code=400, detail="an agent prompt must reference at least one agent")
-            if not self._can_manage_all(resolved, data.data_source_ids):
-                raise HTTPException(status_code=403, detail="manage permission required on all agents")
-        data_sources = await self._load_data_sources(db, data.data_source_ids, organization)
+        data_sources = await self.authorize_write(
+            db, current_user, organization,
+            scope=data.scope, ds_ids=data.data_source_ids, endpoint='prompt.create',
+        )
         p = Prompt(
             title=data.title, text=data.text, mode=data.mode, model_id=data.model_id,
             mentions=data.mentions, parameters=self._params_to_json(data.parameters),
@@ -208,20 +275,45 @@ class PromptService:
         await db.refresh(p)
         return p
 
-    async def update_prompt(self, db, prompt_id, data: PromptUpdate, current_user, organization) -> Prompt:
+    async def authorize_update(self, db, prompt_id, data: PromptUpdate, current_user, organization) -> None:
+        """Pure pre-flight authorization for update_prompt (no mutation).
+
+        1. Editability: owner, full_admin, or `manage` on all the prompt's agents.
+        2. Re-run authorize_write against the POST-merge (scope, data_sources)
+           whenever either changes — an owner must not promote private→agent/
+           global or swap in data sources their own role couldn't have used at
+           create time. Edits that leave scope+agents untouched (title, text,
+           params) stay owner-editable even if the owner since lost `manage`.
+        """
         p = await self.get_prompt_or_404(db, prompt_id, organization)
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        is_admin = FULL_ADMIN in resolved.org_permissions
         can_edit = (
-            is_admin
+            FULL_ADMIN in resolved.org_permissions
             or str(p.user_id) == str(current_user.id)
             or (p.scope == 'agent' and self._can_manage_all(resolved, self._ds_ids(p)))
         )
         if not can_edit:
-            raise HTTPException(status_code=403, detail="manage permission required")
+            detail = "manage permission required"
+            await self._audit_denied(db, current_user, organization, detail, 'prompt.update')
+            raise HTTPException(status_code=403, detail=detail)
+
         fields = data.dict(exclude_unset=True)
-        if fields.get('scope') == 'global' and not is_admin:
-            raise HTTPException(status_code=403, detail="admin required to make a prompt global")
+        new_ds_ids = fields.get('data_source_ids')
+        effective_scope = fields.get('scope', p.scope)
+        current_ds_ids = self._ds_ids(p)
+        effective_ds_ids = [str(i) for i in new_ds_ids] if new_ds_ids is not None else current_ds_ids
+        scope_changed = effective_scope != p.scope
+        ds_changed = new_ds_ids is not None and set(effective_ds_ids) != set(current_ds_ids)
+        if scope_changed or ds_changed:
+            await self.authorize_write(
+                db, current_user, organization,
+                scope=effective_scope, ds_ids=effective_ds_ids, endpoint='prompt.update',
+            )
+
+    async def update_prompt(self, db, prompt_id, data: PromptUpdate, current_user, organization) -> Prompt:
+        await self.authorize_update(db, prompt_id, data, current_user, organization)
+        p = await self.get_prompt_or_404(db, prompt_id, organization)
+        fields = data.dict(exclude_unset=True)
         new_ds_ids = fields.pop('data_source_ids', None)
         if 'parameters' in fields:
             fields['parameters'] = self._params_to_json(data.parameters)
