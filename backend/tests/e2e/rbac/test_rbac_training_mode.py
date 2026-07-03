@@ -162,6 +162,51 @@ def test_training_blocked_when_org_flag_disabled(test_client, training_world, up
     assert _set_mode(test_client, admin["token"], org, rid_a, "training").status_code == 400
 
 
+@pytest.mark.e2e
+def test_agent_creator_can_train_agent_they_created(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role, sqlite_data_source,
+):
+    """A user with `create_data_source` who CREATES an agent becomes its owner
+    (a per-DS `manage` grant, which implies manage_instructions) and can enter
+    training mode on it — but NOT on an agent they neither created nor manage.
+
+    'If I can create/manage agents I should see training' → yes, for the agents
+    you actually own/manage; creating agents does not unlock training on
+    someone else's agent."""
+    admin = bootstrap_admin("admin")
+    org = admin["org_id"]
+
+    # A role whose only power is creating agents, assigned directly to `creator`.
+    role = create_role(name="agent-creators", permissions=["create_data_source"],
+                       user_token=admin["token"], org_id=org)
+    assert role.status_code == 200, role.text
+    creator = invite_user_to_org(org_id=org, admin_token=admin["token"])
+    asg = assign_role(role_id=role.json()["id"], principal_type="user",
+                      principal_id=creator["user_id"], user_token=admin["token"], org_id=org)
+    assert asg.status_code in (200, 201), asg.text
+
+    # Admin owns an agent the creator has nothing to do with.
+    admin_agent = sqlite_data_source(name="admins_agent", user_token=admin["token"], org_id=org)
+    # Creator makes their own agent → becomes its owner (manage grant).
+    own_agent = sqlite_data_source(name="creators_agent", user_token=creator["token"], org_id=org)
+
+    # Train the agent they created → allowed.
+    rid_own = _report_on(test_client, creator["token"], org, own_agent["id"])
+    assert _set_mode(test_client, creator["token"], org, rid_own, "training").status_code == 200
+
+    # They can't even attach the admin's private agent to a report, so training
+    # on it is unreachable — create_data_source does not grant cross-agent train.
+    rep = test_client.post(
+        "/api/reports",
+        json={"title": "x", "data_sources": [admin_agent["id"]]},
+        headers=_hdr(creator["token"], org),
+    )
+    assert rep.status_code in (200, 201), rep.text
+    # The forbidden agent is dropped from the report (no access), so it has no
+    # trainable agent → training is denied.
+    assert _set_mode(test_client, creator["token"], org, rep.json()["id"], "training").status_code == 403
+
+
 # ── Write scoping (HTTP routes) ──────────────────────────────────────────────
 
 @pytest.mark.e2e
