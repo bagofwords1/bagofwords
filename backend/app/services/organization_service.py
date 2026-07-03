@@ -121,6 +121,49 @@ class OrganizationService:
             await db.rollback()
             # Don't break org creation if RBAC tables don't exist yet (pre-migration)
 
+    async def _sync_system_role_assignment(self, db: AsyncSession, org_id: str, user_id: str, role_name: str) -> None:
+        """Switch a user's system-role assignment to ``role_name`` (RBAC path).
+
+        Removes any existing system-role (admin/member) assignments for this user
+        in this org and adds the one for ``role_name``. Does NOT commit — the
+        caller commits as part of its own transaction. Used to keep RBAC in sync
+        when the legacy ``update_member`` path changes ``Membership.role``.
+        """
+        from app.models.role import Role
+        from app.models.role_assignment import RoleAssignment
+
+        sys_role_ids = (await db.execute(
+            select(Role.id).where(
+                Role.is_system == True,
+                Role.organization_id.is_(None),
+                Role.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        if sys_role_ids:
+            await db.execute(
+                delete(RoleAssignment).where(
+                    RoleAssignment.organization_id == org_id,
+                    RoleAssignment.principal_type == "user",
+                    RoleAssignment.principal_id == user_id,
+                    RoleAssignment.role_id.in_(sys_role_ids),
+                )
+            )
+        target = (await db.execute(
+            select(Role).where(
+                Role.name == role_name,
+                Role.is_system == True,
+                Role.organization_id.is_(None),
+                Role.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if target:
+            db.add(RoleAssignment(
+                organization_id=org_id,
+                role_id=target.id,
+                principal_type="user",
+                principal_id=user_id,
+            ))
+
     async def get_organization(self, db: AsyncSession, organization_id: str, current_user: User) -> OrganizationSchema:
         result = await db.execute(select(Organization).where(Organization.id == organization_id))
         return result.scalar_one_or_none()
@@ -139,6 +182,8 @@ class OrganizationService:
         )
         memberships = result.scalars().all()
 
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+
         schemas = []
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
@@ -150,6 +195,11 @@ class OrganizationService:
                     direct_principal_id=membership.user_id,
                     group_filter=GroupMembership.user_id == membership.user_id,
                 )
+                # Derive the coarse `role` label from RBAC so it never disagrees
+                # with the member's effective permissions (the legacy
+                # Membership.role column drifted on role changes).
+                resolved = await resolve_permissions(db, str(membership.user_id), str(organization.id))
+                schema.role = "admin" if FULL_ADMIN in resolved.org_permissions else "member"
             else:
                 # Pending invite: direct ('membership' principal) +
                 # group-inherited via pending group memberships.
@@ -407,6 +457,13 @@ class OrganizationService:
                 key = f"{res_type}:{res_id}"
                 resource_perms[key] = sorted(perms)
 
+            # Derive the coarse `role` label from RBAC (the source of truth) so it
+            # can never disagree with the resolved permissions. `role` (from the
+            # legacy Membership.role column) was returned verbatim before, which
+            # drifted from RBAC on role changes.
+            from app.core.permission_resolver import FULL_ADMIN
+            derived_role = "admin" if FULL_ADMIN in resolved.org_permissions else "member"
+
             # Usage quota: when usage_limits is off (the common case) this issues
             # no queries and returns the disabled summary cheaply.
             usage_quota = await usage_policy_service.get_user_quota_summary(
@@ -417,7 +474,7 @@ class OrganizationService:
                 id=org.id,
                 name=org.name,
                 description=org.description,
-                role=role,  # backward compat
+                role=derived_role,  # backward compat, now derived from RBAC
                 roles=resolved.role_names,
                 permissions=sorted(resolved.org_permissions),
                 resource_permissions=resource_perms,
@@ -479,10 +536,24 @@ class OrganizationService:
             await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
 
         update = membership_data.dict(exclude_unset=True)
+        role_changed = (
+            "role" in update
+            and update["role"] is not None
+            and update["role"] != membership.role
+            and membership.user_id is not None
+        )
+        new_role = update.get("role")
         if "role" in update and update["role"] is not None:
             membership.role = update["role"]
         if "note" in update:
             membership.note = update["note"]
+        # Keep RBAC (the source of truth) in sync with the legacy role change so
+        # this path can't leave the two stores diverged (a "demoted" admin must
+        # actually lose full_admin_access, not just have the string flipped).
+        if role_changed:
+            await self._sync_system_role_assignment(
+                db, organization_id, str(membership.user_id), new_role
+            )
         await db.commit()
 
         # Reload with the user relationship so MembershipSchema serialization

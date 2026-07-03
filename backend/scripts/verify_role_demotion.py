@@ -189,40 +189,44 @@ def phase_divergence(c):
     bob_mid = mm[BOB["email"]]["id"]
     c.put(f"/api/organizations/{ORG}/members/{bob_mid}", headers=admin_h, json={"role": "member"})
 
-    # ---- Assertions: read the two stores back and show they disagree ----
+    # ---- Assertions: the FIXED contract — the two stores stay consistent ----
+    # After the fix, the `role` label surfaced by the API is DERIVED from RBAC
+    # (the source of truth), so it always matches the resolved permissions.
     mm = members_map(c, admin_h)
 
-    def legacy_role(email):
+    def derived_role(email):
         return mm[email].get("role")
 
     def rbac_role_names(email):
         return sorted(r["name"] for r in (mm[email].get("roles") or []))
 
-    # alice: legacy still 'admin', RBAC now 'member'  -> DRIFT
-    a_legacy, a_rbac = legacy_role(ALICE["email"]), rbac_role_names(ALICE["email"])
-    check("BUG alice: legacy role vs RBAC DRIFT after UI demotion",
-          a_legacy == "admin" and a_rbac == ["member"],
-          f"legacy={a_legacy} rbac={a_rbac} (expected legacy=admin, rbac=[member])")
+    # alice: demoted admin->member via the Members UI. RBAC is member, and the
+    # surfaced role + effective perms agree (no full_admin_access).
+    a_role, a_rbac = derived_role(ALICE["email"]), rbac_role_names(ALICE["email"])
     _, aperms, _ = org_role_and_perms(whoami(c, login(c, ALICE["email"]).json()["access_token"]))
-    check("alice effective perms are member (no full_admin_access)",
-          "full_admin_access" not in aperms, f"perms={aperms}")
+    check("FIXED alice: UI demotion -> role & perms both 'member' (consistent)",
+          a_role == "member" and a_rbac == ["member"] and "full_admin_access" not in aperms,
+          f"role={a_role} rbac={a_rbac} has_admin={'full_admin_access' in aperms}")
 
-    # carol: legacy still 'member', RBAC now 'admin'  -> DRIFT
-    c_legacy, c_rbac = legacy_role(CAROL["email"]), rbac_role_names(CAROL["email"])
-    check("BUG carol: legacy role vs RBAC DRIFT after UI promotion",
-          c_legacy == "member" and c_rbac == ["admin"],
-          f"legacy={c_legacy} rbac={c_rbac} (expected legacy=member, rbac=[admin])")
+    # carol: promoted member->admin via the Members UI. RBAC + surfaced role
+    # both admin.
+    c_role, c_rbac = derived_role(CAROL["email"]), rbac_role_names(CAROL["email"])
+    _, cperms, _ = org_role_and_perms(whoami(c, login(c, CAROL["email"]).json()["access_token"]))
+    check("FIXED carol: UI promotion -> role & perms both 'admin' (consistent)",
+          c_role == "admin" and c_rbac == ["admin"] and "full_admin_access" in cperms,
+          f"role={c_role} rbac={c_rbac} has_admin={'full_admin_access' in cperms}")
 
-    # bob: legacy 'member' but RBAC untouched -> still full_admin_access (privilege bug)
-    b_legacy, b_rbac = legacy_role(BOB["email"]), rbac_role_names(BOB["email"])
+    # bob: demoted admin->member via the LEGACY update_member. The fix syncs RBAC,
+    # so bob actually LOSES full_admin_access (no silent privilege retention).
+    b_role, b_rbac = derived_role(BOB["email"]), rbac_role_names(BOB["email"])
     _, bperms, _ = org_role_and_perms(whoami(c, login(c, BOB["email"]).json()["access_token"]))
-    check("BUG bob: legacy update_member demoted to 'member' but RBAC still admin",
-          b_legacy == "member" and b_rbac == ["admin"] and "full_admin_access" in bperms,
-          f"legacy={b_legacy} rbac={b_rbac} perms_has_admin={'full_admin_access' in bperms}")
+    check("FIXED bob: legacy update_member demotion actually revokes admin in RBAC",
+          b_role == "member" and b_rbac == ["member"] and "full_admin_access" not in bperms,
+          f"role={b_role} rbac={b_rbac} has_admin={'full_admin_access' in bperms}")
 
-    print("\n[divergence] Reproduced: the legacy Membership.role and RBAC role_assignments")
-    print("             disagree after every kind of role change. Now restart the server")
-    print("             with auth.mode=sso_only and run BOW_PHASE=sso to see the lockout.")
+    print("\n[divergence] Verified: role changes keep the legacy label and RBAC consistent.")
+    print("             Now restart the server with auth.mode=sso_only and run")
+    print("             BOW_PHASE=sso to verify the break-glass login gate.")
 
 
 # ---------------------------------------------------------------------------
@@ -230,26 +234,32 @@ def phase_divergence(c):
 # ---------------------------------------------------------------------------
 
 def phase_sso(c):
-    # In sso_only, local/password login is break-glass, allowed only for
-    # superusers or Membership.role == 'admin' (auth.py _user_can_use_local_login).
-    # Because that gate reads the LEGACY string, the drift from phase 1 misfires.
+    # In sso_only, local/password login is break-glass. After the fix the gate
+    # (_user_can_use_local_login) decides by RESOLVED RBAC full_admin_access, so
+    # it tracks the real admin status regardless of the legacy string.
 
-    # Bootstrap admin (role='admin', really admin) -> should still log in.
+    # Bootstrap admin (real admin) -> allowed.
     r = login(c, ADMIN["email"])
     check("sso_only: real bootstrap admin can break-glass login", r.status_code == 200,
           f"{r.status_code} {r.text[:160]}")
 
-    # carol: RBAC admin but legacy role='member' -> WRONGLY BLOCKED.
+    # carol: real RBAC admin (legacy role='member') -> now correctly ALLOWED.
     r = login(c, CAROL["email"])
-    check("BUG sso_only: real RBAC admin (carol) is LOCKED OUT of password login",
+    check("FIXED sso_only: real RBAC admin (carol) CAN break-glass login",
+          r.status_code == 200,
+          f"expected 200; got {r.status_code} {r.text[:160]}")
+
+    # alice: demoted to member in RBAC (legacy role='admin') -> now correctly BLOCKED.
+    r = login(c, ALICE["email"])
+    check("FIXED sso_only: demoted member (alice) is BLOCKED from break-glass login",
           r.status_code != 200,
           f"expected != 200 (blocked); got {r.status_code} {r.text[:160]}")
 
-    # alice: only RBAC member but legacy role='admin' -> WRONGLY ALLOWED.
-    r = login(c, ALICE["email"])
-    check("BUG sso_only: demoted member (alice) still gets break-glass admin login",
-          r.status_code == 200,
-          f"expected 200 (wrongly allowed); got {r.status_code} {r.text[:160]}")
+    # bob: demoted to member via legacy path -> also correctly BLOCKED.
+    r = login(c, BOB["email"])
+    check("FIXED sso_only: legacy-demoted member (bob) is BLOCKED from break-glass login",
+          r.status_code != 200,
+          f"expected != 200 (blocked); got {r.status_code} {r.text[:160]}")
 
 
 def main():

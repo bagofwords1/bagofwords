@@ -101,20 +101,30 @@ class UserManager(BaseUserManager[User, str]):
     async def _user_can_use_local_login(self, user: User) -> bool:
         """Allow local login in sso_only mode only for admins / superusers.
 
-        "Admin" means the user holds a Membership with ``role='admin'`` in
-        any organization — same definition the rest of the app uses.
+        "Admin" is decided by RBAC — the source of truth — not the legacy
+        ``Membership.role`` string: a user gets break-glass password login iff
+        they resolve to ``full_admin_access`` in any organization they belong to.
+        (The resolver's transitional net still maps a legacy ``role='admin'``
+        membership with no assignment to admin, so pre-backfill admins are not
+        locked out; a user demoted in RBAC is correctly denied.)
         """
         if user.is_superuser:
             return True
         from app.dependencies import async_session_maker
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
         async with async_session_maker() as session:
-            result = await session.execute(
-                select(Membership.role).where(
+            org_rows = (await session.execute(
+                select(Membership.organization_id).where(
                     Membership.user_id == str(user.id),
-                    Membership.role == "admin",
+                    Membership.organization_id.isnot(None),
+                    Membership.deleted_at.is_(None),
                 )
-            )
-            return result.first() is not None
+            )).all()
+            for (org_id,) in org_rows:
+                resolved = await resolve_permissions(session, str(user.id), str(org_id))
+                if FULL_ADMIN in resolved.org_permissions:
+                    return True
+            return False
 
     async def _ldap_authenticate(self, email: str, password: str) -> str:
         """
