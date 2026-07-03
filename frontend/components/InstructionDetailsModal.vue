@@ -216,7 +216,7 @@ const getStatusIconClass = (instruction: Instruction) => {
         return 'bg-red-400'
     } else {
         const statusClasses = {
-            draft: 'bg-yellow-400',
+            draft: 'bg-gray-300',
             published: 'bg-green-400',
             archived: 'bg-gray-400'
         }

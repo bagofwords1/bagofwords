@@ -117,8 +117,10 @@ export function useInstructionHelpers() {
   }
 
   const getStatusIconClass = (instruction: Instruction) => {
+    // Inactive (draft) must read as gray, not yellow/amber — amber is reserved
+    // for "pending review" and the two dots are easily confused otherwise.
     const statusClasses: Record<string, string> = {
-      draft: 'bg-yellow-400',
+      draft: 'bg-gray-300',
       published: 'bg-green-400',
       archived: 'bg-gray-400',
       pending_review: 'bg-amber-400'
