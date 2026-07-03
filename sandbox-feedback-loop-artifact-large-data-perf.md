@@ -64,7 +64,7 @@ schema per test (`tests/conftest.py`).
 
 ---
 
-## Loop — App-logic reproduction (no LLM / live data source needed)
+## Loop A — App-logic reproduction (no LLM / live data source needed)
 
 Self-contained: seeds a **public** report with 4 queries × 3 step versions
 (each version storing ~2.7 MB of result rows in `steps.data`, i.e. what "an
@@ -120,11 +120,74 @@ re-queries the `steps` table 14–19 times.
 
 ---
 
+## Loop B — Live browser reproduction (backend + frontend + Playwright)
+
+Runs the real stack and drives the public report page in headless Chromium,
+recording exactly what the reporter's DevTools screenshot shows: tiny
+responses, multi-second latencies, and a long "Loading..." before the
+artifact appears. The artifact is REAL — generated with the app's own
+codegen (`app/services/artifact_codegen.py`, same path as the
+"add visualization to dashboard" endpoint) and renders 4 ECharts from
+`window.ARTIFACT_DATA`.
+
+```bash
+# 1. Backend (fresh dev DB + seed two public reports: small=50 rows/step,
+#    large=15000 rows/step; both 4 queries x 3 step versions + 1 artifact)
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+rm -f db/app.db && .venv/bin/python -m alembic upgrade head
+.venv/bin/python scripts/seed_artifact_perf_repro.py   # prints SMALL/LARGE_REPORT_ID
+.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 &
+
+# 2. Frontend (proxies /api -> :8000) + vendored iframe libs
+#    (React/Babel/ECharts are not in-repo; without them the artifact iframe
+#    stays on "Loading..." forever)
+bash scripts/download-vendor-libs.sh frontend/public/libs
+cd frontend && yarn install && yarn dev &
+
+# 3. Playwright (uses the sandbox's preinstalled Chromium)
+npm i playwright-core   # anywhere; pass via NODE_PATH
+NODE_PATH=<that>/node_modules FRONT=http://localhost:3000 \
+  SMALL=<id> LARGE=<id> OUT=/tmp/pw \
+  node backend/scripts/pw_artifact_perf_repro.js
+```
+
+**Observed (browser-side, headless Chromium against the dev stack):**
+
+```
+=== small report ===  iframe (all API data fetched): 4649 ms, charts rendered: 4973 ms
+=== large report ===  iframe (all API data fetched): 37064 ms, charts rendered: 59184 ms
+api requests (large; sorted by duration — compare with the reported DevTools trace):
+     9080 ms  200        0.3 kB  /api/r/{id}/artifacts
+     9043 ms  200        1.8 kB  /api/r/{id}
+     6339 ms  200        1.3 kB  /api/r/{id}/queries?artifact_id={uuid}
+     4566 ms  200        3.7 kB  /api/r/{id}/artifacts/{uuid}
+     4188 ms  200     2388.4 kB  /api/r/{id}/queries/{uuid}/step
+     3404 ms  200     2388.4 kB  /api/r/{id}/queries/{uuid}/step
+     3329 ms  200     2388.4 kB  /api/r/{id}/queries/{uuid}/step
+     3295 ms  200     2388.4 kB  /api/r/{id}/queries/{uuid}/step
+=== summary ===
+time to artifact iframe: small=4649 ms, large=37064 ms (8.0x slower)
+```
+
+Same fingerprint as the report: `GET /r/{id}` **9.0 s for 1.8 kB** and the
+artifacts list **9.1 s for 0.3 kB** (reported: 18.4 s / 2.2 kB and
+17.6 s / 1.2 kB on production Postgres + network — this sandbox runs SQLite
+on localhost, so production is ~2x worse). The page sits on "Loading..."
+until report + artifacts + every query's `/step` complete, then spends
+**another ~22 s** parsing/rendering the ~10 MB of rows inlined into the
+iframe `srcdoc` before the charts paint (59 s total; the small report paints
+at 5 s).
+
+---
+
 ## What this proves
 
 - The slowness is **not** the artifact payloads or the network: responses are
   tiny; the time is server-side hydration of `steps.data` (and artifact/
-  completion history) triggered by any `select(Report)`.
+  completion history) triggered by any `select(Report)`. The artifact itself
+  never uses that data — its endpoints return metadata/code only, yet a real
+  browser sees them take ~9 s each (Loop B).
 - **Every** `/r/{id}/*` endpoint pays the full cascade — even the pure
   visibility check — and `GET /r/{id}` pays it twice.
 - All step **versions** load (N× data duplication), and the frontend's serial
