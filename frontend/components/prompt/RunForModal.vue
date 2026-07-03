@@ -141,7 +141,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const toast = useToast()
 const { organization } = useOrganization()
-const { runPromptFor } = usePrompts()
+const { runPromptFor, getRunForTargets } = usePrompts()
 const { extractParamNames } = usePromptFill()
 
 const isOpen = computed({
@@ -164,6 +164,22 @@ const memberQuery = ref('')
 const showDropdown = ref(false)
 
 async function loadTargets() {
+  // Eligibility-aware picker: only members who can actually resolve the
+  // prompt (run-for silently skips anyone else), and only groups with at
+  // least one eligible member — counts reflect how many would run.
+  if (props.prompt?.id) {
+    try {
+      const res = await getRunForTargets(props.prompt.id)
+      if (res) {
+        allMembers.value = (res.users || []).map(u => ({ id: u.id, name: u.name || '', email: u.email || '' }))
+        groups.value = (res.groups || [])
+          .filter(g => g.eligible_count > 0)
+          .map(g => ({ id: g.id, name: g.name, member_count: g.eligible_count }))
+        return
+      }
+    } catch {}
+  }
+  // Fallback: unfiltered org lists (older backend without the targets endpoint).
   const orgId = organization.value?.id
   if (!orgId) return
   try {

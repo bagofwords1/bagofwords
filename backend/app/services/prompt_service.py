@@ -48,22 +48,29 @@ class PromptService:
         return [str(ds.id) for ds in (prompt.data_sources or [])]
 
     @staticmethod
-    def _active_ds_ids(prompt: Prompt) -> List[str]:
+    def _active_data_sources(prompt: Prompt) -> List[DataSource]:
         """Agents still usable by this prompt: connected/healthy (``is_active``),
         not soft-deleted, and not intentionally turned off
         (``publish_status == 'disabled'``). Hard-deleted agents never appear
         here — the relationship stops yielding a DataSource once its row is gone.
         """
         return [
-            str(ds.id) for ds in (prompt.data_sources or [])
+            ds for ds in (prompt.data_sources or [])
             if getattr(ds, 'is_active', False)
             and getattr(ds, 'deleted_at', None) is None
             and getattr(ds, 'publish_status', 'published') != 'disabled'
         ]
 
     @staticmethod
-    def _can_access_all(resolved: ResolvedPermissions, ds_ids: List[str]) -> bool:
-        return all(resolved.has_resource_membership('data_source', ds) for ds in ds_ids)
+    def _can_access_all(resolved: ResolvedPermissions, data_sources: List[DataSource]) -> bool:
+        """Target can use every agent: explicit membership/grant OR the data
+        source is public — the same OR that filter_user_visible_data_sources
+        applies when reports attach data sources."""
+        return all(
+            getattr(ds, 'is_public', False)
+            or resolved.has_resource_membership('data_source', str(ds.id))
+            for ds in data_sources
+        )
 
     @staticmethod
     def _can_manage_all(resolved: ResolvedPermissions, ds_ids: List[str]) -> bool:
@@ -73,7 +80,7 @@ class PromptService:
             return False
         return all(resolved.has_resource_permission('data_source', ds, 'manage') for ds in ds_ids)
 
-    def _is_visible(self, resolved: ResolvedPermissions, p: Prompt, user_id: str, active_ds_ids: List[str]) -> bool:
+    def _is_visible(self, resolved: ResolvedPermissions, p: Prompt, user_id: str, active_dss: List[DataSource]) -> bool:
         if FULL_ADMIN in resolved.org_permissions:
             return True
         if p.scope == 'global':
@@ -81,9 +88,9 @@ class PromptService:
         if p.scope == 'private':
             return str(p.user_id) == str(user_id)
         # agent
-        if not active_ds_ids:
+        if not active_dss:
             return str(p.user_id) == str(user_id)
-        return self._can_access_all(resolved, active_ds_ids)
+        return self._can_access_all(resolved, active_dss)
 
     def _to_response(self, p: Prompt, resolved: ResolvedPermissions, user_id: str) -> dict:
         ds_ids = self._ds_ids(p)
@@ -134,14 +141,14 @@ class PromptService:
 
         visible = []
         for p in prompts:
-            active_ds_ids = self._active_ds_ids(p)
-            if not self._is_visible(resolved, p, str(current_user.id), active_ds_ids):
+            active_dss = self._active_data_sources(p)
+            if not self._is_visible(resolved, p, str(current_user.id), active_dss):
                 continue
             # Hide agent-scoped prompts whose agents are ALL gone/unusable
             # (inactive, disabled, or deleted). They can't be run and would
             # otherwise surface a bare agent id in the UI. Global/private
             # prompts are never gated on agents.
-            if p.scope == 'agent' and not active_ds_ids:
+            if p.scope == 'agent' and not active_dss:
                 continue
             visible.append(self._to_response(p, resolved, str(current_user.id)))
         visible.sort(key=lambda r: r["created_at"] or datetime.min, reverse=True)
@@ -167,7 +174,7 @@ class PromptService:
     async def get_prompt_response(self, db, prompt_id, current_user, organization) -> dict:
         p = await self.get_prompt_or_404(db, prompt_id, organization)
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        if not self._is_visible(resolved, p, str(current_user.id), self._active_ds_ids(p)):
+        if not self._is_visible(resolved, p, str(current_user.id), self._active_data_sources(p)):
             raise HTTPException(status_code=403, detail="Access denied to this prompt")
         return self._to_response(p, resolved, str(current_user.id))
 
@@ -450,6 +457,73 @@ class PromptService:
 
     # ── run for (admin: run-on-behalf) ──
 
+    async def run_for_targets(
+        self, db: AsyncSession, prompt_id: str, current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Eligible run-for targets for this prompt, for the run-for picker.
+
+        A member is eligible when they could RESOLVE the prompt themselves —
+        the exact per-target check run_prompt_for applies — so the modal only
+        offers targets that would actually run instead of silently skipping.
+        Groups are returned with an eligible_count so empty ones can be hidden.
+
+        Authz mirrors run_prompt_for: full_admin or `manage` on all agents.
+        """
+        from app.models.membership import Membership
+        from app.models.group import Group
+        from app.models.group_membership import GroupMembership
+
+        prompt = await self.get_prompt_or_404(db, prompt_id, organization)
+        actor_resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not self._can_manage_all(actor_resolved, self._ds_ids(prompt)):
+            raise HTTPException(status_code=403, detail="manage permission required on the prompt's agents")
+
+        active_dss = self._active_data_sources(prompt)
+
+        member_rows = await db.execute(
+            select(User)
+            .join(Membership, Membership.user_id == User.id)
+            .filter(Membership.organization_id == organization.id)
+        )
+        members = list(member_rows.scalars().unique().all())
+
+        eligible_ids: set = set()
+        users = []
+        for u in members:
+            t_resolved = await resolve_permissions(db, str(u.id), str(organization.id))
+            if not self._is_visible(t_resolved, prompt, str(u.id), active_dss):
+                continue
+            eligible_ids.add(str(u.id))
+            users.append({"id": str(u.id), "name": u.name, "email": u.email})
+
+        group_rows = await db.execute(
+            select(Group)
+            .filter(Group.organization_id == organization.id)
+            .filter(Group.deleted_at == None)
+        )
+        gm_rows = await db.execute(
+            select(GroupMembership.group_id, GroupMembership.user_id)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .filter(Group.organization_id == organization.id)
+            .filter(GroupMembership.user_id != None)
+            .filter(GroupMembership.deleted_at == None)
+        )
+        by_group: Dict[str, List[str]] = {}
+        for gid, uid in gm_rows.all():
+            by_group.setdefault(str(gid), []).append(str(uid))
+
+        groups = []
+        for g in group_rows.scalars().all():
+            member_ids = by_group.get(str(g.id), [])
+            groups.append({
+                "id": str(g.id), "name": g.name,
+                "member_count": len(member_ids),
+                "eligible_count": sum(1 for uid in member_ids if uid in eligible_ids),
+            })
+
+        return {"users": users, "groups": groups}
+
     async def run_prompt_for(
         self, db: AsyncSession, prompt_id: str, current_user: User,
         organization: Organization, principal_type: str,
@@ -484,7 +558,7 @@ class PromptService:
 
         report_service = ReportService()
         completion_service = CompletionService()
-        active_ds_ids = self._active_ds_ids(prompt)
+        active_dss = self._active_data_sources(prompt)
 
         ran: List[str] = []
         skipped: List[str] = []
@@ -498,7 +572,7 @@ class PromptService:
                 skipped.append(str(tid))
                 continue
             t_resolved = await resolve_permissions(db, str(tid), str(organization.id))
-            if not self._is_visible(t_resolved, prompt, str(tid), active_ds_ids):
+            if not self._is_visible(t_resolved, prompt, str(tid), active_dss):
                 skipped.append(str(tid))
                 continue
 
