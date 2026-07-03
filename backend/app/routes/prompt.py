@@ -5,6 +5,7 @@ from typing import Optional
 from app.schemas.prompt_schema import (
     PromptCreate, PromptUpdate, PromptResponse, PromptListResponse,
     PromptRunRequest, PromptRunResponse, PromptRunForRequest, PromptRunForResponse,
+    PromptRunForTargetsResponse,
 )
 from app.services.prompt_service import prompt_service
 from app.core.auth import current_user
@@ -146,6 +147,19 @@ async def run_prompt(
     except Exception:
         pass
     return result
+
+
+@router.get("/prompts/{prompt_id}/run-for/targets", response_model=PromptRunForTargetsResponse)
+async def run_prompt_for_targets(
+    prompt_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Eligible targets for the run-for picker: members who could resolve the
+    prompt themselves (the same per-target gate run-for applies), and groups
+    annotated with how many of their members are eligible."""
+    return await prompt_service.run_for_targets(db, prompt_id, current_user, organization)
 
 
 @router.post("/prompts/{prompt_id}/run-for", response_model=PromptRunForResponse)

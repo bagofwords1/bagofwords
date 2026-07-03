@@ -17,8 +17,27 @@ it directly):
 Update re-authorizes against the POST-merge (scope, data_sources) whenever
 either changes, closing the historical bypass where an owner could promote a
 private prompt to agent/global scope or swap in agents they don't manage.
+
+Run-for coverage: per-target eligibility (public data sources count as
+accessible — the run_prompt_for fix), and the /run-for/targets endpoint the
+picker uses so it only offers targets that would actually run.
 """
 import pytest
+
+
+@pytest.fixture
+def stub_completion(monkeypatch):
+    """No-op CompletionService.create_completion recorder — run-for tests only
+    assert the fan-out bookkeeping, never a real agent/LLM run."""
+    calls = []
+
+    async def _fake(self, db, report_id, completion_data, current_user, organization, *a, **kw):
+        calls.append({"report_id": str(report_id), "user_id": str(current_user.id)})
+        return {"stubbed": True}
+
+    from app.services.completion_service import CompletionService
+    monkeypatch.setattr(CompletionService, "create_completion", _fake)
+    return calls
 
 
 def _hdr(token, org_id):
@@ -236,6 +255,125 @@ def test_update_private_prompt_data_source_visibility(test_client, prompts_world
     public = _update_prompt(test_client, prompts_world, "member", pid, {"data_source_ids": [ds_pub]})
     assert public.status_code == 200, public.text
     assert public.json()["data_source_ids"] == [ds_pub]
+
+
+# ────────────────────────────────────────────────────────────────────
+# Run-for — eligibility (public data sources count) + targets endpoint
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_run_for_public_agent_runs_for_plain_member(test_client, prompts_world, stub_completion):
+    """Regression: an agent prompt on a PUBLIC data source must run for a
+    member with no explicit grant — public access counts as membership in the
+    per-target eligibility gate (it used to be silently skipped)."""
+    org_id = prompts_world["org_id"]
+    admin = prompts_world["principals"]["admin"]
+    member = prompts_world["principals"]["member"]
+    ds_pub = prompts_world["ds_pub"]["id"]
+
+    created = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_pub])
+    assert created.status_code == 200, created.text
+    pid = created.json()["id"]
+
+    resp = test_client.post(
+        f"/api/prompts/{pid}/run-for",
+        json={"principal_type": "users", "user_ids": [member["user_id"]]},
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ran"] == 1 and body["skipped"] == 0, body
+    assert stub_completion and stub_completion[0]["user_id"] == member["user_id"]
+
+    # And the member can now also SEE the prompt in their list (same fix).
+    listing = test_client.get("/api/prompts", headers=_hdr(member["token"], org_id))
+    assert pid in {p["id"] for p in listing.json()["prompts"]}
+
+
+@pytest.mark.e2e
+def test_run_for_private_agent_still_skips_nonmembers(test_client, prompts_world, stub_completion):
+    """Control: a prompt on a PRIVATE data source still skips members without
+    a grant — and runs for a member holding one."""
+    org_id = prompts_world["org_id"]
+    admin = prompts_world["principals"]["admin"]
+    member = prompts_world["principals"]["member"]
+    viewer = prompts_world["principals"]["ds_a_viewer"]
+    ds_a = prompts_world["ds_a"]["id"]
+
+    created = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_a])
+    assert created.status_code == 200, created.text
+    pid = created.json()["id"]
+
+    resp = test_client.post(
+        f"/api/prompts/{pid}/run-for",
+        json={"principal_type": "users", "user_ids": [member["user_id"], viewer["user_id"]]},
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ran"] == 1 and body["skipped"] == 1, body
+    assert body["skipped_user_ids"] == [member["user_id"]]
+
+
+@pytest.mark.e2e
+def test_run_for_targets_endpoint(test_client, prompts_world):
+    """GET /prompts/{id}/run-for/targets: only eligible members are offered;
+    authz mirrors run-for (manage on the prompt's agents)."""
+    org_id = prompts_world["org_id"]
+    admin = prompts_world["principals"]["admin"]
+    member = prompts_world["principals"]["member"]
+    ds_a = prompts_world["ds_a"]["id"]
+    ds_pub = prompts_world["ds_pub"]["id"]
+
+    # Agent prompt on the private ds_a → viewer/manager/admin eligible, member not.
+    created = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_a])
+    pid = created.json()["id"]
+    resp = test_client.get(f"/api/prompts/{pid}/run-for/targets", headers=_hdr(admin["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    offered = {u["id"] for u in resp.json()["users"]}
+    assert prompts_world["principals"]["ds_a_viewer"]["user_id"] in offered
+    assert prompts_world["principals"]["ds_a_manager"]["user_id"] in offered
+    assert admin["user_id"] in offered
+    assert member["user_id"] not in offered
+
+    # Agent prompt on the public DS → everyone eligible.
+    created2 = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_pub])
+    pid2 = created2.json()["id"]
+    resp2 = test_client.get(f"/api/prompts/{pid2}/run-for/targets", headers=_hdr(admin["token"], org_id))
+    offered2 = {u["id"] for u in resp2.json()["users"]}
+    assert member["user_id"] in offered2
+
+    # A plain member (no manage on the agents) cannot enumerate targets.
+    denied = test_client.get(f"/api/prompts/{pid}/run-for/targets", headers=_hdr(member["token"], org_id))
+    assert denied.status_code == 403, denied.text
+
+
+@pytest.mark.e2e
+def test_run_for_targets_group_counts(
+    test_client, prompts_world, enterprise_license, create_group, add_user_to_group
+):
+    """Groups are annotated with eligible_count so the picker can hide/size them."""
+    org_id = prompts_world["org_id"]
+    admin = prompts_world["principals"]["admin"]
+    member = prompts_world["principals"]["member"]
+    viewer = prompts_world["principals"]["ds_a_viewer"]
+    ds_a = prompts_world["ds_a"]["id"]
+
+    g = create_group(name="rf-group", user_token=admin["token"], org_id=org_id)
+    assert g.status_code == 200, g.text
+    gid = g.json()["id"]
+    for uid in (member["user_id"], viewer["user_id"]):
+        added = add_user_to_group(group_id=gid, user_id=uid, user_token=admin["token"], org_id=org_id)
+        assert added.status_code in (200, 201), added.text
+
+    created = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_a])
+    pid = created.json()["id"]
+    resp = test_client.get(f"/api/prompts/{pid}/run-for/targets", headers=_hdr(admin["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    group = next(x for x in resp.json()["groups"] if x["id"] == gid)
+    assert group["member_count"] == 2
+    assert group["eligible_count"] == 1  # viewer yes, plain member no
 
 
 @pytest.mark.e2e
