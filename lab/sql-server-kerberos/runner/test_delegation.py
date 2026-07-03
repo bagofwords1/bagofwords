@@ -120,7 +120,7 @@ def test_mssql_client_delegated_query(version, host, port):
 
 @pytest.mark.parametrize("version,host,port", SQL_TARGETS)
 def test_delegation_respects_sql_permissions(version, host, port):
-    """bob has a login but no read grant → per-user identity really reaches SQL."""
+    """bob has a login but no read grant on sales → per-user identity reaches SQL."""
     if not _reachable(host, port):
         pytest.skip(f"SQL Server {version} ({host}:{port}) not reachable")
     from app.data_sources.clients.mssql_client import MSSQLClient
@@ -132,3 +132,28 @@ def test_delegation_respects_sql_permissions(version, host, port):
     )
     with pytest.raises(Exception):
         client.execute_query("SELECT * FROM dbo.sales")
+
+
+@pytest.mark.parametrize("version,host,port", SQL_TARGETS)
+def test_per_user_table_overlay_differs(version, host, port):
+    """The per-user overlay is built by introspecting AS the user. Because
+    SQL Server's INFORMATION_SCHEMA is permission-scoped, alice and bob see
+    disjoint catalogs — alice → dbo.sales, bob → dbo.audit. This is exactly the
+    mechanism that gives User A and User B different table overlays."""
+    if not _reachable(host, port):
+        pytest.skip(f"SQL Server {version} ({host}:{port}) not reachable")
+    from app.data_sources.clients.mssql_client import MSSQLClient
+
+    def tables_for(upn):
+        c = MSSQLClient(host=host, port=port, database="bowlab",
+                        use_kerberos=True, kerberos_impersonate=upn, encrypt=False)
+        return {t.name.lower() for t in c.get_tables()}
+
+    alice_tables = tables_for(ALICE)
+    bob_tables = tables_for(BOB)
+
+    assert any("sales" in t for t in alice_tables), f"alice should see sales, saw {alice_tables}"
+    assert not any("sales" in t for t in bob_tables), f"bob must NOT see sales, saw {bob_tables}"
+    assert any("audit" in t for t in bob_tables), f"bob should see audit, saw {bob_tables}"
+    assert not any("audit" in t for t in alice_tables), f"alice must NOT see audit, saw {alice_tables}"
+    assert alice_tables != bob_tables

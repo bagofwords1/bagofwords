@@ -696,6 +696,33 @@ class ConnectionService:
                 "details": {},
             }
 
+    async def list_kerberos_access(self, db: AsyncSession, connection: Connection) -> list[dict]:
+        """Per-member Kerberos SSO verification roster for a connection.
+
+        Reads the status-only marker rows (no secrets). ``verified`` is True once
+        a member's delegated access has been confirmed (a successful verify or
+        query stamped ``last_used_at``); ``last_error`` carries the last failure.
+        """
+        from app.services.connection_identity import KERBEROS_SSO_MODE
+        rows = (await db.execute(
+            select(UserConnectionCredentials).where(
+                UserConnectionCredentials.connection_id == str(connection.id),
+                UserConnectionCredentials.auth_mode == KERBEROS_SSO_MODE,
+                UserConnectionCredentials.is_active == True,  # noqa: E712
+            )
+        )).scalars().all()
+        roster = []
+        for r in rows:
+            md = getattr(r, "metadata_json", None) or {}
+            roster.append({
+                "user_id": r.user_id,
+                "principal": md.get("principal"),
+                "verified": bool(r.last_used_at),
+                "last_verified_at": r.last_used_at,
+                "last_error": md.get("last_error"),
+            })
+        return roster
+
     async def test_user_connection(
         self,
         db: AsyncSession,
@@ -706,13 +733,21 @@ class ConnectionService:
         """Test a connection using the current user's saved credentials."""
         connection = await self.get_connection(db, connection_id, organization)
 
+        from app.services.connection_identity import supports_user_kerberos_sso, record_kerberos_verification
         try:
             client = await self.construct_client(db, connection, current_user)
             connection_status = await client.atest_connection()
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
-            # Update the user's credential last_used_at on success
-            if success:
+            # Kerberos SSO has no stored credential — record a status-only marker
+            # row so the badge shows "verified" and the admin roster is populated.
+            if supports_user_kerberos_sso(connection):
+                await record_kerberos_verification(
+                    db, connection, current_user, success,
+                    error=None if success else (connection_status.get("message") if isinstance(connection_status, dict) else None),
+                )
+            elif success:
+                # Update the user's credential last_used_at on success
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 result = await db.execute(
                     select(UserConnectionCredentials).where(
@@ -728,6 +763,11 @@ class ConnectionService:
 
             return connection_status
         except Exception as e:
+            if supports_user_kerberos_sso(connection):
+                try:
+                    await record_kerberos_verification(db, connection, current_user, False, error=str(e))
+                except Exception:
+                    pass
             return {"success": False, "message": str(e)}
 
     async def delete_user_credentials(
@@ -1205,35 +1245,30 @@ class ConnectionService:
         mode and the user hasn't connected with a different real auth mode. The
         returned dict feeds the MSSQL client's constrained-delegation path.
         """
-        modes = connection.allowed_user_auth_modes or []
-        if "kerberos_delegated" not in modes:
+        from app.services.connection_identity import (
+            supports_user_kerberos_sso, resolve_kerberos_principal,
+            KERBEROS_SSO_MODE, SERVICE_ACCOUNT_MARKER_MODE,
+        )
+        if not supports_user_kerberos_sso(connection):
             return None
 
-        creds: dict = {}
-        if row is not None:
-            from app.services.connection_identity import SERVICE_ACCOUNT_MARKER_MODE
-            if row.auth_mode == "kerberos_delegated":
-                try:
-                    creds = row.decrypt_credentials() or {}
-                except Exception:
-                    creds = {}
-            elif row.auth_mode != SERVICE_ACCOUNT_MARKER_MODE:
-                # The user connected with a different real auth mode (e.g. a
-                # personal SQL login) — honor that instead of impersonation.
-                return None
+        # The user connected with a different real auth mode (e.g. a personal
+        # SQL login) — honor that instead of impersonation. A Kerberos marker
+        # row or a bare service-account marker do NOT count as "different".
+        if row is not None and row.auth_mode not in (KERBEROS_SSO_MODE, SERVICE_ACCOUNT_MARKER_MODE):
+            return None
 
-        principal = (creds.get("kerberos_impersonate") or "").strip()
+        marker = row if (row is not None and row.auth_mode == KERBEROS_SSO_MODE) else None
+        principal = resolve_kerberos_principal(user, marker)
         if not principal:
-            principal = (getattr(user, "email", None) or "").strip()
-            if "@" not in principal:
-                raise HTTPException(
-                    status_code=403,
-                    detail=(
-                        "Kerberos SSO requires an Active Directory principal (UPN). "
-                        "Your login identity has no UPN-shaped email — save your AD "
-                        "principal in your connection credentials."
-                    ),
-                )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Kerberos SSO requires an Active Directory principal (UPN). "
+                    "Your login identity has no UPN-shaped email — save your AD "
+                    "principal in your connection credentials."
+                ),
+            )
         return {"use_kerberos": True, "kerberos_impersonate": principal}
 
     def _resolve_client_by_type(

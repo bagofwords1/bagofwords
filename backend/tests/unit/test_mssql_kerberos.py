@@ -335,3 +335,27 @@ def test_kerberos_sso_requires_upn_shaped_identity():
     with pytest.raises(HTTPException) as exc:
         _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("no-upn-here"), None)
     assert exc.value.status_code == 403
+
+
+# ── identity helpers (status/overlay adapter) ────────────────────────────────
+
+
+def test_supports_user_kerberos_sso():
+    from app.services.connection_identity import supports_user_kerberos_sso
+    assert supports_user_kerberos_sso(_FakeConnection(["kerberos_delegated"])) is True
+    assert supports_user_kerberos_sso(_FakeConnection(["oauth"])) is False
+    assert supports_user_kerberos_sso(_FakeConnection([])) is False
+
+
+def test_resolve_kerberos_principal_precedence():
+    from app.services.connection_identity import resolve_kerberos_principal
+    # login UPN when no row
+    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), None) == "jdoe@corp.example.com"
+    # explicit override wins
+    row = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "j.doe@ad.corp.example.com"})
+    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), row) == "j.doe@ad.corp.example.com"
+    # non-UPN login and no override → None (must set principal)
+    assert resolve_kerberos_principal(_FakeUser("no-upn"), None) is None
+    # a non-kerberos row is ignored for principal derivation → falls back to email
+    other = _FakeRow("userpass", {"kerberos_impersonate": "should-be-ignored@x"})
+    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), other) == "jdoe@corp.example.com"

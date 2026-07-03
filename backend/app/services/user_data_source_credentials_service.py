@@ -232,9 +232,20 @@ class UserDataSourceCredentialsService:
 
         # Delegated/OBO connections: status is driven by the admin query-identity
         # toggle (service account vs self) — handled in one place.
-        from app.services.connection_identity import supports_user_token, build_token_identity_status
+        from app.services.connection_identity import (
+            supports_user_token, build_token_identity_status,
+            supports_user_kerberos_sso, build_kerberos_sso_status,
+        )
         if supports_user_token(connection):
             return await build_token_identity_status(
+                db, connection, user, get_cached_status(), get_last_checked_at()
+            )
+
+        # Kerberos SSO: no stored secret — access is derived from the member's AD
+        # principal (login UPN or an explicit override), so a resolvable UPN is
+        # itself "user" access. This is what lets their per-user overlay build.
+        if supports_user_kerberos_sso(connection):
+            return await build_kerberos_sso_status(
                 db, connection, user, get_cached_status(), get_last_checked_at()
             )
 
