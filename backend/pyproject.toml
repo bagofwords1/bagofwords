@@ -108,6 +108,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Kerberos constrained delegation (S4U) for per-user SSO to on-prem SQL Server.
+# Needs MIT krb5 headers to build (libkrb5-dev + krb5-config on Debian/Ubuntu).
+kerberos = [
+    "gssapi>=1.8.3,<2",
+]
 dev = [
     "pytest>=8.4.2,<8.5",
     "pytest-asyncio>=0.23.8,<0.24",
