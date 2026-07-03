@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.431 (July 3, 2026)
+- CSV data source connector (#522)
+- Claude Sonnet 5 / Opus 4.8 support (#523)
+- Enforce prompt write policy at the route layer (#524)
+- Localized, direction-aware follow-up suggestions (#521)
+- Fix single-value cards rendering the wrong cell as the metric (#520)
+
+
 ## Version 0.0.430 (July 2, 2026)
 - Faster instruction loading
 - Instructions view in reportagent vs knowledge view
