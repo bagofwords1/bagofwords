@@ -591,6 +591,33 @@ class ReportService:
                             status_code=400,
                             detail="Training mode is not enabled for this organization"
                         )
+                # Per-agent authorization: entering training mode is the
+                # agent-admin capability, not an org-wide one. The actor must be
+                # able to manage instructions on EVERY agent (data source) the
+                # report is attached to — via full_admin / org-level
+                # manage_instructions, or a per-data_source `manage` grant (which
+                # implies manage_instructions). A plain member (view only) on the
+                # agent is denied, even if they manage some other agent.
+                from app.core.permission_resolver import resolve_permissions
+                if report_data.data_sources is not None:
+                    training_ds_ids = [str(x) for x in report_data.data_sources]
+                else:
+                    training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
+                resolved = await resolve_permissions(
+                    db, str(current_user.id), str(organization.id)
+                )
+                can_train = resolved.has_org_permission('manage_instructions') or (
+                    bool(training_ds_ids)
+                    and all(
+                        resolved.has_resource_permission('data_source', ds, 'manage_instructions')
+                        for ds in training_ds_ids
+                    )
+                )
+                if not can_train:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="You need manage access on this agent to enter training mode",
+                    )
             report.mode = report_data.mode
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:

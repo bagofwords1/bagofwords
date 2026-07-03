@@ -132,7 +132,7 @@
           </button>
 
           <div v-if="showAdvanced" class="flex items-center gap-2">
-            <ModeSelector v-model="form.mode" />
+            <ModeSelector v-model="form.mode" :dataSourceIds="agentIds" />
             <ModelSelector v-model="form.model_id" />
           </div>
         </section>
