@@ -188,7 +188,7 @@
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
             <li v-for="report in recentReports" :key="report.id" class="relative group/report">
               <NuxtLink :to="`/reports/${report.id}`" :class="[
-                'flex items-center gap-2 px-2.5 py-1.5 pr-8 w-full rounded-md',
+                'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
                 isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
               ]">
                 <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
@@ -202,7 +202,7 @@
               <button
                 type="button"
                 @click.stop.prevent="openReportMenu($event, report)"
-                class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+                class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
                 :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
                 aria-label="Report actions"
               >
