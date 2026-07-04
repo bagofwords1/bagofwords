@@ -261,12 +261,15 @@ class LDAPGroupSyncService:
         )
         existing_ids = set((await db.execute(stmt)).scalars().all())
 
+        from app.core.permission_resolver import ensure_system_role_assignment
         for user_id in user_ids - existing_ids:
             db.add(Membership(
                 user_id=user_id,
                 organization_id=organization_id,
                 role="member",
             ))
+            # Give the user a real RBAC assignment (not just the legacy string).
+            await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
 
     async def _cleanup_org_memberships(

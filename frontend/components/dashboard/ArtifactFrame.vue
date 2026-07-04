@@ -782,12 +782,18 @@ async function fetchData(artifactId?: string) {
     const { data: queriesRes } = await useMyFetch(`/api/queries${queryParams}`);
     const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
+    // Fetch all default steps in parallel — awaiting each one serially made
+    // load time scale linearly with the number of queries.
+    const stepResults = await Promise.all(
+      queries.map((query: any) => useMyFetch(`/api/queries/${query.id}/default_step`))
+    );
+
     // Build visualization data array
     const vizData: any[] = [];
 
-    for (const query of queries) {
-      // Fetch default step for this query
-      const { data: stepRes } = await useMyFetch(`/api/queries/${query.id}/default_step`);
+    for (let qi = 0; qi < queries.length; qi++) {
+      const query = queries[qi];
+      const { data: stepRes } = stepResults[qi];
       const step = (stepRes.value as any)?.step;
 
       // Process each visualization in the query

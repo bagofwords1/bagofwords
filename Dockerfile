@@ -12,6 +12,7 @@ RUN apt-get update && \
       libpq-dev \
       gcc \
       unixodbc-dev \
+      libkrb5-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container for the backend
@@ -28,8 +29,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
 
-# Install locked main deps into the venv; dev group excluded from image
-RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project
+# Install locked main deps into the venv; dev group excluded from image.
+# The kerberos extra (python-gssapi) enables per-user constrained delegation
+# (S4U) for on-prem SQL Server SSO; it builds against libkrb5-dev above.
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos
 
 # Copy the full backend source after deps are installed
 COPY ./backend /app/backend
@@ -113,6 +116,10 @@ ENV PIP_NO_CACHE_DIR=1 \
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 vim-tiny && \
+    # Kerberos runtime for Windows Integrated auth to SQL Server: GSSAPI libs
+    # for the ODBC driver / python-gssapi, plus kinit/klist for keytab ops.
+    # Mount /etc/krb5.conf and a keytab (see docs/sql-server-kerberos.md).
+    apt-get install -y --no-install-recommends krb5-user libgssapi-krb5-2 && \
     curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
     ARCH="$(dpkg --print-architecture)" && \
     echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod-24.04.list && \

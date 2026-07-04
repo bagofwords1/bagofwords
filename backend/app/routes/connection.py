@@ -431,6 +431,24 @@ async def test_connection(
     )
 
 
+@router.get("/{connection_id}/kerberos-access")
+@requires_permission('manage_connections')
+async def list_kerberos_access(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Admin roster: per-member Kerberos SSO verification status for a connection.
+
+    Since Kerberos SSO stores no secret, this reports the status-only marker
+    rows (resolved principal, last verified time, last error) so an admin can
+    see, per member, whether delegated access has been confirmed.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await connection_service.list_kerberos_access(db=db, connection=connection)
+
+
 @router.post("/{connection_id}/test-my-credentials", response_model=ConnectionTestResult)
 async def test_my_connection_credentials(
     connection_id: str,

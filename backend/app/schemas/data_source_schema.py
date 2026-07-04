@@ -102,6 +102,19 @@ class ConnectionEmbedded(BaseModel):
                 return None
         return v
 
+    @validator('connector_key', always=True)
+    def derive_connector_key(cls, v, values):
+        # connector_key isn't stored on the Connection model — when this schema
+        # is built straight from ORM objects (e.g. report responses) fall back
+        # to the preset key recorded in config at connection-create time, so
+        # the UI can render the provider's brand icon.
+        if v:
+            return v
+        cfg = values.get('config')
+        if isinstance(cfg, dict):
+            return cfg.get('catalog_key') or None
+        return None
+
     class Config:
         from_attributes = True
 
