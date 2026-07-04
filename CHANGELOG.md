@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.432 (July 4, 2026)
+- **Mobile web UI pass (#534)** — responsive fixes across the main mobile screens. The public artifact top bar is now icon-only on mobile (no more overlapping Back/tabs/Refreshed/Edit/✕), and the artifact/report browser tab (and "Add to Home screen" shortcut) shows the report title instead of the report UUID. Inputs are forced to 16px on small screens to stop iOS focus-zoom, full-height shells use `h-dvh`, and a mobile navigation drawer (hamburger + slide-in sidebar) makes Home/Reports/Dashboards/Settings reachable on a phone. The "Configure your LLM" banner is desktop-only, the report chat prompt box is full-width and aligned with the message/tool content, and the CreateData tool's children are mobile-friendly (data-table columns fill the width with no stray pagination footer; chart x-axis labels no longer overlap). Desktop layout is unchanged.
+- **Fix /agents connections footer overflow** — the connections pane's "View all" footer no longer spills outside the pane.
+
+
 ## Version 0.0.431 (July 3, 2026)
 - CSV data source connector (#522)
 - Claude Sonnet 5 / Opus 4.8 support (#523)
