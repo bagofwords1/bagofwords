@@ -72,11 +72,14 @@
                 <!-- Cards grid -->
                 <div v-else-if="reports.length > 0">
                     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                        <!-- view-mode="org" so cards open the dashboard view
+                             (/r/[id]) on both tabs — owners edit via the pencil
+                             (/reports/[id]). 'my' mode would link the editor. -->
                         <RecentReportCard
                             v-for="report in reports"
                             :key="report.id"
                             :report="report"
-                            :view-mode="activeFilter === 'shared' ? 'org' : 'my'"
+                            view-mode="org"
                             :is-owner="report.user?.id === (currentUser as any)?.id"
                         />
                     </div>

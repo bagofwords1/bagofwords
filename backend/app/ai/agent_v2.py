@@ -224,8 +224,16 @@ class AgentV2:
 
         # Initialize data sources and clients (mirror agent.py pattern)
         if report:
-            # Handle case where data_sources or files might be None
-            self.data_sources = getattr(report, 'data_sources', []) or []
+            # Handle case where data_sources or files might be None. The
+            # report's attachments are a creation-time snapshot — drop agents
+            # disabled/deactivated since so their schema never enters the
+            # context, even for callers that pass no clients. (Local import:
+            # data_source_service pulls in app.ai modules at import time.)
+            from app.services.data_source_service import DataSourceService
+            self.data_sources = [
+                ds for ds in (getattr(report, 'data_sources', []) or [])
+                if DataSourceService.is_execution_live(ds)
+            ]
             self.clients = clients
             # Drop data sources that produced no client. The caller builds
             # `clients` via DataSourceService.construct_clients, which now 403s

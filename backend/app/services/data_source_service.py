@@ -1933,6 +1933,61 @@ class DataSourceService:
             allowed = params
         return ClientClass(**allowed)
 
+    @staticmethod
+    def is_execution_live(ds) -> bool:
+        """User-independent lifecycle check for run-time consumers.
+
+        A report's attached data sources are a snapshot taken at creation;
+        an agent disabled (or deactivated) afterwards stays on the snapshot.
+        Execution paths — client construction, AI context — must skip those:
+        ``disabled`` means "excluded from normal use", not just hidden in
+        pickers. Draft/development agents remain runnable (their visibility
+        is a per-user concern handled by filter_live_data_sources).
+        """
+        if not getattr(ds, "is_active", True):
+            return False
+        return (getattr(ds, "publish_status", "published") or "published") != "disabled"
+
+    async def filter_live_data_sources(
+        self,
+        db: AsyncSession,
+        data_sources: list,
+        current_user: User | None,
+        organization: Organization | None,
+        visibility: tuple | None = None,
+    ) -> list:
+        """Keep only data sources that are live for this caller.
+
+        Mirrors the lifecycle rules of get_active_data_sources so a report's
+        attached data sources (a creation-time snapshot, serialized raw
+        otherwise) show the same set the selector would offer:
+          - inactive / ``disabled`` → dropped for everyone
+          - ``draft``               → managers only (governance / per-DS manage)
+          - ``development``         → agent admins only (manage_evals)
+
+        ``visibility`` optionally takes a precomputed ``_publish_visibility``
+        result so list endpoints can resolve permissions once across many
+        reports. With no current_user (system/scheduled contexts) only the
+        user-independent checks apply.
+        """
+        live = [ds for ds in (data_sources or []) if self.is_execution_live(ds)]
+        if current_user is None or organization is None:
+            return live
+        if visibility is None:
+            visibility = await self._publish_visibility(db, current_user, organization)
+        is_gov, manage_ids, resolved = visibility
+        out = []
+        for ds in live:
+            publish_status = getattr(ds, "publish_status", "published") or "published"
+            if publish_status == "draft" and not (is_gov or str(ds.id) in manage_ids):
+                continue
+            if self._development_hidden(
+                getattr(ds, "reliability_status", "training"), ds.id, is_gov, resolved
+            ):
+                continue
+            out.append(ds)
+        return out
+
     async def filter_user_visible_data_sources(
         self,
         db: AsyncSession,

@@ -2,16 +2,20 @@
   <div class="h-full flex flex-col overflow-hidden">
     <!-- Agent selector dropdown -->
     <div class="px-4 pt-4 pb-2 flex-shrink-0 bg-gradient-to-b from-indigo-50/40 to-transparent dark:from-gray-900 dark:to-transparent">
-      <div v-if="agents.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
+      <div v-if="visibleAgents.length === 0" class="text-xs text-gray-400 dark:text-gray-500 italic text-center py-4">
         {{ $t('reportAgent.noAgents') }}
       </div>
-      <div v-else-if="agents.length === 1" class="flex items-center gap-2">
+      <div v-else-if="visibleAgents.length === 1" class="flex items-center gap-2">
         <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-800/70 p-1 rounded">
           <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
-        <Icon v-if="(agents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-        <DataSourceIcon v-else :type="agents[0].type || agents[0].connections?.[0]?.type" class="h-5 flex-shrink-0" />
-        <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ agents[0].name }}</span>
+        <Icon v-if="(visibleAgents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+        <DataSourceIcon v-else :type="visibleAgents[0].type || visibleAgents[0].connections?.[0]?.type" class="h-5 flex-shrink-0" />
+        <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ visibleAgents[0].name }}</span>
+        <span
+          v-if="stageBadge(visibleAgents[0])"
+          :class="['flex-shrink-0 text-[10px] rounded border px-1 py-0.5', stageBadge(visibleAgents[0])?.badge]"
+        >{{ stageBadge(visibleAgents[0])?.label }}</span>
       </div>
       <div v-else class="flex items-center gap-2">
         <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-800/70 p-1 rounded flex-shrink-0">
@@ -39,7 +43,7 @@
         >
           <div v-if="dropdownOpen" class="absolute z-10 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden">
             <button
-              v-for="agent in agents"
+              v-for="agent in visibleAgents"
               :key="agent.id"
               @click="selectAgent(agent.id)"
               class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
@@ -48,6 +52,10 @@
               <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
               <DataSourceIcon v-else :type="agent.type || agent.connections?.[0]?.type" class="h-4 flex-shrink-0" />
               <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
+              <span
+                v-if="stageBadge(agent)"
+                :class="['flex-shrink-0 text-[10px] rounded border px-1 py-0.5', stageBadge(agent)?.badge]"
+              >{{ stageBadge(agent)?.label }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             </button>
           </div>
@@ -534,13 +542,28 @@ import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
+import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
 
 const { t } = useI18n()
 
 const props = defineProps<{
-  agents: Array<{ id: string; name: string; type?: string; connections?: any[] }>
+  agents: Array<{ id: string; name: string; type?: string; connections?: any[]; publish_status?: string; reliability_status?: string }>
   showClose?: boolean
 }>()
+
+// Lifecycle filter + badge, mirroring DataSourceSelector: disabled agents are
+// hidden (the home instructions modal feeds this panel from /data_sources,
+// which returns managers their disabled agents too), and non-production stages
+// (Development / Training) are flagged. The synthetic Global entry is exempt.
+const visibleAgents = computed(() =>
+  props.agents.filter((a: any) => a.isGlobal || deriveStage(a.publish_status, a.reliability_status) !== 'disabled')
+)
+
+function stageBadge(agent: any) {
+  if (agent?.isGlobal) return null
+  const stage = deriveStage(agent?.publish_status, agent?.reliability_status)
+  return stage === 'production' ? null : stageMeta(stage)
+}
 
 const emit = defineEmits(['close', 'starter-click', 'connected'])
 
@@ -776,16 +799,18 @@ const instructionsError = ref<string | null>(null)
 const queriesError = ref<string | null>(null)
 const evalsError = ref<string | null>(null)
 
-// Auto-select first agent
-watch(() => props.agents, (agents) => {
-  if (agents.length > 0 && !selectedAgentId.value) {
+// Auto-select first agent; also reselect when the current one drops out of
+// the visible list (e.g. it was disabled while the panel was open).
+watch(visibleAgents, (agents) => {
+  if (agents.length === 0) return
+  if (!selectedAgentId.value || !agents.some(a => a.id === selectedAgentId.value)) {
     selectedAgentId.value = agents[0].id
     if (agents[0].id === GLOBAL_AGENT_ID) activeTab.value = 'instructions'
   }
 }, { immediate: true })
 
 const selectedAgent = computed(() => {
-  return props.agents.find(a => a.id === selectedAgentId.value) || null
+  return visibleAgents.value.find(a => a.id === selectedAgentId.value) || null
 })
 
 // Tab definitions with counts (tables count managed by TablesSelector internally)
