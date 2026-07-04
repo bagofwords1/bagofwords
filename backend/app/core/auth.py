@@ -481,6 +481,16 @@ class UserManager(BaseUserManager[User, str]):
             )).scalar_one_or_none()
             if dupe:
                 continue
+            # Respect the license seat cap: auto-provisioning must not push an org
+            # past its paid seat count. Full org → skip this invite (and log), don't
+            # abort the whole signup — other admitting orgs may still have room.
+            from app.core.seats import has_seat_for
+            if not await has_seat_for(session, s.organization_id):
+                logging.getLogger(__name__).warning(
+                    "Domain signup: org %s is at its license seat limit; "
+                    "skipping auto-invite for %s", s.organization_id, email
+                )
+                continue
             role = str(policy.get("auto_invite_role") or "member")
             session.add(Membership(
                 email=email,
@@ -830,6 +840,19 @@ async def auto_provision_user_for_org(
 
     if not open_invite and not domain_admitted:
         return None
+
+    # A brand-new membership is minted only when there's no open invite to attach
+    # to (an existing invite already occupies a seat). Enforce the license seat cap
+    # before creating anything, so a full org can't be grown via chat onboarding —
+    # and so we never leave an orphan User with no membership.
+    if not open_invite:
+        from app.core.seats import has_seat_for
+        if not await has_seat_for(db, organization_id):
+            logging.getLogger(__name__).warning(
+                "Chat auto-provision: org %s is at its license seat limit; "
+                "refusing to provision %s", organization_id, email_norm
+            )
+            return None
 
     if existing_user:
         if open_invite:

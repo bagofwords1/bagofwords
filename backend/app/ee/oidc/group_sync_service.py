@@ -164,6 +164,16 @@ async def _ensure_org_membership(
     )
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if not existing:
+        # Enforce the license seat cap: a full org can't gain new members via OIDC
+        # group sync. Existing members hit the branch above and are unaffected — only
+        # a brand-new membership beyond the cap is refused (skipped + logged).
+        from app.core.seats import has_seat_for
+        if not await has_seat_for(db, organization_id):
+            logger.warning(
+                "OIDC group sync: org %s is at its license seat limit; "
+                "skipping new membership for user %s", organization_id, user_id
+            )
+            return
         db.add(Membership(
             user_id=user_id,
             organization_id=organization_id,
