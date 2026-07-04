@@ -62,6 +62,16 @@ Concise overview of `@frontend/` (Nuxt 3 SPA) with structure, key building block
 3. Apply route guards using `middleware` if the feature requires auth/permissions/onboarding.
 4. Wire WebSocket features to `runtimeConfig.public.wsURL` when needed.
 5. Add/adjust e2e tests under `frontend/tests` and Playwright config as needed.
+6. Capture before/after UI evidence for the PR — see below.
+
+### UI evidence (mandatory)
+
+Any change touching `pages/`, `components/`, `layouts/`, or `assets/` must
+include before/after **screenshots** in the PR description — and a short
+**GIF/video** when the change is a flow, animation, or streaming UI. Skip only
+for refactors with zero visual effect, and say so in the PR description. Full
+capture procedure: `.agents/skills/ui-evidence/SKILL.md`. For RTL-affecting
+work, include a Hebrew (`he`) capture as well.
 
 ### Locale / i18n
 

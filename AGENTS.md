@@ -1,6 +1,33 @@
 # AGENTS Guidelines (repo root)
 
-See `frontend/AGENTS.md` and `backend/AGENTS.md` for the per-side guides.
+See `frontend/AGENTS.md` and `backend/AGENTS.md` for the per-side guides, and
+`backend/tests/AGENTS.md` before writing or changing any backend test.
+
+### Agent skills
+
+Reusable agent procedures live in `.agents/skills/<name>/SKILL.md`
+(tool-agnostic location). Read and follow the matching skill before starting
+one of these tasks:
+
+- **sandbox-feedback-loop** — build a runnable reproduce→fix→verify loop for
+  any bug/feature; reports land in `docs/feedback-loops/`.
+- **qa** — map all user-facing functionality (`docs/qa/functionality-map.md`),
+  then live-test flows against a running stack.
+- **ui-evidence** — capture the **mandatory** before/after screenshots (and
+  GIFs/videos for flows) for any change touching
+  `frontend/{pages,components,layouts,assets}/**`.
+- **docs-update** — refresh docs.bagofwords.com (Mintlify MCP) with text +
+  screenshots after user-facing changes ship.
+- **localization** — the locale/i18n architecture end to end; follow it when
+  adding strings, locales, or touching anything RTL.
+- **add-connection-type** — add a data source/connector (client, config +
+  credentials schemas, registry entry, tests) with verification steps.
+- **add-llm-provider-or-model** — extend the LLM catalog; model id, pricing,
+  and context window must be verified against official docs first.
+
+Shared setup scripts (usable by humans too): `tools/agent/boot_stack.sh`
+(run the full stack like CI), `tools/agent/seed_org.py` (seed org/users/demo
+data through the real API), `tools/agent/capture.mjs` (screenshots/videos).
 
 ### Locale / i18n (system overview)
 

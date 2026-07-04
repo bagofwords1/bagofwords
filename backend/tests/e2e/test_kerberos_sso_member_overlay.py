@@ -14,8 +14,9 @@ Proves the two things that were "wired but not demoed end-to-end":
 
 Unlike OBO, the members hold NO UserConnectionCredentials row — access comes
 from their AD principal (login UPN). This runs in-process against a real sqlite
-DB (no live SQL Server, KDC, or browser); the actual S4U → SQL introspection is
-separately proven in lab/sql-server-kerberos.
+DB (no live SQL Server, KDC, or browser); the actual S4U → SQL introspection was
+separately proven in a throwaway docker lab (samba AD DC + SQL Server; removed
+from the repo — see git history for lab/sql-server-kerberos if it's ever needed).
 """
 import asyncio
 import uuid
