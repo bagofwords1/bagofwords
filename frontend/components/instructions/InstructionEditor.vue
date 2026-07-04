@@ -1,5 +1,5 @@
 <template>
-  <div class="instruction-wysiwyg" ref="containerRef">
+  <div class="instruction-wysiwyg" ref="containerRef" :dir="containerDir">
     <!-- WYSIWYG mode (v-show keeps EditorContent in DOM so ProseMirror stays attached) -->
     <div v-show="mode === 'wysiwyg'">
       <!-- Floating bubble toolbar (appears on text selection, edit mode only) -->
@@ -37,7 +37,7 @@
         <!-- Placeholder when empty -->
         <div
           v-if="editor?.isEmpty && isEditable"
-          class="absolute top-2 left-0 text-xs text-gray-400 dark:text-gray-600 pointer-events-none select-none whitespace-pre-line"
+          class="absolute top-2 start-0 text-xs text-gray-400 dark:text-gray-600 pointer-events-none select-none whitespace-pre-line"
         >{{ placeholder || 'Write instructions using markdown... (type @ to mention a table or instruction)' }}</div>
       </div>
 
@@ -92,6 +92,7 @@
     <textarea
       v-show="mode === 'raw'"
       v-model="rawText"
+      :dir="rawDir"
       class="raw-textarea"
       :placeholder="placeholder || 'Write instructions using markdown...'"
       @input="onRawInput"
@@ -100,11 +101,15 @@
 </template>
 
 <script setup lang="ts">
-import { useEditor, EditorContent, BubbleMenu } from '@tiptap/vue-3'
+import { useEditor, EditorContent, BubbleMenu, Extension } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
+import { Plugin } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import MarkdownIt from 'markdown-it'
+import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { firstStrongDir, RTL_LOCALES } from '~/utils/textDirection'
 
 interface MentionItem {
   id: string
@@ -337,6 +342,44 @@ function scrollDropdownItem(index: number) {
   })
 }
 
+// ─── Auto text direction ──────────────────────────────────────────────────────
+// Per-block direction from each block's first strong character — the same
+// behavior as chat markdown (`<p dir="auto">`) and the PromptBoxV2 input, so
+// Hebrew/Arabic instructions right-align while English blocks (and code, which
+// is excluded) stay LTR. Applied as ProseMirror node decorations: the rendered
+// DOM gets a `dir` attribute but the document itself is untouched, so nothing
+// leaks into the serialized markdown.
+const AUTO_DIR_NODES = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote'])
+
+const AutoDir = Extension.create({
+  name: 'autoDir',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          decorations(state) {
+            const decos: Decoration[] = []
+            state.doc.descendants((node, pos) => {
+              if (!AUTO_DIR_NODES.has(node.type.name)) return
+              const dir = firstStrongDir(node.textContent)
+              if (dir) decos.push(Decoration.node(pos, pos + node.nodeSize, { dir }))
+            })
+            return DecorationSet.create(state.doc, decos)
+          },
+        },
+      }),
+    ]
+  },
+})
+
+// While the editor is empty there is no strong character to derive direction
+// from, so an RTL placeholder would left-align (same problem MentionInput
+// solves). Fall back to the UI locale direction while empty; once there is
+// content, the per-block decorations / textarea dir="auto" take over.
+const { locale: i18nLocale } = useI18n({ useScope: 'global' })
+const emptyDir = computed(() => (RTL_LOCALES.has(String(i18nLocale.value)) ? 'rtl' : 'ltr'))
+const containerDir = computed(() => (props.modelValue?.trim() ? undefined : emptyDir.value))
+
 // ─── Editor setup ─────────────────────────────────────────────────────────────
 
 let skipPropWatch = false
@@ -405,6 +448,7 @@ const editor = useEditor({
         }),
       },
     }),
+    AutoDir,
   ],
   content: markdownToHtml(props.modelValue),
   editorProps: {
@@ -451,6 +495,8 @@ watch(
 
 const rawText = ref(props.modelValue)
 
+const rawDir = computed(() => (rawText.value?.trim() ? 'auto' : emptyDir.value))
+
 // When switching to raw mode, sync rawText from the current editor state
 watch(() => props.mode, (newMode, oldMode) => {
   if (newMode === 'raw') {
@@ -483,6 +529,9 @@ function onRawInput() {
   color: #111827;
   outline: none;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* `start` resolves against each block's own dir (set by the auto-dir
+   * decorations), so RTL blocks right-align and LTR blocks left-align. */
+  text-align: start;
 }
 
 .wysiwyg-content :deep(.tiptap-prose:focus) {
@@ -498,9 +547,9 @@ function onRawInput() {
 .wysiwyg-content :deep(.tiptap-prose p) { margin-bottom: 0.5em; }
 .wysiwyg-content :deep(.tiptap-prose p:last-child) { margin-bottom: 0; }
 
-/* Lists */
-.wysiwyg-content :deep(.tiptap-prose ul) { padding-left: 1.25em; list-style: disc; margin-bottom: 0.5em; }
-.wysiwyg-content :deep(.tiptap-prose ol) { padding-left: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
+/* Lists — logical padding so RTL lists get their markers on the right edge */
+.wysiwyg-content :deep(.tiptap-prose ul) { padding-inline-start: 1.25em; list-style: disc; margin-bottom: 0.5em; }
+.wysiwyg-content :deep(.tiptap-prose ol) { padding-inline-start: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
 .wysiwyg-content :deep(.tiptap-prose li) { margin-bottom: 0.2em; }
 
 /* Inline code */
@@ -513,13 +562,17 @@ function onRawInput() {
   color: #374151;
 }
 
-/* Code blocks */
+/* Code blocks — always LTR regardless of the surrounding text direction
+ * (same policy as rtl.css: SQL / identifiers read left-to-right). */
 .wysiwyg-content :deep(.tiptap-prose pre) {
   background: #f9fafb;
   padding: 10px 12px;
   border-radius: 6px;
   margin-bottom: 0.5em;
   overflow-x: auto;
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
 }
 .wysiwyg-content :deep(.tiptap-prose pre code) {
   background: none;
@@ -528,10 +581,10 @@ function onRawInput() {
   line-height: 1.5;
 }
 
-/* Blockquote */
+/* Blockquote — logical border/padding so the bar sits on the start edge */
 .wysiwyg-content :deep(.tiptap-prose blockquote) {
-  border-left: 3px solid #e5e7eb;
-  padding-left: 1em;
+  border-inline-start: 3px solid #e5e7eb;
+  padding-inline-start: 1em;
   margin: 0.5em 0;
   color: #6b7280;
 }
@@ -602,6 +655,10 @@ function onRawInput() {
   border: none;
   outline: none;
   resize: vertical;
+  /* Per-line auto direction while editing raw markdown: Hebrew prose lines
+   * read RTL while SQL/code lines stay LTR within the same textarea. */
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .raw-textarea::placeholder {

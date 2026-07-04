@@ -595,7 +595,7 @@
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
                 <div v-if="!hunkCount" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">{{ $t('agentsPage.noRemainingChanges') }}</div>
-                <div v-else class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200">
+                <div v-else dir="auto" class="text-[13px] leading-[1.6] whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" style="unicode-bidi: plaintext; text-align: start;">
                   <template v-for="(seg, si) in hunks" :key="si">
                     <span v-if="seg.kind === 'context'">{{ seg.text }}</span>
                     <span v-else class="group/h relative inline align-baseline rounded-[3px] transition-colors" :class="resolving === seg.idx ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'">
@@ -638,11 +638,11 @@
             <!-- Scrollable content: title + body -->
             <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
               <div class="max-w-3xl">
-                <input v-if="editing" v-model="draft.title" :placeholder="$t('agentsPage.untitledInstruction')" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
-                <h2 v-else class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ displayTitle(detail) }}</h2>
+                <input v-if="editing" v-model="draft.title" dir="auto" :placeholder="$t('agentsPage.untitledInstruction')" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
+                <h2 v-else dir="auto" class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ displayTitle(detail) }}</h2>
                 <!-- Optional description (advertised for skills) -->
-                <input v-if="editing" v-model="draft.description" :placeholder="$t('agentsPage.addDescriptionOptional')" class="w-full text-sm text-gray-600 dark:text-gray-300 bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-4" />
-                <p v-else-if="detail?.description" class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ detail.description }}</p>
+                <input v-if="editing" v-model="draft.description" dir="auto" :placeholder="$t('agentsPage.addDescriptionOptional')" class="w-full text-sm text-gray-600 dark:text-gray-300 bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-4" />
+                <p v-else-if="detail?.description" dir="auto" class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ detail.description }}</p>
                 <div v-else class="mb-4"></div>
                 <div class="prose-instruction">
                   <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" />
