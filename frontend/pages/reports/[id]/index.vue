@@ -86,7 +86,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
-			<div class="ps-4 pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
 				<ForkedQueriesPanel
@@ -241,7 +241,7 @@
 										</div>
 									</UTooltip>
 								</div>
-								<div class="w-full ms-4 max-w-2xl">
+								<div class="w-full ms-0 md:ms-4 max-w-2xl">
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
