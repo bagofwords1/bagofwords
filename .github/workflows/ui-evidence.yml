@@ -1,0 +1,53 @@
+name: UI evidence
+
+# Enforces the rule in .agents/skills/ui-evidence/SKILL.md: PRs that touch
+# user-facing frontend code must show the change — a screenshot, GIF, or video
+# in the PR description. Apply the `no-visual-change` label to opt out for
+# pure refactors with zero visual effect.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ui-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Detect UI changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ui:
+              - 'frontend/pages/**'
+              - 'frontend/components/**'
+              - 'frontend/layouts/**'
+              - 'frontend/assets/**'
+
+      - name: Require screenshot or video in PR description
+        if: >
+          steps.changes.outputs.ui == 'true' &&
+          !contains(github.event.pull_request.labels.*.name, 'no-visual-change')
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Accept: markdown images, <img>/<video> tags, GitHub attachment
+          # URLs, or direct links to image/video files.
+          if printf '%s' "$BODY" | grep -qiE \
+            '!\[[^]]*\]\([^)]+\)|<img[ >]|<video[ >]|user-images\.githubusercontent\.com|github\.com/user-attachments|https?://[^ )]+\.(png|jpe?g|gif|webp|webm|mp4)'; then
+            echo "UI evidence found in PR description."
+          else
+            echo "::error::This PR changes UI files but its description contains no screenshot/video. Capture before/after evidence (see .agents/skills/ui-evidence/SKILL.md) and add it to the PR description, or have a maintainer apply the 'no-visual-change' label."
+            exit 1
+          fi

@@ -1,6 +1,29 @@
 # AGENTS Guidelines (repo root)
 
-See `frontend/AGENTS.md` and `backend/AGENTS.md` for the per-side guides.
+See `frontend/AGENTS.md` and `backend/AGENTS.md` for the per-side guides, and
+`backend/tests/AGENTS.md` before writing or changing any backend test.
+
+### Agent skills
+
+Reusable agent procedures live in `.agents/skills/<name>/SKILL.md` (canonical
+location, tool-agnostic). `.claude/skills/` and `.codex/skills/` contain
+per-skill symlinks so Claude Code and Codex auto-discover them; other agents
+should read the SKILL.md files directly:
+
+- **sandbox-feedback-loop** — build a runnable reproduce→fix→verify loop for
+  any bug/feature; reports land in `docs/feedback-loops/`.
+- **qa** — map all user-facing functionality (`docs/qa/functionality-map.md`),
+  then live-test flows against a running stack.
+- **ui-evidence** — capture the **mandatory** before/after screenshots (and
+  GIFs/videos for flows) for any change touching
+  `frontend/{pages,components,layouts,assets}/**`. CI
+  (`.github/workflows/ui-evidence.yml`) fails UI PRs without visual evidence.
+- **docs-update** — refresh docs.bagofwords.com (Mintlify MCP) with text +
+  screenshots after user-facing changes ship.
+
+Shared setup scripts (usable by humans too): `tools/agent/boot_stack.sh`
+(run the full stack like CI), `tools/agent/seed_org.py` (seed org/users/demo
+data through the real API), `tools/agent/capture.mjs` (screenshots/videos).
 
 ### Locale / i18n (system overview)
 
