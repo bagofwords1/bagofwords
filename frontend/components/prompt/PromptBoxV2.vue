@@ -1,5 +1,5 @@
 <template>
-    <div class="flex-shrink-0 p-4 pb-8 bg-white dark:bg-gray-900">
+    <div class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
         <!-- Query pills + Excel hint (above container) — hidden for now -->
         <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
