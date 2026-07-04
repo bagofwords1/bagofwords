@@ -4,16 +4,15 @@ import { fileURLToPath } from 'url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = process.env.OUT_DIR || HERE;
-const fileUrl = (w, n) => 'file://' + path.join(HERE, `repro.html?w=${w}&n=${n}`);
+const fileUrl = (w, n, fix) => 'file://' + path.join(HERE, `repro.html?w=${w}&n=${n}${fix ? '&fix=1' : ''}`);
 
 const cases = [
-  { name: 'repro-w300-n8',  w: 300, n: 8, note: 'DEFAULT pane width, 8 connections (bug)' },
-  { name: 'repro-w220-n8',  w: 220, n: 8, note: 'MIN pane width, 8 connections (worse)' },
-  { name: 'ok-w300-n3',     w: 300, n: 3, note: 'default width, 3 connections (fits)' },
-  { name: 'thr-w300-n4',    w: 300, n: 4, note: 'default width, 4 connections (no +N chip)' },
-  { name: 'thr-w300-n5',    w: 300, n: 5, note: 'default width, 5 connections (first +N chip)' },
-  { name: 'repro-w300-n12', w: 300, n: 12, note: 'default width, 12 connections' },
-  { name: 'wide-w460-n8',   w: 460, n: 8, note: 'wide pane, 8 connections' },
+  { name: 'fixed-w300-n8',  w: 300, n: 8,  fix: 1, note: 'FIXED: default width, 8 connections' },
+  { name: 'fixed-w220-n8',  w: 220, n: 8,  fix: 1, note: 'FIXED: min width, 8 connections' },
+  { name: 'fixed-w300-n3',  w: 300, n: 3,  fix: 1, note: 'FIXED: default width, 3 connections' },
+  { name: 'fixed-w300-n12', w: 300, n: 12, fix: 1, note: 'FIXED: default width, 12 connections' },
+  { name: 'repro-w300-n8',  w: 300, n: 8,  fix: 0, note: 'BEFORE: default width, 8 connections (bug)' },
+  { name: 'repro-w220-n8',  w: 220, n: 8,  fix: 0, note: 'BEFORE: min width, 8 connections (worse)' },
 ];
 
 // CHROME_BIN lets you point at a pre-installed Chromium (e.g. the sandbox's
@@ -26,7 +25,7 @@ const page = await browser.newPage({ viewport: { width: 900, height: 160 }, devi
 
 const results = [];
 for (const c of cases) {
-  await page.goto(fileUrl(c.w, c.n), { waitUntil: 'networkidle' });
+  await page.goto(fileUrl(c.w, c.n, c.fix), { waitUntil: 'networkidle' });
   // Wait until Tailwind JIT has actually applied flex to the footer.
   await page.waitForFunction(() => {
     const f = document.querySelector('aside > .border-t');

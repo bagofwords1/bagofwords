@@ -216,29 +216,35 @@
           </template>
         </div>
 
-        <!-- Connections footer -->
+        <!-- Connections footer. The icon preview is the only flexible part: it
+             clips when the pane is narrow so the label, +N count, "new" button
+             and "View all" (the functional affordances) always stay in view and
+             never overflow the pane. py/-my + pe/-me give the status dots room
+             so overflow-hidden doesn't clip them. -->
         <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
-          <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
-            <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
-              <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
-              <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
-            </button>
-          </UTooltip>
-          <UTooltip v-if="connections.length > 4" :text="$t('agentsPage.viewAllConnections', { n: connections.length })">
+          <span class="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
+          <div class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
+            <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
+              <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
+                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
+                <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+              </button>
+            </UTooltip>
+          </div>
+          <UTooltip v-if="connections.length > 4" class="shrink-0" :text="$t('agentsPage.viewAllConnections', { n: connections.length })">
             <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 dark:border-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
-          <UTooltip v-if="canCreateDataSource && connections.length" :text="$t('agentsPage.newConnection')">
+          <UTooltip v-if="canCreateDataSource && connections.length" class="shrink-0" :text="$t('agentsPage.newConnection')">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('agentsPage.addConnection') }}
           </button>
-          <button v-if="connections.length" type="button" class="ms-auto text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">{{ $t('agentsPage.viewAll') }}</button>
+          <button v-if="connections.length" type="button" class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">{{ $t('agentsPage.viewAll') }}</button>
         </div>
 
         <!-- Drag handle to resize the tree pane -->
