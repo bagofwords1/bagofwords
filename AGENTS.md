@@ -20,6 +20,10 @@ one of these tasks:
   screenshots after user-facing changes ship.
 - **localization** — the locale/i18n architecture end to end; follow it when
   adding strings, locales, or touching anything RTL.
+- **add-connection-type** — add a data source/connector (client, config +
+  credentials schemas, registry entry, tests) with verification steps.
+- **add-llm-provider-or-model** — extend the LLM catalog; model id, pricing,
+  and context window must be verified against official docs first.
 
 Shared setup scripts (usable by humans too): `tools/agent/boot_stack.sh`
 (run the full stack like CI), `tools/agent/seed_org.py` (seed org/users/demo
