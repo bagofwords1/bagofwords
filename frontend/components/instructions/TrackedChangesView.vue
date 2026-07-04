@@ -1,5 +1,5 @@
 <template>
-  <div class="tracked-changes-view font-sans">
+  <div dir="auto" class="tracked-changes-view font-sans">
     <template v-if="diffOps.length === 0">
       <span class="text-gray-400 dark:text-gray-600 italic text-xs">{{ $t('trackedChanges.noChanges', 'No changes') }}</span>
     </template>
@@ -28,6 +28,10 @@ defineProps<{
   font-size: 13px;
   line-height: 1.55;
   color: #1f2937;
+  /* Per-line auto direction: Hebrew/Arabic lines read RTL while code or
+   * English lines in the same diff stay LTR. */
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 .tc-equal { color: inherit; }
 .tc-insert {

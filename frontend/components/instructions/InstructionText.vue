@@ -1,5 +1,5 @@
 <template>
-  <span v-if="!markdown" class="whitespace-pre-wrap text-[13px] leading-relaxed text-gray-900 dark:text-white">
+  <span v-if="!markdown" dir="auto" class="whitespace-pre-wrap text-[13px] leading-relaxed text-gray-900 dark:text-white">
     <template v-for="(segment, i) in segments" :key="i">
       <span
         v-if="segment.ref || segment.mention"
@@ -40,6 +40,7 @@
 import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { firstStrongDir } from '~/utils/textDirection'
 
 interface RawReference {
   id?: string
@@ -162,6 +163,34 @@ const segments = computed((): Segment[] => {
 
 const md = new MarkdownIt({ html: true, breaks: false, linkify: false })
 
+// Per-block direction, mirroring the editor's auto-dir decorations: each block
+// token gets an explicit dir from its first strong character, so RTL blocks
+// right-align and list markers / blockquote bars flip to the correct edge
+// (via the logical CSS below). Code blocks are skipped — they stay LTR.
+const DIR_OPEN_TOKENS = new Set([
+  'paragraph_open', 'heading_open', 'bullet_list_open', 'ordered_list_open', 'list_item_open', 'blockquote_open',
+])
+
+md.core.ruler.push('block_dir', (state) => {
+  const tokens = state.tokens
+  for (let i = 0; i < tokens.length; i++) {
+    const open = tokens[i]
+    if (!DIR_OPEN_TOKENS.has(open.type)) continue
+    let dir: 'rtl' | 'ltr' | null = null
+    for (let j = i + 1; j < tokens.length && !dir; j++) {
+      const t = tokens[j]
+      if (t.level <= open.level) break // reached the matching close token
+      if (t.type !== 'inline') continue
+      for (const child of t.children || []) {
+        if (child.type !== 'text' && child.type !== 'code_inline') continue
+        dir = firstStrongDir(child.content)
+        if (dir) break
+      }
+    }
+    if (dir) open.attrSet('dir', dir)
+  }
+})
+
 function preprocessMentions(text: string): string {
   return text.replace(
     /@([A-Za-z_][A-Za-z0-9_]*(?:[.\-][A-Za-z0-9_]+)*|"[^"]+")/g,
@@ -187,6 +216,9 @@ const renderedHtml = computed(() => {
   line-height: 1.625;
   color: #111827;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* `start` resolves against each block's own dir (set per block from its
+   * first strong character), so RTL blocks right-align. */
+  text-align: start;
 }
 
 .instruction-prose :deep(h1) { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; color: #111827; }
@@ -196,8 +228,8 @@ const renderedHtml = computed(() => {
 .instruction-prose :deep(p) { margin-bottom: 0.5em; }
 .instruction-prose :deep(p:last-child) { margin-bottom: 0; }
 
-.instruction-prose :deep(ul) { padding-left: 1.25em; list-style: disc; margin-bottom: 0.5em; }
-.instruction-prose :deep(ol) { padding-left: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
+.instruction-prose :deep(ul) { padding-inline-start: 1.25em; list-style: disc; margin-bottom: 0.5em; }
+.instruction-prose :deep(ol) { padding-inline-start: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
 .instruction-prose :deep(li) { margin-bottom: 0.2em; }
 
 .instruction-prose :deep(code) {
@@ -215,6 +247,10 @@ const renderedHtml = computed(() => {
   border-radius: 6px;
   margin-bottom: 0.5em;
   overflow-x: auto;
+  /* Code always reads LTR (same policy as rtl.css). */
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
 }
 .instruction-prose :deep(pre code) {
   background: none;
@@ -224,8 +260,8 @@ const renderedHtml = computed(() => {
 }
 
 .instruction-prose :deep(blockquote) {
-  border-left: 3px solid #e5e7eb;
-  padding-left: 1em;
+  border-inline-start: 3px solid #e5e7eb;
+  padding-inline-start: 1em;
   margin: 0.5em 0;
   color: #6b7280;
 }
@@ -249,7 +285,7 @@ const renderedHtml = computed(() => {
 :global(.dark .instruction-prose h3) { color: #f9fafb; }
 :global(.dark .instruction-prose code) { background: #374151; color: #e5e7eb; }
 :global(.dark .instruction-prose pre) { background: #1f2937; }
-:global(.dark .instruction-prose blockquote) { border-left-color: #374151; color: #9ca3af; }
+:global(.dark .instruction-prose blockquote) { border-inline-start-color: #374151; color: #9ca3af; }
 :global(.dark .instruction-prose .instruction-mention) {
   background-color: rgba(129, 140, 248, 0.18);
   color: #c7d2fe;
