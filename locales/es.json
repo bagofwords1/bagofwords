@@ -1,4 +1,15 @@
 {
+  "changelog": {
+    "menuItem": "Novedades",
+    "title": "Novedades",
+    "subtitle": "Últimas actualizaciones y mejoras",
+    "latest": "Reciente",
+    "viewOnGithub": "Ver todas las versiones",
+    "retry": "Reintentar",
+    "errorTitle": "No se pudo cargar el registro de cambios",
+    "errorBody": "Algo salió mal al obtener las notas de la versión.",
+    "emptyTitle": "Aún no hay notas de la versión"
+  },
   "agentsPage": {
     "title": "Agentes",
     "subtitle": "Configura tus agentes y los datos, herramientas, habilidades e instrucciones con los que razonan.",

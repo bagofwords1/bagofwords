@@ -305,6 +305,8 @@
 
   <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
 
+  <ChangelogModal v-model="showChangelogModal" />
+
   <!-- Sidebar report actions: share / rename / delete (singletons bound to menuReport) -->
   <!-- Teleported to body so it escapes the sidebar's transform/overflow clipping. -->
   <Teleport to="body">
@@ -378,11 +380,13 @@
   import McpModal from '~/components/McpModal.vue'
   import UserProfileModal from '~/components/UserProfileModal.vue'
   import NotificationModal from '~/components/NotificationModal.vue'
+  import ChangelogModal from '~/components/ChangelogModal.vue'
   import { useCan } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
   const showProfileModal = ref(false)
+  const showChangelogModal = ref(false)
 
   // Sidebar search button opens the global ⌘K command palette.
   const { open: openCommandPalette } = useCommandPalette()
@@ -406,6 +410,7 @@
   watch(() => route.fullPath, () => {
     showMcpModal.value = false
     showProfileModal.value = false
+    showChangelogModal.value = false
     notifOpen.value = false
   })
 
@@ -775,6 +780,10 @@
 
     // Documentation + MCP Server + GitHub moved out of the main sidebar into this menu.
     const resources: any[] = [{
+      label: t('changelog.menuItem'),
+      icon: 'heroicons-sparkles',
+      click: () => { showChangelogModal.value = true }
+    }, {
       label: t('nav.documentation'),
       icon: 'heroicons-book-open',
       click: () => { window.open('https://docs.bagofwords.com', '_blank', 'noopener') }

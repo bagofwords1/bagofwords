@@ -13,6 +13,9 @@ CONTRIBUTING*
 docs/
 documentation/
 media/
+# ...but keep the changelog: the backend serves it at /api/changelog and the
+# Dockerfile copies it into the image (re-included after the *.md/CHANGELOG* rules).
+!CHANGELOG.md
 
 # Development files
 .vscode/
