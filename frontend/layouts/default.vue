@@ -1,7 +1,9 @@
 <template>
   <div>
-    <!-- Fixed global onboarding banner shown above everything -->
-    <div v-if="showGlobalOnboardingBanner" class="fixed top-0 start-0 end-0 z-[1000]">
+    <!-- Fixed global onboarding banner shown above everything.
+         Desktop-only: on mobile it clutters the top and steals height from
+         full-height views (the report chat prompt box gets clipped). -->
+    <div v-if="showGlobalOnboardingBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         @click="router.push(showGlobalOnboardingBannerLink)"
         class="text-center cursor-pointer text-white text-sm bg-blue-500/95 dark:bg-blue-700/90 hover:bg-blue-600/90 dark:hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
@@ -12,7 +14,7 @@
     </div>
 
     <!-- License expiry countdown banner (shown in the last 30 days, and after expiry) -->
-    <div v-if="showLicenseBanner" class="fixed top-0 start-0 end-0 z-[1000]">
+    <div v-if="showLicenseBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         :class="[
           'text-center text-sm py-2 px-4 flex items-center justify-center gap-2 shadow-md',
@@ -36,7 +38,7 @@
   <div v-if="!isExcel && showMobileBar"
     :class="[
       'sm:hidden fixed start-0 end-0 z-40 h-12 flex items-center justify-between px-3 bg-gray-50 dark:bg-gray-950 border-b border-gray-200/80 dark:border-gray-800',
-      showTopBanner ? 'top-10' : 'top-0'
+      'top-0'
     ]">
     <button @click="openMobile" class="flex items-center justify-center w-9 h-9 -ms-1 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70" aria-label="Open menu">
       <UIcon name="i-heroicons-bars-3" class="w-6 h-6" />
@@ -59,7 +61,7 @@
       mobileOpen ? 'translate-x-0 rtl:translate-x-0' : '-translate-x-full rtl:translate-x-full',
       isCollapsed ? 'sm:w-14' : 'sm:w-60',
       mobileOpen ? 'w-72' : 'w-60',
-      showTopBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
+      showTopBanner ? 'top-0 sm:top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
     <button v-if="isCollapsed" @click="toggleSidebar"
@@ -553,13 +555,10 @@
   // Top padding for the content wrapper. Desktop only needs to clear the
   // banner; mobile also needs to clear the 48px mobile bar when it is shown.
   const contentPadClass = computed(() => {
+    // The top banner is desktop-only, so mobile padding never accounts for it —
+    // only the 48px mobile bar (when shown). Desktop still clears the banner.
     const sm = showTopBanner.value ? 'sm:pt-10' : 'sm:pt-0'
-    let mobile
-    if (showMobileBar.value) {
-      mobile = showTopBanner.value ? 'pt-[88px]' : 'pt-12'
-    } else {
-      mobile = showTopBanner.value ? 'pt-10' : 'pt-0'
-    }
+    const mobile = showMobileBar.value ? 'pt-12' : 'pt-0'
     return `${mobile} ${sm}`
   })
   // Close the drawer whenever the route changes (e.g. after tapping a nav item).
