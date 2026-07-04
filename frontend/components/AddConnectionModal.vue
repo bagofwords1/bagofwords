@@ -45,29 +45,8 @@
           <Spinner class="h-4 w-4 text-gray-400" />
         </div>
 
-        <!-- Scrollable region: connectors catalog + data source grid -->
+        <!-- Scrollable region: data source grid + connectors catalog -->
         <div v-else class="max-h-[340px] overflow-y-auto -mx-1 px-1">
-          <!-- Connectors catalog — named one-click app integrations (Notion, Linear…) -->
-          <div v-if="filteredCatalog.length > 0" class="mb-4">
-            <div class="text-xs text-gray-400 mb-2">{{ $t('data.connectorsSection') }}</div>
-            <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-              <button
-                v-for="entry in filteredCatalog"
-                :key="`catalog-${entry.key}`"
-                type="button"
-                @click="selectCatalogEntry(entry)"
-                class="group rounded-lg p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-all w-full"
-              >
-                <div class="flex flex-col items-center text-center">
-                  <div class="p-1">
-                    <DataSourceIcon class="h-6" type="mcp" :connector-key="entry.key" />
-                  </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ entry.title }}</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
           <div v-if="filteredCatalog.length > 0 && filteredDataSources.length > 0" class="text-xs text-gray-400 mb-2">{{ $t('data.dataSourcesSection') }}</div>
 
           <!-- Data source grid -->
@@ -102,6 +81,27 @@
                 </div>
               </div>
             </button>
+          </div>
+
+          <!-- Connectors catalog — named one-click app integrations (Notion, Linear…) -->
+          <div v-if="filteredCatalog.length > 0" class="mt-4">
+            <div class="text-xs text-gray-400 mb-2">{{ $t('data.connectorsSection') }}</div>
+            <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              <button
+                v-for="entry in filteredCatalog"
+                :key="`catalog-${entry.key}`"
+                type="button"
+                @click="selectCatalogEntry(entry)"
+                class="group rounded-lg p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-all w-full"
+              >
+                <div class="flex flex-col items-center text-center">
+                  <div class="p-1">
+                    <DataSourceIcon class="h-6" type="mcp" :connector-key="entry.key" />
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ entry.title }}</div>
+                </div>
+              </button>
+            </div>
           </div>
 
           <!-- No results -->

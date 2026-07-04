@@ -169,6 +169,47 @@ async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def ensure_system_role_assignment(
+    db: AsyncSession, org_id: str, user_id: str, role_name: str,
+) -> None:
+    """Idempotently ensure ``user_id`` holds the system role ``role_name`` in
+    ``org_id`` (RBAC path). Does NOT commit — the caller commits.
+
+    Used by provisioning paths (SCIM/LDAP/OIDC) that create a ``Membership`` so
+    the user gets a real ``role_assignment`` instead of relying on the resolver's
+    transitional legacy-role net.
+    """
+    from app.models.role_assignment import RoleAssignment
+
+    role = (await db.execute(
+        select(Role).where(
+            Role.name == role_name,
+            Role.is_system == True,
+            Role.organization_id.is_(None),
+            Role.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if not role:
+        return
+    existing = (await db.execute(
+        select(RoleAssignment).where(
+            RoleAssignment.organization_id == org_id,
+            RoleAssignment.role_id == role.id,
+            RoleAssignment.principal_type == "user",
+            RoleAssignment.principal_id == user_id,
+            RoleAssignment.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if existing:
+        return
+    db.add(RoleAssignment(
+        organization_id=org_id,
+        role_id=role.id,
+        principal_type="user",
+        principal_id=user_id,
+    ))
+
+
 async def resolve_permissions(
     db: AsyncSession, user_id: str, org_id: str
 ) -> ResolvedPermissions:
@@ -179,7 +220,10 @@ async def resolve_permissions(
     2. Find all roles assigned to user or their groups in this org
     3. Union all role permissions → org_permissions
     4. Find all resource grants for user or their groups → resource_permissions
-    5. Fallback to old Membership.role if no role_assignments exist (dual-read)
+    5. Transitional net: if NO role_assignments exist, fall back to the baseline
+       permissions implied by the legacy Membership.role (dual-read). This is a
+       temporary bridge for un-backfilled/SSO-provisioned users and is removed
+       once every membership is guaranteed a role_assignment.
     """
     memo = _rbac_memo(db)
     if memo is not None and (user_id, org_id) in memo:
@@ -270,6 +314,32 @@ async def _resolve_permissions_inner(
         role_names.append(role_name)
         if isinstance(permissions_list, list):
             org_permissions.update(permissions_list)
+
+    # Transitional backward-compat net: a membership that resolves to NO RBAC
+    # role assignment (e.g. a user provisioned via SCIM/LDAP/OIDC before the
+    # assignment backfill ran) falls back to the baseline permissions implied by
+    # its legacy ``Membership.role`` string. This guarantees such a user is never
+    # stranded with zero permissions during the RBAC transition. It only fires
+    # when there are NO assignments at all, so it never masks a real RBAC role
+    # (e.g. a user explicitly demoted to member keeps exactly the member set).
+    # Remove once every membership is guaranteed a role_assignment.
+    if not role_rows:
+        from app.models.membership import Membership
+        from app.core.permissions_registry import DEFAULT_MEMBER_PERMISSIONS
+
+        legacy_role = (await db.execute(
+            select(Membership.role).where(
+                Membership.user_id == user_id,
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            )
+        )).scalars().first()
+        if legacy_role == "admin":
+            org_permissions.add(FULL_ADMIN)
+            role_names.append("admin")
+        elif legacy_role == "member":
+            org_permissions.update(DEFAULT_MEMBER_PERMISSIONS)
+            role_names.append("member")
 
     # 4. Fetch resource grants (user, groups, and roles the user has)
     grant_principal_conditions = [

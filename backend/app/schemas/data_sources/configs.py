@@ -235,6 +235,60 @@ class MariadbConfig(SQLConfig):
     port: int = Field(3306, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
 
 
+class MssqlKerberosCredentials(BaseModel):
+    """Windows Integrated authentication via Kerberos (service keytab).
+
+    The app authenticates with its own Kerberos identity: either the process
+    default credential cache (populated by kinit / KRB5_CLIENT_KTNAME) or a
+    dedicated principal resolved from the client keytab.
+    """
+    use_kerberos: bool = Field(
+        True,
+        title="Use Kerberos (Windows Integrated)",
+        description="Authenticate with the app's Kerberos identity instead of a SQL login. Requires krb5 to be configured on the server (keytab + krb5.conf).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    kerberos_principal: Optional[str] = Field(
+        None,
+        title="Service Principal (optional)",
+        description="Client principal to authenticate as, e.g. svc-bow@CORP.EXAMPLE.COM. Requires a matching keytab entry. Leave blank to use the default credential cache.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def validate_kerberos_enabled(cls, model: "MssqlKerberosCredentials") -> "MssqlKerberosCredentials":
+        if not model.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return model
+
+
+class MssqlKerberosDelegatedCredentials(BaseModel):
+    """Per-user Kerberos SSO via constrained delegation (S4U2Self + S4U2Proxy).
+
+    The app's service account obtains a delegated ticket for the end user's AD
+    principal and queries SQL Server as that user. Requires the service account
+    to be trusted for constrained delegation with protocol transition in AD.
+    """
+    use_kerberos: bool = Field(
+        True,
+        title="Use Kerberos SSO",
+        description="Queries run under your own Active Directory identity via Kerberos Constrained Delegation.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    kerberos_impersonate: Optional[str] = Field(
+        None,
+        title="Active Directory Principal (UPN)",
+        description="Your AD user principal name, e.g. jdoe@corp.example.com. Leave blank to use your login identity.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def validate_kerberos_enabled(cls, model: "MssqlKerberosDelegatedCredentials") -> "MssqlKerberosDelegatedCredentials":
+        if not model.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return model
+
+
 class MssqlConfig(SQLConfig):
     port: int = Field(1433, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
     schema: Optional[str] = Field(
@@ -974,6 +1028,40 @@ class QVDConfig(BaseModel):
     )
 
 
+# CSV Files (comma/delimiter-separated values)
+class CSVCredentials(BaseModel):
+    """No credentials needed - file system access only."""
+    class Config:
+        extra = "allow"
+
+
+class CSVConfig(BaseModel):
+    file_paths: str = Field(
+        ...,
+        title="File Paths",
+        description="CSV file paths or glob patterns (one per line). e.g., /data/*.csv",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+    delimiter: str = Field(
+        "",
+        title="Delimiter",
+        description="Column delimiter. Leave blank to auto-detect. e.g., ',' ';' '|' or '\\t' for tab.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    has_header: bool = Field(
+        True,
+        title="Has Header Row",
+        description="Whether the first row contains column names.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    encoding: str = Field(
+        "utf-8",
+        title="Encoding",
+        description="File encoding. e.g., utf-8, latin-1.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Qlik Sense (live connector — Qlik Cloud)
 class QlikSenseApiKeyCredentials(BaseModel):
     api_key: str = Field(
@@ -1439,6 +1527,8 @@ __all__ = [
     "PinotConfig",
     "MongoDBConfig",
     "PostHogConfig",
+    "CSVConfig",
+    "CSVCredentials",
     "DuckDBNoAuthCredentials",
     "DuckDBAwsCredentials",
     "DuckDBGcpCredentials",

@@ -16,6 +16,8 @@ from app.schemas.data_sources.configs import (
     NetSuiteConfig,
     SQLConfig,
     MssqlConfig,
+    MssqlKerberosCredentials,
+    MssqlKerberosDelegatedCredentials,
     PrestoConfig,
     TrinoConfig,
     GoogleAnalyticsConfig,
@@ -58,6 +60,9 @@ from app.schemas.data_sources.configs import (
     # QVD Files
     QVDConfig,
     QVDCredentials,
+    # CSV Files
+    CSVConfig,
+    CSVCredentials,
     # Qlik Sense (live connector)
     QlikSenseConfig,
     QlikSenseApiKeyCredentials,
@@ -382,7 +387,14 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="MSSQL is Microsoft's relational database for managing and analyzing data.",
         config_schema=MssqlConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"]),
+            # Windows Integrated auth: the app's own Kerberos identity (keytab /
+            # default ccache). System-scope only — one service principal per connection.
+            "kerberos": AuthVariant(title="Kerberos (Windows Integrated)", schema=MssqlKerberosCredentials, scopes=["system"]),
+            # Per-user Kerberos SSO: the app impersonates the signed-in user via
+            # constrained delegation (S4U2Self + S4U2Proxy). No secret is stored;
+            # the user's UPN is derived from their login identity unless overridden.
+            "kerberos_delegated": AuthVariant(title="Kerberos SSO (per-user delegation)", schema=MssqlKerberosDelegatedCredentials, scopes=["user"]),
         }),
         client_path=None,
     ),
@@ -641,6 +653,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.qvd_client.QVDClient",
         requires_license="enterprise",
+    ),
+    "csv": DataSourceRegistryEntry(
+        type="csv",
+        title="CSV",
+        description="Query CSV (.csv) files with SQL. Point at file paths or glob patterns; each file becomes a table.",
+        config_schema=CSVConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=CSVCredentials,
+                    scopes=["system"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.csv_client.CSVClient",
     ),
     "qlik_sense": DataSourceRegistryEntry(
         type="qlik_sense",

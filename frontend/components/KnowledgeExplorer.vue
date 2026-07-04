@@ -36,7 +36,12 @@
     <!-- Body: tree → detail → versions -->
     <div class="flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
-      <aside class="shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
+      <!-- Desktop: fixed-width resizable pane. Mobile: full-width, and hidden
+           once a detail is open (single-column master → detail). -->
+      <aside
+        class="border-e border-gray-200 dark:border-gray-800 flex flex-col relative"
+        :class="isMobile ? (detailOpen ? 'hidden' : 'w-full') : 'shrink-0'"
+        :style="isMobile ? {} : { width: treeWidth + 'px' }">
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
@@ -216,37 +221,54 @@
           </template>
         </div>
 
-        <!-- Connections footer -->
+        <!-- Connections footer. The icon preview is the only flexible part: it
+             clips when the pane is narrow so the label, +N count, "new" button
+             and "View all" (the functional affordances) always stay in view and
+             never overflow the pane. py/-my + pe/-me give the status dots room
+             so overflow-hidden doesn't clip them. -->
         <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
-          <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
-          <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
-            <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
-              <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
-              <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
-            </button>
-          </UTooltip>
-          <UTooltip v-if="connections.length > 4" :text="$t('agentsPage.viewAllConnections', { n: connections.length })">
+          <span class="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
+          <div class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
+            <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
+              <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
+                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
+                <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+              </button>
+            </UTooltip>
+          </div>
+          <UTooltip v-if="connections.length > 4" class="shrink-0" :text="$t('agentsPage.viewAllConnections', { n: connections.length })">
             <button type="button" class="inline-flex items-center justify-center h-6 px-1.5 rounded-md border border-gray-200 dark:border-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showConnectionsModal = true">+{{ connections.length - 4 }}</button>
           </UTooltip>
-          <UTooltip v-if="canCreateDataSource && connections.length" :text="$t('agentsPage.newConnection')">
+          <UTooltip v-if="canCreateDataSource && connections.length" class="shrink-0" :text="$t('agentsPage.newConnection')">
             <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400" @click="connTargetAgentId = null; showAddConnection = true">
               <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('agentsPage.addConnection') }}
           </button>
-          <button v-if="connections.length" type="button" class="ms-auto text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">{{ $t('agentsPage.viewAll') }}</button>
+          <button v-if="connections.length" type="button" class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">{{ $t('agentsPage.viewAll') }}</button>
         </div>
 
-        <!-- Drag handle to resize the tree pane -->
-        <div class="absolute top-0 end-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" :title="$t('agentsPage.tipDragResize')" @mousedown="startTreeResize"></div>
+        <!-- Drag handle to resize the tree pane (desktop only) -->
+        <div v-if="!isMobile" class="absolute top-0 end-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" :title="$t('agentsPage.tipDragResize')" @mousedown="startTreeResize"></div>
       </aside>
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
-      <section class="flex-1 min-w-0 flex flex-col">
+      <!-- Detail pane. Mobile: full-width, hidden until an item is selected. -->
+      <section class="flex-1 min-w-0 flex flex-col" :class="{ hidden: isMobile && !detailOpen }">
+        <!-- Mobile back-to-tree bar -->
+        <button
+          v-if="isMobile && detailOpen"
+          type="button"
+          class="flex items-center gap-1.5 h-11 px-3 shrink-0 text-sm text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-800"
+          @click="backToTree"
+        >
+          <UIcon name="i-heroicons-arrow-left" class="w-4 h-4 rtl-flip" />
+          {{ $t('common.back') }}
+        </button>
         <!-- Review feed -->
         <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
           <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
@@ -893,9 +915,14 @@ import { useOrgSettings } from '~/composables/useOrgSettings'
 const h = useInstructionHelpers()
 const toast = useToast()
 const { t } = useI18n()
-// Training mode is gated by org setting + permission (mirrors the legacy agents page).
+// Training mode is the per-agent admin capability: gated on the org setting plus
+// manage_instructions on the currently-open agent (a per-DS `manage` grant
+// implies it; full_admin bypasses). Mirrors the backend gate.
 const { isTrainingModeEnabled } = useOrgSettings()
-const agentCanStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
+const agentCanStartTraining = computed(() => {
+  const id = agentView.value?.agentId
+  return isTrainingModeEnabled.value && !!id && useCan('manage_instructions', { type: 'data_source', id })
+})
 
 // ── State ───────────────────────────────────────────────
 // `allInstructions` is the LAZY row cache — it holds only the instruction rows
@@ -1547,6 +1574,26 @@ const onConnModalChanged = async () => {
 // Top banner (license/onboarding) presence — so this full-height view subtracts
 // the banner height instead of overflowing 40px below the viewport.
 const { showTopBanner, bannerHeight } = useTopBanner()
+
+// Mobile master → detail: on phones the tree and detail can't sit side by side,
+// so we show one at a time. `detailOpen` is true whenever the detail pane has
+// something to show; `backToTree` clears every detail state to return to the tree.
+const { isMobile } = useMobile()
+const detailOpen = computed(() => !!(
+  reviewView.value || agentView.value || panelView.value ||
+  previewFile.value || detail.value || creating.value
+))
+const backToTree = () => {
+  closeReview()
+  closeAgentView()
+  closePanel()
+  closePreview()
+  closeDiff()
+  detail.value = null
+  selectedId.value = null
+  creating.value = false
+  editing.value = false
+}
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))

@@ -1,6 +1,6 @@
 <template>
 
-    <div class="flex flex-row h-screen overflow-y-hidden bg-white dark:bg-gray-900">
+    <div class="flex flex-row h-dvh overflow-y-hidden bg-white dark:bg-gray-900">
         <!-- Left (Chat) — z-20 so popovers can overlap the right panel -->
         <div class="relative z-20" :style="{
                 width: isSplitScreen ? `${leftPanelWidth}px` : '100%',

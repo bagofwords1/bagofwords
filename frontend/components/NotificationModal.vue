@@ -20,6 +20,23 @@
         </div>
       </div>
 
+      <!-- Filters -->
+      <div class="flex items-center gap-1 px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+        <button
+          v-for="f in FILTERS"
+          :key="f.value"
+          @click="filter = f.value"
+          :class="[
+            'text-[12px] px-2.5 py-1 rounded-full transition-colors',
+            filter === f.value
+              ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-medium'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70'
+          ]"
+        >
+          {{ f.label }}<span v-if="f.value === 'unread' && unread" class="ms-1 opacity-70">{{ unread > 99 ? '99+' : unread }}</span>
+        </button>
+      </div>
+
       <!-- List -->
       <div class="flex-1 overflow-y-auto min-h-[220px]">
         <div v-if="loading" class="py-14 flex justify-center">
@@ -38,17 +55,23 @@
           >Try again</button>
         </div>
 
-        <div v-else-if="!items.length" class="py-16 flex flex-col items-center text-center gap-2 px-6">
+        <div v-else-if="!visibleItems.length" class="py-16 flex flex-col items-center text-center gap-2 px-6">
           <div class="flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 dark:bg-gray-800">
             <UIcon name="i-heroicons-bell-slash" class="w-6 h-6 text-gray-300 dark:text-gray-600" />
           </div>
-          <p class="text-sm font-medium text-gray-700 dark:text-gray-300">You're all caught up</p>
-          <p class="text-xs text-gray-400 dark:text-gray-500">New notifications will show up here.</p>
+          <template v-if="filter === 'unread' && items.length">
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">No unread notifications</p>
+            <p class="text-xs text-gray-400 dark:text-gray-500">You've read everything in your inbox.</p>
+          </template>
+          <template v-else>
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">You're all caught up</p>
+            <p class="text-xs text-gray-400 dark:text-gray-500">New notifications will show up here.</p>
+          </template>
         </div>
 
         <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800">
           <li
-            v-for="n in items"
+            v-for="n in visibleItems"
             :key="n.id"
             @click="onRowClick(n)"
             :class="[
@@ -96,6 +119,16 @@ import type { BowNotification } from '~/composables/useNotifications'
 
 const router = useRouter()
 const { isOpen, items, unread, loading, error, fetchItems, markRead, markAllRead, dismiss } = useNotifications()
+
+// All / Unread filter (client-side; the list is already fully loaded).
+const FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'unread', label: 'Unread' },
+] as const
+const filter = ref<'all' | 'unread'>('all')
+const visibleItems = computed(() =>
+  filter.value === 'unread' ? items.value.filter(n => !n.read) : items.value
+)
 
 // Severity → accent (icon bubble).
 function sevBg(n: BowNotification): string {
@@ -161,6 +194,9 @@ function onRowClick(n: BowNotification) {
 
 // Refetch the list each time the modal opens (badge count stays live via polling).
 watch(isOpen, (open) => {
-  if (open) fetchItems()
+  if (open) {
+    filter.value = 'all'
+    fetchItems()
+  }
 })
 </script>

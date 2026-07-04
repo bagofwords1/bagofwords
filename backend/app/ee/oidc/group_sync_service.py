@@ -169,6 +169,9 @@ async def _ensure_org_membership(
             organization_id=organization_id,
             role="member",
         ))
+        # Give the user a real RBAC assignment (not just the legacy string).
+        from app.core.permission_resolver import ensure_system_role_assignment
+        await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
         logger.info(
             f"OIDC group sync: auto-created org membership for user {user_id} "
             f"in org {organization_id}"

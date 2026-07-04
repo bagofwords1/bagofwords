@@ -103,5 +103,13 @@ export function usePrompts() {
     return (data.value as any) || null
   }
 
-  return { listPrompts, getPrompt, createPrompt, updatePrompt, deletePrompt, runPrompt, runPromptFor }
+  async function getRunForTargets(id: string): Promise<{
+    users: { id: string; name?: string; email?: string }[]
+    groups: { id: string; name: string; member_count: number; eligible_count: number }[]
+  } | null> {
+    const { data } = await useMyFetch<any>(`/api/prompts/${id}/run-for/targets`)
+    return (data.value as any) || null
+  }
+
+  return { listPrompts, getPrompt, createPrompt, updatePrompt, deletePrompt, runPrompt, runPromptFor, getRunForTargets }
 }

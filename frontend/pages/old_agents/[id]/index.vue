@@ -195,9 +195,14 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast?.()
 
-// Training mode is gated by org setting + permission (mirrors the prompt box).
+// Training mode is the per-agent admin capability: gated on the org setting plus
+// manage_instructions on THIS agent (a per-DS `manage` grant implies it;
+// full_admin bypasses). Mirrors the backend gate.
 const { isTrainingModeEnabled } = useOrgSettings()
-const canStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
+const canStartTraining = computed(() =>
+  isTrainingModeEnabled.value &&
+  useCan('manage_instructions', { type: 'data_source', id: (route.params.id as string) })
+)
 
 // Inject integration data from layout (avoid duplicate API calls)
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))

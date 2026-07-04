@@ -53,21 +53,32 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 14.00
     },
     {
-        "name": "Claude 4.6 Sonnet",
-        "model_id": "claude-sonnet-4-6",
+        "name": "Claude Fable 5",
+        "model_id": "claude-fable-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "input_cost_per_million_tokens_usd": 10.00,
+        "output_cost_per_million_tokens_usd": 50.00
+    },
+    {
+        "name": "Claude Sonnet 5",
+        "model_id": "claude-sonnet-5",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
         "is_default": True,
         "supports_vision": True,
-        "context_window_tokens": 200000,
+        "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
     },
-  
     {
-        "name": "Claude 4.6 Opus",
-        "model_id": "claude-opus-4-6",
+        "name": "Claude Opus 4.8",
+        "model_id": "claude-opus-4-8",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
@@ -77,29 +88,17 @@ LLM_MODEL_DETAILS = [
         "input_cost_per_million_tokens_usd": 5.00,
         "output_cost_per_million_tokens_usd": 25.00
     },
-  {
-        "name": "Claude 4.5 Sonnet",
-        "model_id": "claude-sonnet-4-5-20250929",
+    {
+        "name": "Claude 4.6 Sonnet",
+        "model_id": "claude-sonnet-4-6",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
         "supports_vision": True,
-        "context_window_tokens": 200000,
+        "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
-    },
-    {
-        "name": "Claude 4.5 Opus",
-        "model_id": "claude-opus-4-5-20251101",
-        "provider_type": "anthropic",
-        "is_preset": True,
-        "is_enabled": True,
-        "is_default": False,
-        "supports_vision": True,
-        "context_window_tokens": 200000,
-        "input_cost_per_million_tokens_usd": 5.00,
-        "output_cost_per_million_tokens_usd": 25.00
     },
     {
         "name": "Claude 4.5 Haiku",

@@ -1,5 +1,28 @@
 # Release Notes
 
+## Version 0.0.433 (July 4, 2026)
+- **Claude Fable 5 support** — Claude Fable 5 (`claude-fable-5`) is now a selectable Anthropic preset model.
+- **Mobile web UI pass (#534)** — responsive fixes across the main mobile screens. The public artifact top bar is now icon-only on mobile (no more overlapping Back/tabs/Refreshed/Edit/✕), and the artifact/report browser tab (and "Add to Home screen" shortcut) shows the report title instead of the report UUID. Inputs are forced to 16px on small screens to stop iOS focus-zoom, full-height shells use `h-dvh`, and a mobile navigation drawer (hamburger + slide-in sidebar) makes Home/Reports/Dashboards/Settings reachable on a phone. The "Configure your LLM" banner is desktop-only, the report chat prompt box is full-width and aligned with the message/tool content, and the CreateData tool's children are mobile-friendly (data-table columns fill the width with no stray pagination footer; chart x-axis labels no longer overlap). Desktop layout is unchanged.
+- **Fix /agents connections footer overflow** — the connections pane's "View all" footer no longer spills outside the pane.
+- **MCP tool rows show the connector's icon** — `execute_mcp` rows in the report chat now render the catalog connector's brand icon (Monday, Jira, …) or the MCP logo for custom servers, instead of a generic glyph.
+
+
+## Version 0.0.432 (July 3, 2026)
+- Fix role-management RBAC ↔ legacy-role divergence and sso_only login lockout; adds backfill migration `rbacbf01` (#529)
+- Fix extreme slowness on report/artifact pages with large data (#531)
+- Fix missing numbers & empty charts in emailed/exported dashboard PDFs (#527)
+- Fix pending-changes badge counting rows the pending view can't show (#528)
+- Training-mode-for-agent-admins verification plan (#530)
+
+
+## Version 0.0.431 (July 3, 2026)
+- CSV data source connector (#522)
+- Claude Sonnet 5 / Opus 4.8 support (#523)
+- Enforce prompt write policy at the route layer (#524)
+- Localized, direction-aware follow-up suggestions (#521)
+- Fix single-value cards rendering the wrong cell as the metric (#520)
+
+
 ## Version 0.0.430 (July 2, 2026)
 - Faster instruction loading
 - Instructions view in reportagent vs knowledge view

@@ -183,7 +183,11 @@ function getAxisLabelConfig(numCategories: number): { interval: number; rotate: 
   if (numCategories > 25) return { interval: 1, rotate: 45, hideOverlap: true }
   if (numCategories > 10) return { interval: 1, rotate: 45, hideOverlap: true }
   if (numCategories > 5) return { interval: 0, rotate: 45, hideOverlap: true }
-  return { interval: 0, rotate: 0, hideOverlap: false }
+  // Keep labels upright for a handful of categories, but still let ECharts drop
+  // any that would overlap — otherwise long category names (or a narrow/mobile
+  // chart) render on top of each other. On a wide desktop chart they all fit, so
+  // nothing is hidden and the appearance is unchanged.
+  return { interval: 0, rotate: 0, hideOverlap: true }
 }
 
 function hexToRGBA(hex: string, alpha: number): string {

@@ -1,6 +1,7 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from app.models.artifact import Artifact
 from app.models.report import Report
@@ -38,8 +39,13 @@ class ArtifactService:
         return artifact
 
     async def get(self, db: AsyncSession, artifact_id: str) -> Optional[Artifact]:
-        """Get an artifact by ID."""
-        stmt = select(Artifact).where(
+        """Get an artifact by ID.
+
+        lazyload("*"): consumers only use the artifact's own columns;
+        Artifact.report would otherwise selectin-cascade the entire report
+        graph (every step version's data JSON) on each fetch.
+        """
+        stmt = select(Artifact).options(lazyload("*")).where(
             Artifact.id == str(artifact_id),
             Artifact.deleted_at.is_(None),
         )
@@ -61,6 +67,7 @@ class ArtifactService:
         """
         stmt = (
             select(Artifact)
+            .options(lazyload("*"))
             .where(
                 Artifact.report_id == str(report_id),
                 Artifact.deleted_at.is_(None),
@@ -78,6 +85,7 @@ class ArtifactService:
         """Get the most recent artifact for a report."""
         stmt = (
             select(Artifact)
+            .options(lazyload("*"))
             .where(
                 Artifact.report_id == str(report_id),
                 Artifact.deleted_at.is_(None),

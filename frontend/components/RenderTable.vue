@@ -209,6 +209,13 @@ watch(step, updateData, { deep: true, immediate: true });
   background-color: var(--ag-background-color) !important;
   color: var(--ag-foreground-color) !important;
   border-top: 1px solid var(--ag-border-color) !important;
+  /* Wrap gracefully on narrow/mobile widths instead of overlapping its parts. */
+  flex-wrap: wrap;
+  height: auto;
+  row-gap: 4px;
+  justify-content: center;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .ag-theme-custom .ag-paging-button {

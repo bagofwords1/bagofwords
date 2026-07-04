@@ -192,7 +192,37 @@ def _first_series_aggregation(series: List[Dict[str, Any]]) -> Optional[str]:
 # (e.g. a `Metric | Value | Format` KPI table) down to the one relevant row.
 # Dropping it makes count/metric_card render the first (unfiltered) row — the
 # date or the metric label — instead of the value the user asked for.
-_INFERRED_DM_CARRY_KEYS = ("series", "group_by", "sort", "limit", "filters")
+# `display` carries presentation formatting (currency/percent/prefix) — the
+# data itself stays raw numeric; symbols are applied at render time.
+_INFERRED_DM_CARRY_KEYS = ("series", "group_by", "sort", "limit", "filters", "display")
+
+
+_ALLOWED_DISPLAY_FORMATS = {"number", "currency", "percent", "compact"}
+_CURRENCY_CODE_RE = re.compile(r"^[A-Za-z]{3}$")
+
+
+def sanitize_display_options(d: Any) -> Optional[Dict[str, str]]:
+    """Validate the inference-emitted `display` object down to safe values.
+
+    Presentation only — format/currency/prefix/suffix for single-value cards.
+    Anything malformed is dropped rather than propagated to the view.
+    """
+    if not isinstance(d, dict):
+        return None
+    out: Dict[str, str] = {}
+    fmt = str(d.get("format") or "").strip().lower()
+    if fmt in _ALLOWED_DISPLAY_FORMATS:
+        out["format"] = fmt
+    cur = d.get("currency")
+    if isinstance(cur, str) and _CURRENCY_CODE_RE.match(cur.strip()):
+        out["currency"] = cur.strip().upper()
+        # A currency code implies currency formatting unless stated otherwise.
+        out.setdefault("format", "currency")
+    for key in ("prefix", "suffix"):
+        v = d.get(key)
+        if isinstance(v, str) and 0 < len(v.strip()) <= 8:
+            out[key] = v.strip()
+    return out or None
 
 
 def finalize_inferred_data_model(
@@ -219,6 +249,272 @@ _SINGLE_VALUE_CARD_TYPES = {"count", "metric_card"}
 
 def _norm(s: Any) -> str:
     return str(s).strip().lower() if s is not None else ""
+
+
+_CURRENCY_SEPARATOR_RE = re.compile(r"[₪$€£¥,\s]")
+_NUMERIC_STRING_RE = re.compile(r"^[+-]?\d+(\.\d+)?$")
+_DATE_STRING_RE = re.compile(
+    r"^\d{4}-\d{1,2}-\d{1,2}([ T].*)?$"      # 2025-12-22 / ISO
+    r"|^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$"     # 23.06.2026, 6/23/26
+    r"|^\d{4}[./]\d{1,2}[./]\d{1,2}$"         # 2026.06.23
+)
+_TIME_COLUMN_NAME_RE = re.compile(
+    r"(date|time|day|month|week|year|period|timestamp|תאריך|חודש|שנה|יום|שבוע)",
+    re.IGNORECASE,
+)
+
+
+def _parse_numeric_like(value: Any) -> Optional[float]:
+    """Parse a raw or display-formatted numeric cell.
+
+    Accepts real numbers and strings like "1234", "₪29,134,139", "4,125.04",
+    "45.2%". Returns None for anything else (dates, labels, mixed text) so
+    callers can tell "numeric measure" from "label/date" reliably.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return float(value)
+        except Exception:
+            return None
+    if not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    s = _CURRENCY_SEPARATOR_RE.sub("", s)
+    if s.endswith("%"):
+        s = s[:-1]
+    if not _NUMERIC_STRING_RE.match(s):
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def _looks_like_date_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(_DATE_STRING_RE.match(value.strip()))
+
+
+def _column_fields(formatted: Dict[str, Any]) -> List[str]:
+    return [
+        c.get("field")
+        for c in ((formatted or {}).get("columns") or [])
+        if isinstance(c, dict) and c.get("field")
+    ]
+
+
+def _column_cells(rows: List[Dict[str, Any]], col: str, cap: int = 50) -> List[Any]:
+    out = []
+    for r in rows[:cap]:
+        if isinstance(r, dict) and r.get(col) is not None:
+            out.append(r.get(col))
+    return out
+
+
+def _numeric_like_ratio(cells: List[Any]) -> float:
+    if not cells:
+        return 0.0
+    return sum(1 for c in cells if _parse_numeric_like(c) is not None) / len(cells)
+
+
+def _pick_value_column(rows: List[Dict[str, Any]], columns: List[str]) -> Optional[str]:
+    """Deterministically pick the measure column when inference didn't provide one.
+
+    Rules (strict on purpose — returning None demotes the card to a table):
+    - single column → that column (a deliberate single-value result);
+    - exactly one numeric-looking column → that column;
+    - several numeric-looking columns → drop time/id-named ones; if one remains
+      use it; for single-row results fall back to the first (mirrors the
+      legacy frontend behaviour for wide KPI rows); multi-row stays ambiguous.
+    """
+    if not rows or not columns:
+        return None
+    if len(columns) == 1:
+        return columns[0]
+    numericish = []
+    for col in columns:
+        cells = _column_cells(rows, col)
+        if cells and _numeric_like_ratio(cells) >= 0.5:
+            numericish.append(col)
+    if len(numericish) == 1:
+        return numericish[0]
+    if not numericish:
+        return None
+    deprioritized = re.compile(r"(date|year|month|week|day|time|id)$", re.IGNORECASE)
+    preferred = [c for c in numericish if not deprioritized.search(str(c))]
+    pool = preferred or numericish
+    if len(pool) == 1:
+        return pool[0]
+    if len(rows) == 1:
+        return pool[0]
+    return None
+
+
+def _match_default_filter(row: Dict[str, Any], f: Dict[str, Any]) -> bool:
+    """Mirror of the frontend's matchDefaultFilter (ToolWidgetPreview.vue)."""
+    if not isinstance(row, dict) or not isinstance(f, dict) or not f.get("column"):
+        return True
+    key = next((k for k in row.keys() if _norm(k) == _norm(f.get("column"))), None)
+    if key is None:
+        return True
+    cell = row.get(key)
+    s_cell = "" if cell is None else str(cell)
+    s_val = "" if f.get("value") is None else str(f.get("value"))
+    op = str(f.get("operator") or "equals")
+    if op == "equals":
+        return s_cell == s_val
+    if op == "not_equals":
+        return s_cell != s_val
+    if op == "contains":
+        return s_val in s_cell
+    if op == "not_contains":
+        return s_val not in s_cell
+    if op == "starts_with":
+        return s_cell.startswith(s_val)
+    if op == "ends_with":
+        return s_cell.endswith(s_val)
+    if op == "is_empty":
+        return s_cell == ""
+    if op == "is_not_empty":
+        return s_cell != ""
+    if op in ("greater_than", "less_than", "gte", "lte"):
+        a = _parse_numeric_like(cell)
+        b = _parse_numeric_like(f.get("value"))
+        if a is None or b is None:
+            return False
+        return {
+            "greater_than": a > b,
+            "less_than": a < b,
+            "gte": a >= b,
+            "lte": a <= b,
+        }[op]
+    return True
+
+
+def _count_filter_hits(rows: List[Dict[str, Any]], filters: List[Dict[str, Any]]) -> int:
+    return sum(
+        1
+        for r in rows
+        if isinstance(r, dict) and all(_match_default_filter(r, f) for f in filters if isinstance(f, dict))
+    )
+
+
+def _has_time_like_column(
+    formatted: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+    columns: List[str],
+    exclude: Optional[str],
+) -> bool:
+    """A time axis next to the measure marks the legit multi-row card pattern
+    (latest value + sparkline), which must keep its legacy behaviour."""
+    column_info = ((formatted or {}).get("info") or {}).get("column_info") or {}
+    for col in columns:
+        if col == exclude:
+            continue
+        if _TIME_COLUMN_NAME_RE.search(str(col)):
+            return True
+        dtype = str((column_info.get(col) or {}).get("dtype") or "")
+        if "datetime" in dtype or dtype == "date":
+            return True
+        cells = _column_cells(rows, col)
+        if cells and sum(1 for c in cells if _looks_like_date_string(c)) / len(cells) >= 0.8:
+            return True
+    return False
+
+
+def ensure_single_value_card_renderable(
+    final_dm: Dict[str, Any],
+    formatted: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Deterministic last line of defense for count/metric_card.
+
+    A single-value card must be able to point at one numeric cell: a concrete
+    value column, plus (for multi-row results) a row selector — a filter that
+    matches exactly one row, an aggregation, or a time axis (the sparkline /
+    "latest value" pattern). When none of that holds — the exact state produced
+    by a melted ``Metric | Value`` display table with a failed inference pass —
+    the card would render an arbitrary cell (the date row or a label), so the
+    type is demoted to ``table``, which is always a truthful rendering.
+
+    Purely structural: no LLM calls, no text matching beyond what
+    ``derive_kpi_row_filter`` already does.
+    """
+    if not isinstance(final_dm, dict) or final_dm.get("type") not in _SINGLE_VALUE_CARD_TYPES:
+        return final_dm
+
+    rows = (formatted or {}).get("rows") or []
+    if not rows:
+        return final_dm  # empty result renders as '—' honestly
+    columns = _column_fields(formatted)
+    if not columns:
+        return final_dm
+
+    out = dict(final_dm)
+    series = [dict(s) for s in (out.get("series") or []) if isinstance(s, dict)]
+    first = series[0] if series else {}
+
+    # 1) Resolve the value column; drop hallucinated ones.
+    value_col = first.get("value") or first.get("metric")
+    if value_col is not None and not any(_norm(value_col) == _norm(c) for c in columns):
+        value_col = None
+    if value_col is None:
+        value_col = _pick_value_column(rows, columns)
+        if value_col is not None:
+            first = {**first, "value": value_col}
+            series = [first] + series[1:] if series else [first]
+            out["series"] = series
+    if value_col is None:
+        return _demote_card_to_table(out, reason="no resolvable value column")
+
+    if len(rows) == 1:
+        return out  # rows[0] is the answer and the column is pinned
+
+    # 2) Multi-row: an existing filter must select exactly one row.
+    filters = [f for f in (out.get("filters") or []) if isinstance(f, dict)]
+    if filters:
+        if _count_filter_hits(rows, filters) == 1:
+            return out
+        out["filters"] = None  # invalid filter — drop rather than mislead
+
+    # 3) Melted-table row selection by series-name match (existing safeguard).
+    derived = derive_kpi_row_filter(out, formatted)
+    if derived:
+        out["filters"] = [derived]
+        return out
+
+    # 4) Aggregation over a numeric measure is a valid row-reducer — unless the
+    #    measure column mixes in date strings (melted-table symptom: summing a
+    #    date together with the metrics would show garbage).
+    agg = first.get("aggregation")
+    if agg in _VALID_AGGREGATIONS:
+        cells = _column_cells(rows, value_col)
+        mixed_with_dates = any(_looks_like_date_string(c) for c in cells)
+        if agg == "count" or (_numeric_like_ratio(cells) >= 0.5 and not mixed_with_dates):
+            return out
+
+    # 5) Time series next to the measure: legacy "latest value (+sparkline)" card.
+    if (
+        first.get("sparkline_column")
+        or first.get("time_series")
+        or out.get("has_time_series")
+        or _has_time_like_column(formatted, rows, columns, exclude=value_col)
+    ):
+        return out
+
+    return _demote_card_to_table(out, reason="multi-row result with no row selector")
+
+
+def _demote_card_to_table(final_dm: Dict[str, Any], reason: str) -> Dict[str, Any]:
+    logger.info(
+        "create_data: demoting %s to table (%s)", final_dm.get("type"), reason
+    )
+    demoted = dict(final_dm)
+    demoted["type"] = "table"
+    demoted["filters"] = None
+    return demoted
 
 
 def derive_kpi_row_filter(
@@ -402,6 +698,10 @@ def build_view_from_data_model(
         view = TableView(title=title, defaultFilters=default_filters)
         return ViewSchema(view=view)
 
+    # Presentation formatting for single-value cards (validated upstream by
+    # sanitize_display_options; re-sanitize here so direct callers are safe too).
+    display = sanitize_display_options(data_model.get("display")) or {}
+
     # CountView - simple single value display (value is optional)
     if chart_type == "count":
         base = series[0] if series else {}
@@ -409,6 +709,10 @@ def build_view_from_data_model(
         view = CountView(
             title=title,
             value=str(value_key) if value_key else None,
+            format=display.get("format", "number"),
+            currency=display.get("currency"),
+            prefix=display.get("prefix"),
+            suffix=display.get("suffix"),
             palette=palette,
             aggregation=_first_series_aggregation(series),
             defaultFilters=default_filters,
@@ -448,13 +752,25 @@ def build_view_from_data_model(
 
         # value is REQUIRED for MetricCardView - if we don't have it, fall back to CountView
         if not value_key:
-            view = CountView(title=title, palette=palette, defaultFilters=default_filters)
+            view = CountView(
+                title=title,
+                format=display.get("format", "number"),
+                currency=display.get("currency"),
+                prefix=display.get("prefix"),
+                suffix=display.get("suffix"),
+                palette=palette,
+                defaultFilters=default_filters,
+            )
             return ViewSchema(view=view)
 
         view = MetricCardView(
             title=title,
             value=str(value_key),
             comparison=str(comparison_key) if comparison_key else None,
+            format=display.get("format", "number"),
+            currency=display.get("currency"),
+            prefix=display.get("prefix"),
+            suffix=display.get("suffix"),
             comparisonLabel=comparison_label,
             invertTrend=invert_trend,
             sparkline=sparkline,
@@ -717,11 +1033,28 @@ Prefer aggregation when the intent is "all data, summarized". Prefer filters
 when the intent is "this specific slice". Setting both is rarely useful.
 
 ═══════════════════════════════════════════════════════════════════════════════
+DISPLAY FORMATTING (optional, for count / metric_card)
+═══════════════════════════════════════════════════════════════════════════════
+
+The data is raw numeric; presentation is applied at render time. For a
+single-value card you may add a top-level "display" object:
+
+{{"display": {{"format": "currency", "currency": "ILS"}}}}
+
+- format: "number" | "currency" | "percent" | "compact"
+- currency: ISO-4217 code (ILS, USD, EUR, ...) — set it whenever format is "currency"
+- prefix / suffix: short literal unit strings (e.g. "%", " units") when a currency code doesn't apply
+
+Choose based on the metric's meaning, the user's language/locale, and the
+organization instructions (e.g. revenue for an Israeli org → {{"format": "currency", "currency": "ILS"}};
+a ratio → {{"format": "percent"}}). Omit "display" when plain numbers are right.
+
+═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
 Return only valid JSON:
-{{"type": "...", "series": [...], "group_by": "column_name_or_null", "filters": [...]}}
+{{"type": "...", "series": [...], "group_by": "column_name_or_null", "filters": [...], "display": {{...}}}}
 
 Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
 Include "aggregation" on each series entry when rows are granular.
@@ -764,6 +1097,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     candidate = dm.model_dump()
                 except Exception:
                     candidate = {"type": "table", "series": []}
+                # Presentation formatting (currency/percent/prefix) — validated
+                # separately since it's a view concern, not part of DataModel.
+                display = sanitize_display_options(candidate_json.get("display"))
+                if display:
+                    candidate["display"] = display
                 # Extract optional view mappings (limit/sort/colors) from candidate_json.view
                 try:
                     view = candidate_json.get("view") if isinstance(candidate_json, dict) else None
@@ -1026,6 +1364,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         context_hub = runtime_ctx.get("context_hub")
 
         # Early: signal intended artifact type and request step creation before code-gen
+        early_viz_type = None
         try:
             # Single signal: declare type and pass the intended query title
             allowed_types = ALLOWED_VIZ_TYPES
@@ -1035,6 +1374,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             except Exception:
                 requested_type = None
             viz_type = requested_type if requested_type in allowed_types else "table"
+            early_viz_type = viz_type
             yield ToolProgressEvent(
                 type="tool.progress",
                 payload={
@@ -1271,6 +1611,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             interpreted_prompt=(data.interpreted_prompt or None),
             schemas_excerpt=(schemas_excerpt or ""),
             tables_by_source=resolved_tables or None,
+            target_visualization_type=(early_viz_type if early_viz_type and early_viz_type != "table" else None),
         )
 
         # Combine schemas with files for additional grounding (keep previous semantics)
@@ -1500,13 +1841,12 @@ Do not use generic placeholders like "value" unless that is the actual column na
         # series/grouping/sort/limit/filters from inference. (filters carry the
         # default-filter that narrows a melted KPI table to the asked-for row.)
         final_dm = finalize_inferred_data_model(fallback_type, inferred_dm)
-        # Safeguard: a single-value card over a melted/long table needs a filter
-        # to pick the asked-for row. If the model didn't emit one, derive it from
-        # the series name so the card shows the metric value, not row 0.
-        if not final_dm.get("filters"):
-            derived_filter = derive_kpi_row_filter(final_dm, formatted)
-            if derived_filter:
-                final_dm["filters"] = [derived_filter]
+        # Deterministic guard: a single-value card must resolve to one numeric
+        # cell (value column + row selector). It repairs what it can (missing
+        # value column, series-name row filter via derive_kpi_row_filter) and
+        # demotes the type to table when unresolvable — a card must never
+        # render an arbitrary cell (the date row or a metric label).
+        final_dm = ensure_single_value_card_renderable(final_dm, formatted)
         palette_theme = _infer_palette_theme(runtime_ctx) or "default"
         # Extract available column names from formatted data for fallback inference
         available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]

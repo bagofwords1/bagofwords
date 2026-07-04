@@ -1,7 +1,9 @@
 <template>
   <div>
-    <!-- Fixed global onboarding banner shown above everything -->
-    <div v-if="showGlobalOnboardingBanner" class="fixed top-0 start-0 end-0 z-[1000]">
+    <!-- Fixed global onboarding banner shown above everything.
+         Desktop-only: on mobile it clutters the top and steals height from
+         full-height views (the report chat prompt box gets clipped). -->
+    <div v-if="showGlobalOnboardingBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         @click="router.push(showGlobalOnboardingBannerLink)"
         class="text-center cursor-pointer text-white text-sm bg-blue-500/95 dark:bg-blue-700/90 hover:bg-blue-600/90 dark:hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
@@ -12,7 +14,7 @@
     </div>
 
     <!-- License expiry countdown banner (shown in the last 30 days, and after expiry) -->
-    <div v-if="showLicenseBanner" class="fixed top-0 start-0 end-0 z-[1000]">
+    <div v-if="showLicenseBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         :class="[
           'text-center text-sm py-2 px-4 flex items-center justify-center gap-2 shadow-md',
@@ -30,11 +32,36 @@
         </span>
       </div>
     </div>
+  <!-- Mobile top bar: the sidebar is off-canvas on phones, so this gives a
+       hamburger to open it plus quick access to New Report. Hidden on sm+ and
+       on the immersive report-detail page (which has its own header). -->
+  <div v-if="!isExcel && showMobileBar"
+    :class="[
+      'sm:hidden fixed start-0 end-0 z-40 h-12 flex items-center justify-between px-3 bg-gray-50 dark:bg-gray-950 border-b border-gray-200/80 dark:border-gray-800',
+      'top-0'
+    ]">
+    <button @click="openMobile" class="flex items-center justify-center w-9 h-9 -ms-1 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70" aria-label="Open menu">
+      <UIcon name="i-heroicons-bars-3" class="w-6 h-6" />
+    </button>
+    <button @click="router.push('/')" class="flex items-center gap-2 min-w-0">
+      <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-6 max-w-[84px] object-contain" />
+    </button>
+    <button @click="createNewReport" :disabled="creatingReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50" aria-label="New report">
+      <Spinner v-if="creatingReport" class="animate-spin w-5 h-5" />
+      <UIcon v-else name="heroicons-plus-circle" class="w-6 h-6" />
+    </button>
+  </div>
+
+  <!-- Backdrop behind the mobile drawer -->
+  <div v-if="mobileOpen" class="sm:hidden fixed inset-0 z-40 bg-black/40" @click="closeMobile" />
+
   <aside id="separator-sidebar"
     :class="[
-      'fixed start-0 z-40 bg-gray-50 dark:bg-gray-950 transition-all duration-300 -translate-x-full rtl:translate-x-full sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
-      isCollapsed ? 'w-14' : 'w-60',
-      showTopBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
+      'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:transition-all sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
+      mobileOpen ? 'translate-x-0 rtl:translate-x-0' : '-translate-x-full rtl:translate-x-full',
+      isCollapsed ? 'sm:w-14' : 'sm:w-60',
+      mobileOpen ? 'w-72' : 'w-60',
+      showTopBanner ? 'top-0 sm:top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
     <button v-if="isCollapsed" @click="toggleSidebar"
@@ -268,7 +295,7 @@
 
   </aside>
 
-  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', showTopBanner ? 'pt-10' : 'pt-0']">
+  <div :class="['min-h-dvh transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', contentPadClass]">
     <UNotifications />
 
     <slot />
@@ -517,8 +544,25 @@
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
   
   // Sidebar collapse state (shared via composable)
-  const { isCollapsed, showText, toggle: toggleSidebar } = useSidebar()
+  const { isCollapsed, showText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
   const creatingReport = ref(false)
+
+  // Mobile chrome. The report-detail page is full-height (h-dvh) and ships its
+  // own ReportHeader, so we suppress the global mobile bar there to avoid a
+  // double header and the extra top padding that would make it overflow.
+  const isReportDetail = computed(() => /^\/reports\/[^/]+$/.test(route.path))
+  const showMobileBar = computed(() => !isReportDetail.value)
+  // Top padding for the content wrapper. Desktop only needs to clear the
+  // banner; mobile also needs to clear the 48px mobile bar when it is shown.
+  const contentPadClass = computed(() => {
+    // The top banner is desktop-only, so mobile padding never accounts for it —
+    // only the 48px mobile bar (when shown). Desktop still clears the banner.
+    const sm = showTopBanner.value ? 'sm:pt-10' : 'sm:pt-0'
+    const mobile = showMobileBar.value ? 'pt-12' : 'pt-0'
+    return `${mobile} ${sm}`
+  })
+  // Close the drawer whenever the route changes (e.g. after tapping a nav item).
+  watch(() => route.fullPath, () => { closeMobile() })
 
   // Recent reports list shown in the sidebar. The backend already orders
   // these `is_starred DESC, last_activity_at DESC`, so pinned reports come

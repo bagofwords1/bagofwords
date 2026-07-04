@@ -81,3 +81,21 @@ class PromptRunForResponse(BaseModel):
     ran: int
     skipped: int
     skipped_user_ids: List[str] = []
+
+
+class RunForTargetUser(BaseModel):
+    id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class RunForTargetGroup(BaseModel):
+    id: str
+    name: str
+    member_count: int
+    eligible_count: int
+
+
+class PromptRunForTargetsResponse(BaseModel):
+    users: List[RunForTargetUser] = []
+    groups: List[RunForTargetGroup] = []

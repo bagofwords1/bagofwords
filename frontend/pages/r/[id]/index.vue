@@ -1,6 +1,6 @@
 <template>
     <!-- Access error overlay -->
-    <div v-if="accessError" class="h-screen w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div v-if="accessError" class="h-dvh w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div class="text-center max-w-md mx-auto px-6">
             <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -22,21 +22,21 @@
         </div>
     </div>
 
-    <div v-else class="h-screen w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col">
+    <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
         <!-- Top Bar -->
         <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 relative">
             <!-- Left: Back to app (absolute) -->
             <a
                 href="/"
-                class="absolute start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >
-                <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5" />
-                <span>Back to app</span>
+                <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5 rtl-flip" />
+                <span class="hidden sm:inline">Back to app</span>
             </a>
 
             <!-- Center: Tab Menu + Refreshed (matching dashboard content padding) -->
             <div class="h-full flex-1 flex items-center">
-                <div class="w-full flex items-center justify-between px-[200px]">
+                <div class="w-full flex items-center justify-between px-11 sm:px-[200px]">
                     <!-- Tab Menu -->
                     <div class="flex items-center gap-1">
                         <button
@@ -63,15 +63,16 @@
                         </button>
                     </div>
 
-                    <!-- Refreshed text -->
-                    <span v-if="lastRefreshedAt" class="text-[11px] text-gray-400">
+                    <!-- Refreshed text (hidden on mobile to avoid colliding with
+                         the absolute-positioned action cluster) -->
+                    <span v-if="lastRefreshedAt" class="hidden sm:inline text-[11px] text-gray-400">
                         Refreshed {{ formatTime(lastRefreshedAt) }}
                     </span>
                 </div>
             </div>
 
             <!-- Right: Fork + Edit Report + Close (absolute) -->
-            <div class="absolute end-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <div class="absolute end-2 sm:end-4 top-1/2 -translate-y-1/2 flex items-center gap-1 sm:gap-2">
                 <!-- Fork button -->
                 <button
                     v-if="forkEligibility?.can_fork"
@@ -80,7 +81,7 @@
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
                 >
                     <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
-                    <span>{{ isForking ? 'Forking...' : 'Fork' }}</span>
+                    <span class="hidden sm:inline">{{ isForking ? 'Forking...' : 'Fork' }}</span>
                 </button>
                 <span
                     v-else-if="forkEligibility && !forkEligibility.can_fork"
@@ -95,7 +96,7 @@
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
                 >
                     <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
-                    <span>Edit Report</span>
+                    <span class="hidden sm:inline">Edit Report</span>
                 </NuxtLink>
                 <button
                     @click="showTopBar = false"
@@ -294,6 +295,17 @@ definePageMeta({
     auth: false
 });
 
+// Browser tab / "Add to Home screen" shortcut name. Without this, the browser
+// falls back to the URL's last path segment (the report UUID). Prefer the
+// artifact's own title, then the report title, then a sensible default — and
+// treat the "Untitled Artifact" placeholder as no title.
+const pageTitle = computed(() => {
+    const artTitle = artifact.value?.title;
+    if (artTitle && artTitle !== 'Untitled Artifact') return artTitle;
+    return report.value?.title || 'Report';
+});
+useHead(() => ({ title: pageTitle.value }));
+
 // Access error state
 const accessError = ref<'login' | 'denied' | null>(null);
 
@@ -372,10 +384,17 @@ async function loadVisualizationData(artifactId?: string) {
         const { data: queriesRes } = await useMyFetch(`/api/r/${report_id}/queries${queryParams}`);
         const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
+        // Fetch all steps in parallel — awaiting each one serially made the
+        // page's time-to-render scale linearly with the number of queries.
+        const stepResults = await Promise.all(
+            queries.map((query) => useMyFetch(`/api/r/${report_id}/queries/${(query as any).id}/step`))
+        );
+
         const vizData = [];
-        for (const query of queries) {
-            // Use public step endpoint - returns PublicStepSchema directly
-            const { data: step } = await useMyFetch(`/api/r/${report_id}/queries/${query.id}/step`);
+        for (let qi = 0; qi < queries.length; qi++) {
+            const query = queries[qi];
+            // Public step endpoint - returns PublicStepSchema directly
+            const { data: step } = stepResults[qi];
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];

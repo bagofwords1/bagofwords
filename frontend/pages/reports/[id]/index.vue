@@ -1,13 +1,13 @@
 <template>
 
 	<!-- Loading until report and completions are fetched -->
-	<div v-if="(!reportLoaded || !completionsLoaded) && messages.length === 0 && !reportNotFound" class="h-screen w-full flex items-center justify-center text-gray-500">
+	<div v-if="(!reportLoaded || !completionsLoaded) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
 
 	<!-- Report not found / no access -->
-	<div v-else-if="reportNotFound" class="h-screen w-full flex flex-col items-center justify-center text-gray-400">
+	<div v-else-if="reportNotFound" class="h-dvh w-full flex flex-col items-center justify-center text-gray-400">
 		<span class="text-5xl font-light">404</span>
 		<span class="mt-2 text-sm">{{ $t('reportView.reportNotFound') }}</span>
 		<NuxtLink to="/reports" class="mt-4 text-sm text-blue-500 hover:underline">{{ $t('reportView.backToReports') }}</NuxtLink>
@@ -20,7 +20,7 @@
 		@startResize="startResize"
 	>
 		<template #left>
-	<div class="flex flex-col h-screen overflow-y-hidden bg-white dark:bg-gray-900 relative">
+	<div class="flex flex-col h-dvh overflow-y-hidden bg-white dark:bg-gray-900 relative">
 		<ReportHeader
 			v-if="report"
 			:report="report"
@@ -86,7 +86,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
-			<div class="ps-4 pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
 				<ForkedQueriesPanel
@@ -241,7 +241,7 @@
 										</div>
 									</UTooltip>
 								</div>
-								<div class="w-full ms-4 max-w-2xl">
+								<div class="w-full ms-0 md:ms-4 max-w-2xl">
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
@@ -533,7 +533,7 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -1002,6 +1002,9 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+// Browser tab / shortcut name — otherwise it falls back to the report UUID in
+// the URL. Falls back to a friendly default while the report loads.
+useHead(() => ({ title: report.value?.title || 'Report' }))
 const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])

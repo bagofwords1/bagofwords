@@ -165,6 +165,7 @@ class CreateEvalTool(Tool):
         mode = runtime_ctx.get("mode") or ""
         head_completion = runtime_ctx.get("head_completion")
         agent_execution_id = runtime_ctx.get("agent_execution_id")
+        report = runtime_ctx.get("report")
 
         if not all([db, organization, user]):
             yield ToolErrorEvent(
@@ -178,7 +179,33 @@ class CreateEvalTool(Tool):
 
         try:
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            if not resolved.has_org_permission("manage_evals"):
+
+            # Scope the eval to the agent(s) being trained. When the model does
+            # not specify data sources, default to the report's agents rather
+            # than creating a global, org-wide case. This keeps a training
+            # session's output confined to the specific agent(s).
+            report_ds_ids = []
+            if report is not None:
+                try:
+                    report_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
+                except Exception:
+                    report_ds_ids = []
+            effective_ds_ids = list(data.data_source_ids or []) or report_ds_ids
+
+            # Authorization: manage_evals on EVERY targeted agent (a per-DS
+            # `manage` grant implies manage_evals), or org-level manage_evals /
+            # full_admin. A data-source-less (global) case stays an org-level
+            # capability — an agent admin cannot create org-wide evals.
+            if resolved.has_org_permission("manage_evals"):
+                authorized = True
+            elif effective_ds_ids:
+                authorized = all(
+                    resolved.has_resource_permission("data_source", ds, "manage_evals")
+                    for ds in effective_ds_ids
+                )
+            else:
+                authorized = False
+            if not authorized:
                 yield ToolErrorEvent(
                     type="tool.error",
                     payload={"error": "Missing manage_evals permission", "code": "PERMISSION_DENIED"},
@@ -278,7 +305,7 @@ class CreateEvalTool(Tool):
                 name=data.name.strip(),
                 prompt_json=prompt_json,
                 expectations_json=expectations_dict or {},
-                data_source_ids_json=list(data.data_source_ids or []),
+                data_source_ids_json=list(effective_ds_ids),
                 tags_json=list(data.tags or []) or None,
                 status=final_status,
                 auto_generated=auto_generated,

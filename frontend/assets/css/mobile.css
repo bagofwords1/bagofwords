@@ -1,0 +1,26 @@
+/* Mobile-only global fixes.
+ *
+ * These target real-device behaviours that headless/desktop widths don't show:
+ *  1. iOS/WebKit auto-zooms (and then scroll-jumps) when focusing an <input>,
+ *     <select> or <textarea> whose font-size is < 16px. Most inputs in the app
+ *     use text-sm (14px), so tapping any field on iPhone zooms the page. Force
+ *     a 16px minimum on small screens — the visual size is unchanged on desktop.
+ *  2. A stray element wider than the viewport causes a horizontal rubber-band
+ *     scroll. Clamp the document so the page body never scrolls sideways.
+ */
+@media (max-width: 640px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    /* 16px is the iOS zoom threshold. !important beats utility classes like
+       text-sm/text-xs without having to touch every component. */
+    font-size: 16px !important;
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+    /* max-width instead of width so it also covers RTL layouts. */
+    max-width: 100vw;
+  }
+}

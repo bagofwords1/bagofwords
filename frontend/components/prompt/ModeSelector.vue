@@ -53,6 +53,9 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   modelValue: 'chat' | 'deep' | 'training' | string
+  // Agent(s) this prompt targets — training is gated on manage_instructions for
+  // each of them (a per-DS `manage` grant implies it; full_admin bypasses).
+  dataSourceIds?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -63,9 +66,16 @@ const { t } = useI18n()
 
 const popper = { strategy: 'absolute' as const, placement: 'bottom-start' as const, offset: [0, 8] }
 
-// Mirror PromptBoxV2's training-mode gate.
+// Mirror PromptBoxV2's training-mode gate: resource-scoped to the target
+// agent(s). manage_instructions on every agent (per-DS `manage` implies it;
+// full_admin bypasses); org-level manage_instructions when no agent is set.
 const { isTrainingModeEnabled } = useOrgSettings()
-const canUseTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
+const canUseTraining = computed(() => {
+  if (!isTrainingModeEnabled.value) return false
+  const ids = props.dataSourceIds || []
+  if (ids.length === 0) return useCanAny('manage_instructions', 'data_source')
+  return ids.every((id) => useCan('manage_instructions', { type: 'data_source', id }))
+})
 
 const label = computed(() => {
   switch (props.modelValue) {
