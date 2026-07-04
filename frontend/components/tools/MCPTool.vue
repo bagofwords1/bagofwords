@@ -7,11 +7,15 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center gap-1">
-          <Icon name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
+          <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <McpIcon v-else-if="isExecuteMcp" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ runningLabel }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <Icon name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
+          <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <McpIcon v-else-if="isExecuteMcp" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ doneLabel }}</span>
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
           <Icon
@@ -70,6 +74,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import McpIcon from '~/components/icons/McpIcon.vue'
 const { t } = useI18n()
 
 interface ToolExecution {
@@ -85,6 +91,7 @@ interface ToolExecution {
 
 const props = defineProps<{
   toolExecution: ToolExecution
+  dataSources?: any[]
 }>()
 
 const isExpanded = ref(false)
@@ -95,6 +102,30 @@ const status = computed(() => props.toolExecution?.status || '')
 const toolName = computed(() => props.toolExecution?.tool_name || '')
 const args = computed(() => props.toolExecution?.arguments_json || {})
 const resultJson = computed(() => props.toolExecution?.result_json || {})
+
+const isExecuteMcp = computed(() => toolName.value === 'execute_mcp')
+
+// The MCP/API connection this call ran against, resolved from the report's
+// data sources by the streamed/persisted connection_name (or the raw
+// connection_id argument, which accepts name or id).
+const mcpConnection = computed(() => {
+  if (!isExecuteMcp.value) return null
+  const target = resultJson.value.connection_name || args.value.connection_id
+  if (!target) return null
+  for (const ds of props.dataSources || []) {
+    for (const c of ds.connections || []) {
+      if (c.type !== 'mcp' && c.type !== 'custom_api') continue
+      if (c.name === target || c.id === target) return c
+    }
+  }
+  return null
+})
+
+// Catalog key ("monday", "notion", …) so known connectors get their brand
+// icon; custom MCP servers have none and fall back to the MCP logo.
+const connectorKey = computed(() =>
+  mcpConnection.value?.connector_key || mcpConnection.value?.config?.catalog_key || null
+)
 
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms

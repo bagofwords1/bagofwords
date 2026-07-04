@@ -169,17 +169,30 @@ and mid-stream before the `connection_resolved` event.
 - One real backend gap for a clean fix: report responses don't populate
   `connector_key` (though `config.catalog_key` is present in the payload).
 
-## Fix directions (not implemented)
+## The fix (icon — implemented; validated in this loop)
 
-1. **Icon (frontend-only).** MCPTool accepts the already-passed `dataSources`
-   prop, resolves the connection by `result_json.connection_name` /
-   `arguments_json.connection_id` among `type in (mcp, custom_api)`
-   connections, and renders `<DataSourceIcon type="mcp" :connector-key>` with
-   the current glyph as fallback. Optionally have the backend include
-   `connector_key` in the `connection_resolved` progress payload (precedent:
-   `read_resources` streams an `icon` field) and in report serialization.
-2. **Title.** Deterministic humanization as the baseline — strip `_v\d+`,
-   underscores → spaces, title-case, and combine with the connection:
-   **"Monday — Prompt Builder"**. Works retroactively for all persisted rows.
-   Optionally add an LLM-supplied `display_title` to `ExecuteMCPInput`
-   (like `create_artifact.title`) preferred when present.
+| File | Change |
+|---|---|
+| `backend/app/schemas/data_source_schema.py` | `ConnectionEmbedded.derive_connector_key` validator: when `connector_key` isn't explicitly computed (report responses build the schema straight from ORM objects), fall back to `config.catalog_key`. Report payloads now carry `connector_key: "monday"` for catalog connectors. |
+| `frontend/components/tools/MCPTool.vue` | Accepts the already-passed `dataSources` prop; resolves the call's connection by `result_json.connection_name` / `arguments_json.connection_id` among `type in (mcp, custom_api)` connections. `execute_mcp` rows render `<DataSourceIcon type="mcp" :connector-key>` (brand icon — Monday, Jira, …) when the connector is a known catalog preset, `<McpIcon>` (MCP logo) for custom MCP servers, and the old `heroicons-server-stack` remains for `search_mcps`/`write_csv`. Applied to both the running and done headers. |
+
+### Observed after fix (Playwright, both cases)
+
+- **Monday report** (`monday-collapsed.png` / `monday-crop.png`): all three
+  `execute_mcp` rows show the **Monday brand icon** next to the label — in the
+  collapsed thread, the expanded view, and for every call in the turn.
+- **Custom MCP report** — connection `Internal Tools`,
+  `config = {server_url: "https://mcp.internal.acme.dev/mcp"}` only, no
+  `catalog_key` (`custom-collapsed.png` / `custom-crop.png`): rows show the
+  **MCP logo** (`McpIcon` → `/icons/mcp.png`) instead of the generic
+  server-stack glyph.
+- No Vue page errors in either run (shot script asserts `pageerror`).
+
+## Still open (not implemented)
+
+**Title.** Rows still read "Monday / Monday / Monday". Deterministic
+humanization as the baseline — strip `_v\d+`, underscores → spaces,
+title-case, combined with the connection: **"Monday — Prompt Builder"**.
+Works retroactively for all persisted rows. Optionally add an LLM-supplied
+`display_title` to `ExecuteMCPInput` (like `create_artifact.title`)
+preferred when present.
