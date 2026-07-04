@@ -2,23 +2,16 @@
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl', container: 'items-start', margin: 'sm:mt-[8vh]' }">
     <div class="bg-white dark:bg-gray-900 rounded-lg overflow-hidden flex flex-col max-h-[82vh]">
       <!-- Header -->
-      <div class="relative px-5 py-4 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-br from-blue-50/80 via-white to-white dark:from-blue-950/30 dark:via-gray-900 dark:to-gray-900">
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex items-start gap-3 min-w-0">
-            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-500/10 dark:bg-blue-500/15 shrink-0">
-              <UIcon name="i-heroicons-sparkles" class="w-5 h-5 text-blue-500" />
-            </div>
-            <div class="min-w-0">
-              <h2 class="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{{ $t('changelog.title') }}</h2>
-              <p class="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('changelog.subtitle') }}</p>
-            </div>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <span v-if="currentVersion" class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 font-mono">
-              v{{ currentVersion }}
-            </span>
-            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
-          </div>
+      <div class="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-gray-100 dark:border-gray-800">
+        <div class="min-w-0">
+          <h2 class="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{{ $t('changelog.title') }}</h2>
+          <p class="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('changelog.subtitle') }}</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span v-if="currentVersion" class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 font-mono">
+            v{{ currentVersion }}
+          </span>
+          <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
         </div>
       </div>
 

@@ -781,7 +781,7 @@
     // Documentation + MCP Server + GitHub moved out of the main sidebar into this menu.
     const resources: any[] = [{
       label: t('changelog.menuItem'),
-      icon: 'heroicons-sparkles',
+      icon: 'heroicons-document-text',
       click: () => { showChangelogModal.value = true }
     }, {
       label: t('nav.documentation'),
