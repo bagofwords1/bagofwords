@@ -135,6 +135,11 @@ class DataSourceReportSchema(BaseModel):
     owner_user_id: Optional[str] = None
     use_llm_sync: bool = False
 
+    # Publishing lifecycle — lets the client badge non-production agents
+    # (Development / Training) the same way the data source selector does.
+    publish_status: str = "published"
+    reliability_status: str = "training"
+
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 

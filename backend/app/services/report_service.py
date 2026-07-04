@@ -341,6 +341,16 @@ class ReportService:
 
         user_schema = UserSchema.from_orm(report.user)
 
+        # Lifecycle-filter the attached data sources before serializing. The
+        # association is a creation-time snapshot, so agents disabled (or moved
+        # back to draft/development) afterwards would otherwise keep surfacing
+        # in the report's agent panel and prompt-box selection — places the
+        # active-agents selector would never offer them.
+        from app.services.data_source_service import DataSourceService
+        live_data_sources = await DataSourceService().filter_live_data_sources(
+            db, report.data_sources, current_user, organization
+        )
+
         # Detect app version for routing
         app_version = await self._detect_app_version(db, report.id)
 
@@ -355,7 +365,7 @@ class ReportService:
             created_at=report.created_at,
             updated_at=report.updated_at,
             app_version=app_version,
-            data_sources=report.data_sources,
+            data_sources=live_data_sources,
             external_platform=report.external_platform,
             theme_name=report.theme_name,
             theme_overrides=report.theme_overrides,
@@ -1514,11 +1524,21 @@ class ReportService:
                 active_sp_counts = {str(row[0]): row[1] for row in sp_result.all()}
 
             # Convert to schemas
+            # Lifecycle-filter each report's attached data sources (same rules
+            # as get_report); resolve the caller's publish visibility once for
+            # the whole page instead of per report.
+            from app.services.data_source_service import DataSourceService
+            ds_service = DataSourceService()
+            publish_visibility = await ds_service._publish_visibility(db, current_user, organization)
             report_schemas = []
             for report in reports:
                 report_schema = ReportSchema.from_orm(report)
                 report_schema.user = UserSchema.from_orm(report.user)
 
+                live_data_sources = await ds_service.filter_live_data_sources(
+                    db, report.data_sources, current_user, organization,
+                    visibility=publish_visibility,
+                )
                 # Manually build data_sources with type computed from connection
                 report_schema.data_sources = [
                     DataSourceReportSchema(
@@ -1534,10 +1554,12 @@ class ReportService:
                         is_public=ds.is_public,
                         owner_user_id=str(ds.owner_user_id) if ds.owner_user_id else None,
                         use_llm_sync=ds.use_llm_sync,
+                        publish_status=getattr(ds, "publish_status", "published") or "published",
+                        reliability_status=getattr(ds, "reliability_status", "training") or "training",
                         # Compute type from first connection
                         type=ds.connections[0].type if ds.connections else None,
                     )
-                    for ds in (report.data_sources or [])
+                    for ds in live_data_sources
                 ]
 
                 # Summary counts (from batched GROUP BY queries above)

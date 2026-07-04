@@ -332,6 +332,12 @@ class CompletionService:
 
             clients = {}
             for data_source in report.data_sources:
+                # The report's attachments are a creation-time snapshot — skip
+                # agents disabled/deactivated since, so they are neither
+                # queryable nor fed into the agent context (AgentV2 drops
+                # sources without a client).
+                if not self.data_source_service.is_execution_live(data_source):
+                    continue
                 try:
                     ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
                     clients.update(ds_clients)
@@ -717,6 +723,10 @@ class CompletionService:
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                         clients = {}
                         for data_source in report.data_sources:
+                            # Skip agents disabled/deactivated after being
+                            # attached to the report (see foreground path).
+                            if not self.data_source_service.is_execution_live(data_source):
+                                continue
                             try:
                                 ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
                                 clients.update(ds_clients)
