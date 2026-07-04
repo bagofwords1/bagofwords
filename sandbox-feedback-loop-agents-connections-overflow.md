@@ -5,7 +5,8 @@ connections, the connections footer at the **bottom of the tree pane** overflows
 horizontally and the **"View all" link spills past the pane's right edge** into
 the detail pane.
 
-This doc is the runnable feedback loop. **Investigation only — no fix applied.**
+This doc is the runnable feedback loop. **Status: reproduced and fixed** (option
+3 below). See "The fix" for the applied change and after-results.
 
 ---
 
@@ -116,27 +117,57 @@ wide pane → gone.
 
 ---
 
-## Candidate fixes (NOT implemented — for the "decide what to do" step)
+## Candidate fixes (considered)
 
 Options, roughly increasing effort:
 
-1. **Let the row wrap** — add `flex-wrap` to the footer so overflowing chips drop
-   to a second line. Cheapest; changes footer height.
-2. **Make the strip horizontally scrollable / clipped** — `min-w-0 overflow-x-auto`
-   (or `overflow-hidden`) on the icon group, keeping label + "View all" pinned.
-3. **Pin "View all" and let only the icons overflow-clip** — wrap the icon
-   cluster in its own `min-w-0 flex-1 overflow-hidden` container so "View all"
-   (and/or the `+N` chip) always stays in view; icons truncate instead.
-4. **Show fewer icons on narrow panes** — reduce `slice(0, 4)` responsively, or
-   drop per-icon buttons entirely below some width and rely on the `+N` / "View
-   all" entry points.
+1. **Let the row wrap** — add `flex-wrap`. Cheapest; changes footer height.
+2. **Scroll the whole strip** — `overflow-x-auto`. A scrollbar in a ~24px strip
+   is ugly and can still scroll "View all" out of view.
+3. **Pin the functional items; clip only the icon preview** — the icon cluster is
+   the sacrificial part. ✅ chosen.
+4. **Responsive `slice`** — reduce visible icon count via JS width tracking.
+   Most code for a pure-CSS problem.
 
-Recommendation to discuss: (3) keeps the two affordances that matter (the `+N`
-count and "View all", both of which open the connections modal) always visible,
-and is the smallest change that fixes the reported symptom directly.
+## The fix (applied — option 3)
+
+`frontend/components/KnowledgeExplorer.vue:219-248`. The icon preview is the only
+functionally-redundant part (the modal shows the full list; `+N` already
+summarizes the overflow), so it becomes the only flexible/clipped element, and
+the affordances that *do* something stay pinned:
+
+- **Icon preview** wrapped in `flex items-center gap-2 min-w-0 shrink-[9999]
+  overflow-hidden py-1 -my-1 pe-1 -me-1`. `min-w-0 + overflow-hidden` lets it
+  clip; `shrink-[9999]` gives it top shrink priority so it collapses *before*
+  anything else; the `py/-my + pe/-me` padding+negative-margin pair gives the
+  absolutely-positioned status dots room so `overflow-hidden` doesn't clip them.
+- **`+N` chip, "new" button, "View all"** → `shrink-0` (never shrink; always
+  visible).
+- **Label** → `min-w-0 truncate` (no longer `shrink-0`). It yields *last* — only
+  once the icon preview is fully collapsed (thanks to the icon strip's
+  `shrink-[9999]`) does the label truncate, so at the 220px hard-minimum it
+  degrades to `CONNE…` while "View all" stays fully in view. At the default
+  300px width the label is never truncated.
+
+### After-results (same harness, `?fix=1`)
+
+| pane width | connections | footer overflow | View all spill | before → after |
+|---|---|---|---|---|
+| 300 (default) | 8 | **0 px** | −13 px (inside) | +60 px → **fixed** |
+| 300 (default) | 3 / 12 | 0 px | −13 px (inside) | fixed |
+| **220 (min)** | 8 | **0 px** | −13 px (inside) | +140 px → **fixed** |
+
+Overflow is 0 across the whole 220–600px resize range. Icons are the only thing
+that visually give way (they clip, then the label truncates at the extreme min);
+`+N`, "new", and "View all" always stay in the pane.
+
+> Verified via the isolated harness (`?fix=1`), which mirrors the applied classes.
+> Not booted through the full Nuxt app; the change is template-only (CSS utility
+> classes, no script/binding changes).
 
 ## Artifacts
 
-- `sandbox-repro/agents-connections-overflow/repro.html` — footer harness
+- `sandbox-repro/agents-connections-overflow/repro.html` — footer harness (`?fix=1` toggles the fix)
 - `sandbox-repro/agents-connections-overflow/shot.mjs` — screenshot + measurement driver
-- `sandbox-repro/agents-connections-overflow/*.png` — captured evidence
+- `sandbox-repro/agents-connections-overflow/repro-*.png` — before (bug)
+- `sandbox-repro/agents-connections-overflow/fixed-*.png` — after (fixed)
