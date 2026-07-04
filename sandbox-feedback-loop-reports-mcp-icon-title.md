@@ -8,12 +8,24 @@ Reproduces the reported UI issue on `/reports/[id]`: when the agent calls
    a known catalog connector (Monday, Notion, …) whose brand icon the app
    already ships (`frontend/components/DataSourceIcon.vue`,
    `CONNECTOR_ICON_FILE` map).
-2. **Weird title.** The row label is `result_json.connection_name ||
-   arguments_json.tool_name` (`MCPTool.vue:106-133`). When `connection_name`
-   resolved, the label is *just* the connection name ("Monday") with no tool
-   identity; when it didn't (failure path, or records persisted before the
-   `connection_resolved` progress event existed), the label falls back to the
-   **raw MCP tool name** — `prompt_builder_v3`, `agent_v2`.
+2. **Unreadable title.** The row label is `result_json.connection_name ||
+   arguments_json.tool_name` (`MCPTool.vue:106-133`), and on **every successful
+   call the backend sets `connection_name`** (`execute_mcp.py:206`) — so each
+   row is *just the connection name*. A turn that calls three Monday tools
+   renders three identical, indistinguishable rows:
+
+   ```
+   Monday  2.3s  >
+   Monday  4.8s  >
+   Monday  1.6s  >
+   ```
+
+   Which tool ran (`prompt_builder_v3(...)`, `agent_v2(...)`) is only visible
+   after expanding a row and its Input section. The **raw MCP tool name**
+   surfaces as the title only on the fallback path — failures ("agent_v2
+   (failed)") and mid-run streaming before `connection_resolved` arrives
+   ("Calling prompt_builder_v3…") — which is where the cryptic
+   `prompt_builder_v3` / `agent_v2` labels come from.
 
 This doc is the runnable loop used to reproduce both symptoms in a fresh cloud
 sandbox, with Playwright screenshots. **No fix is implemented here.**
@@ -89,12 +101,12 @@ inserts directly into SQLite via the ORM:
   `get_board_items_by_name`).
 - **DataSource** `Monday` linked via `domain_connection`, and a **Report**
   linked via `report_data_source_association`.
-- A user completion + system completion with an `AgentExecution` and **two
-  `execute_mcp` ToolExecutions** wired through `CompletionBlock`s:
-  - `prompt_builder_v3` — `result_json.connection_name = "Monday"` (the normal
-    success path: backend emitted `connection_resolved`).
-  - `agent_v2` — success but **no** `connection_name` in `result_json`
-    (failure/legacy-record path).
+- A user completion + system completion with an `AgentExecution` and **three
+  `execute_mcp` ToolExecutions** (`prompt_builder_v3`, `agent_v2`,
+  `get_board_items_by_name`) wired through `CompletionBlock`s — each with the
+  exact `result_json` shape the backend persists on success
+  (`execute_mcp.py:203-212`), i.e. `connection_name: "Monday"` set on all
+  three.
 
 Gotchas hit while seeding (so you don't):
 
@@ -120,31 +132,37 @@ RID=<report_id> node scratchpad/shot.mjs
 
 ### Observed (live app) — bug confirmed
 
-Collapsed thread (`mcp-collapsed.png`):
+Collapsed thread (`mcp-collapsed.png`) — one turn, three Monday tool calls:
 
 ```
-[server-stack icon] Monday    2.3s  >     ← no Monday brand icon; no hint WHICH tool ran
-[server-stack icon] agent_v2  4.8s  >     ← raw MCP tool name as the row title
+[server-stack icon] Monday  2.3s  >
+[server-stack icon] Monday  4.8s  >
+[server-stack icon] Monday  1.6s  >
 ```
 
-- Both rows render the generic gray `heroicons-server-stack` icon even though
+- All rows render the generic gray `heroicons-server-stack` icon even though
   the connection's `config.catalog_key` is `monday` and
   `/data_sources_icons/monday.svg` ships with the app (DataSourceIcon renders
   it everywhere else — connection modals, Knowledge Explorer).
-- Row 1's title is just **"Monday"** — the connection name, no tool identity.
-- Row 2's title is **"agent_v2"** — the raw MCP tool name, exactly the
-  "prompt_builder_v3 / agent_v2" weirdness reported.
+- All three titles are identical — just the connection name. There is no way
+  to tell which MCP tool each row invoked, or that they differ at all.
 
-Expanded (`mcp-expanded.png`): Input shows `prompt_builder_v3({"query": …})` /
-`agent_v2({…})` and the Output previews — functional, but the header remains
-icon-less and cryptic.
+Expanded (`mcp-expanded.png`): only after clicking a row **and** its Input
+section do you see `prompt_builder_v3({"query": …})` — the tool identity is
+two clicks deep, rendered as a raw code-style call. The raw-name-as-title
+variant (`agent_v2` as the header) reproduces by omitting
+`result_json.connection_name`, which in production happens on failed calls
+and mid-stream before the `connection_resolved` event.
 
 ---
 
 ## What this proves
 
-- Both symptoms reproduce with plain persisted data — no streaming needed;
-  every historical `execute_mcp` row in every report renders this way.
+- The success path — the shape `execute_mcp` always persists — renders N
+  identical "<connection name>" rows per turn; the reported
+  `prompt_builder_v3`/`agent_v2` labels are the same component's fallback
+  when `connection_name` is absent (failures, mid-stream). Both reproduce
+  with plain persisted data — no streaming or LLM needed.
 - The brand icon asset, the `connector_key` derivation, and the
   `data-sources` prop plumbing into the tool component **all already exist**;
   MCPTool.vue just never uses them.
