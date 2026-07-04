@@ -5,10 +5,9 @@ See `frontend/AGENTS.md` and `backend/AGENTS.md` for the per-side guides, and
 
 ### Agent skills
 
-Reusable agent procedures live in `.agents/skills/<name>/SKILL.md` (canonical
-location, tool-agnostic). `.claude/skills/` and `.codex/skills/` contain
-per-skill symlinks so Claude Code and Codex auto-discover them; other agents
-should read the SKILL.md files directly:
+Reusable agent procedures live in `.agents/skills/<name>/SKILL.md`
+(tool-agnostic location). Read and follow the matching skill before starting
+one of these tasks:
 
 - **sandbox-feedback-loop** — build a runnable reproduce→fix→verify loop for
   any bug/feature; reports land in `docs/feedback-loops/`.
@@ -16,10 +15,11 @@ should read the SKILL.md files directly:
   then live-test flows against a running stack.
 - **ui-evidence** — capture the **mandatory** before/after screenshots (and
   GIFs/videos for flows) for any change touching
-  `frontend/{pages,components,layouts,assets}/**`. CI
-  (`.github/workflows/ui-evidence.yml`) fails UI PRs without visual evidence.
+  `frontend/{pages,components,layouts,assets}/**`.
 - **docs-update** — refresh docs.bagofwords.com (Mintlify MCP) with text +
   screenshots after user-facing changes ship.
+- **localization** — the locale/i18n architecture end to end; follow it when
+  adding strings, locales, or touching anything RTL.
 
 Shared setup scripts (usable by humans too): `tools/agent/boot_stack.sh`
 (run the full stack like CI), `tools/agent/seed_org.py` (seed org/users/demo

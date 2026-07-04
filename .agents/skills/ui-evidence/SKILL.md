@@ -1,14 +1,14 @@
 ---
 name: ui-evidence
-description: Capture mandatory before/after screenshots (and videos/GIFs for flows) for any change touching UI/UX, and attach them to the PR. Use whenever a change touches frontend/pages, components, layouts, or assets — the ui-evidence CI check fails PRs without visual evidence.
+description: Capture mandatory before/after screenshots (and videos/GIFs for flows) for any change touching UI/UX, and attach them to the PR. Use whenever a change touches frontend/pages, components, layouts, or assets.
 ---
 
 # UI Evidence — screenshots are mandatory for UI/UX changes
 
 Any PR touching `frontend/{pages,components,layouts,assets}/**` must show what
-changed visually. CI (`.github/workflows/ui-evidence.yml`) fails the PR if its
-description contains no image/video. A maintainer can apply the
-`no-visual-change` label for refactors with zero visual effect.
+changed visually: before/after screenshots in the PR description, plus a
+GIF/video when the change is a flow or animation. Only skip this for refactors
+with zero visual effect — and say so explicitly in the PR description.
 
 ## Screenshots (always)
 
@@ -63,4 +63,4 @@ Rules:
 - Never capture screens containing real credentials, tokens, or customer data —
   seeded sandbox data only.
 - Humans attaching evidence may simply drag-and-drop into the PR description
-  instead; the CI check accepts either form.
+  instead.

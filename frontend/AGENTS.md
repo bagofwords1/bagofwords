@@ -68,11 +68,10 @@ Concise overview of `@frontend/` (Nuxt 3 SPA) with structure, key building block
 
 Any change touching `pages/`, `components/`, `layouts/`, or `assets/` must
 include before/after **screenshots** in the PR description — and a short
-**GIF/video** when the change is a flow, animation, or streaming UI. The
-`ui-evidence` CI check fails UI PRs without visual evidence (maintainers can
-apply the `no-visual-change` label for zero-visual refactors). Full capture
-procedure: `.agents/skills/ui-evidence/SKILL.md`. For RTL-affecting work,
-include a Hebrew (`he`) capture as well.
+**GIF/video** when the change is a flow, animation, or streaming UI. Skip only
+for refactors with zero visual effect, and say so in the PR description. Full
+capture procedure: `.agents/skills/ui-evidence/SKILL.md`. For RTL-affecting
+work, include a Hebrew (`he`) capture as well.
 
 ### Locale / i18n
 
