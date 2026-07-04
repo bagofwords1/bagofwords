@@ -2,7 +2,7 @@
 RBAC end-to-end coverage for **training mode** availability and the
 **per-agent scoping** of everything a training session produces.
 
-Contract (see ``sandbox-feedback-loop-training-mode-agent-admins.md``):
+Contract (see ``docs/feedback-loops/training-mode-agent-admins.md``):
 
   Entry gate (per-agent, not org-wide):
     1. An agent admin (`manage` on the agent) CAN enter training mode on it.

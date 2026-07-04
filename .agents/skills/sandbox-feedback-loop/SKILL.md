@@ -7,8 +7,8 @@ description: Build a runnable reproduce→fix→verify loop for a bug or feature
 
 A feedback loop is a **runnable document**: anyone (human or agent) can re-execute
 it in a fresh sandbox and observe the same failure, then the same pass after the
-fix. Examples of the format live in `docs/feedback-loops/` and the historical
-`sandbox-feedback-loop-*.md` files at the repo root.
+fix. Examples of the format live in `docs/feedback-loops/` (e.g.
+`save-button.md`, `fabric-obo-second-admin-tables.md`).
 
 ## Process
 
