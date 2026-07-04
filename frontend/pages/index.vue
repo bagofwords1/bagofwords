@@ -51,31 +51,8 @@
                 mask-image: linear-gradient(to bottom, transparent, black);
                 -webkit-mask-image: linear-gradient(to bottom, transparent, black);">
     </div>
-    <!-- Top bar -->
-    <div class="flex justify-between items-center p-3">
-        <div class="logo md:hidden">
-            <img src="/assets/logo-128.png" alt="Bag of words" class="h-7" />
-        </div>
-        <div class="flex items-center gap-4 ms-auto">
-            <div class="hamburger md:hidden">
-                <UDropdown :items="menuItems" :popper="{ placement: 'bottom-start' }">
-                    <UButton color="white" label="" trailing-icon="i-heroicons-bars-3" />
-                    <template #queries="{ item }">
-                      <LibraryIcon class="w-4 h-4 text-gray-400" />
-                      <span class="truncate">{{ item.label }}</span>
-                    </template>
-                    <template #monitoring="{ item }">
-                      <ActivityIcon class="w-4 h-4 text-gray-400" />
-                      <span class="truncate">{{ item.label }}</span>
-                    </template>
-                    <template #mcp="{ item }">
-                      <McpIcon class="w-4 h-4 text-gray-400" />
-                      <span class="truncate">{{ item.label }}</span>
-                    </template>
-                </UDropdown>
-            </div>
-        </div>
-    </div>
+    <!-- Mobile navigation is provided by the global mobile top bar in the
+         default layout; the home page no longer renders its own duplicate. -->
 
     <div v-if="isLoading" class="flex flex-col items-center justify-center flex-grow py-20">
       <Spinner class="h-4 w-4 text-gray-400" />

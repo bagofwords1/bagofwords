@@ -36,7 +36,12 @@
     <!-- Body: tree → detail → versions -->
     <div class="flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
-      <aside class="shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
+      <!-- Desktop: fixed-width resizable pane. Mobile: full-width, and hidden
+           once a detail is open (single-column master → detail). -->
+      <aside
+        class="border-e border-gray-200 dark:border-gray-800 flex flex-col relative"
+        :class="isMobile ? (detailOpen ? 'hidden' : 'w-full') : 'shrink-0'"
+        :style="isMobile ? {} : { width: treeWidth + 'px' }">
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
@@ -247,12 +252,23 @@
           <button v-if="connections.length" type="button" class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showConnectionsModal = true">{{ $t('agentsPage.viewAll') }}</button>
         </div>
 
-        <!-- Drag handle to resize the tree pane -->
-        <div class="absolute top-0 end-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" :title="$t('agentsPage.tipDragResize')" @mousedown="startTreeResize"></div>
+        <!-- Drag handle to resize the tree pane (desktop only) -->
+        <div v-if="!isMobile" class="absolute top-0 end-0 h-full w-1 cursor-col-resize hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors z-10" :title="$t('agentsPage.tipDragResize')" @mousedown="startTreeResize"></div>
       </aside>
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
-      <section class="flex-1 min-w-0 flex flex-col">
+      <!-- Detail pane. Mobile: full-width, hidden until an item is selected. -->
+      <section class="flex-1 min-w-0 flex flex-col" :class="{ hidden: isMobile && !detailOpen }">
+        <!-- Mobile back-to-tree bar -->
+        <button
+          v-if="isMobile && detailOpen"
+          type="button"
+          class="flex items-center gap-1.5 h-11 px-3 shrink-0 text-sm text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-800"
+          @click="backToTree"
+        >
+          <UIcon name="i-heroicons-arrow-left" class="w-4 h-4 rtl-flip" />
+          {{ $t('common.back') }}
+        </button>
         <!-- Review feed -->
         <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
           <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
@@ -1558,6 +1574,26 @@ const onConnModalChanged = async () => {
 // Top banner (license/onboarding) presence — so this full-height view subtracts
 // the banner height instead of overflowing 40px below the viewport.
 const { showTopBanner, bannerHeight } = useTopBanner()
+
+// Mobile master → detail: on phones the tree and detail can't sit side by side,
+// so we show one at a time. `detailOpen` is true whenever the detail pane has
+// something to show; `backToTree` clears every detail state to return to the tree.
+const { isMobile } = useMobile()
+const detailOpen = computed(() => !!(
+  reviewView.value || agentView.value || panelView.value ||
+  previewFile.value || detail.value || creating.value
+))
+const backToTree = () => {
+  closeReview()
+  closeAgentView()
+  closePanel()
+  closePreview()
+  closeDiff()
+  detail.value = null
+  selectedId.value = null
+  creating.value = false
+  editing.value = false
+}
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))
