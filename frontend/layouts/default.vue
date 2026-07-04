@@ -92,7 +92,7 @@
                 </button>
               </UTooltip>
               <!-- Collapse sidebar (expanded state only; collapsed uses the top expand button) -->
-              <UTooltip v-if="!isCollapsed" :text="$t('nav.collapseSidebar')" :popper="{ placement: tooltipPlacement }">
+              <UTooltip v-if="!isCollapsed && !mobileOpen" :text="$t('nav.collapseSidebar')" :popper="{ placement: tooltipPlacement }">
                 <button
                   @click="toggleSidebar"
                   class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
@@ -543,8 +543,17 @@
   })
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
   
-  // Sidebar collapse state (shared via composable)
-  const { isCollapsed, showText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
+  // Sidebar collapse state (shared via composable). The desktop sidebar and the
+  // mobile off-canvas drawer are the SAME <aside>. The raw collapse state is a
+  // desktop affordance; when the drawer is open on mobile we always want the
+  // full expanded layout (labels, left-aligned) inside the wide w-72 drawer —
+  // never the icon-only collapsed rendering. So the template binds to these
+  // "effective" computeds, which force expanded while the mobile drawer is open.
+  // On desktop mobileOpen is always false, so they equal the raw values and the
+  // desktop rendering is unchanged.
+  const { isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
+  const isCollapsed = computed(() => mobileOpen.value ? false : rawCollapsed.value)
+  const showText = computed(() => mobileOpen.value ? true : rawShowText.value)
   const creatingReport = ref(false)
 
   // Mobile chrome. The report-detail page is full-height (h-dvh) and ships its

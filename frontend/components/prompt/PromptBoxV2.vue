@@ -1,5 +1,5 @@
 <template>
-    <div class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
+    <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
         <!-- Query pills + Excel hint (above container) — hidden for now -->
         <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
@@ -644,6 +644,8 @@ watch(selectedDataSources, (val) => {
 const isHydratingDataSources = ref(!!props.report_id && selectedDataSources.value.length === 0)
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
+const rootRef = ref<HTMLElement | null>(null)
+let compactRO: ResizeObserver | null = null
 const inlineMentions = ref<any[]>([])
 const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
 const isDraggingFiles = ref(false)
@@ -1307,18 +1309,26 @@ onMounted(async () => {
     } else {
         isHydratingDataSources.value = false
     }
-    // Compact mode: if container is narrow, hide labels
-    const root = document.querySelector('.flex-shrink-0') as HTMLElement
-    const ro = new ResizeObserver(() => {
-        const w = root?.clientWidth || 0
-        isCompactPrompt.value = w > 0 && w < 420
-    })
-    if (root) ro.observe(root)
+    // Compact mode: if the prompt box itself is narrow, hide the mode/model
+    // labels (icon-only) so the bottom toolbar can't overflow. Measure THIS
+    // component's own root — a bare document.querySelector('.flex-shrink-0')
+    // returns the first such element in the whole page (e.g. a wide header
+    // container), which on mobile reports left isCompactPrompt false and pushed
+    // the send button outside the box.
+    const root = rootRef.value
+    if (root) {
+        compactRO = new ResizeObserver(() => {
+            const w = root.clientWidth || 0
+            isCompactPrompt.value = w > 0 && w < 420
+        })
+        compactRO.observe(root)
+    }
 })
 
 onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
     window.removeEventListener('keydown', handleEscKey)
+    if (compactRO) { compactRO.disconnect(); compactRO = null }
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
