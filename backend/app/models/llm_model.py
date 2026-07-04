@@ -53,6 +53,18 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 14.00
     },
     {
+        "name": "Claude Fable 5",
+        "model_id": "claude-fable-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "input_cost_per_million_tokens_usd": 10.00,
+        "output_cost_per_million_tokens_usd": 50.00
+    },
+    {
         "name": "Claude Sonnet 5",
         "model_id": "claude-sonnet-5",
         "provider_type": "anthropic",
