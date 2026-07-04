@@ -356,12 +356,20 @@ async def get_public_report(
 ):
     schema = await report_service.get_public_report(db, report_id, user=user)
     result = schema.model_dump()
-    # Check fork eligibility for logged-in users
-    from sqlalchemy.orm import selectinload
+    # Check fork eligibility for logged-in users.
+    # lazyload("*"): check_eligibility only needs data_sources+connections;
+    # without it this second Report load re-runs the full selectin cascade.
+    from sqlalchemy.orm import selectinload, lazyload
     from app.models.data_source import DataSource
     report_result = await db.execute(
         select(Report)
-        .options(selectinload(Report.data_sources).selectinload(DataSource.connections))
+        .options(
+            lazyload("*"),
+            selectinload(Report.data_sources).options(
+                lazyload("*"),
+                selectinload(DataSource.connections).options(lazyload("*")),
+            ),
+        )
         .where(Report.id == report_id)
     )
     report_obj = report_result.unique().scalar_one_or_none()
@@ -383,11 +391,17 @@ async def get_public_conversation(
     # Attach fork eligibility if user is logged in
     report_id = result.get("report_id") if isinstance(result, dict) else None
     if report_id:
-        from sqlalchemy.orm import selectinload
+        from sqlalchemy.orm import selectinload, lazyload
         from app.models.data_source import DataSource
         report_result = await db.execute(
             select(Report)
-            .options(selectinload(Report.data_sources).selectinload(DataSource.connections))
+            .options(
+                lazyload("*"),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
+            )
             .where(Report.id == report_id)
         )
         report_obj = report_result.unique().scalar_one_or_none()

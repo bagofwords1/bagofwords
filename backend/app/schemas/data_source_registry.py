@@ -16,6 +16,8 @@ from app.schemas.data_sources.configs import (
     NetSuiteConfig,
     SQLConfig,
     MssqlConfig,
+    MssqlKerberosCredentials,
+    MssqlKerberosDelegatedCredentials,
     PrestoConfig,
     TrinoConfig,
     GoogleAnalyticsConfig,
@@ -385,7 +387,14 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="MSSQL is Microsoft's relational database for managing and analyzing data.",
         config_schema=MssqlConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"]),
+            # Windows Integrated auth: the app's own Kerberos identity (keytab /
+            # default ccache). System-scope only — one service principal per connection.
+            "kerberos": AuthVariant(title="Kerberos (Windows Integrated)", schema=MssqlKerberosCredentials, scopes=["system"]),
+            # Per-user Kerberos SSO: the app impersonates the signed-in user via
+            # constrained delegation (S4U2Self + S4U2Proxy). No secret is stored;
+            # the user's UPN is derived from their login identity unless overridden.
+            "kerberos_delegated": AuthVariant(title="Kerberos SSO (per-user delegation)", schema=MssqlKerberosDelegatedCredentials, scopes=["user"]),
         }),
         client_path=None,
     ),

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission, check_resource_permissions
+from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
@@ -150,6 +150,14 @@ async def create_case(suite_id: str, payload: TestCaseCreate, db: AsyncSession =
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", payload.data_source_ids_json, "manage_evals",
+        )
+    else:
+        # Truly org-wide (no data source) → stays an org-level capability.
+        # An agent admin's per-DS `manage` (which implies manage_evals on that
+        # agent) must NOT let them author a global eval that runs against every
+        # agent. Mirrors the /instructions/global gate.
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_evals",
         )
     case = await case_service.create_case(db, str(organization.id), current_user, suite_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
     return case

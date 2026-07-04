@@ -232,9 +232,20 @@ class UserDataSourceCredentialsService:
 
         # Delegated/OBO connections: status is driven by the admin query-identity
         # toggle (service account vs self) — handled in one place.
-        from app.services.connection_identity import supports_user_token, build_token_identity_status
+        from app.services.connection_identity import (
+            supports_user_token, build_token_identity_status,
+            supports_user_kerberos_sso, build_kerberos_sso_status,
+        )
         if supports_user_token(connection):
             return await build_token_identity_status(
+                db, connection, user, get_cached_status(), get_last_checked_at()
+            )
+
+        # Kerberos SSO: no stored secret — access is derived from the member's AD
+        # principal (login UPN or an explicit override), so a resolvable UPN is
+        # itself "user" access. This is what lets their per-user overlay build.
+        if supports_user_kerberos_sso(connection):
+            return await build_kerberos_sso_status(
                 db, connection, user, get_cached_status(), get_last_checked_at()
             )
 
@@ -395,6 +406,21 @@ class UserDataSourceCredentialsService:
             schema_cls(**(payload.credentials or {}))
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
+
+        # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
+        # the login identity at save time so resolvers never see an empty one.
+        if payload.auth_mode == "kerberos_delegated":
+            creds = dict(payload.credentials or {})
+            if not (creds.get("kerberos_impersonate") or "").strip():
+                email = (getattr(user, "email", None) or "").strip()
+                if "@" not in email:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Kerberos SSO requires an Active Directory principal (UPN); your login identity has none — provide one explicitly.",
+                    )
+                creds["kerberos_impersonate"] = email
+            creds["use_kerberos"] = True
+            payload.credentials = creds
 
         # Find existing (active) row
         stmt = (
