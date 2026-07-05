@@ -1,7 +1,8 @@
 # Release Notes
 
 ## Version 0.0.434 (July 5, 2026)
-- **Oracle thick-mode support for legacy servers (#548)** — Oracle connections to servers that python-oracledb thin mode can't handle (pre-12.1 versions, 10G-only password verifiers, Native Network Encryption) failed with DPY-4011 "connection reset by peer". The Docker image now bundles Oracle Instant Client 19c (amd64/arm64) and the backend switches the driver to thick mode at startup whenever the libraries are present — thick is a superset of thin, so existing connections are unaffected; hosts without the libraries (dev, airgapped) keep thin mode.
+- **Oracle thick-mode support for legacy servers (#548)** — Oracle connections to servers that python-oracledb thin mode can't handle (pre-12.1 versions, 10G-only password verifiers, Native Network Encryption) failed with DPY-4011 "connection reset by peer". The Docker image now bundles Oracle Instant Client 19c (amd64/arm64) and the backend switches the driver to thick mode at startup whenever the libraries are present — thick is a superset of thin, so existing connections are unaffected; hosts without the libraries (dev, airgapped) keep thin mode. Set `ORACLE_THICK_MODE=0` to force thin mode.
+- **Oracle TCPS (TLS) connections (#548)** — the Oracle connector gains a "Use TCPS (TLS)" toggle for listeners that only accept TLS-encrypted SQL*Net (plain-TCP clients get their connection reset), plus a "Verify SSL" option that can be disabled for internal-CA certificates (thin mode only — thick mode's TLS trust requires an Oracle wallet).
 
 
 ## Version 0.0.433 (July 4, 2026)

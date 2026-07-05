@@ -29,6 +29,18 @@ class OracleConfig(BaseModel):
         description="Optional schema or comma-separated list of schemas",
         json_schema_extra={"ui:type": "string"}
     )
+    use_tcps: bool = Field(
+        False,
+        title="Use TCPS (TLS)",
+        description="Connect over TCPS (TLS-encrypted SQL*Net) instead of plain TCP. Enable when the listener port only accepts TLS connections.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate when using TCPS. Disable for certificates signed by an internal CA the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
 
 
 class PostgreSQLConfig(BaseModel):
