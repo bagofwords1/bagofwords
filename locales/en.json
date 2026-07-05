@@ -1,4 +1,15 @@
 {
+  "changelog": {
+    "menuItem": "Changelog",
+    "title": "What's New",
+    "subtitle": "Latest updates and improvements",
+    "latest": "Latest",
+    "viewOnGithub": "View all releases",
+    "retry": "Try again",
+    "errorTitle": "Couldn't load changelog",
+    "errorBody": "Something went wrong fetching the release notes.",
+    "emptyTitle": "No release notes yet"
+  },
   "agentsPage": {
     "title": "Agents",
     "subtitle": "Configure your agents and the data, tools, skills and instructions they reason with.",

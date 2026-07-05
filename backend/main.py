@@ -103,6 +103,7 @@ from app.routes import (
     agent_yaml,
     eval_yaml,
     data_source_tools,
+    changelog,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -246,6 +247,7 @@ app.include_router(organization_settings.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
+app.include_router(changelog.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)

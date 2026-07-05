@@ -189,6 +189,9 @@ WORKDIR /app
 COPY --chown=app:app ./VERSION /app/VERSION
 COPY --chown=app:app ./start.sh /app/start.sh
 COPY --chown=app:app ./bow-config.yaml /app/bow-config.yaml
+# Release notes served by /api/changelog (backend runs from /app/backend, so
+# repo root maps to /app). Keep this so the "What's New" menu works in the image.
+COPY --chown=app:app ./CHANGELOG.md /app/CHANGELOG.md
 
 # Set executable permissions for start.sh
 RUN chmod +x /app/start.sh
