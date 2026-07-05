@@ -917,10 +917,16 @@ class StreamingCodeExecutor:
             if self.organization_settings is not None:
                 try:
                     limit_config = self.organization_settings.get_config("limit_row_count")
-                    if limit_config.state == FeatureState.DISABLED:
+                    # "Set to 0 for no limit": a non-positive value means no cap,
+                    # regardless of the persisted state flag (the state may be
+                    # stored as ENABLED because the schema-level validator that
+                    # maps <=0 to DISABLED does not run when a FeatureConfig is
+                    # rebuilt through the settings-update path).
+                    value = int(limit_config.value)
+                    if limit_config.state == FeatureState.DISABLED or value <= 0:
                         row_limit_disabled = True
                     else:
-                        max_rows = int(limit_config.value)
+                        max_rows = value
                 except (AttributeError, TypeError, ValueError):
                     max_rows = 1000
             else:

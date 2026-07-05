@@ -134,7 +134,6 @@ class StepService:
             db_clients.update(ds_clients)
 
         excel_files = report.files
-        code_execution_manager = CodeExecutionManager()
         code = step.code
 
         # Pre-resolve any load_step()/load_entity() refs in the saved code.
@@ -142,6 +141,12 @@ class StepService:
         from app.models.organization import Organization
         org = await db.get(Organization, str(report.organization_id)) if getattr(report, "organization_id", None) else None
         loadables = await resolve_loadables_for_code(db, org, report, current_user, code)
+
+        # Pass organization_settings so format_df_for_widget honors the org's
+        # limit_row_count; without it the executor falls back to a hardcoded
+        # 1000-row cap regardless of the configured limit.
+        org_settings = await org.get_settings(db) if org else None
+        code_execution_manager = CodeExecutionManager(organization_settings=org_settings)
 
         df, output_log, _ = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files, loadables=loadables)
         df = code_execution_manager.format_df_for_widget(df)
