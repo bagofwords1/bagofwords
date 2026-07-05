@@ -167,6 +167,59 @@ class TestSecurity:
 # --------------------------------------------------------------- writes
 
 
+class TestIndexingAndKeywords:
+    def test_get_schemas_extracts_keywords(self, tree):
+        c = NetworkDirClient(root_path=str(tree), index_content=True, max_keywords=50)
+        tables = {t.name: t for t in c.get_schemas()}
+        meta = tables["contracts/acme_2025.csv"].metadata_json["network_dir"]
+        assert meta["indexed"] is True
+        assert meta["content_hash"]
+        # keywords include filename + content tokens
+        kws = set(meta["keywords"])
+        assert "acme" in kws
+        assert "payment" in kws  # a cell value in the csv
+
+    def test_index_content_off_stores_no_keywords(self, tree):
+        c = NetworkDirClient(root_path=str(tree), index_content=False)
+        meta = c.get_schemas()[0].metadata_json["network_dir"]
+        assert "keywords" not in meta
+
+    def test_keywords_capped(self, tmp_path):
+        (tmp_path / "big.txt").write_text(" ".join(f"word{i}" for i in range(500)))
+        c = NetworkDirClient(root_path=str(tmp_path), max_keywords=10)
+        meta = c.get_schemas()[0].metadata_json["network_dir"]
+        assert len(meta["keywords"]) <= 10
+
+    def test_junk_files_skipped(self, tree):
+        (tree / ".DS_Store").write_text("junk")
+        (tree / "~$acme_2025.csv").write_text("lock stub")
+        (tree / ".hidden").write_text("x")
+        c = NetworkDirClient(root_path=str(tree))
+        names = {f["name"] for f in c.list_files()}
+        assert ".DS_Store" not in names
+        assert "~$acme_2025.csv" not in names
+        assert ".hidden" not in names
+
+    def test_read_raw_bytes_returns_original(self, tree):
+        c = NetworkDirClient(root_path=str(tree))
+        data, name, mime = c.read_raw_bytes("images/logo.png")
+        assert name == "logo.png"
+        assert data[:4] == b"\x89PNG"
+        assert mime == "image/png"
+
+    def test_excel_sheet_names_and_cells_indexed(self, tmp_path):
+        import pandas as pd
+        path = tmp_path / "budget.xlsx"
+        with pd.ExcelWriter(path) as xl:
+            pd.DataFrame({"team": ["eng"], "count": [5]}).to_excel(xl, sheet_name="headcount", index=False)
+        c = NetworkDirClient(root_path=str(tmp_path))
+        # sheet name "headcount" is searchable even though it's not a cell value
+        assert any(h["name"] == "budget.xlsx" for h in c.search_files("headcount"))
+        # keyword index picks it up too
+        kws = c.get_schemas()[0].metadata_json["network_dir"]["keywords"]
+        assert "headcount" in kws
+
+
 @pytest.fixture()
 def doc_tree(tmp_path: Path) -> Path:
     """A directory with one pdf, one docx and one pptx, each containing a

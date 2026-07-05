@@ -139,6 +139,14 @@ class SearchFilesInput(BaseModel):
     )
     query: str = Field(..., description="Free-text search query — matches filename / content depending on the provider.")
     max_results: int = Field(default=50, ge=1, le=500)
+    deep: bool = Field(
+        default=False,
+        description=(
+            "Force an exhaustive live scan of every file's full contents instead "
+            "of the fast keyword index. Slower — use only when the fast search "
+            "misses a term you're sure is inside a file."
+        ),
+    )
 
 
 class SearchFilesOutput(BaseModel):
@@ -200,4 +208,42 @@ class WriteFileOutput(BaseModel):
     success: bool
     connection_id: str
     file: Optional[FileEntry] = None
+    error: Optional[str] = None
+
+
+# ----------------------------------------------------------- attach_file
+
+
+class AttachFileInput(BaseModel):
+    connection_id: str = Field(
+        ...,
+        description=(
+            "ID of the file source attached to this agent (Connection ID or the "
+            "DataSource/agent ID)."
+        ),
+    )
+    file_ids: List[str] = Field(
+        ...,
+        description=(
+            "One or more file IDs (from list_files / search_files) to pull from "
+            "the connection and attach to the current report as durable files — "
+            "usable by inspect_data / create_data and downloadable. Pass several "
+            "to attach a whole set at once."
+        ),
+    )
+
+
+class AttachedFile(BaseModel):
+    file_id: str
+    name: Optional[str] = None
+    session_file_id: Optional[str] = None
+    size: Optional[int] = None
+    error: Optional[str] = None
+
+
+class AttachFileOutput(BaseModel):
+    success: bool
+    connection_id: str
+    attached_count: int = 0
+    files: List[AttachedFile] = Field(default_factory=list)
     error: Optional[str] = None

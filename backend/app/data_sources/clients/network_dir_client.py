@@ -17,18 +17,20 @@ otherwise so runtime resolution rejects a write against a read-only dir).
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import mimetypes
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients._document_text import DOC_EXTS, extract_document_text
+from app.data_sources.clients._keywords import extract_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -70,6 +72,8 @@ class NetworkDirClient(DataSourceClient):
         recursive: bool = True,
         writable: bool = False,
         max_file_mb: int = 100,
+        index_content: bool = True,
+        max_keywords: int = 50,
         **_ignored,
     ):
         super().__init__()
@@ -78,6 +82,8 @@ class NetworkDirClient(DataSourceClient):
         self.recursive = bool(recursive)
         self.writable = bool(writable)
         self.max_file_bytes = int(max_file_mb) * 1024 * 1024 if max_file_mb else None
+        self.index_content = bool(index_content)
+        self.max_keywords = int(max_keywords) if max_keywords else 50
 
         # Per-instance capability gating: a read-only connection must not expose
         # WRITE_FILE, so the resolve_file_client check blocks write_file calls.
@@ -166,11 +172,25 @@ class NetworkDirClient(DataSourceClient):
             "web_url": path.as_uri(),
         }
 
+    @staticmethod
+    def _is_junk(name: str) -> bool:
+        """OS/Office cruft that shouldn't appear as real files: Word/Excel lock
+        stubs (`~$…`), macOS `.DS_Store`, Windows `Thumbs.db`, and hidden
+        dotfiles. These otherwise pollute the catalog and make the doc
+        extractors choke ("File is not a zip file")."""
+        if not name:
+            return True
+        if name.startswith("~$") or name.startswith("."):
+            return True
+        return name.lower() in {".ds_store", "thumbs.db", "desktop.ini"}
+
     def _iter_files(self, base: Path, recursive: bool) -> List[Path]:
         walker = base.rglob("*") if recursive else base.glob("*")
         out: List[Path] = []
         for p in walker:
             if not p.is_file():
+                continue
+            if self._is_junk(p.name):
                 continue
             if not self._allowed(p.name):
                 continue
@@ -247,14 +267,55 @@ class NetworkDirClient(DataSourceClient):
         except UnicodeDecodeError:
             return content
 
+    def _file_text(self, path: Path, max_chars: int = 200_000) -> str:
+        """Extract plain text from a greppable file (doc/csv/tsv/text) for
+        indexing and live search. Returns "" for binary/oversized/unreadable —
+        never raises. Excel is flattened to its cell values as text."""
+        ext = _ext(path.name)
+        if ext not in GREPPABLE_EXTS:
+            return ""
+        try:
+            if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
+                return ""
+            if ext in DOC_EXTS:
+                return extract_document_text(str(path), path.name, max_chars=max_chars)
+            if ext in ("xlsx", "xls"):
+                frames = pd.read_excel(path, sheet_name=None, header=None)
+                # Include sheet names — they're often meaningful labels
+                # ("headcount", "budget") that don't appear in any cell.
+                parts = [f"{name}\n{df.to_csv(index=False, header=False)}"
+                         for name, df in frames.items()]
+                return "\n".join(parts)[:max_chars]
+            # csv / tsv / plain text
+            return path.read_text(encoding="utf-8", errors="ignore")[:max_chars]
+        except Exception:
+            return ""
+
+    def read_raw_bytes(self, file_id: str) -> Tuple[bytes, str, Optional[str]]:
+        """Return the file's raw bytes + name + mime, unparsed. Used by the
+        attach_file tool to persist the ORIGINAL file (a real .pdf/.xlsx) rather
+        than a serialized/reparsed copy."""
+        path = self._resolve(file_id, must_exist=True)
+        if not path.is_file():
+            raise ValueError(f"Not a file: {file_id}")
+        if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
+            raise ValueError(
+                f"File {file_id} exceeds the "
+                f"{self.max_file_bytes / 1024 / 1024:.0f} MB limit."
+            )
+        mime, _ = mimetypes.guess_type(path.name)
+        return path.read_bytes(), path.name, mime
+
     def search_files(
         self, query: str, max_results: int = 200, content: bool = True, **_
     ) -> List[Dict[str, Any]]:
-        """Filename + content search under root.
+        """Live filename + content search under root (the exhaustive fallback).
 
         A file matches if the (case-insensitive) query is a substring of its
-        relative path, OR — for text-shaped files — appears in its content.
-        Mirrors what `grep -ril` + a filename check would surface.
+        relative path, OR appears in its extracted content. Mirrors `grep -ril`
+        + a filename check. Fast keyword search runs at the tool layer against
+        the indexed catalog; this is what the tool falls back to for the
+        not-yet-indexed / deep case.
         """
         root = self._root()
         q = (query or "").strip().lower()
@@ -264,18 +325,8 @@ class NetworkDirClient(DataSourceClient):
         for p in self._iter_files(root, recursive=True):
             rel = self._rel_id(p).lower()
             matched = q in rel
-            if not matched and content and _ext(p.name) in GREPPABLE_EXTS:
-                try:
-                    if self.max_file_bytes and p.stat().st_size > self.max_file_bytes:
-                        continue
-                    if _ext(p.name) in DOC_EXTS:
-                        # pdf/docx/pptx — grep the extracted plain text.
-                        text = extract_document_text(str(p), p.name)
-                    else:
-                        text = p.read_text(encoding="utf-8", errors="ignore")
-                    matched = q in text.lower()
-                except Exception:
-                    matched = False
+            if not matched and content:
+                matched = q in self._file_text(p).lower()
             if matched:
                 results.append(self._entry(p))
                 if len(results) >= max_results:
@@ -371,25 +422,43 @@ class NetworkDirClient(DataSourceClient):
             return {"success": False, "message": str(e)}
 
     def get_schemas(self) -> List[Table]:
+        """Index the directory into catalog rows. When `index_content` is on,
+        each file's contents are read once here to extract keywords (top
+        `max_keywords`) + a content hash, stored in metadata_json so the
+        search_files tool can match by topic without re-parsing every file."""
+        root = self._root()
         tables: List[Table] = []
         for f in self.list_files(recursive=self.recursive):
+            meta = {
+                "file_id": f["id"],
+                "mime_type": f.get("mime_type"),
+                "size": f.get("size"),
+                "modified_at": f.get("modified_at"),
+                "web_url": f.get("web_url"),
+            }
+            description = (
+                f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
+            )
+            if self.index_content:
+                try:
+                    path = root / f["id"]
+                    text = self._file_text(path)
+                    meta["keywords"] = extract_keywords(text, f["name"], self.max_keywords)
+                    meta["content_hash"] = hashlib.sha1(
+                        (text or "").encode("utf-8", "ignore")
+                    ).hexdigest() if text else None
+                    meta["indexed"] = True
+                    if meta["keywords"]:
+                        description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
+                except Exception:
+                    meta["indexed"] = False
             tables.append(Table(
                 name=f["path"] or f["name"],
-                description=(
-                    f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
-                ),
+                description=description,
                 columns=[],
                 pks=[],
                 fks=[],
-                metadata_json={
-                    "network_dir": {
-                        "file_id": f["id"],
-                        "mime_type": f.get("mime_type"),
-                        "size": f.get("size"),
-                        "modified_at": f.get("modified_at"),
-                        "web_url": f.get("web_url"),
-                    }
-                },
+                metadata_json={"network_dir": meta},
             ))
         return tables
 

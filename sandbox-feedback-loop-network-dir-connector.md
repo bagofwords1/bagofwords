@@ -4,12 +4,16 @@ Builds and validates a new **`network_dir`** data source: a connection that
 points at a directory (a local folder or an already-mounted SMB/NFS share) and
 gives the agent filesystem primitives —
 
+Connection type `network_dir`, shown in the catalog as **"Files and Directories"**
+(community tier — no license gate).
+
 | shell analogue | agent tool | capability |
 | --- | --- | --- |
 | `ls` / `find` | `list_files` | `list_files` |
-| `grep -ril` (name + content, **incl. PDF/Word/PowerPoint**) | `search_files` | `search_files` |
+| `grep -ril` (name + content, incl. PDF/Word/PowerPoint/Excel) — **keyword-indexed**, `deep=true` for live | `search_files` | `search_files` |
 | `cat` (text + extracted document text) | `read_file` | `read_file` |
-| `cp` / `put` | `write_file` | `write_file` (new) |
+| `cp` / `put` | `write_file` | `write_file` |
+| attach file(s) to the report (durable, like an upload) | `attach_file` | `read_file` |
 
 Use case: *search contracts to find the right file, read one to confirm, then
 put related files together in a directory.*
@@ -30,12 +34,23 @@ a fresh cloud sandbox.
   id resolves to a path **inside `root_path`**; traversal (`..`, absolute
   escapes, symlinks out) is rejected at a single chokepoint (`_resolve`).
 - **Document text extraction** (`backend/app/data_sources/clients/_document_text.py`)
-  — `read_file` and `search_files` extract plain text from **PDF** (pypdf),
-  **DOCX** (OOXML zip parse — no python-docx dep) and **PPTX** (python-pptx), so
-  contracts in those formats are content-searchable and readable, not opaque
-  bytes. Extraction is defensive (a corrupt/oversized file yields `""` and is
-  skipped, never breaking a search) and bounded (page/char caps). No new
-  dependency — `pypdf` + `python-pptx` were already in `pyproject.toml`.
+  — plain text from **PDF** (pypdf; empty-password decrypt for encrypted PDFs),
+  **DOCX** (OOXML zip parse — no python-docx dep), **PPTX** (python-pptx) and
+  **Excel** (sheet names + cells). Defensive (corrupt/oversized/locked → `""`,
+  skipped) and bounded. pypdf's warning flood is silenced. No new dependency.
+- **Content indexing** (`_keywords.py` + `NetworkDirClient.get_schemas`) — at
+  refresh, each file's text is extracted once and reduced to top-N keywords
+  (default 50, deterministic frequency + filename tokens, **language-agnostic**
+  so Hebrew + English both work) + a content hash, stored on the catalog row's
+  `metadata_json` (**no new table**). `search_files` is **index-first**: it
+  matches filenames + stored keywords instantly, and only falls back to a live
+  content scan when not indexed or `deep=true`.
+- **`attach_file` tool** (`attach_file.py` + `AttachFileTool.vue`) — pulls the
+  ORIGINAL bytes of one or more files into the report as **durable** files
+  (appended to `report.files`, like a user upload), for `inspect_data` /
+  `create_data` / download. Bulk-capable. Gated on `read_file`.
+- **Junk-file skip** — `~$…` Office lock stubs, `.DS_Store`, `Thumbs.db`, hidden
+  dotfiles never enter the catalog or the extractors.
 - **Registry entry `network_dir`** (`backend/app/schemas/data_source_registry.py`)
   — `data_shape="files"`, `catalog_ownership="shared"`, no-auth credentials
   (`NetworkDirConfig` / `NetworkDirCredentials` in
@@ -74,8 +89,8 @@ Generate the fixture directory (many CSVs + PNG charts/logos + markdown/text):
 
 ```bash
 .venv/bin/python scripts/gen_network_dir_fixtures.py /tmp/netdir_demo
-# -> contracts/ invoices/ reports/ images/ documents/ notes/ README.md
-#    (~130 files, incl. pdf/docx/pptx contracts with searchable content)
+# -> contracts/ invoices/ reports/ images/ documents/ spreadsheets/ notes/
+#    (~134 files: csv, pdf, docx, pptx, xlsx, png — all with searchable content)
 ```
 
 ---
@@ -95,11 +110,13 @@ export BOW_DATABASE_URL="sqlite:///db/app.db"
   tests/e2e/test_network_dir_e2e.py -v
 ```
 
-**Observed (PASS):** 44 tests — list/read/search/write, filename + content
-search, **PDF/DOCX/PPTX content search + text read (with a corrupt-file
-guard)**, CSV→DataFrame, binary→bytes, path-traversal rejected,
-write-on-read-only rejected, overwrite guard, extension filter, and the full
-e2e `search → read → write` (writable) and `write blocked` (read-only) flows.
+**Observed (PASS):** list/read/search/write/attach, filename + content search,
+PDF/DOCX/PPTX/Excel content search + text read (with corrupt/encrypted guards),
+**keyword indexing (incl. Hebrew), index-first search + `deep` live fallback**,
+junk-file skip, path-traversal rejected, write-on-read-only rejected, and the
+full e2e **seed → index (real refresh pipeline) → verify catalog keywords →
+index search → read → attach (durable to report.files) → write**. The e2e also
+runs on Postgres in CI.
 
 Regression check (read tools must be unaffected):
 

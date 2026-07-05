@@ -761,6 +761,7 @@ import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -1619,6 +1620,8 @@ function getToolComponent(toolName: string) {
 			return ListFilesTool
 		case 'read_file':
 			return ReadFileTool
+		case 'attach_file':
+			return AttachFileTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':

@@ -18,6 +18,12 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# pypdf is very chatty on real-world PDFs ("Ignoring wrong pointing object",
+# "FloatObject invalid", …) — harmless recovery warnings that flood the logs
+# when scanning a whole directory. Silence them; genuine errors still surface
+# via our own try/except below.
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+
 # Extensions this module can turn into text. Callers gate on this set.
 DOC_EXTS = {"pdf", "docx", "pptx"}
 
@@ -46,7 +52,10 @@ def extract_document_text(path: str, name: Optional[str] = None,
         if ext == "pptx":
             return _pptx(path, max_chars)
     except Exception as e:  # never let one bad file break a search
-        logger.warning("extract_document_text failed for %s: %s", path, e)
+        # DEBUG, not WARNING: on a real directory plenty of files legitimately
+        # fail (encrypted, corrupt, Office temp stubs) — that's expected noise,
+        # not an actionable problem. The file is simply skipped.
+        logger.debug("extract_document_text skipped %s: %s", path, e)
     return ""
 
 
@@ -54,6 +63,14 @@ def _pdf(path: str, max_chars: int) -> str:
     from pypdf import PdfReader
 
     reader = PdfReader(path)
+    # Encrypted PDFs: many use an empty owner password — try that before giving
+    # up so we can still read them. If it's genuinely locked, decrypt raises and
+    # the caller catches it (file skipped).
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")
+        except Exception:
+            return ""
     parts: list[str] = []
     total = 0
     for i, page in enumerate(reader.pages):

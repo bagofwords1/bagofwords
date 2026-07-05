@@ -641,11 +641,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "network_dir": DataSourceRegistryEntry(
         type="network_dir",
-        title="Network Directory",
+        title="Files and Directories",
         description=(
             "Browse, search and read files from a directory — a local folder or "
-            "a mounted network share (SMB/NFS). Optionally allow the agent to "
-            "write files back (copy / put)."
+            "a mounted network share (SMB/NFS). Searches inside PDF, Word, "
+            "PowerPoint, Excel and CSV, and can attach files to a report."
         ),
         config_schema=NetworkDirConfig,
         credentials_auth=AuthOptions(
@@ -661,11 +661,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.network_dir_client.NetworkDirClient",
         # An admin points the connection at one directory whose catalog is the
         # single source of truth for everyone (like a SharePoint library), so
-        # the catalog is shared rather than per-user.
+        # the catalog is shared rather than per-user. Community tier (no license
+        # gate) — a plain directory connector is core functionality.
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
-        requires_license="enterprise",
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
