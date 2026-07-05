@@ -296,35 +296,19 @@ class OrganizationService:
     async def _count_org_memberships(self, db: AsyncSession, organization_id) -> int:
         """Count all memberships in an org — active members and pending invites alike.
 
-        Pending invites (user_id is NULL) count too, so the license seat cap can't be
-        bypassed by leaving invites unaccepted.
+        Thin wrapper over the shared seat helper (single source of truth), kept for
+        the CSV-import projection that counts once and tracks its own running total.
         """
-        from sqlalchemy import func
-        result = await db.execute(
-            select(func.count(Membership.id)).where(
-                Membership.organization_id == organization_id
-            )
-        )
-        return result.scalar() or 0
+        from app.core.seats import count_org_memberships
+        return await count_org_memberships(db, organization_id)
 
     async def _enforce_user_limit(self, db: AsyncSession, organization_id, adding: int = 1) -> None:
         """Raise 402 if adding `adding` member(s) would exceed the license seat cap.
 
         No-op when unlicensed/unset (max_users == -1 → unlimited).
         """
-        from app.ee.license import get_max_users
-        max_users = get_max_users()
-        if max_users < 0:
-            return
-        current = await self._count_org_memberships(db, organization_id)
-        if current + adding > max_users:
-            raise HTTPException(
-                status_code=402,
-                detail=(
-                    f"User limit reached for your license ({max_users}). "
-                    "Contact sales to increase your seat count."
-                ),
-            )
+        from app.core.seats import enforce_seat_limit
+        await enforce_seat_limit(db, organization_id, adding)
 
     async def add_member(self, db: AsyncSession, membership_data: MembershipCreate, current_user: User) -> MembershipSchema:
         #check if email is already a user

@@ -253,6 +253,12 @@ class ScimUserService:
             if membership_result.scalar_one_or_none():
                 raise HTTPException(status_code=409, detail="User already exists in this organization")
 
+            # Enforce the license seat cap before adding a new member. Checked after
+            # the duplicate guard so re-provisioning an existing member still 409s
+            # rather than being masked by a seat-limit 402.
+            from app.core.seats import enforce_seat_limit
+            await enforce_seat_limit(db, organization_id)
+
             # Add membership to existing user
             membership = Membership(
                 user_id=existing_user.id,
@@ -272,6 +278,12 @@ class ScimUserService:
             await db.commit()
             await db.refresh(membership)
             return _user_to_scim(existing_user, membership, base_url)
+
+        # Enforce the license seat cap before creating a brand-new user + membership,
+        # so a full org can't be grown via SCIM provisioning (and we don't leave an
+        # orphan User with no membership).
+        from app.core.seats import enforce_seat_limit
+        await enforce_seat_limit(db, organization_id)
 
         # Create new user
         display_name = data.displayName
