@@ -214,6 +214,30 @@ def gen_documents(root: Path, n: int) -> int:
     return count
 
 
+def gen_spreadsheets(root: Path, n: int) -> int:
+    """A few multi-sheet .xlsx workbooks (budgets) with searchable content."""
+    import pandas as pd
+
+    (root / "spreadsheets").mkdir(parents=True, exist_ok=True)
+    for i in range(n):
+        vendor = VENDORS[i % len(VENDORS)]
+        budget = pd.DataFrame({
+            "category": ["licenses", "services", "support", "training"],
+            "vendor": [vendor] * 4,
+            "amount_usd": [random.randint(1000, 90000) for _ in range(4)],
+            "quarter": [f"Q{random.randint(1,4)}" for _ in range(4)],
+        })
+        headcount = pd.DataFrame({
+            "team": ["eng", "sales", "ops"],
+            "count": [random.randint(3, 40) for _ in range(3)],
+        })
+        path = root / "spreadsheets" / f"budget_{vendor.lower().replace(' ', '_')}_{i:02d}.xlsx"
+        with pd.ExcelWriter(path) as xl:
+            budget.to_excel(xl, sheet_name="budget", index=False)
+            headcount.to_excel(xl, sheet_name="headcount", index=False)
+    return n
+
+
 def gen_notes(root: Path) -> int:
     (root / "notes").mkdir(parents=True, exist_ok=True)
     (root / "README.md").write_text(
@@ -229,7 +253,8 @@ def gen_notes(root: Path) -> int:
 
 
 def generate(root: Path, contracts: int = 40, invoices: int = 20,
-             reports: int = 4, images: int = 8, documents: int = 4) -> dict:
+             reports: int = 4, images: int = 8, documents: int = 4,
+             spreadsheets: int = 4) -> dict:
     _seed()
     root.mkdir(parents=True, exist_ok=True)
     stats = {
@@ -238,6 +263,7 @@ def generate(root: Path, contracts: int = 40, invoices: int = 20,
         "reports": gen_reports_and_charts(root, reports),
         "images": gen_images(root, images),
         "documents": gen_documents(root, documents),
+        "spreadsheets": gen_spreadsheets(root, spreadsheets),
         "notes": gen_notes(root),
     }
     total = sum(1 for _ in root.rglob("*") if _.is_file())
@@ -253,10 +279,11 @@ def main():
     ap.add_argument("--reports", type=int, default=4)
     ap.add_argument("--images", type=int, default=8)
     ap.add_argument("--documents", type=int, default=4)
+    ap.add_argument("--spreadsheets", type=int, default=4)
     args = ap.parse_args()
     stats = generate(Path(args.root).expanduser().resolve(),
                      args.contracts, args.invoices, args.reports, args.images,
-                     args.documents)
+                     args.documents, args.spreadsheets)
     print(f"Populated {args.root}:")
     for k, v in stats.items():
         print(f"  {k}: {v}")

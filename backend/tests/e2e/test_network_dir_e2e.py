@@ -127,33 +127,72 @@ async def _load_ctx(db, org_id, user_id, report_id):
     return {"db": db, "organization": org, "user": user, "report": report}
 
 
+async def _index(db, org_id, user_id, ds_id):
+    """Run the real refresh/index pipeline that populates the catalog
+    (ConnectionTable -> DataSourceTable) with keywords."""
+    from app.services.data_source_service import DataSourceService
+    org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one()
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+    await DataSourceService().refresh_data_source_schema(db, str(ds_id), org, user)
+
+
 async def _flow(tmp_root: str, writable: bool):
     from app.ai.tools.implementations.search_files import SearchFilesTool
     from app.ai.tools.implementations.read_file import ReadFileTool
     from app.ai.tools.implementations.write_file import WriteFileTool
-    from app.ai.tools.implementations.list_files import ListFilesTool
+    from app.ai.tools.implementations.attach_file import AttachFileTool
+    from app.services.data_source_service import DataSourceService
 
     async with async_session_maker() as db:
         org_id, user_id, conn_id, ds_id, report_id = await _seed(db, tmp_root, writable)
-        ctx = await _load_ctx(db, org_id, user_id, report_id)
 
-        # 1. search_files — find contracts by content/filename (live client).
-        # "contract" is in every contract file's name, so this is deterministic
-        # regardless of the (seeded) random vendor mix.
+        # ---- INDEX: run the real refresh pipeline, then verify the catalog
+        # carries extracted keywords (the content index).
+        await _index(db, org_id, user_id, ds_id)
+        ctx = await _load_ctx(db, org_id, user_id, report_id)
+        tables = await DataSourceService().get_data_source_schema(
+            db=db, data_source_id=str(ds_id), organization=ctx["organization"],
+            current_user=ctx["user"], include_inactive=True,
+        )
+        assert tables, "catalog empty after refresh"
+        indexed = [t for t in tables if (getattr(t, "metadata_json", None) or {})
+                   .get("network_dir", {}).get("keywords")]
+        assert indexed, "no keywords in catalog after indexing"
+
+        # 1. search_files — should use the KEYWORD INDEX (not a live scan).
         out = await _end(SearchFilesTool().run_stream(
             {"connection_id": str(conn_id), "query": "contract", "max_results": 50}, ctx))
         assert out["success"] is True, out
         assert out["file_count"] > 0
         hit = next(f for f in out["files"] if f["id"].endswith(".csv"))
 
-        # 2. read_file — read a matched CSV (agent passes the id it got back).
+        # deep=true forces the exhaustive live scan and must also work.
+        deep = await _end(SearchFilesTool().run_stream(
+            {"connection_id": str(conn_id), "query": "contract", "deep": True}, ctx))
+        assert deep["success"] is True and deep["file_count"] > 0
+
+        # 2. read_file — read a matched CSV.
         out = await _end(ReadFileTool().run_stream(
             {"connection_id": str(conn_id), "file_id": hit["id"]}, ctx))
         assert out["success"] is True, out
         assert out["content_type"] == "tabular"
         assert out["row_count"] >= 1
 
-        # 3. write_file — "put" a generated summary into a new folder.
+        # 3. attach_file — durably attach files to the report.
+        pdfs = [t.name for t in tables if t.name.endswith(".pdf")][:2]
+        if pdfs:
+            out = await _end(AttachFileTool().run_stream(
+                {"connection_id": str(conn_id), "file_ids": pdfs}, ctx))
+            assert out["success"] is True, out
+            assert out["attached_count"] == len(pdfs)
+            # durable: files landed on report.files
+            report = (await db.execute(
+                select(Report).where(Report.id == report_id)
+                .options(selectinload(Report.files))
+            )).scalar_one()
+            assert len(report.files) >= len(pdfs)
+
+        # 4. write_file — "put" a generated summary into a new folder.
         out = await _end(WriteFileTool().run_stream(
             {"connection_id": str(conn_id), "filename": "index.md",
              "folder": "_related", "content": "# Related contracts\n- acme\n"}, ctx))
@@ -162,20 +201,19 @@ async def _flow(tmp_root: str, writable: bool):
             assert out["file"]["id"] == "_related/index.md"
             assert Path(tmp_root, "_related", "index.md").exists()
         else:
-            # read-only connection: the write tool must be rejected at resolve.
             assert out["success"] is False
             assert "write_file" in out["error"]
 
     return conn_id
 
 
-def test_e2e_writable_search_read_write(tmp_path):
+def test_e2e_index_search_read_attach_write(tmp_path):
     root = tmp_path / "share"
-    generate(root, contracts=10, invoices=5, reports=2, images=3)
+    generate(root, contracts=10, invoices=5, reports=2, images=3, documents=3, spreadsheets=2)
     _run(_flow(str(root), writable=True))
 
 
 def test_e2e_readonly_blocks_write(tmp_path):
     root = tmp_path / "share_ro"
-    generate(root, contracts=5, invoices=3, reports=1, images=2)
+    generate(root, contracts=5, invoices=3, reports=1, images=2, documents=2, spreadsheets=1)
     _run(_flow(str(root), writable=False))

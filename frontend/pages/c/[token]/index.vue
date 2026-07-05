@@ -227,6 +227,7 @@ import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -363,6 +364,8 @@ function getToolComponent(toolName: string) {
             return ListFilesTool
         case 'read_file':
             return ReadFileTool
+        case 'attach_file':
+            return AttachFileTool
         case 'execute_code':
         case 'execute_sql':
         case 'create_and_execute_code':

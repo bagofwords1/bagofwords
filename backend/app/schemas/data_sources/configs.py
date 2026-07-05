@@ -1006,6 +1006,16 @@ class NetworkDirConfig(BaseModel):
         description="Skip files larger than this when reading. Guards against loading huge files into memory.",
         json_schema_extra={"ui:type": "number"}
     )
+    index_content: bool = Field(
+        True,
+        title="Index File Contents",
+        description=(
+            "When indexing the directory, extract keywords from each file's "
+            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
+            "files by topic quickly. Turn off to index filenames only."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 # QVD Files (QlikView Data)
