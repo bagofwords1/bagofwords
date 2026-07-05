@@ -57,6 +57,9 @@ from app.schemas.data_sources.configs import (
     # Power BI Report Server (on-prem)
     PowerBIReportServerConfig,
     PowerBIReportServerCredentials,
+    # Network Directory (local / mounted file share)
+    NetworkDirConfig,
+    NetworkDirCredentials,
     # QVD Files
     QVDConfig,
     QVDCredentials,
@@ -634,6 +637,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_report_server_client.PowerBIReportServerClient",
+        requires_license="enterprise",
+    ),
+    "network_dir": DataSourceRegistryEntry(
+        type="network_dir",
+        title="Network Directory",
+        description=(
+            "Browse, search and read files from a directory — a local folder or "
+            "a mounted network share (SMB/NFS). Optionally allow the agent to "
+            "write files back (copy / put)."
+        ),
+        config_schema=NetworkDirConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=NetworkDirCredentials,
+                    scopes=["system"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.network_dir_client.NetworkDirClient",
+        # An admin points the connection at one directory whose catalog is the
+        # single source of truth for everyone (like a SharePoint library), so
+        # the catalog is shared rather than per-user.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
         requires_license="enterprise",
     ),
     "qvd": DataSourceRegistryEntry(

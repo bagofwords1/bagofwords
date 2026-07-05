@@ -148,3 +148,56 @@ class SearchFilesOutput(BaseModel):
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)
     error: Optional[str] = None
+
+
+# ----------------------------------------------------------- write_file
+
+
+class WriteFileInput(BaseModel):
+    connection_id: str = Field(
+        ...,
+        description=(
+            "ID of a WRITABLE file source attached to this agent (Connection ID "
+            "or the DataSource/agent ID). Only connections with writes enabled "
+            "accept this — a read-only source rejects the call."
+        ),
+    )
+    filename: str = Field(
+        ...,
+        description=(
+            "Destination file name, optionally with a relative folder path "
+            "(e.g. 'contracts/acme_2025.csv'). Resolved under the connection's "
+            "configured root; paths escaping the root are rejected."
+        ),
+    )
+    content: Optional[str] = Field(
+        None,
+        description=(
+            "Text content to write. Provide EITHER content OR source_file_id, "
+            "not both. Use content for text/CSV/markdown you generate."
+        ),
+    )
+    source_file_id: Optional[str] = Field(
+        None,
+        description=(
+            "Copy an existing session file into the destination instead of "
+            "writing literal text. Pass a session_file_id returned by read_file "
+            "(or an uploaded file's id). Use this to 'put' a file you found "
+            "into the directory (cp / put). Mutually exclusive with content."
+        ),
+    )
+    folder: Optional[str] = Field(
+        None,
+        description="Optional destination subfolder under the root. Combined with filename.",
+    )
+    overwrite: bool = Field(
+        False,
+        description="Overwrite the target if it already exists. Off by default to avoid clobbering.",
+    )
+
+
+class WriteFileOutput(BaseModel):
+    success: bool
+    connection_id: str
+    file: Optional[FileEntry] = None
+    error: Optional[str] = None
