@@ -147,8 +147,8 @@ async function loadModels() {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
     const list = (data as any)?.value || []
     models.value = list
-    // Prefer regular default, then small default, then first
-    const regular = list.find((m: any) => m.is_default)
+    // Prefer the user's personal default, then regular default, then small default, then first
+    const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_default)
     const small = list.find((m: any) => m.is_small_default)
     const pick = regular || small || list[0]
     if (pick) selectModel(pick)

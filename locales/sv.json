@@ -2729,7 +2729,12 @@
       "platformsSubtitle": "Konton kopplade till din profil via integrationer.",
       "connected": "Ansluten",
       "pending": "Väntar",
-      "noPlatforms": "Inga externa plattformar anslutna ännu."
+      "noPlatforms": "Inga externa plattformar anslutna ännu.",
+      "defaultModel": "Standardmodell",
+      "defaultModelSubtitle": "Modellen som används som standard när du startar en ny chatt. Endast modeller du har tillgång till visas.",
+      "orgDefault": "Organisationens standard",
+      "defaultModelSaved": "Standardmodellen har uppdaterats",
+      "defaultModelFailed": "Det gick inte att uppdatera standardmodellen"
     },
     "instructions": {
       "title": "Anpassade instruktioner",

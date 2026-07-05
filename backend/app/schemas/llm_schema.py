@@ -184,6 +184,9 @@ class LLMModelSchema(LLMModelBase):
     is_enabled: bool = True
     is_custom: bool = False
     is_restricted: bool = False
+    # Whether this model is the CALLER's personal default (memberships.default_llm_model_id).
+    # Computed per-request in LLMService.get_models — not a column.
+    is_user_default: bool = False
 
     class Config:
         from_attributes = True

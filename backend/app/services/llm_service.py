@@ -600,6 +600,18 @@ class LLMService:
                     or str(m.id) in granted_set
                 ]
 
+        # Mark the caller's personal default so clients can preselect it without
+        # a second request. Transient attribute (feeds LLMModelSchema.is_user_default),
+        # only set when the preferred model survived the access filtering above.
+        user_default_id = None
+        if current_user is not None:
+            user_default_id = await self.get_user_default_model_id(db, organization, current_user)
+        visible_ids = {str(m.id) for m in models}
+        if user_default_id not in visible_ids:
+            user_default_id = None
+        for m in models:
+            m.is_user_default = (str(m.id) == user_default_id)
+
         # Prefer small default models first, then regular default, then by provider/name
         def _sort_key(m):
             try:
@@ -1182,6 +1194,106 @@ class LLMService:
             .limit(1)
         )
         return first_enabled.scalar_one_or_none()
+
+    async def get_user_default_model_id(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+    ) -> str | None:
+        """Raw per-user default preference (membership column). May be stale —
+        callers that need a usable model go through get_default_model_for_user."""
+        from app.models.membership import Membership
+        result = await db.execute(
+            select(Membership.default_llm_model_id).where(
+                Membership.user_id == str(user.id),
+                Membership.organization_id == str(organization.id),
+            )
+        )
+        row = result.first()
+        return row[0] if row else None
+
+    async def get_default_model_for_user(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+    ):
+        """Effective default model for interactive flows.
+
+        The user's per-org default wins when it is still enabled, its provider
+        is alive, and the user can still use it (a model can become restricted
+        after being picked). Anything stale falls back silently to the org
+        default — a user preference must never break chat.
+        """
+        if user is not None:
+            preferred_id = await self.get_user_default_model_id(db, organization, user)
+            if preferred_id:
+                result = await db.execute(
+                    select(LLMModel)
+                    .join(LLMModel.provider)
+                    .filter(LLMModel.id == preferred_id)
+                    .filter(LLMModel.organization_id == organization.id)
+                    .filter(LLMModel.deleted_at == None)
+                    .filter(LLMModel.is_enabled == True)
+                    .filter(LLMProvider.deleted_at == None)
+                    .filter(LLMProvider.is_enabled == True)
+                )
+                model = result.unique().scalar_one_or_none()
+                if model is not None:
+                    from app.core.permission_resolver import user_can_use_model
+                    if await user_can_use_model(db, user.id, organization.id, model):
+                        return model
+        return await self.get_default_model(db, organization, user)
+
+    async def set_user_default_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        model_id: str | None,
+    ) -> str | None:
+        """Set (or clear, with None) the current user's default model.
+
+        Unlike resolution, setting is strict: the model must exist in the org,
+        be enabled, and be usable by this user — restricted models require a
+        grant even though org defaults would bypass that check elsewhere.
+        """
+        from app.models.membership import Membership
+
+        if model_id:
+            result = await db.execute(
+                select(LLMModel)
+                .join(LLMModel.provider)
+                .filter(LLMModel.id == model_id)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.deleted_at == None)
+                .filter(LLMProvider.deleted_at == None)
+                .filter(LLMProvider.is_enabled == True)
+            )
+            model = result.unique().scalar_one_or_none()
+            if model is None:
+                raise HTTPException(status_code=404, detail="Model not found")
+            if not model.is_enabled:
+                raise HTTPException(status_code=400, detail="Model is not enabled")
+            from app.core.permission_resolver import user_can_use_model
+            if not await user_can_use_model(db, user.id, organization.id, model):
+                raise HTTPException(status_code=403, detail="You do not have access to this model")
+
+        result = await db.execute(
+            select(Membership).where(
+                Membership.user_id == str(user.id),
+                Membership.organization_id == str(organization.id),
+            )
+        )
+        membership = result.scalars().first()
+        if membership is None:
+            raise HTTPException(status_code=404, detail="Membership not found")
+
+        membership.default_llm_model_id = str(model_id) if model_id else None
+        db.add(membership)
+        await db.commit()
+        return membership.default_llm_model_id
     
     async def set_default_models_from_config(
         self,

@@ -2729,7 +2729,12 @@
       "platformsSubtitle": "Contas vinculadas ao seu perfil nas integrações.",
       "connected": "Conectado",
       "pending": "Pendente",
-      "noPlatforms": "Nenhuma plataforma externa conectada ainda."
+      "noPlatforms": "Nenhuma plataforma externa conectada ainda.",
+      "defaultModel": "Modelo padrão",
+      "defaultModelSubtitle": "O modelo usado por padrão quando você inicia um novo chat. Apenas os modelos aos quais você tem acesso são listados.",
+      "orgDefault": "Padrão da organização",
+      "defaultModelSaved": "Modelo padrão atualizado",
+      "defaultModelFailed": "Falha ao atualizar o modelo padrão"
     },
     "instructions": {
       "title": "Instruções personalizadas",

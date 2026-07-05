@@ -150,7 +150,7 @@ class TestRunService:
             except Exception:
                 model = None
         if not model:
-            model = await organization.get_default_llm_model(db)
+            model = await self.completions.llm_service.get_default_model_for_user(db, organization, current_user)
         if not model:
             raise HTTPException(status_code=400, detail="No default LLM model configured. Please configure a default model in organization settings.")
 
@@ -980,7 +980,7 @@ class TestRunService:
                     except Exception:
                         model = None
                 if not model:
-                    model = await organization.get_default_llm_model(db)
+                    model = await self.completions.llm_service.get_default_model_for_user(db, organization, current_user)
                 small_model = await self.completions.llm_service.get_default_model(db, organization, current_user, is_small=True)
                 if not model:
                     # Cannot start - mark error

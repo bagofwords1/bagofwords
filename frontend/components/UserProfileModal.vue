@@ -116,6 +116,67 @@
               </UButton>
             </div>
 
+            <!-- Personal default LLM model -->
+            <div class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
+              <div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.defaultModel') }}</div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.defaultModelSubtitle') }}</p>
+              </div>
+
+              <div v-if="modelsLoading" class="py-2">
+                <Spinner class="w-4 h-4 text-gray-400" />
+              </div>
+              <UPopover v-else :popper="{ strategy: 'absolute', placement: 'bottom-start', offset: [0, 8] }">
+                <button
+                  class="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2.5 py-1.5 text-xs flex items-center max-w-[280px]"
+                  :disabled="savingDefaultModel"
+                >
+                  <LLMProviderIcon
+                    v-if="selectedDefaultModel"
+                    :provider="selectedDefaultModel.provider?.provider_type || 'default'"
+                    :icon="true"
+                    class="w-4 h-4 flex-shrink-0"
+                  />
+                  <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
+                  <span class="ms-1.5 truncate">{{ selectedDefaultModelLabel }}</span>
+                  <Icon name="heroicons-chevron-down" class="w-3.5 h-3.5 ms-1.5 flex-shrink-0 text-gray-400" />
+                </button>
+                <template #panel="{ close }">
+                  <div class="p-2 text-xs max-h-64 overflow-y-auto w-[240px]">
+                    <!-- Follow the org default (clears the personal preference) -->
+                    <div
+                      class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center"
+                      @click="() => { saveDefaultModel(null); close(); }"
+                    >
+                      <div class="me-2">
+                        <Icon name="heroicons-building-office" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                      </div>
+                      <div class="flex flex-col flex-1 text-start min-w-0">
+                        <span class="font-medium truncate">{{ $t('profile.general.orgDefault') }}</span>
+                        <span v-if="orgDefaultModel" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ orgDefaultModel.name }}</span>
+                      </div>
+                      <Icon v-if="!userDefaultModelId" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
+                    </div>
+                    <div
+                      v-for="m in models"
+                      :key="m.id"
+                      class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center"
+                      @click="() => { saveDefaultModel(m.id); close(); }"
+                    >
+                      <div class="me-2">
+                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
+                      </div>
+                      <div class="flex flex-col flex-1 text-start min-w-0">
+                        <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
+                        <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
+                      </div>
+                      <Icon v-if="userDefaultModelId === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
+                    </div>
+                  </div>
+                </template>
+              </UPopover>
+            </div>
+
             <!-- External platforms summary -->
             <div class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
               <div>
@@ -435,6 +496,7 @@
 import { markRaw } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
+import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
@@ -553,6 +615,60 @@ async function removeAvatar() {
     toast.add({ title: err?.message || t('profile.general.avatarFailed'), color: 'red' })
   } finally {
     avatarBusy.value = false
+  }
+}
+
+// --- General: personal default LLM model ---
+// Same list the prompt box selector uses (already access-filtered per user);
+// `is_user_default` marks the saved preference, no personal default = follow org.
+const models = ref<any[]>([])
+const modelsLoading = ref(false)
+const modelsLoaded = ref(false)
+const userDefaultModelId = ref<string | null>(null)
+const savingDefaultModel = ref(false)
+
+const orgDefaultModel = computed(() => models.value.find((m: any) => m.is_default) || null)
+const selectedDefaultModel = computed(() => models.value.find((m: any) => m.id === userDefaultModelId.value) || null)
+const selectedDefaultModelLabel = computed(() =>
+  selectedDefaultModel.value?.name || t('profile.general.orgDefault')
+)
+
+async function loadModels() {
+  if (modelsLoaded.value) return
+  modelsLoading.value = true
+  try {
+    const res = await useMyFetch('/api/llm/models?is_enabled=true')
+    const list = res.data?.value
+    models.value = Array.isArray(list) ? list : []
+    userDefaultModelId.value = models.value.find((m: any) => m.is_user_default)?.id || null
+    modelsLoaded.value = true
+  } catch {
+    // non-fatal; section just shows the org-default chip
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+async function saveDefaultModel(modelId: string | null) {
+  if (savingDefaultModel.value || modelId === userDefaultModelId.value) return
+  const previous = userDefaultModelId.value
+  userDefaultModelId.value = modelId
+  savingDefaultModel.value = true
+  try {
+    const res = await useMyFetch('/users/me/default_model', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: modelId }),
+    })
+    if (res.status.value !== 'success') {
+      throw new Error((res.error?.value as any)?.data?.detail || t('profile.general.defaultModelFailed'))
+    }
+    toast.add({ title: t('profile.general.defaultModelSaved'), color: 'green' })
+  } catch (e: any) {
+    userDefaultModelId.value = previous
+    toast.add({ title: e?.message || t('profile.general.defaultModelFailed'), color: 'red' })
+  } finally {
+    savingDefaultModel.value = false
   }
 }
 
@@ -854,6 +970,7 @@ watch(isOpen, (open) => {
   if (open) {
     syncNameInput()
     loadOrgLocale()
+    loadModels()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()
     if (activeTab.value === 'mcp') loadMcp()
@@ -861,6 +978,7 @@ watch(isOpen, (open) => {
     // Reset one-time key reveal and force a fresh fetch on next open.
     newApiKey.value = null
     apiKeysLoaded.value = false
+    modelsLoaded.value = false
     mcpLoaded.value = false
     mcpCurrentToken.value = null
   }
