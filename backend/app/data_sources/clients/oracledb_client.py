@@ -1,5 +1,6 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import oracledb
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
@@ -8,6 +9,27 @@ from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+
+
+def init_thick_mode_if_available() -> bool:
+    """Load Oracle Client libraries (thick mode) when they are installed.
+
+    Called once at application startup, before any Oracle connection exists —
+    the mode is process-wide and cannot change after the first connection.
+    Thin mode (the pure-Python default) cannot talk to Oracle servers older
+    than 12.1, to accounts with only a 10G password verifier (DPY-3015), or
+    through Native Network Encryption (DPY-4011 "connection reset by peer").
+    Thick mode supports all of those plus everything thin mode does, so it is
+    preferred whenever the Instant Client libraries are present (bundled in
+    the Docker image). Hosts without the libraries keep thin mode unchanged.
+
+    Returns True when thick mode was enabled, False when staying thin.
+    """
+    try:
+        oracledb.init_oracle_client()
+        return True
+    except Exception:
+        return False
 
 
 class OracledbClient(DataSourceClient):
