@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.434 (July 5, 2026)
+- **Oracle thick-mode support for legacy servers (#548)** — Oracle connections to servers that python-oracledb thin mode can't handle (pre-12.1 versions, 10G-only password verifiers, Native Network Encryption) failed with DPY-4011 "connection reset by peer". The Docker image now bundles Oracle Instant Client 19c (amd64/arm64) and the backend switches the driver to thick mode at startup whenever the libraries are present — thick is a superset of thin, so existing connections are unaffected; hosts without the libraries (dev, airgapped) keep thin mode.
+
+
 ## Version 0.0.433 (July 4, 2026)
 - **Claude Fable 5 support** — Claude Fable 5 (`claude-fable-5`) is now a selectable Anthropic preset model.
 - **Mobile web UI pass (#534)** — responsive fixes across the main mobile screens. The public artifact top bar is now icon-only on mobile (no more overlapping Back/tabs/Refreshed/Edit/✕), and the artifact/report browser tab (and "Add to Home screen" shortcut) shows the report title instead of the report UUID. Inputs are forced to 16px on small screens to stop iOS focus-zoom, full-height shells use `h-dvh`, and a mobile navigation drawer (hamburger + slide-in sidebar) makes Home/Reports/Dashboards/Settings reachable on a phone. The "Configure your LLM" banner is desktop-only, the report chat prompt box is full-width and aligned with the message/tool content, and the CreateData tool's children are mobile-friendly (data-table columns fill the width with no stray pagination footer; chart x-axis labels no longer overlap). Desktop layout is unchanged.
