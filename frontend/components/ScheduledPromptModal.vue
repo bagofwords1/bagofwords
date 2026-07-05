@@ -196,6 +196,7 @@
 <script lang="ts" setup>
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '@/components/prompt/PromptBoxV2.vue'
+import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -264,7 +265,6 @@ const delayAmount = ref(1)
 const delayUnit = ref<'minutes' | 'hours' | 'days'>('hours')
 
 // Recurring structured inputs
-type RecurInterval = 'minutes' | 'hours' | 'day' | 'weekdays' | 'week' | 'month'
 const recurInterval = ref<RecurInterval>('day')
 const recurEveryN = ref(15)
 const recurHour = ref(8)
@@ -291,36 +291,13 @@ function toggleRecurDay(value: number) {
 }
 
 function parseCronToStructured(cron: string) {
-    if (!cron) return
-    const parts = cron.split(' ')
-    if (parts.length < 5) return
-    const [min, hour, dom, , dow] = parts
-    if (min.startsWith('*/')) {
-        recurInterval.value = 'minutes'
-        recurEveryN.value = parseInt(min.slice(2)) || 15
-    } else if (hour.startsWith('*/')) {
-        recurInterval.value = 'hours'
-        recurEveryN.value = parseInt(hour.slice(2)) || 1
-    } else if (dow === '1-5') {
-        recurInterval.value = 'weekdays'
-        recurHour.value = parseInt(hour) || 0
-    } else if (dom !== '*' && dow === '*') {
-        recurInterval.value = 'month'
-        recurHour.value = parseInt(hour) || 0
-        recurDayOfMonth.value = parseInt(dom) || 1
-    } else if (dow !== '*') {
-        recurInterval.value = 'week'
-        recurHour.value = parseInt(hour) || 0
-        // Parse a comma list of days ("1,3,5" -> [1,3,5]). Guard NaN but keep 0
-        // (Sunday). Fall back to Monday if nothing valid parsed.
-        const parsedDays = dow.split(',')
-            .map((d) => parseInt(d, 10))
-            .filter((d) => !Number.isNaN(d) && d >= 0 && d <= 6)
-        recurDays.value = parsedDays.length > 0 ? [...new Set(parsedDays)].sort((a, b) => a - b) : [1]
-    } else {
-        recurInterval.value = 'day'
-        recurHour.value = parseInt(hour) || 0
-    }
+    const patch = parseRecurringCron(cron)
+    if (!patch) return
+    if (patch.interval !== undefined) recurInterval.value = patch.interval
+    if (patch.everyN !== undefined) recurEveryN.value = patch.everyN
+    if (patch.hour !== undefined) recurHour.value = patch.hour
+    if (patch.days !== undefined) recurDays.value = patch.days
+    if (patch.dayOfMonth !== undefined) recurDayOfMonth.value = patch.dayOfMonth
 }
 
 // Hydrate the schedule form from the existing cron on setup. The watch below is
@@ -422,15 +399,13 @@ function computeCronSchedule(): string {
         const target = new Date(now.getTime() + delayAmount.value * multiplier * 60_000)
         return `${target.getMinutes()} ${target.getHours()} ${target.getDate()} ${target.getMonth() + 1} *`
     }
-    if (recurInterval.value === 'minutes') return `*/${recurEveryN.value} * * * *`
-    if (recurInterval.value === 'hours') return `0 */${recurEveryN.value} * * *`
-    if (recurInterval.value === 'weekdays') return `0 ${recurHour.value} * * 1-5`
-    if (recurInterval.value === 'week') {
-        const days = [...recurDays.value].sort((a, b) => a - b)
-        return `0 ${recurHour.value} * * ${(days.length > 0 ? days : [1]).join(',')}`
-    }
-    if (recurInterval.value === 'month') return `0 ${recurHour.value} ${recurDayOfMonth.value} * *`
-    return `0 ${recurHour.value} * * *`
+    return buildRecurringCron({
+        interval: recurInterval.value,
+        everyN: recurEveryN.value,
+        hour: recurHour.value,
+        days: recurDays.value,
+        dayOfMonth: recurDayOfMonth.value,
+    })
 }
 
 function buildNotificationSubscribers(): Subscriber[] | null {
