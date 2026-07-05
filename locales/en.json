@@ -2944,6 +2944,8 @@
     "schedule": "Schedule",
     "typeOnce": "One-time",
     "typeRecurring": "Recurring",
+    "scheduleOff": "Off",
+    "scheduleOn": "On",
     "runIn": "Run in",
     "unitMinutes": "min",
     "unitHours": "hr",

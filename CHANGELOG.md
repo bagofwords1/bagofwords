@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.434 (July 5, 2026)
+- **`network_dir` file connector (#519)** — new data source pointing at a directory (local folder or mounted SMB/NFS share) with `list_files` / `search_files` / `read_file` plus the first *write* capability for file sources (`write_file` agent tool). Path traversal and writes to read-only connections fail closed at a single chokepoint. No migration.
+- **Seat cap enforced on all auto-provisioning paths (#540)** — the license `max_users` cap now applies to domain-signup invites, chat auto-provision, LDAP group sync, SCIM provisioning, and OIDC group sync (previously only admin invite / CSV import). New `app/core/seats.py` is the single source of truth; existing members are never blocked — only creation beyond the cap is refused.
+- **Reliably responsive `create_artifact` dashboards (#545)** — the page/dashboard code-generation prompt now carries a concrete required responsive-layout section (fluid container, mobile-first grids, wrap/overflow rules), so generated dashboards reflow from the ~360px chat side-panel to full-screen.
+- **Structured report schedule builder (#549)** — the report-refresh Schedule modal replaces the fixed dropdown with the structured recurring builder (every N minutes/hours, time of day, weekday chips, day of month), sharing one composable with the schedule-task modal.
+- **Honor org row limit on refresh (#550)** — `limit_row_count` now applies to all data re-generation paths (report rerun, query run/preview, entity refresh/preview), not just initial creation; setting the limit to 0 correctly means "no limit" instead of returning 0 rows.
+
+
 ## Version 0.0.433 (July 4, 2026)
 - **Claude Fable 5 support** — Claude Fable 5 (`claude-fable-5`) is now a selectable Anthropic preset model.
 - **Mobile web UI pass (#534)** — responsive fixes across the main mobile screens. The public artifact top bar is now icon-only on mobile (no more overlapping Back/tabs/Refreshed/Edit/✕), and the artifact/report browser tab (and "Add to Home screen" shortcut) shows the report title instead of the report UUID. Inputs are forced to 16px on small screens to stop iOS focus-zoom, full-height shells use `h-dvh`, and a mobile navigation drawer (hamburger + slide-in sidebar) makes Home/Reports/Dashboards/Settings reachable on a phone. The "Configure your LLM" banner is desktop-only, the report chat prompt box is full-width and aligned with the message/tool content, and the CreateData tool's children are mobile-friendly (data-table columns fill the width with no stray pagination footer; chart x-axis labels no longer overlap). Desktop layout is unchanged.
