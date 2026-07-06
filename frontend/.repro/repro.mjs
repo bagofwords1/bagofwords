@@ -115,7 +115,6 @@ await page.mouse.move(hx, hy);
 await page.waitForTimeout(400);
 await showCursor(hx, hy);
 
-const hunkSel = `#${CSS.escape ? multi.id : multi.id}`;
 const pop = await page.evaluate((id) => {
   const el = document.getElementById(id);
   const p = el && el.querySelector('span.z-30');
