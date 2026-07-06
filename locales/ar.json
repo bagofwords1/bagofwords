@@ -886,6 +886,8 @@
       "rowsFiltered": "{filtered}/{total} صف",
       "downloadPng": "تنزيل بصيغة PNG",
       "downloadCsv": "تنزيل بصيغة CSV",
+      "download": "تنزيل",
+      "downloadExcel": "تنزيل بصيغة Excel",
       "noData": "لا توجد بيانات متاحة.",
       "tabChart": "مخطط",
       "tabData": "بيانات",

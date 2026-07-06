@@ -29,14 +29,27 @@
               <Icon name="heroicons:photo" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
-          <UTooltip v-if="hasDataForDownload" :text="$t('tools.widgetPreview.downloadCsv')">
-            <button
-              @click.stop="downloadCSV"
-              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
-            >
-              <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
-            </button>
-          </UTooltip>
+          <UDropdown
+            v-if="hasDataForDownload"
+            :items="downloadItems"
+            :popper="{ placement: 'bottom-end' }"
+            :ui="{ width: 'w-48', item: { padding: 'px-2.5 py-1.5' } }"
+            @click.stop
+          >
+            <UTooltip :text="$t('tools.widgetPreview.download')">
+              <button
+                type="button"
+                class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
+              >
+                <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
+                <Icon name="heroicons:chevron-down" class="w-3 h-3 -ml-0.5 rtl-flip" />
+              </button>
+            </UTooltip>
+            <template #item="{ item }">
+              <Icon :name="item.icon" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+              <span class="text-xs truncate">{{ item.label }}</span>
+            </template>
+          </UDropdown>
         </div>
       </div>
     </div>
@@ -358,6 +371,7 @@ const emit = defineEmits(['toggleSplitScreen', 'editQuery'])
 
 const { canEditCode } = useOrgSettings()
 const { isExcel } = useExcel()
+const { t } = useI18n()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(props.initialCollapsed ?? false)
@@ -881,8 +895,9 @@ function downloadCSV() {
     return
   }
 
-  // Create CSV content
-  const headers = columns.map(col => col.field || col.headerName || col.colId || '').join(',')
+  // Header row: prefer the human-readable display name so the CSV matches both
+  // the on-screen table and the server-side Excel/CSV export (which use headerName).
+  const headers = columns.map(col => col.headerName || col.field || col.colId || '').join(',')
   const csvRows = rows.map(row =>
     columns.map(col => {
       const field = col.field || col.colId
@@ -898,8 +913,9 @@ function downloadCSV() {
 
   const csvContent = [headers, ...csvRows].join('\n')
 
-  // Create and trigger download
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  // Prepend a UTF-8 BOM so Excel auto-detects UTF-8 and renders non-ASCII
+  // headers/values (e.g. Hebrew) correctly instead of ANSI mojibake.
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
   const url = URL.createObjectURL(blob)
   link.setAttribute('href', url)
@@ -909,6 +925,65 @@ function downloadCSV() {
   link.click()
   document.body.removeChild(link)
 }
+
+// Excel (.xlsx) export. Real .xlsx requires a spreadsheet writer, so it is
+// generated server-side (pandas + openpyxl) and streamed back as a blob.
+// Only available when the step is persisted (has a real server id).
+const downloadableStepId = computed(() => {
+  const id = effectiveStep.value?.id
+  if (!id) return null
+  const s = String(id)
+  // Synthetic ids built for readonly/public previews can't be exported server-side.
+  if (s.startsWith('step-') || s.startsWith('viz-') || s === 'preview') return null
+  return s
+})
+
+async function downloadExcel() {
+  const stepId = downloadableStepId.value
+  if (!stepId) {
+    // Fallback: no server-side step available, keep the user unblocked with CSV.
+    downloadCSV()
+    return
+  }
+  try {
+    const { data, error } = await useMyFetch(`/api/steps/${stepId}/export`, {
+      query: { format: 'xlsx' },
+      responseType: 'blob',
+    })
+    if (error.value || !data.value) {
+      throw new Error(error.value?.message || 'No data received from server.')
+    }
+    const blob = data.value as Blob
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `${widgetTitle.value || 'data'}.xlsx`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('Error downloading the Excel file:', e)
+  }
+}
+
+// Items for the download dropdown (CSV always available; Excel when persisted).
+const downloadItems = computed(() => {
+  const items: Array<{ label: string; icon: string; click: () => void }> = [
+    {
+      label: t('tools.widgetPreview.downloadCsv'),
+      icon: 'heroicons:document-text',
+      click: () => downloadCSV(),
+    },
+    {
+      label: t('tools.widgetPreview.downloadExcel'),
+      icon: 'heroicons:table-cells',
+      click: () => downloadExcel(),
+    },
+  ]
+  return [items]
+})
 
 // --- Add to Dashboard ---
 const isAlreadyInDashboard = computed(() => {

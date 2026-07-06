@@ -886,6 +886,8 @@
       "rowsFiltered": "{filtered}/{total} строк",
       "downloadPng": "Скачать в PNG",
       "downloadCsv": "Скачать в CSV",
+      "download": "Скачать",
+      "downloadExcel": "Скачать в Excel",
       "noData": "Данные недоступны.",
       "tabChart": "График",
       "tabData": "Данные",

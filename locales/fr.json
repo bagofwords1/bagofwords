@@ -886,6 +886,8 @@
       "rowsFiltered": "{filtered}/{total} lignes",
       "downloadPng": "Télécharger en PNG",
       "downloadCsv": "Télécharger en CSV",
+      "download": "Télécharger",
+      "downloadExcel": "Télécharger en Excel",
       "noData": "Aucune donnée disponible.",
       "tabChart": "Graphique",
       "tabData": "Données",

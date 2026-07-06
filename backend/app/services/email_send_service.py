@@ -360,7 +360,9 @@ class EmailSendService:
             content = buf.getvalue()
         else:
             fmt = "csv"
-            content = df.to_csv(index=False).encode("utf-8")
+            # utf-8-sig prepends a BOM so Excel auto-detects UTF-8 and renders
+            # non-ASCII headers/values (e.g. Hebrew) correctly instead of ANSI mojibake.
+            content = df.to_csv(index=False).encode("utf-8-sig")
 
         filename = f"{base}.{fmt}"
         temp_path = _write_temp(content, suffix=f".{fmt}")
