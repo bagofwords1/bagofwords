@@ -376,6 +376,64 @@ def test_run_for_targets_group_counts(
     assert group["eligible_count"] == 1  # viewer yes, plain member no
 
 
+# ────────────────────────────────────────────────────────────────────
+# Read visibility — admin is scoped to explicit agent membership (/agents parity)
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_admin_prompt_list_scoped_to_agent_membership(
+    test_client, prompts_world, invite_user_to_org
+):
+    """A full admin must NOT see prompts for agents they are not a member of —
+    the prompt list mirrors the default /agents list, which scopes admins to
+    explicit membership (public counts). Regression for the leak where
+    _is_visible short-circuited on full_admin and surfaced every agent prompt.
+    The admin's manage/write bypass is unaffected (asserted below)."""
+    org_id = prompts_world["org_id"]
+    admin = prompts_world["principals"]["admin"]         # creator/member of ds_a
+    ds_a = prompts_world["ds_a"]["id"]                    # private
+    ds_pub = prompts_world["ds_pub"]["id"]               # public
+
+    # A SECOND full admin, invited into the org — never added to ds_a.
+    admin2 = invite_user_to_org(org_id=org_id, admin_token=admin["token"], role="admin")
+
+    priv = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_a])
+    assert priv.status_code == 200, priv.text
+    priv_pid = priv.json()["id"]
+
+    glob = _create_prompt(test_client, prompts_world, "admin", scope="global", ds_ids=[])
+    assert glob.status_code == 200, glob.text
+    glob_pid = glob.json()["id"]
+
+    pub = _create_prompt(test_client, prompts_world, "admin", scope="agent", ds_ids=[ds_pub])
+    assert pub.status_code == 200, pub.text
+    pub_pid = pub.json()["id"]
+
+    listing = test_client.get("/api/prompts", headers=_hdr(admin2["token"], org_id))
+    assert listing.status_code == 200, listing.text
+    visible = {p["id"] for p in listing.json()["prompts"]}
+
+    # The bug: an agent prompt on an agent admin2 doesn't belong to must be hidden…
+    assert priv_pid not in visible, "admin saw a prompt for an agent they don't belong to"
+    # …while global and public-agent prompts stay visible to every member.
+    assert glob_pid in visible
+    assert pub_pid in visible
+
+    # GET-by-id is gated identically — 403, not a leak.
+    denied = test_client.get(f"/api/prompts/{priv_pid}", headers=_hdr(admin2["token"], org_id))
+    assert denied.status_code == 403, denied.text
+
+    # Manage/write bypass preserved: the non-member admin can still CREATE an
+    # agent prompt on ds_a. Only READ visibility was scoped.
+    write = test_client.post(
+        "/api/prompts",
+        json={"text": "hi", "scope": "agent", "data_source_ids": [ds_a]},
+        headers=_hdr(admin2["token"], org_id),
+    )
+    assert write.status_code == 200, write.text
+
+
 @pytest.mark.e2e
 def test_update_promote_to_global_requires_admin(test_client, prompts_world):
     created = _create_prompt(test_client, prompts_world, "member", scope="private", ds_ids=[])
