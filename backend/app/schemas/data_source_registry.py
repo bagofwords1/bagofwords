@@ -1074,7 +1074,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
 # are instances of the "mcp" type above (connection.type stays "mcp") — only the
 # server_url / default auth / brand differ. The DCR set (auth="oauth") needs zero
 # admin setup — verified DCR-capable by live probe (2026-06). github/gmail need
-# an OAuth app; supabase a personal access token.
+# an OAuth app; x an app-only bearer token.
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
               description="Boards, items and updates from monday.com."),
@@ -1095,6 +1095,11 @@ MCP_PRESETS: List[McpPreset] = [
               auth="oauth_app", description="Files in Google Drive (needs a Google OAuth client)."),
     McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
               auth="oauth_app", description="Gmail messages (needs a Google OAuth client)."),
+    # X's MCP server takes an app-only bearer token from the X Developer Portal
+    # (no DCR — verified by live probe 2026-07). App-only auth is read-only:
+    # public posts/users/search/trends work; bookmarks and "me" tools 403.
+    McpPreset(key="x", title="X", server_url="https://api.x.com/mcp",
+              auth="bearer", description="Posts, users, search and trends from X (needs an X API bearer token)."),
 ]
 
 

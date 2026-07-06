@@ -21,6 +21,15 @@ def test_dcr_presets_are_oauth():
     assert mcp_preset("gmail").auth == "oauth_app"
 
 
+def test_x_preset_is_bearer():
+    # X has no DCR — it connects with an app-only bearer token from the
+    # X Developer Portal, over streamable HTTP.
+    x = mcp_preset("x")
+    assert x.auth == "bearer"
+    assert x.server_url == "https://api.x.com/mcp"
+    assert x.transport == "streamable_http"
+
+
 def test_license_gate_is_data_shape_scoped():
     # Integrations (tools/files/objects) → per-user auth is free.
     assert _user_auth_needs_enterprise("mcp") is False
