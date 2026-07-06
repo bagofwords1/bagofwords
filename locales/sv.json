@@ -1995,7 +1995,12 @@
   },
   "artifactFrame": {
     "loading": "Laddar…",
-    "loadingArtifact": "Laddar artefakt…"
+    "loadingArtifact": "Laddar artefakt…",
+    "refreshed": "Instrumentpanelen uppdaterad",
+    "refreshPartial": "Instrumentpanelen delvis uppdaterad",
+    "refreshFailed": "Det gick inte att uppdatera instrumentpanelen",
+    "refreshNothing": "Inget att uppdatera",
+    "refreshSummary": "{succeeded} av {total} frågor uppdaterade"
   },
   "filter": {
     "addFilters": "Lägg till filter",

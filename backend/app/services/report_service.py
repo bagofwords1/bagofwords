@@ -28,7 +28,6 @@ import asyncio
 
 from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.models.dashboard_layout_version import DashboardLayoutVersion
-from app.services.dashboard_layout_service import DashboardLayoutService
 from app.ee.audit.service import audit_service
 from app.models.visualization import Visualization
 from app.models.query import Query
@@ -43,7 +42,6 @@ class ReportService:
 
     def __init__(self):
         self.widget_service = WidgetService()
-        self.layout_service = DashboardLayoutService()
     
     async def _check_visibility(
         self,
@@ -364,6 +362,8 @@ class ReportService:
             cron_schedule=report.cron_schedule,
             created_at=report.created_at,
             updated_at=report.updated_at,
+            last_activity_at=report.last_activity_at,
+            last_run_at=report.last_run_at,
             app_version=app_version,
             data_sources=live_data_sources,
             external_platform=report.external_platform,
@@ -667,88 +667,207 @@ class ReportService:
 
         return report
 
-    async def rerun_report_steps(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
-        logger.info(f"Executing scheduled report run for report_id: {report_id}")
-        report = await self.get_report(db, report_id, current_user, organization)
+    async def _rerun_target_steps(self, db: AsyncSession, query_ids: list[str]) -> tuple[list[tuple[str, str]], int]:
+        """Resolve which step a report rerun must re-execute for each query:
+        the same step the dashboard renders (mirrors
+        query_service.get_default_step_for_query, which must stay in sync) —
+        the query's default step, else the latest success step, else the
+        latest step by widget. Returns (deduped (step_id, code) tuples,
+        count of queries that resolved to no step at all) without hydrating
+        step payloads; the two common lookups are batched so the round-trip
+        count doesn't grow with dashboard size."""
+        if not query_ids:
+            return [], 0
+        query_rows = (await db.execute(
+            select(Query.id, Query.default_step_id, Query.widget_id)
+            .where(Query.id.in_([str(q) for q in query_ids]))
+        )).all()
 
-        # Prefer visualization/query-based rerun via active dashboard layout
-        try:
-            layout = await self.layout_service.get_or_create_active_layout(db, report_id)
-            blocks = list(layout.blocks or [])
-            viz_blocks = [b for b in blocks if isinstance(b, dict) and b.get('type') == 'visualization']
-        except Exception as e:
-            logger.exception("Failed to load active layout for report %s: %s", report_id, e)
-            viz_blocks = []
+        default_ids = [r[1] for r in query_rows if r[1]]
+        steps_by_id: dict[str, str] = {}
+        if default_ids:
+            for sid, code in (await db.execute(
+                select(Step.id, Step.code).where(Step.id.in_(default_ids))
+            )).all():
+                steps_by_id[str(sid)] = code
 
-        if viz_blocks:
-            for b in viz_blocks:
-                viz_id = b.get('visualization_id')
-                if not viz_id:
-                    continue
-                # Load visualization and its query
-                viz_result = await db.execute(select(Visualization).where(Visualization.id == viz_id))
-                viz = viz_result.scalar_one_or_none()
-                if not viz:
-                    logger.warning("Visualization %s not found for report %s; skipping", viz_id, report_id)
-                    continue
-                if not viz.query_id:
-                    logger.warning("Visualization %s has no query_id; skipping", viz_id)
-                    continue
-                query = await db.get(Query, viz.query_id)
-                if not query:
-                    logger.warning("Query %s not found for visualization %s; skipping", viz.query_id, viz_id)
-                    continue
+        targets: list[tuple[str, str]] = []
+        seen_steps: set[str] = set()
+        unresolved = len(query_ids) - len(query_rows)  # ids with no Query row
 
-                # Choose step: prefer default_step, else latest step for query
-                step: Step | None = None
-                if query.default_step_id:
-                    step = await db.get(Step, query.default_step_id)
-                if not step:
-                    step_result = await db.execute(
-                        select(Step).where(Step.query_id == query.id).order_by(Step.created_at.desc()).limit(1)
-                    )
-                    step = step_result.scalar_one_or_none()
+        def _add(step_id, code) -> None:
+            step_id = str(step_id)
+            # Two queries can resolve to the same step (shared widget with no
+            # default_step_id); run it once, not once per query.
+            if step_id not in seen_steps:
+                seen_steps.add(step_id)
+                targets.append((step_id, code))
 
-                if not step:
-                    logger.warning(f"No step found for visualization {viz_id}; skipping")
-                    continue
-                if not step.code or not str(step.code).strip():
-                    logger.warning(f"Step code is empty for visualization {viz_id}; skipping")
-                    continue
+        for qid, default_step_id, widget_id in query_rows:
+            if default_step_id and str(default_step_id) in steps_by_id:
+                _add(default_step_id, steps_by_id[str(default_step_id)])
+                continue
+            # Rare fallback (no or dangling default step): latest success
+            # step for the query's widget, else latest step.
+            step_row = None
+            for only_success in (True, False):
+                stmt = select(Step.id, Step.code).where(Step.widget_id == widget_id)
+                if only_success:
+                    stmt = stmt.where(Step.status == 'success')
+                step_row = (await db.execute(stmt.order_by(Step.created_at.desc()).limit(1))).first()
+                if step_row:
+                    break
+            if step_row:
+                _add(step_row[0], step_row[1])
+            else:
+                unresolved += 1
+                logger.warning(f"No step found for query {qid}; counting as failed")
+        return targets, unresolved
 
+    async def rerun_report_steps(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+        artifact_id: str | None = None,
+        notify_subscribers: bool = False,
+    ) -> dict:
+        logger.info(f"Executing report rerun for report_id: {report_id}")
+        # Load the report without the mapper-level selectin cascade — a rerun
+        # only needs identity/notification columns plus the data sources and
+        # files that step code executes against. The full graph (every step
+        # version's data JSON, completions, artifact versions) must stay cold.
+        result = await db.execute(
+            select(Report)
+            .options(
+                lazyload("*"),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
+                selectinload(Report.files).options(lazyload("*")),
+            )
+            .filter(Report.id == report_id)
+        )
+        report = result.unique().scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # What a report renders is defined by its artifact: the requested one
+        # (interactive refresh of a selected dashboard) or the latest
+        # non-deleted one. Superseded artifact versions live on as rows, so
+        # collecting across all of them would rerun queries the dashboard no
+        # longer shows. (Dashboard-layout visualization blocks are deprecated
+        # and no longer consulted.)
+        from app.models.artifact import Artifact
+        artifact_stmt = (
+            select(Artifact.content)
+            .where(
+                Artifact.report_id == str(report_id),
+                Artifact.deleted_at.is_(None),
+            )
+            .order_by(Artifact.created_at.desc())
+            .limit(1)
+        )
+        if artifact_id:
+            artifact_stmt = artifact_stmt.where(Artifact.id == str(artifact_id))
+        artifact_row = (await db.execute(artifact_stmt)).first()
+        content = artifact_row[0] if artifact_row else None
+        viz_ids = list(dict.fromkeys(
+            str(v) for v in ((content or {}).get("visualization_ids") or []) if v
+        ))
+
+        query_ids: list[str] = []
+        if viz_ids:
+            viz_result = await db.execute(
+                select(Visualization.query_id).where(
+                    Visualization.id.in_(viz_ids),
+                    Visualization.deleted_at.is_(None),
+                )
+            )
+            query_ids = list(dict.fromkeys(str(q) for (q,) in viz_result.all() if q))
+
+        steps_total = 0
+        steps_succeeded = 0
+        steps_failed = 0
+
+        if query_ids:
+            # Build data-source clients once for the whole run instead of per
+            # step — client construction resolves credentials (and for ODBC
+            # sources pays a connection handshake) per data source.
+            from app.services.data_source_service import DataSourceService
+            ds_service = DataSourceService()
+            db_clients = {}
+            for data_source in report.data_sources:
                 try:
-                    logger.info(f"Running visualization {viz_id} via step {step.id} for report {report_id}")
+                    ds_clients = await ds_service.construct_clients(db, data_source, current_user=current_user)
+                    db_clients.update(ds_clients)
+                except Exception as e:
+                    # Steps that need this source fail (and are counted) at
+                    # execution time; other sources' steps still run.
+                    logger.warning(f"Failed to construct clients for data source {data_source.id}: {e}; continuing")
+
+            # Resolve org context once — every step shares it.
+            org_settings = await organization.get_settings(db) if organization else None
+
+            # Queries that resolved to no runnable step still count: their
+            # charts cannot refresh, and a green "refreshed" over stale data
+            # is the bug this rerun rewrite exists to fix.
+            targets, unrunnable = await self._rerun_target_steps(db, query_ids)
+            for step_id, code in targets:
+                if not code or not str(code).strip():
+                    logger.warning(f"Step code is empty for step {step_id}; counting as failed")
+                    steps_total += 1
+                    steps_failed += 1
+                    continue
+                steps_total += 1
+                try:
+                    logger.info(f"Rerunning step {step_id} (report {report_id})")
                     # Run as the report run's user (interactive caller, or the
                     # schedule creator for scheduled runs) so user_required
                     # connections resolve their creds / owner-admin fallback.
-                    await self.widget_service.step_service.rerun_step(db, step.id, current_user=current_user)
+                    await self.widget_service.step_service.rerun_step(
+                        db, step_id, current_user=current_user,
+                        report=report, db_clients=db_clients,
+                        organization=organization, organization_settings=org_settings,
+                    )
+                    steps_succeeded += 1
                 except Exception as e:
-                    logger.warning(f"Failed to rerun step {step.id} for visualization {viz_id}: {e}; continuing")
-                    continue
+                    steps_failed += 1
+                    logger.warning(f"Failed to rerun step {step_id}: {e}; continuing")
+            if unrunnable > 0:
+                steps_total += unrunnable
+                steps_failed += unrunnable
         else:
-            # Legacy fallback: rerun last step for each published widget
+            # Legacy fallback for pre-artifact reports: rerun last step for
+            # each published widget
             published_widgets = await self.widget_service.get_published_widgets_for_report(db, report_id)
             for widget in published_widgets:
+                steps_total += 1
                 try:
                     logger.info(f"Running widget {widget.id} for report {report_id}")
                     await self.widget_service.run_widget_step(db, widget, current_user, organization)
+                    steps_succeeded += 1
                 except Exception as e:
+                    steps_failed += 1
                     logger.warning(f"Failed to run widget {widget.id}: {e}; continuing")
                     continue
 
-        # Update last_run_at timestamp on the ORM model
-        report_orm = await db.get(Report, report_id)
-        if report_orm:
-            report_orm.last_run_at = datetime.utcnow()
-            await db.commit()
+        # Update last_run_at timestamp on the already-loaded ORM model
+        report.last_run_at = datetime.utcnow()
+        await db.commit()
 
-        # Regenerate thumbnail for the latest artifact in background
-        from app.services.thumbnail_service import ThumbnailService
-        thumbnail_service = ThumbnailService()
-        asyncio.create_task(thumbnail_service.regenerate_for_report(report_id))
+        # Regenerate the artifact thumbnail in background — only when some
+        # step actually produced fresh data (it boots a headless browser).
+        if steps_succeeded > 0:
+            from app.services.thumbnail_service import ThumbnailService
+            thumbnail_service = ThumbnailService()
+            asyncio.create_task(thumbnail_service.regenerate_for_report(report_id))
 
-        # Notify subscribers after scheduled rerun
-        if report_orm and report_orm.notification_subscribers:
+        # Notify subscribers — scheduled runs only (interactive Refresh must
+        # not spam "your scheduled report ran"), and only when something ran.
+        if notify_subscribers and steps_succeeded > 0 and report.notification_subscribers:
             from app.services.notification_service import notification_service
             from app.settings.config import settings as app_settings
             from app.dependencies import _locale_from_org
@@ -757,13 +876,13 @@ class ReportService:
             # report so repeated runs refresh one entry). Email follows.
             try:
                 from app.services.inbox_service import inbox_service
-                user_ids = [str(s.get("id")) for s in report_orm.notification_subscribers
+                user_ids = [str(s.get("id")) for s in report.notification_subscribers
                             if s.get("type") == "user" and s.get("id")]
                 if user_ids:
                     await inbox_service.notify_users(
-                        db, organization_id=str(report_orm.organization_id), user_ids=user_ids,
+                        db, organization_id=str(report.organization_id), user_ids=user_ids,
                         source="schedule", type="scheduled_run",
-                        title=f'"{report_orm.title or "Untitled"}" ran',
+                        title=f'"{report.title or "Untitled"}" ran',
                         body="Your scheduled report ran.",
                         link=f"/reports/{report_id}",
                         subject={"kind": "report", "report_id": str(report_id)},
@@ -774,15 +893,30 @@ class ReportService:
             asyncio.create_task(
                 notification_service.send_scheduled_report_results(
                     report_id=report_id,
-                    report_title=report_orm.title or "Untitled Report",
-                    subscribers=report_orm.notification_subscribers,
+                    report_title=report.title or "Untitled Report",
+                    subscribers=report.notification_subscribers,
                     report_url=report_url,
                     locale=_locale_from_org(organization),
                 )
             )
 
-        logger.info(f"Completed scheduled report run for report_id: {report_id}")
-        return report
+        logger.info(
+            f"Completed report rerun for report_id: {report_id} "
+            f"({steps_succeeded}/{steps_total} steps succeeded, {steps_failed} failed)"
+        )
+        if steps_total == 0:
+            message = "No report steps to rerun"
+        elif steps_failed == 0:
+            message = f"Reran {steps_succeeded} report step{'s' if steps_succeeded != 1 else ''}"
+        else:
+            message = f"Reran {steps_succeeded}/{steps_total} report steps ({steps_failed} failed)"
+        return {
+            "message": message,
+            "steps_total": steps_total,
+            "steps_succeeded": steps_succeeded,
+            "steps_failed": steps_failed,
+            "last_run_at": report.last_run_at,
+        }
 
     async def _delete_scheduled_prompts_for_reports(self, db: AsyncSession, report_ids: list[str]) -> None:
         """Soft-delete any active scheduled prompts attached to the given reports and
@@ -1868,7 +2002,7 @@ class ReportService:
             organization = await db.get(Organization, organization_id)
 
             # Now call rerun_report_steps with the fresh db and loaded objects
-            await self.rerun_report_steps(db, report_id, current_user, organization)
+            await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
 
     async def set_report_schedule(self, db: AsyncSession, report_id: str, cron_expression: str, current_user: User, organization: Organization, notification_subscribers: list = None) -> Report:
         

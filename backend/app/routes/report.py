@@ -10,7 +10,7 @@ from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
@@ -142,10 +142,16 @@ async def bulk_archive_reports(
     """
     return await report_service.bulk_archive_reports(db, report_ids, current_user, organization)
 
-@router.post("/reports/{report_id}/rerun", response_model=ReportSchema)
+@router.post("/reports/{report_id}/rerun", response_model=ReportRerunResultSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
-async def rerun_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.rerun_report_steps(db, report_id, current_user, organization)
+async def rerun_report(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Refresh the queries behind this artifact; defaults to the report's latest artifact"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id)
 
 @router.post("/reports/{report_id}/publish", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)

@@ -1995,7 +1995,12 @@
   },
   "artifactFrame": {
     "loading": "Carregando…",
-    "loadingArtifact": "Carregando artefato…"
+    "loadingArtifact": "Carregando artefato…",
+    "refreshed": "Painel atualizado",
+    "refreshPartial": "Painel parcialmente atualizado",
+    "refreshFailed": "Falha ao atualizar o painel",
+    "refreshNothing": "Nada para atualizar",
+    "refreshSummary": "{succeeded} de {total} consultas atualizadas"
   },
   "filter": {
     "addFilters": "Adicionar filtros",

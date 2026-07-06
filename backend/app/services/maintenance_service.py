@@ -54,8 +54,10 @@ async def purge_step_payloads_for_organization(
     - If that latest is stale (created_at and updated_at both older than cutoff), purge it too.
     - Rows with NULL query_id are only purged when stale.
     - Excludes active steps ('draft', 'running').
-    - Excludes steps from shared conversations (conversation_share_enabled = True).
-    - Excludes steps from published dashboards (status = 'published').
+    - Excludes steps from reports shared in ANY mode: the visibility source of
+      truth (artifact_visibility / conversation_visibility != 'none') as well
+      as the legacy sync fields (conversation_share_enabled = True,
+      status = 'published') — a shared dashboard must never lose its data.
     """
     cutoff = datetime.utcnow() - timedelta(days=retention_days)
     set_clause = ", ".join(f"{field} = NULL" for field in null_fields)
@@ -71,6 +73,8 @@ async def purge_step_payloads_for_organization(
         s.status,
         rep.conversation_share_enabled,
         rep.status AS rep_status,
+        rep.artifact_visibility AS rep_artifact_visibility,
+        rep.conversation_visibility AS rep_conversation_visibility,
         ROW_NUMBER() OVER (
           PARTITION BY s.query_id
           ORDER BY s.updated_at DESC
@@ -92,6 +96,8 @@ async def purge_step_payloads_for_organization(
       AND ({nonnull_predicate})
       AND (r.conversation_share_enabled IS NOT TRUE)
       AND (r.rep_status IS DISTINCT FROM 'published')
+      AND (r.rep_artifact_visibility IS NULL OR r.rep_artifact_visibility = 'none')
+      AND (r.rep_conversation_visibility IS NULL OR r.rep_conversation_visibility = 'none')
     """)
 
     async with async_session_maker() as session:

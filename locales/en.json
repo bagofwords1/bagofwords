@@ -2252,7 +2252,12 @@
   },
   "artifactFrame": {
     "loading": "Loading…",
-    "loadingArtifact": "Loading artifact…"
+    "loadingArtifact": "Loading artifact…",
+    "refreshed": "Dashboard refreshed",
+    "refreshPartial": "Dashboard partially refreshed",
+    "refreshFailed": "Dashboard refresh failed",
+    "refreshNothing": "Nothing to refresh",
+    "refreshSummary": "{succeeded} of {total} queries refreshed"
   },
   "filter": {
     "addFilters": "Add Filters",

@@ -1995,7 +1995,12 @@
   },
   "artifactFrame": {
     "loading": "جارٍ التحميل…",
-    "loadingArtifact": "جارٍ تحميل العنصر…"
+    "loadingArtifact": "جارٍ تحميل العنصر…",
+    "refreshed": "تم تحديث لوحة التحكم",
+    "refreshPartial": "تم تحديث لوحة التحكم جزئيًا",
+    "refreshFailed": "فشل تحديث لوحة التحكم",
+    "refreshNothing": "لا يوجد ما يتم تحديثه",
+    "refreshSummary": "تم تحديث {succeeded} من {total} استعلامات"
   },
   "filter": {
     "addFilters": "إضافة عوامل تصفية",

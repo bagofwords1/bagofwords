@@ -1995,7 +1995,12 @@
   },
   "artifactFrame": {
     "loading": "Chargement…",
-    "loadingArtifact": "Chargement de l'artefact…"
+    "loadingArtifact": "Chargement de l'artefact…",
+    "refreshed": "Tableau de bord actualisé",
+    "refreshPartial": "Tableau de bord partiellement actualisé",
+    "refreshFailed": "Échec de l'actualisation du tableau de bord",
+    "refreshNothing": "Rien à actualiser",
+    "refreshSummary": "{succeeded} requêtes sur {total} actualisées"
   },
   "filter": {
     "addFilters": "Ajouter des filtres",
