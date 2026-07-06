@@ -76,25 +76,24 @@ issue1: dropdown panel = מכירות | PO | Orders | Clear
 Note the second-order bug: because the hidden agent isn't in the dropdown,
 there is **no way to unselect just that agent** — only "Clear" removes it.
 
-## Proposed fix (not yet applied)
+## The fix
 
-Merge the instruction's own `detail.data_sources` (which carry names) into the
-KSelect options as fallback entries, e.g. in `KnowledgeExplorer.vue`:
+`KnowledgeExplorer.vue`: a new `agentOptsForDraft` computed merges the
+instruction's own `detail.data_sources` (which carry names) into the KSelect
+options as fallback entries, and the agents KSelect now uses it. The chip
+resolves the real name and the hidden agent appears in the dropdown, so it is
+individually removable again. No backend change.
 
-```ts
-const agentOptsForDraft = computed(() => {
-  const opts = [...agentOpts.value]
-  for (const ds of (detail.value?.data_sources || [])) {
-    if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type })
-  }
-  return opts
-})
+Re-run Loop A output after the fix (PASS):
+
+```
+issue1: chip text = "מכירות, Legacy DWH"
+issue1: PASS — no raw UUID in chip
+issue1: dropdown panel = מכירות | PO | Orders | Legacy DWH | Clear
+issue1: hidden agent listed in dropdown = yes (PASS)
 ```
 
-This renders the real name, keeps the hidden agent visible (and individually
-removable) in the dropdown, and requires no backend change. Optionally style
-such entries as unavailable. A defensive second layer: have `KSelect` render a
-neutral "unknown" label instead of a raw id.
+![after the fix: real name in the chip, hidden agent listed](assets/instr-agent-chip-fixed.png)
 
 ## What this proves / regression notes
 

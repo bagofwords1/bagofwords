@@ -83,22 +83,35 @@ A passing run must show the popover anchored adjacent to the hovered fragment
 (distance on the order of one line height) and still visible when the mouse
 reaches its buttons.
 
-## Proposed fix (not yet applied)
+## The fix
 
-Replace the per-hunk CSS-hover card with **one JS-managed floating card** in
-`InstructionTrackedChanges.vue`:
+`InstructionTrackedChanges.vue`: the per-hunk CSS-hover card is replaced with
+**one shared, JS-positioned floating card** (`#htc-hover-card`, teleported to
+`<body>`):
 
-- On hunk `mouseenter`, pick the fragment rect under the cursor from
-  `el.getClientRects()` and position a single `position: fixed` card just below
-  that rect (logical inline-start alignment; clamp to the scroll container).
-- Keep it visible while the pointer is over the hunk **or** the card, and hide
-  after a short grace timeout (~200 ms) so the cursor can travel across the
-  small gap — instead of `visibility` driven by `group-hover`.
-- Set `dir="auto"` / `unicode-bidi: plaintext` on the diff text container for
-  parity with the read view, so bidi content lays out predictably.
+- On hunk `mousemove`, the fragment rect under the cursor is picked from
+  `el.getClientRects()` and the card is placed just below it, clamped to the
+  viewport; the position stays put while the pointer remains on the same line.
+- The card stays visible while the pointer is over the hunk **or** the card,
+  with a 250 ms grace timeout instead of `group-hover` visibility, so the
+  cursor can cross the gap. It hides on scroll and on Accept/Reject.
+- The diff container now sets `dir="auto"` + `unicode-bidi: plaintext`, the
+  same bidi policy as the read view.
 
-This fixes both symptoms in RTL and LTR, and replaces N hidden per-hunk cards
-with one shared element.
+Re-run Loop A output after the fix (PASS) — same hover point as the failing
+run:
+
+```
+issue2: hover point = { hx: 869, hy: 561 }
+issue2: popover = { visibility: 'visible', x: 782, y: 573, w: 173.6, h: 65, kind: 'shared' }
+issue2: distance from hover point to popover center = 44px
+issue2: popover reachable = yes — PASS
+```
+
+331 px → 44 px (one line height below the cursor), and the walk reaches the
+card with its buttons interactive.
+
+![after the fix: card directly under the hovered change, cursor on it](assets/instr-review-popover-fixed.png)
 
 ## What this proves / regression notes
 
