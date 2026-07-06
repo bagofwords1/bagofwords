@@ -2393,6 +2393,59 @@ class CompletionService:
         await db.commit()
         return {"ok": True, "result_json": merged}
 
+    async def cancel_wait(
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        tool_execution_id: str,
+        current_user: User = None,
+        organization: Organization = None,
+    ):
+        """Cancel a pending ``wait`` — remove its one-shot resume job so the agent
+        never wakes. The wait's ``job_id`` lives on the tool_execution's
+        ``result_json`` (written by the tool). Mirrors the clarify_response guard:
+        only the completion initiator / report owner may cancel. Idempotent.
+        """
+        completion = (await db.execute(
+            select(Completion).where(Completion.id == completion_id)
+        )).scalars().first()
+        if not completion:
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        report = (await db.execute(
+            select(Report).where(Report.id == completion.report_id)
+        )).scalars().first()
+        if not report or (organization and str(report.organization_id) != str(organization.id)):
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        if current_user is not None:
+            initiator_id = completion.user_id or report.user_id
+            if initiator_id is not None and str(initiator_id) != str(current_user.id):
+                raise HTTPException(status_code=403, detail="Not allowed to cancel this wait")
+
+        tool_exec = (await db.execute(
+            select(ToolExecution)
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(ToolExecution.id == tool_execution_id)
+            .where(AgentExecution.completion_id == completion_id)
+        )).scalars().first()
+        if not tool_exec:
+            raise HTTPException(status_code=404, detail="Tool execution not found")
+        if tool_exec.tool_name != 'wait':
+            raise HTTPException(status_code=400, detail="Not a wait tool execution")
+
+        merged = dict(tool_exec.result_json or {})
+        job_id = merged.get("job_id")
+        removed = False
+        if job_id:
+            from app.services.wait_service import wait_service
+            removed = wait_service.cancel_wait(job_id)
+
+        merged["status"] = "cancelled"
+        tool_exec.result_json = merged
+        await db.commit()
+        return {"ok": True, "removed": removed, "result_json": merged}
+
     async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()

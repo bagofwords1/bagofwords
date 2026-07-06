@@ -1053,6 +1053,12 @@
       "queryScope": "{scope} prompts",
       "queryThisAgent": "this agent",
       "queryAll": "all prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {

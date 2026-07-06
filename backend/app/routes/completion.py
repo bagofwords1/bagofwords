@@ -175,3 +175,19 @@ async def submit_clarify_response(
     return await completion_service.submit_clarify_response(
         db, completion_id, tool_execution_id, body, current_user, organization
     )
+
+
+@requires_permission('create_reports')
+@router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/cancel_wait")
+async def cancel_wait(
+    completion_id: str,
+    tool_execution_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Cancel a pending wait: remove its one-shot resume job so the agent never
+    wakes, and mark the tool execution cancelled. Idempotent."""
+    return await completion_service.cancel_wait(
+        db, completion_id, tool_execution_id, current_user, organization
+    )

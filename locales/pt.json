@@ -951,6 +951,12 @@
       "queryScope": "prompts de {scope}",
       "queryThisAgent": "este agente",
       "queryAll": "todos os prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {

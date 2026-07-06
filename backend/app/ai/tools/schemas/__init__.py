@@ -5,6 +5,7 @@ from .create_data import CreateDataInput, CreateDataOutput
 from .inspect_data import InspectDataInput, InspectDataOutput
 from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
+from .wait import WaitInput, WaitOutput
 from .describe_tables import DescribeTablesInput, DescribeTablesOutput
 from .describe_entity import DescribeEntityInput, DescribeEntityOutput
 from .read_resources import ReadResourcesInput, ReadResourcesOutput
@@ -59,6 +60,8 @@ __all__ = [
     "CreateDashboardOutput",
     "ClarifyInput",
     "ClarifyOutput",
+    "WaitInput",
+    "WaitOutput",
     "DescribeTablesInput",
     "DescribeTablesOutput",
     "DescribeEntityInput",
