@@ -19,41 +19,60 @@
         <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />Accept all</button>
       </div>
     </div>
-    <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'flex-1 px-8 py-6 max-w-3xl'">
+    <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'flex-1 px-8 py-6 max-w-3xl'" @scroll.passive="hoverCard = null">
       <div v-if="loading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">Loading…</div>
       <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 dark:text-gray-500 py-6">No pending changes — all resolved.</div>
-      <div v-else class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
+      <!-- dir=auto + plaintext: per-line bidi, same policy as the read view
+           (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR. -->
+      <div v-else dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
         <template v-for="(seg, si) in displaySegments" :key="si">
           <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines }} unchanged line{{ seg.lines === 1 ? '' : 's' }} ···</span>
           <template v-else-if="seg.kind === 'context'">
             <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
           </template>
-          <span v-else :id="`htc-${seg.key}`" class="group/h relative inline align-baseline rounded-[3px] transition-colors"
-                :class="resolving === seg.key ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'">
+          <span v-else :id="`htc-${seg.key}`" class="relative inline align-baseline rounded-[3px] transition-colors"
+                :class="resolving === seg.key ? 'bg-amber-100 dark:bg-amber-500/20' : 'hover:bg-amber-50 dark:hover:bg-amber-500/10'"
+                @mousemove="onHunkMove(seg, $event)" @mouseleave="scheduleCardHide()">
             <del v-if="seg.before" class="text-rose-500/70 line-through decoration-rose-300 decoration-1"><template v-for="(pt, pi) in mentionParts(seg.before)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></del>
             <ins v-if="seg.after" class="text-emerald-700 underline decoration-dotted decoration-emerald-400/70 underline-offset-[3px] decoration-1"><template v-for="(pt, pi) in mentionParts(seg.after)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template></ins>
             <span v-if="resolving === seg.key" class="absolute inset-0 rounded bg-white/50 dark:bg-gray-900/50 flex items-center justify-center"><UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" /></span>
-            <span v-if="canApprove" class="invisible opacity-0 group-hover/h:visible group-hover/h:opacity-100 transition-opacity absolute z-30 top-0 left-0 pt-[1.7em] cursor-default select-none whitespace-normal" @click.stop>
-              <span class="block w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
-                <span class="flex items-center gap-1.5 mb-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="seg.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                  <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="seg.created_by"> · {{ seg.created_by.name }}</template></span>
-                </span>
-                <span class="flex items-center gap-1.5">
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="accept(seg)"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
-                  <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="reject(seg)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject</button>
-                </span>
-              </span>
-            </span>
           </span>
         </template>
       </div>
     </div>
+    <!-- One shared Accept/Reject card, anchored under the hunk fragment the
+         pointer is on (a fragmented inline is a broken abs-pos anchor — in RTL
+         `left:0` resolves to the LAST fragment while `top:0` is the first, so
+         a per-hunk CSS-hover card lands far from the cursor and drops on the
+         way over). JS-positioned + a grace timeout keeps it reachable. -->
+    <Teleport to="body">
+      <div
+        v-if="canApprove && hoverCard"
+        id="htc-hover-card"
+        ref="cardEl"
+        class="fixed z-50 cursor-default select-none"
+        :style="{ top: hoverCard.top + 'px', left: hoverCard.left + 'px' }"
+        @mouseenter="cancelCardHide"
+        @mouseleave="scheduleCardHide()"
+        @click.stop
+      >
+        <div class="w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
+          <div class="flex items-center gap-1.5 mb-1.5">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="hoverCard.seg.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template></span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('accept')"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
+            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps<{ instructionId: string; canApprove?: boolean; compact?: boolean; collapseContext?: boolean }>()
 const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void }>()
@@ -65,6 +84,46 @@ const mainText = ref('')
 const mainVersionId = ref<string | null>(null)
 const suggestions = ref<any[]>([])
 const scrollEl = ref<HTMLElement | null>(null)
+
+// ── Shared floating Accept/Reject card ────────────────────────────────────────
+const hoverCard = ref<{ seg: any; top: number; left: number } | null>(null)
+const cardEl = ref<HTMLElement | null>(null)
+let cardHideTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelCardHide() {
+  if (cardHideTimer) { clearTimeout(cardHideTimer); cardHideTimer = null }
+}
+// Grace timeout: the pointer needs to cross the small gap between the hunk
+// text and the card without the card flickering away.
+function scheduleCardHide(delay = 250) {
+  cancelCardHide()
+  cardHideTimer = setTimeout(() => { hoverCard.value = null; cardHideTimer = null }, delay)
+}
+function onHunkMove(seg: any, e: MouseEvent) {
+  if (!props.canApprove) return
+  cancelCardHide()
+  const el = e.currentTarget as HTMLElement
+  const rects = Array.from(el.getClientRects()).filter(r => r.width > 0 && r.height > 0)
+  if (!rects.length) return
+  // Anchor to the line fragment under the pointer — a wrapped hunk has one
+  // rect per line, and the card must open next to the one being read.
+  const under =
+    rects.find(r => e.clientY >= r.top && e.clientY <= r.bottom && e.clientX >= r.left - 4 && e.clientX <= r.right + 4) ||
+    rects.reduce((a, b) => (Math.abs((a.top + a.bottom) / 2 - e.clientY) <= Math.abs((b.top + b.bottom) / 2 - e.clientY) ? a : b))
+  const top = Math.round(under.bottom + 4)
+  // Keep the card still while the pointer stays on the same line of the same hunk.
+  if (hoverCard.value?.seg?.key === seg.key && Math.abs(hoverCard.value.top - top) < 2) return
+  const width = cardEl.value?.offsetWidth || 220
+  const left = Math.round(Math.min(Math.max(8, e.clientX - width / 2), window.innerWidth - width - 8))
+  hoverCard.value = { seg, top, left }
+}
+function resolveFromCard(action: 'accept' | 'reject') {
+  const seg = hoverCard.value?.seg
+  hoverCard.value = null
+  cancelCardHide()
+  if (seg) _resolve(seg, action)
+}
+onBeforeUnmount(() => cancelCardHide())
 
 const totalHunks = computed(() => suggestions.value.reduce((n, s) => n + s.hunks.length, 0))
 
@@ -183,9 +242,6 @@ async function _resolve(seg: any, action: 'accept' | 'reject') {
     useToast?.().add?.({ title: 'Couldn’t apply change', description: e?.message, color: 'red' })
   } finally { resolving.value = null }
 }
-const accept = (seg: any) => _resolve(seg, 'accept')
-const reject = (seg: any) => _resolve(seg, 'reject')
-
 async function resolveAll(mode: 'accept' | 'reject') {
   if (busy.value) return
   busy.value = true
