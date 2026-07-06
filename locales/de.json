@@ -951,6 +951,12 @@
       "queryScope": "{scope}-Prompts",
       "queryThisAgent": "dieser Agent",
       "queryAll": "alle Prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
@@ -1989,7 +1995,12 @@
   },
   "artifactFrame": {
     "loading": "Lädt …",
-    "loadingArtifact": "Artefakt wird geladen …"
+    "loadingArtifact": "Artefakt wird geladen …",
+    "refreshed": "Dashboard aktualisiert",
+    "refreshPartial": "Dashboard teilweise aktualisiert",
+    "refreshFailed": "Dashboard-Aktualisierung fehlgeschlagen",
+    "refreshNothing": "Nichts zu aktualisieren",
+    "refreshSummary": "{succeeded} von {total} Abfragen aktualisiert"
   },
   "filter": {
     "addFilters": "Filter hinzufügen",

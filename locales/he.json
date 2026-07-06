@@ -972,6 +972,12 @@
       "queryScope": "פרומפטים של {scope}",
       "queryThisAgent": "סוכן זה",
       "queryAll": "כל הפרומפטים"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
@@ -2080,7 +2086,12 @@
   },
   "artifactFrame": {
     "loading": "טוען…",
-    "loadingArtifact": "טוען ארטיפקט…"
+    "loadingArtifact": "טוען ארטיפקט…",
+    "refreshed": "הדשבורד עודכן",
+    "refreshPartial": "הדשבורד עודכן חלקית",
+    "refreshFailed": "עדכון הדשבורד נכשל",
+    "refreshNothing": "אין מה לעדכן",
+    "refreshSummary": "{succeeded} מתוך {total} שאילתות עודכנו"
   },
   "filter": {
     "addFilters": "הוסף מסננים",

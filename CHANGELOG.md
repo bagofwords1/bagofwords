@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.435 (July 6, 2026)
+- **X (Twitter) MCP connector (#553)** — X's first-party MCP server (`https://api.x.com/mcp`) added to the connector catalog as a one-click tile with bearer-token (app-only) auth.
+- **`wait` tool for Agent V2 (#554)** — the agent can pause the current turn and auto-resume after a one-shot delay (data refresh still running, rate limit, "try again in 30 minutes"), with a live countdown pill and cancel; not a scheduled task (ephemeral, sub-hour, self-deleting).
+- **Scope agent-prompt visibility to membership (#555)** — prompt read visibility now mirrors the /agents list: admins see agent-scoped prompts only for agents they explicitly belong to (owner always sees their own); write/manage authority is unchanged.
+- **Fix report rerun for artifact dashboards (#556)** — `POST /reports/{id}/rerun` now re-executes the artifact's query default steps (previously a silent no-op for artifact reports), the refresh reports its true outcome, and the retention purge skips reports shared in any mode so dashboards no longer go blank.
+
+
 ## Version 0.0.434 (July 5, 2026)
 - **`network_dir` file connector (#519)** — new data source pointing at a directory (local folder or mounted SMB/NFS share) with `list_files` / `search_files` / `read_file` plus the first *write* capability for file sources (`write_file` agent tool). Path traversal and writes to read-only connections fail closed at a single chokepoint. No migration.
 - **Seat cap enforced on all auto-provisioning paths (#540)** — the license `max_users` cap now applies to domain-signup invites, chat auto-provision, LDAP group sync, SCIM provisioning, and OIDC group sync (previously only admin invite / CSV import). New `app/core/seats.py` is the single source of truth; existing members are never blocked — only creation beyond the cap is refused.

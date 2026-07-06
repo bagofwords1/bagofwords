@@ -50,11 +50,13 @@ class WidgetService:
         return w
     
     async def run_widget_step(self, db: AsyncSession, widget: Widget, current_user: User, organization: Organization) -> WidgetSchema:
-        step = await self._get_last_step(db, widget.id) 
+        step = await self._get_last_step(db, widget.id)
 
         if not step:
             raise ValueError("Step not found")
-        return await self.step_service.rerun_step(db, step.id)
+        # Run as the triggering user so user_required connections resolve
+        # their credentials (mirrors the artifact rerun path).
+        return await self.step_service.rerun_step(db, step.id, current_user=current_user)
 
     async def get_widgets_by_report(self, db_session, report_id: str, current_user: User, organization: Organization) -> list[WidgetSchema]:
         report = await db_session.execute(select(Report).filter(Report.id == report_id))
@@ -80,12 +82,14 @@ class WidgetService:
         ]
     
     async def get_published_widgets_for_report(self, db_session, report_id: str) -> list[WidgetSchema]:
-        report = await db_session.execute(select(Report).filter(Report.id == report_id))
-        report = report.scalar_one_or_none()
-        if not report:
+        # Existence check via the id column only — a bare select(Report) would
+        # trigger the mapper-level selectin cascade and hydrate the whole
+        # report graph (every step version's data) just to look up widgets.
+        report_row = await db_session.execute(select(Report.id).filter(Report.id == report_id))
+        if report_row.first() is None:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        widgets = await db_session.execute(select(Widget).filter(Widget.report_id == report.id).filter(Widget.status != 'archived'))
+        widgets = await db_session.execute(select(Widget).filter(Widget.report_id == report_id).filter(Widget.status != 'archived'))
         widgets = widgets.scalars().all()
         return [
             WidgetSchema.from_orm(widget).copy(update={"last_step": await self._get_last_step(db_session, widget.id)})
