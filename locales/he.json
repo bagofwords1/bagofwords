@@ -972,6 +972,12 @@
       "queryScope": "פרומפטים של {scope}",
       "queryThisAgent": "סוכן זה",
       "queryAll": "כל הפרומפטים"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {

@@ -951,6 +951,12 @@
       "queryScope": "prompts {scope}",
       "queryThisAgent": "cet agent",
       "queryAll": "tous les prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {

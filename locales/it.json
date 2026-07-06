@@ -951,6 +951,12 @@
       "queryScope": "prompt {scope}",
       "queryThisAgent": "questo agente",
       "queryAll": "tutti i prompt"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {

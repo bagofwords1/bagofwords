@@ -951,6 +951,12 @@
       "queryScope": "{scope}-Prompts",
       "queryThisAgent": "dieser Agent",
       "queryAll": "alle Prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {

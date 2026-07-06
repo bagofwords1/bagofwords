@@ -774,6 +774,7 @@ import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
+import WaitTool from '~/components/tools/WaitTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
@@ -1634,6 +1635,8 @@ function getToolComponent(toolName: string) {
 			return NotifyTool
 		case 'create_scheduled_task':
 			return CreateScheduledTaskTool
+		case 'wait':
+			return WaitTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
 		case 'edit_scheduled_task':

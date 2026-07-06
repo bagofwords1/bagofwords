@@ -951,6 +951,12 @@
       "queryScope": "{scope}-prompter",
       "queryThisAgent": "den här agenten",
       "queryAll": "alla prompter"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
