@@ -117,5 +117,11 @@ UI evidence (Playwright, `media/pr/agent-v2-wait-tool-sjmzvu/`):
 - A pending wait still fires even if the user sends a new message before it
   elapses (jobstore-only state, no cancel-on-new-message). Harmless today (the
   wake just adds a turn with full context); revisit if it proves noisy.
-- Small models sometimes *also* call `create_scheduled_task` alongside `wait` for
-  "wait 30 min and do X again" — a prompt-tuning nicety, not a tool defect.
+- Disambiguation vs `create_scheduled_task`: early on, Haiku sometimes *also*
+  spun a `create_scheduled_task` for "wait 30 min and do X again" (a standing job
+  the user never asked for). Fixed by adding cross-reference clauses to BOTH tool
+  descriptions — `create_scheduled_task` now says "for a one-time pause-and-retry
+  use `wait`, NOT this tool", and `wait` says "put the 'do it again' action in
+  `reason` — you do NOT also need a scheduled task". After the fix, the same
+  prompt produced `create_data` + `wait` with **0/4** stray scheduled tasks on
+  Haiku.

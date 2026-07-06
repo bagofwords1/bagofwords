@@ -61,10 +61,15 @@ class WaitTool(Tool):
                 "exactly where you left off.\n\n"
                 "'delay_minutes' is in MINUTES — convert hours yourself ('2 hours' -> "
                 "120). 'reason' must be a complete, self-contained instruction for "
-                "what to do on resume (no user is present then).\n\n"
-                "NOT for recurring work — 'every morning', 'each week' — use "
-                "create_scheduled_task for that. Use wait only for a single "
-                "pause-and-retry of the task you're on right now."
+                "what to do on resume (no user is present then). On resume the agent "
+                "RUNS your 'reason', so put the 'do it again' / 'retry' action INSIDE "
+                "'reason' — a single wait call handles the whole pause-then-redo. You "
+                "do NOT also need create_scheduled_task for the follow-up.\n\n"
+                "NOT for recurring work — 'every morning', 'each week', 'on the 1st' — "
+                "those repeat on a calendar cadence, use create_scheduled_task. Use "
+                "wait only for a SINGLE pause-and-retry of the task you're on right "
+                "now (even when the user says 'and do it again' after the delay — one "
+                "'again' after one wait is one-shot, not recurring)."
             ),
             category="action",
             version="1.0.0",
