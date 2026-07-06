@@ -54,29 +54,29 @@ await page.goto(`http://localhost:3000/agents/instructions/${insA}`);
 await page.waitForLoadState('networkidle').catch(() => {});
 await page.waitForTimeout(3000);
 await dismissTour();
-const uuidChip = page.locator('button', { hasText: /[0-9a-f]{8}-[0-9a-f]{4}/ }).first();
-const chipVisible = await uuidChip.isVisible().catch(() => false);
-console.log('issue1: UUID chip visible =', chipVisible);
-if (chipVisible) {
-  console.log('issue1: chip text =', JSON.stringify(await uuidChip.innerText()));
-  await page.screenshot({ path: `${outDir}/issue1-1-uuid-chip.png` });
-  await uuidChip.click();
-  await page.waitForTimeout(800);
-  await page.screenshot({ path: `${outDir}/issue1-2-uuid-chip-dropdown.png` });
-  const panelTxt = await page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll('div')).filter((d) => d.textContent.includes('Clear') && d.offsetHeight < 400 && d.offsetHeight > 0);
-    return els.length ? els[els.length - 1].innerText.replace(/\n/g, ' | ') : '(no dropdown panel found)';
+// the agents KSelect trigger chip always contains the visible agent name
+const agentChip = page.locator('button', { hasText: 'מכירות' }).last();
+await agentChip.waitFor({ timeout: 15000 }).catch(() => {});
+const chipText = await agentChip.innerText().catch(() => '(chip not found)');
+const hasUuid = /[0-9a-f]{8}-[0-9a-f]{4}/.test(chipText);
+console.log('issue1: chip text =', JSON.stringify(chipText));
+console.log('issue1:', hasUuid ? 'FAIL — chip shows a raw UUID' : 'PASS — no raw UUID in chip');
+await page.screenshot({ path: `${outDir}/issue1-1-chip.png` });
+await agentChip.click();
+await page.waitForTimeout(800);
+const panelTxt = await page.evaluate(() => {
+  const els = Array.from(document.querySelectorAll('div')).filter((d) => d.textContent.includes('Clear') && d.offsetHeight < 400 && d.offsetHeight > 0);
+  return els.length ? els[els.length - 1].innerText.replace(/\n/g, ' | ') : '(no dropdown panel found)';
+});
+console.log('issue1: dropdown panel =', panelTxt);
+console.log('issue1: hidden agent listed in dropdown =', panelTxt.includes('Legacy DWH') ? 'yes (PASS)' : 'no (FAIL)');
+await page.screenshot({ path: `${outDir}/issue1-2-chip-dropdown.png` });
+const box = await agentChip.boundingBox();
+if (box) {
+  await page.screenshot({
+    path: `${outDir}/issue1-3-zoom.png`,
+    clip: { x: Math.max(0, box.x - 320), y: Math.max(0, box.y - 260), width: 760, height: 380 },
   });
-  console.log('issue1: dropdown panel =', panelTxt);
-  const box = await uuidChip.boundingBox();
-  if (box) {
-    await page.screenshot({
-      path: `${outDir}/issue1-3-zoom.png`,
-      clip: { x: Math.max(0, box.x - 320), y: Math.max(0, box.y - 260), width: 760, height: 380 },
-    });
-  }
-} else {
-  await page.screenshot({ path: `${outDir}/issue1-0-no-chip.png` });
 }
 await page.keyboard.press('Escape').catch(() => {});
 
@@ -115,15 +115,23 @@ await page.mouse.move(hx, hy);
 await page.waitForTimeout(400);
 await showCursor(hx, hy);
 
-const pop = await page.evaluate((id) => {
+// popover lookup — supports both the old per-hunk card (span.z-30 inside the
+// hunk, visibility-toggled) and the new shared floating card (#htc-hover-card).
+const getPop = () => page.evaluate((id) => {
+  const shared = document.getElementById('htc-hover-card');
+  if (shared) {
+    const r = shared.getBoundingClientRect();
+    return { visibility: 'visible', x: r.x, y: r.y, w: r.width, h: r.height, kind: 'shared' };
+  }
   const el = document.getElementById(id);
   const p = el && el.querySelector('span.z-30');
   if (!p) return null;
   const st = getComputedStyle(p);
   const card = p.querySelector('span');
   const r = (card || p).getBoundingClientRect();
-  return { visibility: st.visibility, x: r.x, y: r.y, w: r.width, h: r.height };
+  return { visibility: st.visibility, x: r.x, y: r.y, w: r.width, h: r.height, kind: 'per-hunk' };
 }, multi.id);
+const pop = await getPop();
 console.log('issue2: hover point =', { hx: Math.round(hx), hy: Math.round(hy) });
 console.log('issue2: popover =', pop);
 if (pop) {
@@ -153,6 +161,8 @@ if (pop) {
     await page.mouse.move(mx, my);
     await page.waitForTimeout(120);
     const vis = await page.evaluate((id) => {
+      const shared = document.getElementById('htc-hover-card');
+      if (shared) return 'visible';
       const el = document.getElementById(id);
       const p = el && el.querySelector('span.z-30');
       return p ? getComputedStyle(p).visibility : 'gone';
@@ -161,11 +171,25 @@ if (pop) {
       vanishedAt = i;
       await showCursor(mx, my);
       await page.screenshot({ path: `${outDir}/issue2-3-vanished-en-route.png` });
-      console.log(`issue2: popover VANISHED at step ${i}/${steps} (mouse ${Math.round(mx)},${Math.round(my)}) before reaching it`);
+      console.log(`issue2: popover VANISHED at step ${i}/${steps} (mouse ${Math.round(mx)},${Math.round(my)}) before reaching it — FAIL`);
       break;
     }
   }
-  if (vanishedAt === null) console.log('issue2: popover stayed visible all the way (not reproduced)');
+  if (vanishedAt === null) {
+    // reached the card — hover its Accept button and confirm it is interactive
+    await page.mouse.move(px, py);
+    await page.waitForTimeout(300);
+    const reachable = await page.evaluate((id) => {
+      const shared = document.getElementById('htc-hover-card');
+      if (shared) return !!shared.querySelector('button');
+      const el = document.getElementById(id);
+      const p = el && el.querySelector('span.z-30');
+      return !!(p && getComputedStyle(p).visibility === 'visible');
+    }, multi.id);
+    await showCursor(px, py);
+    await page.screenshot({ path: `${outDir}/issue2-4-reached-card.png` });
+    console.log(`issue2: popover reachable = ${reachable ? 'yes — PASS' : 'no — FAIL'}`);
+  }
 } else {
   console.log('issue2: popover element not found under hunk');
 }
