@@ -907,6 +907,8 @@
       "rowsFiltered": "{filtered}/{total} שורות",
       "downloadPng": "הורד כ-PNG",
       "downloadCsv": "הורד כ-CSV",
+      "download": "הורד",
+      "downloadExcel": "הורד כ-Excel",
       "noData": "אין נתונים זמינים.",
       "tabChart": "תרשים",
       "tabData": "נתונים",

@@ -886,6 +886,8 @@
       "rowsFiltered": "{filtered}/{total} rader",
       "downloadPng": "Ladda ner som PNG",
       "downloadCsv": "Ladda ner som CSV",
+      "download": "Ladda ner",
+      "downloadExcel": "Ladda ner som Excel",
       "noData": "Ingen data tillgänglig.",
       "tabChart": "Diagram",
       "tabData": "Data",

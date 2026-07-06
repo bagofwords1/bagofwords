@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.436 (July 6, 2026)
+- **Excel (.xlsx) export for CreateData + Hebrew CSV fix (#559)** — the CreateData result download becomes a CSV / Excel dropdown, with `.xlsx` generated server-side via `GET /steps/{id}/export?format=xlsx`. Every CSV export path (server, email attachment, client-side) now emits a UTF-8 BOM so non-ASCII (e.g. Hebrew) headers and values render correctly in Excel instead of ANSI mojibake, and a Unicode widget title no longer crashes the download (RFC 6266 `filename*`).
+- **Fix agent-name chips and unreachable suggestion popover in instruction review (#558)** — the instruction editor's agents chip now shows the real agent name instead of its raw UUID even for deactivated or hidden agents (and lets you remove them), and the pending-review Accept/Reject popover is a single JS-positioned floating card anchored under the pointer — fixing it rendering far from the change and vanishing en route in RTL.
+
 ## Version 0.0.435 (July 6, 2026)
 - **X (Twitter) MCP connector (#553)** — X's first-party MCP server (`https://api.x.com/mcp`) added to the connector catalog as a one-click tile with bearer-token (app-only) auth.
 - **`wait` tool for Agent V2 (#554)** — the agent can pause the current turn and auto-resume after a one-shot delay (data refresh still running, rate limit, "try again in 30 minutes"), with a live countdown pill and cancel; not a scheduled task (ephemeral, sub-hour, self-deleting).
