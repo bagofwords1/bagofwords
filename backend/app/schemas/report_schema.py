@@ -103,6 +103,16 @@ class ReportRecentSchema(BaseModel):
         from_attributes = True
 
 
+class ReportRerunResultSchema(BaseModel):
+    """Outcome of POST /reports/{id}/rerun — what actually ran, so clients
+    can tell a refreshed dashboard from a silent no-op or a failed run."""
+    message: str
+    steps_total: int
+    steps_succeeded: int
+    steps_failed: int
+    last_run_at: Optional[datetime] = None
+
+
 VISIBILITY_LITERAL = Literal["none", "shared", "internal", "public"]
 
 

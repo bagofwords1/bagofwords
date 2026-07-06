@@ -2080,7 +2080,12 @@
   },
   "artifactFrame": {
     "loading": "טוען…",
-    "loadingArtifact": "טוען ארטיפקט…"
+    "loadingArtifact": "טוען ארטיפקט…",
+    "refreshed": "הדשבורד עודכן",
+    "refreshPartial": "הדשבורד עודכן חלקית",
+    "refreshFailed": "עדכון הדשבורד נכשל",
+    "refreshNothing": "אין מה לעדכן",
+    "refreshSummary": "{succeeded} מתוך {total} שאילתות עודכנו"
   },
   "filter": {
     "addFilters": "הוסף מסננים",

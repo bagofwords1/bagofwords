@@ -335,6 +335,9 @@ class QueryService:
         2) Latest successful step by widget
         3) Latest step by widget
 
+        report_service._rerun_target_steps mirrors this resolution so report
+        reruns re-execute exactly what dashboards render — keep them in sync.
+
         Scoped to the caller's organization: a query owned by a different
         org returns None (and the route decorator returns 404 first).
         """

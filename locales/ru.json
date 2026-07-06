@@ -1989,7 +1989,12 @@
   },
   "artifactFrame": {
     "loading": "Загрузка…",
-    "loadingArtifact": "Загрузка артефакта…"
+    "loadingArtifact": "Загрузка артефакта…",
+    "refreshed": "Дашборд обновлён",
+    "refreshPartial": "Дашборд обновлён частично",
+    "refreshFailed": "Не удалось обновить дашборд",
+    "refreshNothing": "Нечего обновлять",
+    "refreshSummary": "Обновлено запросов: {succeeded} из {total}"
   },
   "filter": {
     "addFilters": "Добавить фильтры",
