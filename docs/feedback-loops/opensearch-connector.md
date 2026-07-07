@@ -214,6 +214,44 @@ Docker build, and a bare `boot_stack.sh` sandbox never runs it. Run the script
 `curl -sL` truncated the downloads) **before** `yarn build`, since the built
 Nitro server snapshots public assets at build time.
 
+## Logs & data streams — RUN
+
+Log-search suitability was verified live against the same cluster, seeded
+with a 400-line daily application-log index (`logs-app-2026.07.07`, dynamic
+mappings — the realistic case: everything `text` + `.keyword`) and a real
+data stream (`logs-stream-app` via an index template). Observed through the
+client:
+
+- Full-text search (`match` on `message` + `term` on `level.keyword` + time
+  range + sort, wildcard target `logs-app-*`) → correct rows with trace ids.
+- `date_histogram` × `terms` (error volume per 6h per level) and
+  `percentiles` (p95 `duration_ms` per service) → flat DataFrames.
+- The dynamic-mapping pitfall was hit deliberately: `terms` on bare `level`
+  → the engine's fielddata error surfaces verbatim, and the catalog's
+  `level.keyword` column plus the `description` rules steer the agent to the
+  aggregatable subfield.
+
+**Data-stream discovery** (added after the first probe showed the gap):
+`get_tables()` now calls `GET /_data_stream` (per-pattern when
+`index_pattern` is set — an exact-name pattern that is a plain index 404s and
+must not hide other streams; failures degrade to "no streams" for pre-stream
+clusters). Streams surface as tables with `metadata_json.type =
+"data_stream"` and columns unioned across backing-index generations; the
+hidden `.ds-*` backing indices are excluded from the index list even when a
+pattern matches them directly. Observed live:
+
+```
+logs-stream-app (data_stream) backing=['.ds-logs-stream-app-000001']
+  columns: ['@timestamp:datetime', 'level:string', 'message:string']
+by_level: INFO 16 / ERROR 4        # aggregation by stream name
+```
+
+and through the app: `GET .../refresh_schema` → `logs-app-2026.07.07`,
+`logs-stream-app`, `orders`, `recent_orders` (new tables inactive by
+default, as expected). Unit coverage: 4 new tests (union columns across
+generations, backing-index exclusion under patterns, graceful discovery
+failure, bad-pattern isolation) → `41 passed`.
+
 ## What this proves / regression notes
 
 - The registry resolves `"opensearch"` via the explicit `client_path`, the

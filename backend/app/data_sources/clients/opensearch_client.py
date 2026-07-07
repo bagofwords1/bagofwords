@@ -165,12 +165,54 @@ class OpenSearchClient(DataSourceClient):
             metadata_json={"type": kind, "raw_types": raw_types},
         )
 
-    def get_tables(self) -> List[Table]:
-        """Discover indices (and aliases) with their mapped fields.
+    @staticmethod
+    def _union_table(name: str, members: List[Table], kind: str,
+                     member_names: List[str]) -> Table:
+        """A table whose columns are the union of several member tables'
+        columns (aliases and data streams span multiple backing indices)."""
+        seen: Dict[str, TableColumn] = {}
+        raw_types: Dict[str, str] = {}
+        for member in members:
+            for col in member.columns:
+                seen.setdefault(col.name, col)
+            raw_types.update((member.metadata_json or {}).get("raw_types") or {})
+        return Table(
+            name=name,
+            columns=list(seen.values()),
+            pks=[TableColumn(name="_id", dtype="string")],
+            fks=[],
+            metadata_json={"type": kind, "indices": member_names, "raw_types": raw_types},
+        )
 
-        One bulk `GET /_mapping` call; system/hidden indices (`.`-prefixed)
-        are excluded unless an explicit `index_pattern` targets them. Aliases
-        surface as tables of their own — columns are the union of the backing
+    def _discover_data_streams(self) -> List[Dict[str, Any]]:
+        """Data streams visible to the connection.
+
+        Streams write to hidden `.ds-*` backing indices, so they never surface
+        through the plain index scan — they need their own discovery call.
+        Patterns are queried one by one because `GET /_data_stream/<name>`
+        404s for a pattern that only matches plain indices; one bad pattern
+        must not hide the streams matched by the others. Failures (pre-stream
+        clusters, missing permission) degrade to "no streams", never an error.
+        """
+        patterns = self._patterns or [None]
+        streams: Dict[str, Dict[str, Any]] = {}
+        for pattern in patterns:
+            path = f"/_data_stream/{pattern}" if pattern else "/_data_stream"
+            try:
+                for s in (self._request("GET", path) or {}).get("data_streams") or []:
+                    if s.get("name"):
+                        streams.setdefault(s["name"], s)
+            except Exception:
+                continue
+        return list(streams.values())
+
+    def get_tables(self) -> List[Table]:
+        """Discover indices, aliases, and data streams with their mapped fields.
+
+        One bulk `GET /_mapping` call; system/hidden indices (`.`-prefixed,
+        incl. data-stream backing indices) are excluded unless an explicit
+        `index_pattern` targets them. Aliases and data streams surface as
+        tables of their own — columns are the union of their backing
         indices' fields.
         """
         try:
@@ -181,9 +223,18 @@ class OpenSearchClient(DataSourceClient):
             print(f"Error retrieving OpenSearch mappings: {e}")
             return []
 
+        streams = self._discover_data_streams()
+        stream_backing = {
+            (i or {}).get("index_name")
+            for s in streams for i in (s.get("indices") or [])
+        }
+
         tables: List[Table] = []
         alias_members: Dict[str, List[str]] = {}
         for index_name, body in sorted(mappings_by_index.items()):
+            # Backing indices are queried through their stream, never directly.
+            if index_name in stream_backing:
+                continue
             if index_name.startswith(".") and not self._patterns:
                 continue
             tables.append(self._table_from_mapping(
@@ -195,22 +246,22 @@ class OpenSearchClient(DataSourceClient):
         for alias, members in sorted(alias_members.items()):
             if alias.startswith("."):
                 continue
-            seen: Dict[str, TableColumn] = {}
-            raw_types: Dict[str, str] = {}
-            for m in members:
-                member_table = by_name.get(m)
-                if not member_table:
-                    continue
-                for col in member_table.columns:
-                    seen.setdefault(col.name, col)
-                raw_types.update((member_table.metadata_json or {}).get("raw_types") or {})
-            tables.append(Table(
-                name=alias,
-                columns=list(seen.values()),
-                pks=[TableColumn(name="_id", dtype="string")],
-                fks=[],
-                metadata_json={"type": "alias", "indices": members, "raw_types": raw_types},
-            ))
+            tables.append(self._union_table(
+                alias, [by_name[m] for m in members if m in by_name], "alias", members))
+
+        for s in sorted(streams, key=lambda s: s["name"]):
+            name = s["name"]
+            backing = [(i or {}).get("index_name") for i in (s.get("indices") or [])]
+            try:
+                # Resolves to the stream's backing indices' mappings.
+                stream_mappings = self._request("GET", f"/{name}/_mapping")
+            except Exception:
+                continue
+            members = [
+                self._table_from_mapping(idx, (body or {}).get("mappings") or {}, "index")
+                for idx, body in sorted(stream_mappings.items())
+            ]
+            tables.append(self._union_table(name, members, "data_stream", backing))
         return tables
 
     def get_schemas(self) -> List[Table]:

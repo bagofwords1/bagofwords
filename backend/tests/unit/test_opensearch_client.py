@@ -202,6 +202,76 @@ class TestGetTables:
         transport(error=RuntimeError("connection refused"))
         assert OpenSearchClient(host="h").get_tables() == []
 
+    def test_data_stream_surfaces_with_union_columns(self, transport):
+        ds_mapping_1 = {"mappings": {"properties": {
+            "@timestamp": {"type": "date"}, "level": {"type": "keyword"}}}}
+        ds_mapping_2 = {"mappings": {"properties": {
+            "@timestamp": {"type": "date"}, "trace_id": {"type": "keyword"}}}}
+        transport({
+            ("GET", "/_mapping"): {
+                **ORDERS_MAPPING,
+                # Backing indices are hidden but can leak into wide responses.
+                ".ds-logs-app-000001": ds_mapping_1,
+            },
+            ("GET", "/_alias"): {},
+            ("GET", "/_data_stream"): {"data_streams": [{
+                "name": "logs-app",
+                "indices": [{"index_name": ".ds-logs-app-000001"},
+                            {"index_name": ".ds-logs-app-000002"}],
+            }]},
+            ("GET", "/logs-app/_mapping"): {
+                ".ds-logs-app-000001": ds_mapping_1,
+                ".ds-logs-app-000002": ds_mapping_2,
+            },
+        })
+        tables = OpenSearchClient(host="h").get_tables()
+        by_name = {t.name: t for t in tables}
+        assert set(by_name) == {"orders", "logs-app"}
+        stream = by_name["logs-app"]
+        assert stream.metadata_json["type"] == "data_stream"
+        assert stream.metadata_json["indices"] == [
+            ".ds-logs-app-000001", ".ds-logs-app-000002"]
+        # Union across generations of backing indices.
+        assert {c.name for c in stream.columns} == {"@timestamp", "level", "trace_id"}
+
+    def test_backing_indices_excluded_even_with_pattern(self, transport):
+        ds_mapping = {"mappings": {"properties": {"@timestamp": {"type": "date"}}}}
+        transport({
+            # An explicit pattern can match backing indices directly...
+            ("GET", "/logs-*/_mapping"): {".ds-logs-app-000001": ds_mapping},
+            ("GET", "/_alias"): {},
+            ("GET", "/_data_stream/logs-*"): {"data_streams": [{
+                "name": "logs-app",
+                "indices": [{"index_name": ".ds-logs-app-000001"}],
+            }]},
+            ("GET", "/logs-app/_mapping"): {".ds-logs-app-000001": ds_mapping},
+        })
+        tables = OpenSearchClient(host="h", index_pattern="logs-*").get_tables()
+        # ...but they surface only through their stream, never as raw indices.
+        assert [t.name for t in tables] == ["logs-app"]
+        assert tables[0].metadata_json["type"] == "data_stream"
+
+    def test_data_stream_discovery_failure_keeps_indices(self, transport):
+        # No /_data_stream route -> 404 -> graceful "no streams".
+        transport(self._routes())
+        tables = OpenSearchClient(host="h").get_tables()
+        assert [t.name for t in tables] == ["orders"]
+
+    def test_bad_pattern_does_not_hide_other_streams(self, transport):
+        ds_mapping = {"mappings": {"properties": {"@timestamp": {"type": "date"}}}}
+        transport({
+            ("GET", "/orders,logs-*/_mapping"): ORDERS_MAPPING,
+            ("GET", "/_alias"): {},
+            # "orders" is a plain index: GET /_data_stream/orders 404s (no route).
+            ("GET", "/_data_stream/logs-*"): {"data_streams": [{
+                "name": "logs-app",
+                "indices": [{"index_name": ".ds-logs-app-000001"}],
+            }]},
+            ("GET", "/logs-app/_mapping"): {".ds-logs-app-000001": ds_mapping},
+        })
+        tables = OpenSearchClient(host="h", index_pattern="orders,logs-*").get_tables()
+        assert {t.name for t in tables} == {"orders", "logs-app"}
+
     def test_get_schema_single_index(self, transport):
         transport({("GET", "/orders/_mapping"): ORDERS_MAPPING})
         t = OpenSearchClient(host="h").get_schema("orders")

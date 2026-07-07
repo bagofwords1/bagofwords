@@ -72,10 +72,11 @@ agent prompt templating all work unchanged.
 **Catalog discovery** (`get_schemas()` / `get_tables()`):
 
 - List non-system indices (`_cat/indices`, drop `.`-prefixed and hidden
-  indices) plus aliases. An optional `index_pattern` config (comma-separated
-  globs, e.g. `logs-*,orders`) narrows discovery — same idea as Druid's
-  `schema` filter. Data streams are deferred to a follow-up (their backing
-  `.ds-*` indices are hidden; the stream name is the queryable surface).
+  indices) plus aliases and data streams. An optional `index_pattern` config
+  (comma-separated globs, e.g. `logs-*,orders`) narrows discovery — same idea
+  as Druid's `schema` filter. Data streams get their own `GET /_data_stream`
+  discovery call (their backing `.ds-*` indices are hidden and never surface
+  directly; the stream name is the queryable surface).
 - For each index, flatten the mapping into `TableColumn`s with dot paths,
   reusing the MongoDB conventions: `object` fields recurse
   (`customer.tier`), `nested` fields recurse with the `[]` marker plus an
@@ -272,7 +273,7 @@ unaffected. Irrelevant outside sandboxes.
    leg re-runs the probe above through the real client.
 2. **Elasticsearch variant** — subclass (+ `api_key` auth, `/_sql` path),
    `elasticsearch:8.x` testcontainers leg, icon.
-3. **Polish / follow-ups** — data streams in discovery, `search_after`
+3. **Polish / follow-ups** — ~~data streams in discovery~~ (done), `search_after`
    pagination, drop `dev_only`, docs page under `documents/`.
 
 ## Open questions
