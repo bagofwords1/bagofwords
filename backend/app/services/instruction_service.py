@@ -885,6 +885,34 @@ class InstructionService:
             db, instruction, organization=organization, current_user=current_user
         )
 
+    async def get_instruction_access_view(
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        organization: Organization,
+    ) -> Optional[Instruction]:
+        """Instruction row + attached data-source ids only — just enough for
+        ``user_can_view_instruction``. Read endpoints that don't return the
+        detail schema (e.g. review-hunks) use this instead of
+        ``get_instruction``, whose eager graph (memberships, git repo, every
+        agent's connections, references, labels) is wasted on an access check.
+        """
+        result = await db.execute(
+            select(Instruction)
+            .options(
+                lazyload("*"),
+                selectinload(Instruction.data_sources).options(lazyload("*")),
+            )
+            .where(
+                and_(
+                    Instruction.id == instruction_id,
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def user_can_view_instruction(
         self,
         db: AsyncSession,
@@ -1350,15 +1378,69 @@ class InstructionService:
         rendered against current main so the UI overlays it on live text."""
         from app.services.text_hunks import rebased_hunks_against_main
         from app.models.agent_execution import AgentExecution
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
             return None
         main_text, main_vid, _meta = await self._main_text_of(db, instruction)
         rows = await self._pending_suggestion_builds(db, instruction_id, organization)
-        suggestions = []
+
+        # A build snapshots EVERY instruction, so most pending builds contain
+        # this instruction only as an unchanged carry-over of their base. The
+        # old path paid one base-text query + a word-level diff per build —
+        # O(all pending builds in the org) — which is what made review-hunks
+        # take seconds once suggestion builds accumulated. Bulk-load every
+        # build's base version/text for this instruction in ONE query, then
+        # skip carry-overs (proposed version == base version: no intended
+        # change, zero hunks by construction) before any diff work. Same rule
+        # as the batched get_pending_change_instruction_ids sweep.
+        base_ids = {
+            str(b.base_build_id) for b, _t, _v in rows
+            if getattr(b, "base_build_id", None)
+        }
+        base_vid_by_build: dict = {}
+        base_text_by_build: dict = {}
+        if base_ids:
+            for bid, vid, txt in (await db.execute(
+                select(BuildContent.build_id, BuildContent.instruction_version_id, _IV.text)
+                .join(_IV, _IV.id == BuildContent.instruction_version_id)
+                .where(
+                    BuildContent.build_id.in_(base_ids),
+                    BuildContent.instruction_id == str(instruction_id),
+                )
+            )).all():
+                base_vid_by_build[str(bid)] = str(vid)
+                base_text_by_build[str(bid)] = txt or ""
+
+        live_rows = []
         for build, proposed_text, proposed_vid in rows:
+            base_id = str(build.base_build_id) if getattr(build, "base_build_id", None) else None
+            if base_id and base_vid_by_build.get(base_id) == str(proposed_vid):
+                continue
+            base_text = base_text_by_build.get(base_id, "") if base_id else ""
+            live_rows.append((build, proposed_text, proposed_vid, base_text))
+
+        # Agent-execution traces for the surviving builds — one query, not one
+        # per build.
+        exec_ids = {
+            str(b.agent_execution_id) for b, _t, _v, _bt in live_rows
+            if getattr(b, "agent_execution_id", None)
+        }
+        trace_by_exec: dict = {}
+        if exec_ids:
+            for eid, rid, cid in (await db.execute(
+                select(AgentExecution.id, AgentExecution.report_id, AgentExecution.completion_id)
+                .where(AgentExecution.id.in_(exec_ids))
+            )).all():
+                trace_by_exec[str(eid)] = {
+                    "report_id": str(rid) if rid else None,
+                    "completion_id": str(cid) if cid else None,
+                }
+
+        suggestions = []
+        for build, proposed_text, proposed_vid, base_text in live_rows:
             rejected = self._rejected_keys(build, instruction_id)
-            base_text = await self._build_base_text(db, build, instruction_id)
             # Lenient: rebase the suggestion's intent onto current main so a STALE
             # suggestion (forked from an older main) still surfaces reviewable
             # hunks instead of collapsing to nothing. Identical to the strict
@@ -1369,12 +1451,7 @@ class InstructionService:
                 continue
             trace = None
             if getattr(build, "agent_execution_id", None):
-                ex = (await db.execute(
-                    select(AgentExecution.report_id, AgentExecution.completion_id)
-                    .where(AgentExecution.id == str(build.agent_execution_id))
-                )).first()
-                if ex:
-                    trace = {"report_id": str(ex[0]) if ex[0] else None, "completion_id": str(ex[1]) if ex[1] else None}
+                trace = trace_by_exec.get(str(build.agent_execution_id))
             creator = getattr(build, "created_by_user", None)
             suggestions.append({
                 "build_id": str(build.id),
