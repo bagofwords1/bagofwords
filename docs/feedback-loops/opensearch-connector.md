@@ -15,7 +15,7 @@ a real populated OpenSearch 2.19.1 in the sandbox.
 | Config | `backend/app/schemas/data_sources/configs.py` | `OpenSearchConfig`, `OpenSearchCredentials`, `OpenSearchNoAuthCredentials` |
 | Registry | `backend/app/schemas/data_source_registry.py` | `"opensearch"` entry: explicit `client_path`, `data_shape="objects"`, `version="beta"` |
 | Driver | — | none: plain `requests` (already a dependency), no Dockerfile change |
-| Icon | `frontend/public/data_sources_icons/opensearch.png` | Official logo (darkmode variant, per request) |
+| Icon | `frontend/public/data_sources_icons/opensearch.png` | Official mark (darkmode variant, per request) |
 | Unit tests | `backend/tests/unit/test_opensearch_client.py` | 37 tests, transport mocked |
 | Integration | `backend/tests/integrations/ds_clients.py` | `opensearch` in `DATA_SOURCES`; `_OpenSearchContainer` + new generic `seed_fn` hook in `CONTAINER_REGISTRY` (the `seed_sql` path is SQLAlchemy-only) |
 
