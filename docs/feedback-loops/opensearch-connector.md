@@ -161,16 +161,28 @@ uv run pytest tests/integrations/ds_clients.py -k opensearch -v
 `seed_fn` bulk-indexes, `test_connection` + `get_schemas` succeed through the
 dynamic-naming path (`OpensearchClient` alias).
 
-## Live UI pass
+## Live UI pass — RUN
 
-`tools/agent/boot_stack.sh` + `uv run python ../tools/agent/seed_org.py`, then
-in the app: OpenSearch appears in the add-connection grid (`dev_only` — the
-stack runs with `TESTING=true`, a dev environment) → create the connection
-against `localhost:9200` (auth: No Authentication) → **Test connection**
-succeeds → Tables Selector lists `orders` + `recent_orders` with their
-fields. Screenshots: `media/pr/opensearch-connector/` (connect form, tables
-list) — the form is schema-generated, so this doubles as review of the config
-schemas.
+`tools/agent/boot_stack.sh` + `uv run python ../tools/agent/seed_org.py`
+(mark onboarding complete via `PUT /api/organization/onboarding
+{"completed": true, "dismissed": true}` to reach the app), then driven with
+Playwright (`/opt/pw-browsers/chromium` via `executablePath`). Observed, with
+screenshots in `media/pr/opensearch-connector/`:
+
+- `grid.png` — OpenSearch tile (with icon) in the Add Connection modal
+  (`dev_only` visible: the stack runs with `TESTING=true`, a dev environment).
+- `connect-form.png` — the schema-generated form: Host, Port, Use HTTPS,
+  Verify TLS Certificates, Index Pattern + System Credentials variant picker.
+- `test-connection.png` — host `localhost`, auth **No Authentication** →
+  “Connected successfully. Found 2 collections.”
+- `after-save.png` — saved: “Connected” badge, “Discovered 2 tables in 0.106s”.
+- `tables-selector.png` — Select Tables step lists `orders` and
+  `recent_orders` from the live cluster.
+
+The same flow was also confirmed API-side: `POST /api/data_sources` (note:
+the UI sends the selected `auth_type` inside `config`), `GET
+.../test_connection` → `{"success": true, "message": "Connected to opensearch
+2.19.1"}`, `GET .../full_schema` → both tables with all 11 columns.
 
 ## What this proves / regression notes
 
