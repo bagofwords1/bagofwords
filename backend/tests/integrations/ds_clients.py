@@ -33,6 +33,7 @@ DATA_SOURCES = [
     "powerbi",
     "qvd",
     "teradata",
+    "opensearch",
 ]
 
 
@@ -63,6 +64,80 @@ try:
             "SELECT u.id, u.name, SUM(o.total) AS total "
             "FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.id, u.name",
         ],
+    }
+except ImportError:
+    pass
+
+try:
+    from testcontainers.core.container import DockerContainer
+
+    class _OpenSearchContainer(DockerContainer):
+        """Single-node OpenSearch with the security plugin disabled.
+
+        testcontainers' bundled OpenSearch module pulls in opensearch-py,
+        which the app deliberately avoids (the client is plain REST), so
+        this thin core-API wrapper is used instead.
+        """
+
+        def __init__(self, image: str = "opensearchproject/opensearch:2.19.1"):
+            super().__init__(image)
+            self.with_exposed_ports(9200)
+            self.with_env("discovery.type", "single-node")
+            self.with_env("DISABLE_SECURITY_PLUGIN", "true")
+            self.with_env("OPENSEARCH_JAVA_OPTS", "-Xms512m -Xmx512m")
+
+        def base_url(self) -> str:
+            return f"http://{self.get_container_host_ip()}:{self.get_exposed_port(9200)}"
+
+    def _seed_opensearch(container: "_OpenSearchContainer") -> None:
+        import time
+        import requests
+
+        base = container.base_url()
+        deadline = time.time() + 120
+        while True:
+            try:
+                if requests.get(base, timeout=2).status_code == 200:
+                    break
+            except Exception:
+                pass
+            if time.time() > deadline:
+                raise TimeoutError("OpenSearch container did not become ready in 120s")
+            time.sleep(2)
+
+        requests.put(
+            f"{base}/orders",
+            json={"mappings": {"properties": {
+                "order_id": {"type": "keyword"},
+                "status": {"type": "keyword"},
+                "total": {"type": "double"},
+                "customer": {"properties": {"tier": {"type": "keyword"}}},
+            }}},
+            timeout=10,
+        ).raise_for_status()
+        bulk = (
+            '{"index":{"_index":"orders"}}\n'
+            '{"order_id":"o1","status":"active","total":120.5,"customer":{"tier":"gold"}}\n'
+            '{"index":{"_index":"orders"}}\n'
+            '{"order_id":"o2","status":"cancelled","total":15.0,"customer":{"tier":"silver"}}\n'
+        )
+        resp = requests.post(
+            f"{base}/_bulk?refresh=true",
+            data=bulk,
+            headers={"Content-Type": "application/x-ndjson"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        assert not resp.json().get("errors"), f"bulk seed failed: {resp.text}"
+
+    CONTAINER_REGISTRY["opensearch"] = {
+        "container_cls": _OpenSearchContainer,
+        "image": "opensearchproject/opensearch:2.19.1",
+        "get_kwargs": lambda c: {
+            "host": c.get_container_host_ip(),
+            "port": c.get_exposed_port(9200),
+        },
+        "seed_fn": _seed_opensearch,
     }
 except ImportError:
     pass
@@ -181,7 +256,14 @@ def get_container_kwargs(name: str) -> Generator[Dict[str, Any], None, None]:
                     conn.execute(sqlalchemy.text(sql))
                 conn.commit()
             logger.info(f"{name}: Seeded {len(seed_sql)} tables")
-        
+
+        # Non-SQL sources seed through a callable instead (e.g. OpenSearch
+        # bulk-indexes documents over REST).
+        seed_fn = reg.get("seed_fn")
+        if seed_fn:
+            seed_fn(container)
+            logger.info(f"{name}: Seeded via seed_fn")
+
         # Get kwargs for our client
         kwargs = reg["get_kwargs"](container)
         yield kwargs

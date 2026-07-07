@@ -623,6 +623,62 @@ class MongoDBConfig(BaseModel):
     )
 
 
+# OpenSearch
+class OpenSearchCredentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User",
+        description="Username for HTTP basic authentication (OpenSearch security plugin).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP basic authentication.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class OpenSearchNoAuthCredentials(BaseModel):
+    """Clusters with the security plugin disabled or network-gated access."""
+    pass
+
+
+class OpenSearchConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="OpenSearch host (e.g. localhost) or full URL (e.g. https://search.example.com:9200)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    port: int = Field(
+        9200,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="OpenSearch REST port (default: 9200). Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "number"}
+    )
+    secure: bool = Field(
+        False,
+        title="Use HTTPS",
+        description="Connect over HTTPS. Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    verify_certs: bool = Field(
+        True,
+        title="Verify TLS Certificates",
+        description="Disable only for clusters using self-signed demo certificates.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    index_pattern: Optional[str] = Field(
+        None,
+        title="Index Pattern",
+        description="Optional comma-separated index names or globs to expose (e.g. logs-*,orders). Default: all non-system indices.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Azure Data Explorer (Kusto)
 class AzureDataExplorerCredentials(BaseModel):
     client_id: str = Field(..., title="Client ID", description="Azure AD Application (Client) ID", json_schema_extra={"ui:type": "string"})
