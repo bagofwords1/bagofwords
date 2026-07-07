@@ -417,8 +417,14 @@ class ServiceNowClient(DataSourceClient):
         - `fields` (optional): columns to return; omit for all.
         - `limit` (optional): max rows, default 100.
 
-        Results return display values (human-readable choice labels and reference
-        names). Aggregate by fetching rows and grouping in pandas.
+        IMPORTANT — results return DISPLAY VALUES (human-readable strings), not
+        raw codes: `priority` is "1 - Critical" (not 1), `state` is
+        "In Progress" (not 2), reference fields are names ("Beth Anglin"), and
+        booleans/dates are strings. Never `pd.to_numeric` such columns directly —
+        parse labels (e.g. `df["priority"].str.split(" - ").str[0].astype(int)`)
+        or group by the label as-is. Encoded-query FILTER values still use raw
+        codes: `priority=1`, `active=true`, `state=2`.
+        Aggregate by fetching rows and grouping in pandas.
 
         Examples:
         ```python
