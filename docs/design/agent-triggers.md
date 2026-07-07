@@ -196,8 +196,14 @@ declined deliveries are visible in the webhook's delivery log instead).
 
 ## 4. Frontend
 
-- **Webhooks management page** (nav near `scheduled-tasks` — it's the same
-  kind of personal automation surface): each user sees their own webhooks;
+- **Automations page** — single nav item with two tabs: **Scheduled** (the
+  existing `pages/scheduled-tasks` content, old URL redirects) and
+  **Triggers** (webhooks). Both are user-owned run specs; only the firing
+  mechanism differs (time vs event), so they share the management surface,
+  run-history drawer shape, and origin/filter conventions. Creation entry
+  points differ and that's fine: scheduled tasks are mostly created in-report
+  via `create_scheduled_task`; triggers are created from this page.
+- **Triggers tab**: each user sees their own webhooks;
   list (name, source icon, agents, model, mode, active, last delivery, runs
   this week) + create/edit modal sectioned like the scheduled-task/prompt
   editors:
@@ -254,9 +260,9 @@ declined deliveries are visible in the webhook's delivery log instead).
 
 ## 7. Open questions
 
-1. Nav placement: standalone Webhooks page vs folded into a future unified
-   "Automations" surface with scheduled tasks (both are user-owned, run-spec
-   shaped, fire-and-spawn — a merged page may be the end state).
+1. ~~Nav placement~~ — decided: **Automations** umbrella page, tabs =
+   Scheduled (existing scheduled-tasks page, URL redirect) + Triggers
+   (webhooks). See §4.
 2. `report_type` for spawned sessions (like `report_type="test"` for evals) —
    e.g. `'triggered'` — so product surfaces can treat them specially. Cheap
    now, painful to retrofit. Leaning yes.
