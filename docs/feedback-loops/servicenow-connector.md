@@ -124,7 +124,13 @@ charts on the first attempt.
   credentials (`InvalidToken` on decrypt, surfacing as "An error occurred"
   in chat with no user-visible cause). Bit us twice in this loop; dev/agent
   environments should pin the key (docs/boot script candidate).
-- The generated dashboard artifact for this report initially failed to
-  render ("React is not defined") — an artifact-codegen issue unrelated to
-  the connector (the underlying widgets/queries had data); the in-app
-  "Fix Error" flow repairs it.
+- The generated dashboard artifact failed to render ("React is not
+  defined") and `edit_artifact` failed with a missing
+  `frontend/.output/public/libs/tailwindcss-3.4.16.js`. Root cause: the
+  sandbox stack was booted without running
+  `scripts/download-vendor-libs.sh`, and artifacts embed those libs
+  server-side at creation time — so artifacts created while the libs are
+  missing are permanently broken and must be recreated after provisioning.
+  Unrelated to the connector (its widgets/queries had data). Note the
+  script's default output path is CWD-relative (`frontend/public/libs`),
+  so run it from the repo root; boot_stack.sh is a candidate home for it.
