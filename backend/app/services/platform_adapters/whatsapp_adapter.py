@@ -153,9 +153,12 @@ class WhatsAppAdapter(PlatformAdapter):
             "type": "text",
             "text": {"body": text[:4096], "preview_url": False},
         }
-        thread_ts = message_data.get("thread_ts")
-        if thread_ts:
-            payload["context"] = {"message_id": thread_ts}
+        # Intentionally NOT setting `context.message_id`: quoting the root inbound
+        # message on every outbound reply made WhatsApp re-quote the user's
+        # original prompt above each of the (multiple) reply messages, which reads
+        # as repetitive clutter. Report/thread association is tracked server-side
+        # via Completion.external_thread_ts, not via the WhatsApp quote, so
+        # dropping the quote is purely cosmetic.
         return await self._post_message(payload)
 
     async def get_user_info(self, external_user_id: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
@@ -302,8 +305,8 @@ class WhatsAppAdapter(PlatformAdapter):
             "type": msg_type,
             msg_type: media_obj,
         }
-        if thread_ts:
-            payload["context"] = {"message_id": thread_ts}
+        # Don't quote the root prompt (see send_response) — avoids repetitive
+        # quoted-reply clutter when several messages/files are sent per answer.
         return await self._post_message(payload)
 
     async def send_image_in_dm(self, user_id: str, image_path: str, title: str) -> bool:
