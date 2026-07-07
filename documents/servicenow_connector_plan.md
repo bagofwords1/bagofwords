@@ -161,12 +161,70 @@ majority of real deployments, which provision a dedicated integration user.
 variants per type, so this is additive:
 - `oauth_app` variant (client_id + client_secret + refresh token) for system
   scope.
-- Possibly per-user delegated OAuth (`OAuthDelegatedCredentials`, like
-  BigQuery/Power BI have) — larger scope because it touches the shared OAuth
-  delegated infra; only if a customer needs per-user ServiceNow ACLs.
+- Per-user delegated OAuth — see §3.5; only if a customer needs per-user
+  ServiceNow ACLs.
 
 Optional cheap addition in phase 1 or 2: API-key variant (single `api_key`
 field) since it's just a header swap.
+
+### 3.5 Per-user access (ACLs) — do we need on-behalf-of?
+
+**ServiceNow visibility is genuinely per-user.** Access control is
+role-based table/field ACLs plus row-level restrictions (scripted ACLs,
+query business rules) and, on MSP-style instances, domain separation. Two
+users querying `incident` legitimately see different rows; HR (`sn_hr_core_*`)
+and Security Incident tables are heavily row-scoped by design. The REST
+Table API enforces ACLs **as the authenticated user**, and there is no
+supported "run-as" / impersonation header for a service account — so
+per-user fidelity requires per-user credentials of some kind.
+
+The platform already has a graded ladder for exactly this, so nothing new
+needs inventing:
+
+1. **System service account (Phase 1 default).** Everyone shares the
+   integration user's visibility — the same trust model as the Postgres
+   connector. Correct when the connection is scoped to org-visible ITSM
+   reporting and the service account is provisioned least-privilege.
+   **Setup-doc warning:** don't grant the service account HR/SecOps/domain-
+   separated tables unless everyone with access to the connection may see
+   them; previews, indexing samples, and LLM-generated summaries run
+   through this account.
+2. **Per-user basic auth / API key — nearly free.** The registry's
+   `AuthVariant.scopes` already supports `"user"`, backed by
+   `UserConnectionCredentials` (per-user encrypted credential overlay on a
+   connection). Declaring `scopes=["system", "user"]` on the userpass
+   variant (as Salesforce does) lets each user store their own ServiceNow
+   credentials — native ACL enforcement with zero new infra. Limitations:
+   SSO-only users often have no local password (basic auth may be disabled
+   for them); a per-user ServiceNow API key is the cleaner variant of the
+   same idea.
+3. **Per-user delegated OAuth (the real "OBO", Phase 2/3).** "Sign in with
+   ServiceNow": admin registers an OAuth app in the instance's Application
+   Registry; each user completes an authorization-code flow; queries run
+   with that user's token so ACLs apply natively.
+   `connection_oauth_service.get_oauth_params()` maps connection type →
+   endpoints and already supports **per-connection** endpoints (the MCP
+   path), which is what ServiceNow needs since its endpoints are
+   instance-specific (`{instance_url}/oauth_auth.do`,
+   `{instance_url}/oauth_token.do`) rather than fixed like Google/Microsoft.
+   Token lifecycle (default ~30-min access tokens, ~100-day refresh tokens)
+   is handled by the existing `maybe_refresh_oauth_credentials` machinery.
+   Note: this is delegated auth per user, not Microsoft-style OBO token
+   *exchange* — ServiceNow has no equivalent of `exchange_obo_token`; each
+   user must complete the consent flow once.
+
+**Catalog implication:** `catalog_ownership="shared"` remains correct. The
+schema is (near-)identical for all users — ACLs filter *rows*, and only
+occasionally hide fields — so discovery/indexing runs on the system
+connection while queries may run on user credentials. This is the same
+"admin catalog, ACL-filtered user overlay" shape as Postgres-with-RLS or
+SharePoint, per the registry's own taxonomy.
+
+**Recommendation:** ship Phase 1 with the service-account model but declare
+`scopes=["system", "user"]` on the basic-auth variant from day one (it's
+free and unlocks rung 2 immediately). Treat delegated OAuth as demand-driven
+— it becomes a requirement the moment a customer wants HR/SecOps data or a
+domain-separated instance connected.
 
 ### 3.4 Result semantics
 
@@ -272,9 +330,9 @@ Nothing needed in the agent layer: `app/ai/agents/data_source/data_source.py`
 - **Phase 2** — Aggregate/Stats API for group-by queries; OAuth
   (`oauth_app` variant, maybe API key); `sys_choice` choice-list values in the
   prompt schema; promote to `version="1.0.0"`.
-- **Phase 3 (as demand appears)** — per-user delegated OAuth for ACL-faithful
-  querying; knowledge-base articles as a document-shaped source; attachment
-  retrieval.
+- **Phase 3 (as demand appears)** — per-user delegated OAuth ("Sign in with
+  ServiceNow", §3.5) for ACL-faithful querying; knowledge-base articles as a
+  document-shaped source; attachment retrieval.
 
 ## 6. Open questions
 
