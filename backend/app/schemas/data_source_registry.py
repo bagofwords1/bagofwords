@@ -35,6 +35,9 @@ from app.schemas.data_sources.configs import (
     DruidTokenCredentials,
     DruidBasicTokenCredentials,
     MongoDBConfig,
+    OpenSearchConfig,
+    OpenSearchCredentials,
+    OpenSearchNoAuthCredentials,
     PostHogConfig,
     # DuckDB
     DuckDBConfig,
@@ -554,6 +557,31 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
         data_shape="objects",
+    ),
+    "opensearch": DataSourceRegistryEntry(
+        type="opensearch",
+        title="OpenSearch",
+        description="Search and analytics engine. Query indices with the native query DSL, aggregations, or SQL.",
+        config_schema=OpenSearchConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=OpenSearchCredentials,
+                    scopes=["system", "user"],
+                ),
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=OpenSearchNoAuthCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.opensearch_client.OpenSearchClient",
+        is_document_based=True,
+        data_shape="objects",
+        version="beta",
     ),
     "posthog": DataSourceRegistryEntry(
         type="posthog",
