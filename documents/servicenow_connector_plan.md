@@ -386,7 +386,41 @@ dependency.
    drive connection-create → test → index → query without network. Nice to
    have, not required for Phase 1.
 
-## 7. Open questions
+## 7. Appendix — creating the OAuth app in ServiceNow (Phase 2 setup)
+
+Admin-side registration (one-time per instance, ~2 minutes; scriptable via
+the Table API against the app-registry tables, so a PDI can be provisioned
+automatically):
+
+1. **All → System OAuth → Application Registry → New →**
+   **"Create an OAuth API endpoint for external clients"**.
+2. Name `bagofwords`; copy the generated **Client ID** / **Client Secret**.
+3. **Redirect URL**: `{bow_config.base_url}/api/connections/oauth/callback`
+   (the existing shared callback in `routes/connection_oauth.py`).
+4. Token lifespans: defaults (30-min access / 100-day refresh) are fine —
+   refresh is handled by `maybe_refresh_oauth_credentials`.
+
+Instance endpoints (standard, derived from `instance_url`):
+`/oauth_auth.do` (authorize) and `/oauth_token.do` (token). PKCE: our flow
+always sends a verifier; providers that don't support it ignore it.
+
+bagofwords-side wiring when Phase 2 lands:
+- Add an `oauth` AuthVariant (schema=`OAuthDelegatedCredentials`,
+  `scopes=["user"]`) to the servicenow registry entry.
+- Add a `servicenow` branch in `connection_oauth_service.get_oauth_params()`
+  deriving both endpoints from the connection's `instance_url`, with
+  client_id/secret from admin-entered connection credentials — same pattern
+  as the existing MCP branch (which already proves per-connection endpoints).
+- Client authenticates with `Authorization: Bearer <token>` instead of basic.
+
+**System-scope alternative:** ServiceNow (Utah+) supports the OAuth
+**client-credentials grant**, where the app-registry entry is bound to a
+designated integration user and tokens are issued without user consent.
+That's the cleanest implementation of the system-scope `oauth_app` variant —
+no stored password, no refresh-token babysitting — and should be preferred
+over a refresh-token flow when Phase 2 is implemented.
+
+## 8. Open questions
 
 1. **Default table set** — is ITSM (incident/change/problem/catalog) the right
    default, or do target users care more about CMDB or HRSD tables? (Config
