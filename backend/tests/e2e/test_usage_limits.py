@@ -122,6 +122,62 @@ async def _record_usage_summary_sample(org_id, user_id, conn_id):
         await db.commit()
 
 
+async def _record_llm_usage_ledger(
+    org_id,
+    user_id,
+    *,
+    prompt_tokens,
+    completion_tokens,
+    cache_read_tokens=0,
+    cache_creation_tokens=0,
+    total_cost_usd,
+    provider_type="anthropic",
+):
+    """Insert a raw LLMUsageRecord row (the always-on per-call ledger).
+
+    This is what a real LLM call leaves behind regardless of whether a usage
+    policy exists — the profile Usage tab must reflect it either way.
+    """
+    from app.models.llm_provider import LLMProvider
+    from app.models.llm_model import LLMModel
+    from app.models.llm_usage_record import LLMUsageRecord
+
+    async with async_session_maker() as db:
+        suffix = uuid.uuid4().hex[:8]
+        provider = LLMProvider(
+            organization_id=org_id,
+            name=f"Anthropic {suffix}",
+            provider_type=provider_type,
+        )
+        db.add(provider)
+        await db.flush()
+        model = LLMModel(
+            organization_id=org_id,
+            provider_id=str(provider.id),
+            name=f"Test model {suffix}",
+            model_id="test-model",
+        )
+        db.add(model)
+        await db.flush()
+        db.add(LLMUsageRecord(
+            scope="agent",
+            scope_ref_id=None,
+            organization_id=org_id,
+            user_id=user_id,
+            llm_model_id=str(model.id),
+            model_id="test-model",
+            provider_type=provider_type,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            input_cost_usd=0,
+            output_cost_usd=0,
+            total_cost_usd=total_cost_usd,
+        ))
+        await db.commit()
+
+
 async def _create_connection(org_id, name):
     async with async_session_maker() as db:
         conn = Connection(
@@ -601,6 +657,66 @@ def test_default_unlimited_usage_limits_do_not_write_counter_rows(create_user, l
         scope_type=SCOPE_CONNECTION,
         scope_ref_id=conn_id,
     )) is False
+
+
+@pytest.mark.e2e
+def test_quota_summary_reflects_llm_ledger_without_a_policy(create_user, login_user, whoami):
+    """Real LLM usage must surface in the Usage tab even with no quota policy.
+
+    Without a token/spend cap the enforcement counters are never written, so
+    the summary used to report zeros despite genuine activity. It now reads the
+    always-on LLMUsageRecord ledger, so tokens and spend are reflected while the
+    limits stay unset (unlimited).
+    """
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+
+    # Anthropic reports cache tokens separately, so the token total is the sum
+    # of all four counts: 1000 + 200 + 5000 + 300 = 6500.
+    _run(_record_llm_usage_ledger(
+        org_id,
+        user_id,
+        prompt_tokens=1000,
+        completion_tokens=200,
+        cache_read_tokens=5000,
+        cache_creation_tokens=300,
+        total_cost_usd=0.5,
+    ))
+
+    profile = whoami(token)
+    org = next(item for item in profile["organizations"] if item["id"] == org_id)
+    quota = org["usage_quota"]
+    assert quota["enabled"] is True
+    # No policy assigned -> unlimited, but usage is still surfaced.
+    assert quota["tokens"]["limit"] is None
+    assert quota["tokens"]["used"] == 6500
+    assert quota["spend"]["limit"] is None
+    assert quota["spend"]["used"] == 0.5
+
+
+@pytest.mark.e2e
+def test_quota_summary_ledger_excludes_unattributed_usage(create_user, login_user, whoami):
+    """Per-user attribution: rows not tied to this user must not leak in.
+
+    The summary is "Your activity", so unattributed ledger rows (NULL user_id —
+    e.g. background jobs) stay out of the per-user totals.
+    """
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+
+    _run(_record_llm_usage_ledger(
+        org_id, user_id,
+        prompt_tokens=100, completion_tokens=50, total_cost_usd=0.1,
+    ))
+    # Same org, no user attribution — must be excluded from this user's summary.
+    _run(_record_llm_usage_ledger(
+        org_id, None,
+        prompt_tokens=999, completion_tokens=999, total_cost_usd=9.9,
+    ))
+
+    profile = whoami(token)
+    org = next(item for item in profile["organizations"] if item["id"] == org_id)
+    quota = org["usage_quota"]
+    assert quota["tokens"]["used"] == 150
+    assert quota["spend"]["used"] == 0.1
 
 
 class _FakeProvider:

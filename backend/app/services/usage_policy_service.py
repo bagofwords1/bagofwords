@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -585,6 +585,65 @@ class UsagePolicyService:
             resolution_source="default",
         )
 
+    async def _llm_usage_totals_for_user(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        user_id: str,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> tuple[int, int]:
+        """Realized per-user LLM token + spend usage for the month window.
+
+        Sourced from the always-on ``LLMUsageRecord`` ledger, which is written
+        on every LLM call regardless of whether a usage-limit policy exists —
+        unlike the quota ``UsageCounter``, which ``record_llm_tokens`` only
+        writes when a monthly token cap is configured. Reading the ledger here
+        is what lets the profile Usage tab show real activity for orgs that
+        haven't set a quota policy (the common case).
+
+        Token totals are provider-aware to avoid double-counting cache tokens,
+        mirroring the Cost console (``console_service.get_llm_usage_metrics``):
+        Anthropic reports cache tokens separately from ``prompt_tokens`` while
+        OpenAI/Azure fold them in.
+
+        Returns ``(total_tokens, total_spend_micro_usd)``.
+        """
+        from app.models.llm_usage_record import LLMUsageRecord
+
+        result = await db.execute(
+            select(
+                LLMUsageRecord.provider_type,
+                func.coalesce(func.sum(LLMUsageRecord.prompt_tokens), 0),
+                func.coalesce(func.sum(LLMUsageRecord.completion_tokens), 0),
+                func.coalesce(func.sum(LLMUsageRecord.cache_read_tokens), 0),
+                func.coalesce(func.sum(LLMUsageRecord.cache_creation_tokens), 0),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(
+                LLMUsageRecord.organization_id == org_id,
+                LLMUsageRecord.user_id == user_id,
+                LLMUsageRecord.created_at >= window_start,
+                LLMUsageRecord.created_at < window_end,
+            )
+            .group_by(LLMUsageRecord.provider_type)
+        )
+
+        total_tokens = 0
+        total_cost_usd = 0.0
+        for provider_type, prompt, completion, cache_read, cache_creation, cost in result.all():
+            prompt = int(prompt or 0)
+            completion = int(completion or 0)
+            cache_read = int(cache_read or 0)
+            cache_creation = int(cache_creation or 0)
+            if (provider_type or "") == "anthropic":
+                total_tokens += prompt + completion + cache_read + cache_creation
+            else:
+                total_tokens += prompt + completion
+            total_cost_usd += float(cost or 0)
+
+        return total_tokens, (usd_to_micro(total_cost_usd) or 0)
+
     async def get_user_quota_summary(
         self,
         db: AsyncSession,
@@ -607,6 +666,18 @@ class UsagePolicyService:
 
         token_used = counters.get((METRIC_LLM_TOKENS, SCOPE_ORGANIZATION, ""), 0)
         spend_used_micro = counters.get((METRIC_LLM_COST, SCOPE_ORGANIZATION, ""), 0)
+
+        # The quota counters above are only written when a token/spend cap is
+        # active, so for orgs without a policy they stay at zero and the Usage
+        # tab looks empty even after real activity. Reconcile against the
+        # always-on LLM usage ledger and surface the realized totals (they
+        # agree with the counters when a cap exists; the ledger fills the gap
+        # when one doesn't).
+        ledger_tokens, ledger_spend_micro = await self._llm_usage_totals_for_user(
+            db, org_id, user_id, window_start, window_end,
+        )
+        token_used = max(int(token_used or 0), ledger_tokens)
+        spend_used_micro = max(int(spend_used_micro or 0), ledger_spend_micro)
         query_used_by_connection = {
             scope_ref_id: used
             for (metric, scope_type, scope_ref_id), used in counters.items()

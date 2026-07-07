@@ -193,21 +193,50 @@
                  is enabled; otherwise the quota source is empty and showing
                  zeros would be misleading, so we show an explicit notice. -->
             <template v-if="usage.enabled">
-              <div class="grid grid-cols-3 gap-3">
+              <div class="grid grid-cols-2 gap-3">
+                <!-- Tokens -->
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
                   <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.tokens') }}</div>
-                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.tokens.used) }}</div>
-                  <div v-if="usage.tokens.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.tokens.limit) }}</div>
+                  <div class="mt-1 flex items-baseline gap-1">
+                    <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ formatNumber(usage.tokens.used) }}</span>
+                    <span v-if="usage.tokens.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.tokens.limit) }}</span>
+                  </div>
+                  <div v-if="usagePercent(usage.tokens) !== null" class="mt-2 h-1 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-blue-500" :style="{ width: (usagePercent(usage.tokens)! * 100) + '%' }"></div>
+                  </div>
                 </div>
+                <!-- Cost -->
+                <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
+                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.cost') }}</div>
+                  <div class="mt-1 flex items-baseline gap-1">
+                    <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ formatUsd(usage.spend.used) }}</span>
+                    <span v-if="usage.spend.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatUsd(usage.spend.limit) }}</span>
+                  </div>
+                  <div v-if="usagePercent(usage.spend) !== null" class="mt-2 h-1 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-blue-500" :style="{ width: (usagePercent(usage.spend)! * 100) + '%' }"></div>
+                  </div>
+                </div>
+                <!-- Queries -->
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
                   <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.queries') }}</div>
-                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.queries.used) }}</div>
-                  <div v-if="usage.queries.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.queries.limit) }}</div>
+                  <div class="mt-1 flex items-baseline gap-1">
+                    <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ formatNumber(usage.queries.used) }}</span>
+                    <span v-if="usage.queries.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.queries.limit) }}</span>
+                  </div>
+                  <div v-if="usagePercent(usage.queries) !== null" class="mt-2 h-1 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-blue-500" :style="{ width: (usagePercent(usage.queries)! * 100) + '%' }"></div>
+                  </div>
                 </div>
+                <!-- Data scanned -->
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
                   <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.data') }}</div>
-                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatBytes(usage.data_bytes.used) }}</div>
-                  <div v-if="usage.data_bytes.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatBytes(usage.data_bytes.limit) }}</div>
+                  <div class="mt-1 flex items-baseline gap-1">
+                    <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ formatBytes(usage.data_bytes.used) }}</span>
+                    <span v-if="usage.data_bytes.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatBytes(usage.data_bytes.limit) }}</span>
+                  </div>
+                  <div v-if="usagePercent(usage.data_bytes) !== null" class="mt-2 h-1 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+                    <div class="h-full rounded-full bg-blue-500" :style="{ width: (usagePercent(usage.data_bytes)! * 100) + '%' }"></div>
+                  </div>
                 </div>
               </div>
               <p class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('profile.usage.windowNote') }}</p>
@@ -759,6 +788,7 @@ const usage = computed(() => {
   return {
     enabled: !!q?.enabled,
     tokens: q?.tokens || emptyMetric,
+    spend: q?.spend || emptyMetric,
     queries: q?.queries || emptyMetric,
     data_bytes: q?.data_bytes || emptyMetric,
   }
@@ -775,6 +805,20 @@ function formatBytes(n: number | null | undefined): string {
   let v = n
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+function formatUsd(n: number | null | undefined): string {
+  const v = Number(n || 0)
+  // Sub-cent spend still deserves a non-zero readout, so widen precision for
+  // small amounts rather than rounding a few thousand tokens' cost to $0.00.
+  const digits = v > 0 && v < 0.01 ? 4 : 2
+  return `$${v.toFixed(digits)}`
+}
+// Fraction (0–1) of a metric's limit consumed, or null when the metric is
+// unlimited (no denominator to draw a bar against).
+function usagePercent(metric: { used?: number | null; limit?: number | null }): number | null {
+  const limit = metric?.limit
+  if (limit == null || limit <= 0) return null
+  return Math.min(Math.max(Number(metric.used || 0) / limit, 0), 1)
 }
 
 // --- Appearance (color mode) ---

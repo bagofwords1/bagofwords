@@ -2755,6 +2755,7 @@
       "title": "Användning",
       "subtitle": "Din aktivitet under den aktuella faktureringsperioden.",
       "tokens": "Tokens",
+      "cost": "Kostnad",
       "queries": "Frågor",
       "data": "Skannade data",
       "windowNote": "Användningen återställs i början av varje månad.",

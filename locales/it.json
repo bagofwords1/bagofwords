@@ -2755,6 +2755,7 @@
       "title": "Utilizzo",
       "subtitle": "La tua attività per il periodo di fatturazione corrente.",
       "tokens": "Token",
+      "cost": "Costo",
       "queries": "Query",
       "data": "Dati analizzati",
       "windowNote": "L'utilizzo si azzera all'inizio di ogni mese.",

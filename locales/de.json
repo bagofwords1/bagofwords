@@ -2755,6 +2755,7 @@
       "title": "Nutzung",
       "subtitle": "Ihre Aktivität im aktuellen Abrechnungszeitraum.",
       "tokens": "Tokens",
+      "cost": "Kosten",
       "queries": "Abfragen",
       "data": "Gescannte Daten",
       "windowNote": "Die Nutzung wird zu Beginn jedes Monats zurückgesetzt.",

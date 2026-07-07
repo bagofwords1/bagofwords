@@ -2861,6 +2861,7 @@
       "title": "Uso",
       "subtitle": "Tu actividad en el período de facturación actual.",
       "tokens": "Tokens",
+      "cost": "Coste",
       "queries": "Consultas",
       "data": "Datos analizados",
       "windowNote": "El uso se reinicia al comienzo de cada mes.",

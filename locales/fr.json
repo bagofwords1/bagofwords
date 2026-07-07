@@ -2755,6 +2755,7 @@
       "title": "Utilisation",
       "subtitle": "Votre activité pour la période de facturation en cours.",
       "tokens": "Jetons",
+      "cost": "Coût",
       "queries": "Requêtes",
       "data": "Données analysées",
       "windowNote": "L'utilisation est réinitialisée au début de chaque mois.",

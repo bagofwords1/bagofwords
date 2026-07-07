@@ -3063,6 +3063,7 @@
       "title": "Usage",
       "subtitle": "Your activity for the current billing window.",
       "tokens": "Tokens",
+      "cost": "Cost",
       "queries": "Queries",
       "data": "Data scanned",
       "windowNote": "Usage resets at the start of each month.",
