@@ -132,6 +132,9 @@ fn run(input: &str, output: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let t0 = Instant::now();
     let mut reader = open_qvd_stream(input)?;
     let n_cols = reader.header.fields.len();
+    // Total rows from the QVD header — lets the caller render a real percentage
+    // instead of an indeterminate spinner. 0 if the header omitted it.
+    let total_rows = reader.header.no_of_records;
 
     let col_types: Vec<ColType> = reader
         .header
@@ -166,10 +169,20 @@ fn run(input: &str, output: &str) -> Result<usize, Box<dyn std::error::Error>> {
         .build();
     let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
 
+    // Emit a machine-parseable progress line to stderr at most ~5×/sec. The
+    // Python caller (qvd_client) reads these and forwards them to the indexing
+    // progress bar. Format is stable: `progress <done_rows> <total_rows>`.
+    let mut last_progress = Instant::now();
+    eprintln!("qvd2parquet: progress 0 {}", total_rows);
+
     let mut total: usize = 0;
     while let Some(chunk) = reader.next_chunk(CHUNK_ROWS)? {
         let n_rows = chunk.num_rows;
         total += n_rows;
+        if last_progress.elapsed().as_millis() >= 200 {
+            eprintln!("qvd2parquet: progress {} {}", total, total_rows);
+            last_progress = Instant::now();
+        }
 
         let mut arrays: Vec<ArrayRef> = Vec::with_capacity(n_cols);
         for (col_idx, ct) in col_types.iter().enumerate() {
@@ -257,6 +270,8 @@ fn run(input: &str, output: &str) -> Result<usize, Box<dyn std::error::Error>> {
         writer.write(&batch)?;
     }
     writer.close()?;
+    // Final 100% marker so the caller settles the bar at the true total.
+    eprintln!("qvd2parquet: progress {} {}", total, total.max(total_rows));
 
     eprintln!(
         "qvd2parquet: {} rows, {} cols, {:.2}s",

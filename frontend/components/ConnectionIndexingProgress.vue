@@ -3,8 +3,20 @@
         <!-- Running / pending state -->
         <template v-if="isActive">
             <div class="flex items-center justify-between text-xs text-blue-700">
-                <span class="font-medium">{{ summary }}</span>
-                <span v-if="hasTotal">{{ percent }}%</span>
+                <span class="font-medium truncate">{{ summary }}</span>
+                <div class="flex items-center gap-2 flex-none">
+                    <span v-if="hasTotal">{{ percent }}%</span>
+                    <button
+                        v-if="allowCancel"
+                        type="button"
+                        class="inline-flex items-center gap-0.5 text-red-600 hover:text-red-700 disabled:opacity-50"
+                        :disabled="cancelling"
+                        @click="$emit('cancel')"
+                    >
+                        <UIcon name="heroicons-stop-circle" class="w-3.5 h-3.5" />
+                        {{ cancelling ? 'Stopping…' : 'Stop' }}
+                    </button>
+                </div>
             </div>
             <div class="h-1.5 w-full bg-blue-100 dark:bg-blue-900/50 rounded overflow-hidden">
                 <div
@@ -25,8 +37,15 @@
                 <template v-else>
                     Discovered {{ indexing?.stats?.table_count ?? 0 }} table{{ (indexing?.stats?.table_count ?? 0) === 1 ? '' : 's' }}
                 </template>
-                <span v-if="indexing?.stats?.elapsed_s != null"> in {{ indexing.stats.elapsed_s }}s</span>
+                <span v-if="indexing?.stats?.elapsed_s != null"> in {{ formatDuration(indexing.stats.elapsed_s) }}</span>
+                <span v-if="indexing?.stats?.source_bytes" class="text-green-600/70"> · {{ formatBytes(indexing.stats.source_bytes) }}</span>
             </span>
+        </div>
+
+        <!-- Cancelled -->
+        <div v-else-if="indexing?.status === 'cancelled'" class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+            <UIcon name="heroicons-stop-circle" class="w-4 h-4" />
+            <span>Indexing stopped</span>
         </div>
 
         <!-- Failed -->
@@ -71,12 +90,40 @@ import {
 const props = withDefaults(defineProps<{
     indexing?: ConnectionIndexing | null
     showLogs?: boolean
+    allowCancel?: boolean
+    cancelling?: boolean
 }>(), {
     indexing: null,
     showLogs: true,
+    allowCancel: false,
+    cancelling: false,
 })
 
+defineEmits<{ (e: 'cancel'): void }>()
+
 const logsOpen = ref(false)
+
+function formatBytes(n?: number | null): string {
+    if (!n || n <= 0) return ''
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let size = n
+    let i = 0
+    while (size >= 1024 && i < units.length - 1) {
+        size /= 1024
+        i++
+    }
+    return `${i === 0 ? Math.round(size) : size.toFixed(1)} ${units[i]}`
+}
+
+function formatDuration(seconds?: number | null): string {
+    if (seconds == null) return ''
+    if (seconds < 60) return `${Math.round(seconds)}s`
+    const m = Math.floor(seconds / 60)
+    const s = Math.round(seconds % 60)
+    if (m < 60) return s ? `${m}m ${s}s` : `${m}m`
+    const h = Math.floor(m / 60)
+    return `${h}h ${m % 60}m`
+}
 
 const isActive = computed(() => isIndexingActive(props.indexing))
 const hasTotal = computed(() => (props.indexing?.progress_total || 0) > 0)

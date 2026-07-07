@@ -52,7 +52,9 @@ async def get_data_sources(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_data_sources(db, current_user, organization, show_all=show_all)
+    result = await data_source_service.get_data_sources(db, current_user, organization, show_all=show_all)
+    await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
+    return result
 
 @router.get("/data_sources/active", response_model=list[DataSourceListItemSchema])
 async def get_active_data_sources(
