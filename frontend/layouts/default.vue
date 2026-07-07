@@ -447,8 +447,8 @@
   )
 
   const mainNavItems: NavItem[] = [
+    { href: '/automations', icon: 'heroicons-bolt', label: 'nav.automations' },
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
-    { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
     { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
     { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },

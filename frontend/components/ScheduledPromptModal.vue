@@ -107,6 +107,36 @@
                 </div>
             </div>
 
+            <!-- Output routing: run in this report vs a fresh report per run -->
+            <div class="mt-3">
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('scheduledPrompt.outputLabel') }}</div>
+                <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit" data-testid="output-routing">
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded transition-colors"
+                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        data-testid="routing-same-report"
+                        @click="spawnNewReport = false"
+                    >
+                        <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
+                        {{ $t('scheduledPrompt.outputSameReport') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded transition-colors"
+                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        data-testid="routing-new-report"
+                        @click="spawnNewReport = true"
+                    >
+                        <Icon name="heroicons:document-plus" class="w-3 h-3" />
+                        {{ $t('scheduledPrompt.outputNewReport') }}
+                    </button>
+                </div>
+                <p class="mt-1 text-[11px] text-gray-400">
+                    {{ spawnNewReport ? $t('scheduledPrompt.outputNewReportHint') : $t('scheduledPrompt.outputSameReportHint') }}
+                </p>
+            </div>
+
             <!-- Active toggle (edit mode) -->
             <div v-if="isEditing" class="mt-3 flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('scheduledPrompt.active') }}</span>
@@ -229,6 +259,9 @@ const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || p
 const initialDataSources = computed(() => props.initialDataSources || [])
 
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
+// Output routing: false = run in this report (keeps cross-run memory),
+// true = spawn a fresh, dated report per run (clean snapshots).
+const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? false)
 
 // ---- Summary-email toggle + prompt-intent heuristic ----
 // Phrases that signal the prompt itself asks to email/notify the user. When the
@@ -311,6 +344,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 // Reset form when scheduledPrompt changes
 watch(() => props.scheduledPrompt, (sp) => {
     isActive.value = sp?.is_active ?? true
+    spawnNewReport.value = sp?.spawn_new_report ?? false
     subscribers.value = (sp?.notification_subscribers || []).map((s: any) => ({ ...s }))
     promptText.value = sp?.prompt?.content || props.draftContent || ''
     if (sp) {
@@ -449,6 +483,7 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
         prompt,
         cron_schedule: computeCronSchedule(),
         is_active: isActive.value,
+        spawn_new_report: spawnNewReport.value,
         notification_subscribers: buildNotificationSubscribers(),
     }
 

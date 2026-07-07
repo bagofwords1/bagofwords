@@ -10,6 +10,11 @@ class ScheduledPrompt(BaseSchema):
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
     prompt = Column(JSON, nullable=False)  # PromptSchema-compatible JSON: {"content": "...", ...}
     cron_schedule = Column(String, nullable=False)
+    # Routing: False (default) = run in the host report, keeping cross-run
+    # memory (trend commentary via past_observations). True = spawn a fresh
+    # report per run — clean dated snapshots, no context growth. Mirrors the
+    # trigger webhooks' spawn mode (docs/design/agent-triggers.md §6.3).
+    spawn_new_report = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
     notification_subscribers = Column(JSON, nullable=True, default=None)  # [{type, id/address}]
