@@ -1,0 +1,1024 @@
+{
+ "result": [
+  {
+   "column_label": "Service",
+   "reference.name": "cmdb_ci_service",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "business_service"
+  },
+  {
+   "column_label": "Delivery plan",
+   "reference.name": "sc_cat_item_delivery_plan",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "delivery_plan"
+  },
+  {
+   "column_label": "Rejection goto",
+   "reference.name": "task",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "rejection_goto"
+  },
+  {
+   "column_label": "Delivery task",
+   "reference.name": "sc_cat_item_delivery_task",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "delivery_task"
+  },
+  {
+   "column_label": "Assigned to",
+   "reference.name": "sys_user",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "assigned_to"
+  },
+  {
+   "column_label": "Additional assignee list",
+   "reference.name": "sys_user",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_list",
+    "value": "glide_list"
+   },
+   "element": "additional_assignee_list"
+  },
+  {
+   "column_label": "Configuration item",
+   "reference.name": "cmdb_ci",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "cmdb_ci"
+  },
+  {
+   "column_label": "Location",
+   "reference.name": "cmn_location",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "location"
+  },
+  {
+   "column_label": "Closed by",
+   "reference.name": "sys_user",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "closed_by"
+  },
+  {
+   "column_label": "Watch list",
+   "reference.name": "sys_user",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_list",
+    "value": "glide_list"
+   },
+   "element": "watch_list"
+  },
+  {
+   "column_label": "Workflow activity",
+   "reference.name": "wf_activity",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "wf_activity"
+  },
+  {
+   "column_label": "Universal Request",
+   "reference.name": "task",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "universal_request"
+  },
+  {
+   "column_label": "Parent",
+   "reference.name": "task",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "parent"
+  },
+  {
+   "column_label": "Group list",
+   "reference.name": "sys_user_group",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_list",
+    "value": "glide_list"
+   },
+   "element": "group_list"
+  },
+  {
+   "column_label": "Assignment group",
+   "reference.name": "sys_user_group",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "assignment_group"
+  },
+  {
+   "column_label": "Company",
+   "reference.name": "core_company",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "company"
+  },
+  {
+   "column_label": "Opened by",
+   "reference.name": "sys_user",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "opened_by"
+  },
+  {
+   "column_label": "Contract",
+   "reference.name": "ast_contract",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "contract"
+  },
+  {
+   "column_label": "Work notes list",
+   "reference.name": "sys_user",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_list",
+    "value": "glide_list"
+   },
+   "element": "work_notes_list"
+  },
+  {
+   "column_label": "Service offering",
+   "reference.name": "service_offering",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "service_offering"
+  },
+  {
+   "column_label": "Expected start",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "expected_start"
+  },
+  {
+   "column_label": "Actual start",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "work_start"
+  },
+  {
+   "column_label": "Actual end",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "work_end"
+  },
+  {
+   "column_label": "Upon approval",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "upon_approval"
+  },
+  {
+   "column_label": "Upon reject",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "upon_reject"
+  },
+  {
+   "column_label": "Escalation",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "escalation"
+  },
+  {
+   "column_label": "Time worked",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=timer",
+    "value": "timer"
+   },
+   "element": "time_worked"
+  },
+  {
+   "column_label": "Correlation ID",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "correlation_id"
+  },
+  {
+   "column_label": "Number",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "number"
+  },
+  {
+   "column_label": "Approval history",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=journal",
+    "value": "journal"
+   },
+   "element": "approval_history"
+  },
+  {
+   "column_label": "Business duration",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_duration",
+    "value": "glide_duration"
+   },
+   "element": "business_duration"
+  },
+  {
+   "column_label": "User input",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=user_input",
+    "value": "user_input"
+   },
+   "element": "user_input"
+  },
+  {
+   "column_label": "Updated by",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "sys_updated_by"
+  },
+  {
+   "column_label": "Active",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=boolean",
+    "value": "boolean"
+   },
+   "element": "active"
+  },
+  {
+   "column_label": "State",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "state"
+  },
+  {
+   "column_label": "Work notes",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=journal_input",
+    "value": "journal_input"
+   },
+   "element": "work_notes"
+  },
+  {
+   "column_label": "Follow up",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "follow_up"
+  },
+  {
+   "column_label": "Domain",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=domain_id",
+    "value": "domain_id"
+   },
+   "element": "sys_domain"
+  },
+  {
+   "column_label": "Created by",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "sys_created_by"
+  },
+  {
+   "column_label": "Additional comments",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=journal_input",
+    "value": "journal_input"
+   },
+   "element": "comments"
+  },
+  {
+   "column_label": "Urgency",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "urgency"
+  },
+  {
+   "column_label": "Opened",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "opened_at"
+  },
+  {
+   "column_label": "SLA due",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=due_date",
+    "value": "due_date"
+   },
+   "element": "sla_due"
+  },
+  {
+   "column_label": "Updates",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "sys_mod_count"
+  },
+  {
+   "column_label": "Transfer reason",
+   "reference.name": "",
+   "name": "task",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "route_reason"
+  },
+  {
+   "column_label": "Resolved by",
+   "reference.name": "sys_user",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "resolved_by"
+  },
+  {
+   "column_label": "Caller",
+   "reference.name": "sys_user",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "caller_id"
+  },
+  {
+   "column_label": "Parent Incident",
+   "reference.name": "incident",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "parent_incident"
+  },
+  {
+   "column_label": "Last reopened by",
+   "reference.name": "sys_user",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "reopened_by"
+  },
+  {
+   "column_label": "Child Incidents",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "child_incidents"
+  },
+  {
+   "column_label": "Resolve time",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "calendar_stc"
+  },
+  {
+   "column_label": "Origin table",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=table_name",
+    "value": "table_name"
+   },
+   "element": "origin_table"
+  },
+  {
+   "column_label": "On hold reason",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "hold_reason"
+  },
+  {
+   "column_label": "Incident state",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "incident_state"
+  },
+  {
+   "column_label": "Close code",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "close_code"
+  },
+  {
+   "column_label": "Category",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "category"
+  },
+  {
+   "column_label": "Sys ID",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=GUID",
+    "value": "GUID"
+   },
+   "element": "sys_id"
+  },
+  {
+   "column_label": "Business resolve time",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "business_stc"
+  },
+  {
+   "column_label": "Origin",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=document_id",
+    "value": "document_id"
+   },
+   "element": "origin_id"
+  },
+  {
+   "column_label": "Probable cause",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "cause"
+  },
+  {
+   "column_label": "Reopen count",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "reopen_count"
+  },
+  {
+   "column_label": "Resolved",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "resolved_at"
+  },
+  {
+   "column_label": "Last reopened at",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "reopened_time"
+  },
+  {
+   "column_label": "Subcategory",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "subcategory"
+  },
+  {
+   "column_label": "Business impact",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "business_impact"
+  },
+  {
+   "column_label": "Notify",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "notify"
+  },
+  {
+   "column_label": "Severity",
+   "reference.name": "",
+   "name": "incident",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "severity"
+  },
+  {
+   "column_label": "Location",
+   "reference.name": "cmn_location",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "location"
+  },
+  {
+   "column_label": "Schedule",
+   "reference.name": "cmn_schedule",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "schedule"
+  },
+  {
+   "column_label": "Domain",
+   "reference.name": "sys_user_group",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=domain_id",
+    "value": "domain_id"
+   },
+   "element": "sys_domain"
+  },
+  {
+   "column_label": "Manager",
+   "reference.name": "sys_user",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "manager"
+  },
+  {
+   "column_label": "LDAP server",
+   "reference.name": "ldap_server_config",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "ldap_server"
+  },
+  {
+   "column_label": "Default perspective",
+   "reference.name": "sys_perspective",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "default_perspective"
+  },
+  {
+   "column_label": "Cost center",
+   "reference.name": "cmn_cost_center",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "cost_center"
+  },
+  {
+   "column_label": "Company",
+   "reference.name": "core_company",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "company"
+  },
+  {
+   "column_label": "Building",
+   "reference.name": "cmn_building",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "building"
+  },
+  {
+   "column_label": "Department",
+   "reference.name": "cmn_department",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=reference",
+    "value": "reference"
+   },
+   "element": "department"
+  },
+  {
+   "column_label": "Federated ID",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "federated_id"
+  },
+  {
+   "column_label": "Enable Multifactor Authentication",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=boolean",
+    "value": "boolean"
+   },
+   "element": "enable_multifactor_authn"
+  },
+  {
+   "column_label": "Identity type",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=choice",
+    "value": "choice"
+   },
+   "element": "identity_type"
+  },
+  {
+   "column_label": "Avatar",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=user_image",
+    "value": "user_image"
+   },
+   "element": "avatar"
+  },
+  {
+   "column_label": "User ID",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "user_name"
+  },
+  {
+   "column_label": "Last name",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "last_name"
+  },
+  {
+   "column_label": "Roles",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=user_roles",
+    "value": "user_roles"
+   },
+   "element": "roles"
+  },
+  {
+   "column_label": "Last password",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "last_password"
+  },
+  {
+   "column_label": "Zip / Postal code",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "zip"
+  },
+  {
+   "column_label": "Created",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "sys_created_on"
+  },
+  {
+   "column_label": "First name",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "first_name"
+  },
+  {
+   "column_label": "Title",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "title"
+  },
+  {
+   "column_label": "Last login time",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "last_login_time"
+  },
+  {
+   "column_label": "Photo",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=user_image",
+    "value": "user_image"
+   },
+   "element": "photo"
+  },
+  {
+   "column_label": "City",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "city"
+  },
+  {
+   "column_label": "Updated",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=glide_date_time",
+    "value": "glide_date_time"
+   },
+   "element": "sys_updated_on"
+  },
+  {
+   "column_label": "Country code",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "country"
+  },
+  {
+   "column_label": "Mobile phone",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=ph_number",
+    "value": "ph_number"
+   },
+   "element": "mobile_phone"
+  },
+  {
+   "column_label": "Time format",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "time_format"
+  },
+  {
+   "column_label": "Notification",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "notification"
+  },
+  {
+   "column_label": "Source",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "source"
+  },
+  {
+   "column_label": "Failed login attempts",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=integer",
+    "value": "integer"
+   },
+   "element": "failed_attempts"
+  },
+  {
+   "column_label": "Hashed User ID",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=string",
+    "value": "string"
+   },
+   "element": "hashed_user_id"
+  },
+  {
+   "column_label": "Sys ID",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=GUID",
+    "value": "GUID"
+   },
+   "element": "sys_id"
+  },
+  {
+   "column_label": "Password needs reset",
+   "reference.name": "",
+   "name": "sys_user",
+   "internal_type": {
+    "link": "https://example.service-now.com/api/now/table/sys_glide_object?name=boolean",
+    "value": "boolean"
+   },
+   "element": "password_needs_reset"
+  }
+ ]
+}

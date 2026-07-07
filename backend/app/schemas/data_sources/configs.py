@@ -216,6 +216,39 @@ class SalesforceConfig(BaseModel):
     domain: str = Field("login", title="Domain", description="", json_schema_extra={"ui:type": "string"})
 
 
+# ServiceNow
+class ServiceNowCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class ServiceNowConfig(BaseModel):
+    instance_url: str = Field(
+        ...,
+        title="Instance URL",
+        description="Your ServiceNow instance URL, e.g. https://acme.service-now.com",
+        json_schema_extra={"ui:type": "string"}
+    )
+    tables: Optional[str] = Field(
+        None,
+        title="Tables",
+        description="Optional comma-separated list of tables to expose. If empty, uses a curated set of common ITSM tables.",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+    discover_all: bool = Field(
+        False,
+        title="Discover All Tables",
+        description="Discover all business tables including custom (u_/x_) tables instead of the curated set.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    display_values: bool = Field(
+        True,
+        title="Display Values",
+        description="Return human-readable display values for reference and choice fields.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
 # Service Demo
 class ServiceDemoCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="", json_schema_extra={"ui:type": "string"})
