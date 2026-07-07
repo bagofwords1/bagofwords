@@ -1,0 +1,17 @@
+{
+ "result": [
+  {
+   "number": "INC0000060",
+   "priority": "3",
+   "assigned_to": {
+    "link": "https://example.service-now.com/api/now/table/sys_user/5137153cc611227c000bbd1bd8cd2007",
+    "value": "5137153cc611227c000bbd1bd8cd2007"
+   }
+  },
+  {
+   "number": "INC0009002",
+   "priority": "3",
+   "assigned_to": ""
+  }
+ ]
+}

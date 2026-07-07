@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.439 (July 7, 2026)
+- **ServiceNow connector (beta) (#563)** — new `servicenow` data source: query ITSM data (incidents, changes, problems, requests, CMDB, users) through the REST Table API with encoded queries. Bulk schema discovery from `sys_db_object`/`sys_dictionary` resolves inherited fields (incident ⊂ task) and turns reference fields into foreign keys; curated default table set with `tables` override and a `discover_all` mode for custom `u_*`/`x_*` tables; human-readable display values by default; actionable error when the instance user lacks metadata read access (a failure ServiceNow reports as HTTP 200 + empty result). Also fixes connection creation ignoring a registry entry's explicit `client_path`.
+
 ## Version 0.0.438 (July 7, 2026)
 - **Triggers (#562)** — user-owned webhooks that spawn agent sessions, plus report-per-run routing for scheduled tasks, under a new Automations page.
 - **QVD indexing progress (#564)** — real per-file indexing progress with stop, file size, and duration.

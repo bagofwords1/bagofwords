@@ -1282,12 +1282,11 @@ class ConnectionService:
             raise ValueError("Data source type is required")
             
         try:
-            module_name = f"app.data_sources.clients.{data_source_type.lower()}_client"
-            title = "".join(word[:1].upper() + word[1:] for word in data_source_type.split("_"))
-            class_name = f"{title}Client"
-
-            module = importlib.import_module(module_name)
-            ClientClass = getattr(module, class_name)
+            # Resolve via the registry so an explicit client_path wins over the
+            # naming convention (e.g. servicenow -> ServiceNowClient, not
+            # ServicenowClient).
+            from app.schemas.data_source_registry import resolve_client_class
+            ClientClass = resolve_client_class(data_source_type)
 
             client_params = (config or {}).copy()
             if credentials:

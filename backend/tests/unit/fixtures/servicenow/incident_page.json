@@ -1,0 +1,34 @@
+{
+ "result": [
+  {
+   "number": "INC0000055",
+   "short_description": "SAP Sales app is not accessible",
+   "opened_at": "2026-04-08 21:47:23",
+   "state": "In Progress",
+   "priority": "1 - Critical",
+   "assigned_to": {
+    "display_value": "Beth Anglin",
+    "link": "https://example.service-now.com/api/now/table/sys_user/46d44a23a9fe19810012d100cca80666"
+   }
+  },
+  {
+   "number": "INC0000046",
+   "short_description": "Can't access SFA software",
+   "opened_at": "2026-04-08 15:04:15",
+   "state": "New",
+   "priority": "3 - Moderate",
+   "assigned_to": ""
+  },
+  {
+   "number": "INC0000050",
+   "short_description": "Can't access Exchange server - is it down?",
+   "opened_at": "2026-04-08 14:58:24",
+   "state": "In Progress",
+   "priority": "1 - Critical",
+   "assigned_to": {
+    "display_value": "Beth Anglin",
+    "link": "https://example.service-now.com/api/now/table/sys_user/46d44a23a9fe19810012d100cca80666"
+   }
+  }
+ ]
+}

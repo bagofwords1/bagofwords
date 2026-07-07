@@ -62,6 +62,19 @@ case "${1:-}" in
   *) echo "unknown flag: $1"; exit 2 ;;
 esac
 
+# --- vendor libs ---------------------------------------------------------------
+# Artifacts (dashboards/pages) embed these server-side at creation time; without
+# them create_artifact/edit_artifact fail and any artifact created meanwhile is
+# permanently broken. Docker builds run this script; agent sandboxes must too.
+# NOTE: the script's default output path is CWD-relative, so run from $ROOT.
+if [ ! -f "$ROOT/frontend/public/libs/react-18.production.min.js" ]; then
+  (cd "$ROOT" && bash scripts/download-vendor-libs.sh) || echo "WARN: vendor libs download failed; artifact dashboards will not render"
+fi
+# The built frontend serves from .output/public — keep it in sync when it exists.
+if [ -d "$ROOT/frontend/.output/public/libs" ]; then
+  cp -n "$ROOT"/frontend/public/libs/*.js "$ROOT/frontend/.output/public/libs/" 2>/dev/null || true
+fi
+
 # --- backend -----------------------------------------------------------------
 cd "$ROOT/backend"
 command -v uv >/dev/null || pip install uv

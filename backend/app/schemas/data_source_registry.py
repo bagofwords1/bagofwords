@@ -28,6 +28,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftConfig,
     TableauConfig,
     SalesforceConfig,
+    ServiceNowConfig,
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
@@ -127,6 +128,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftAssumeRoleCredentials,
     TableauPATCredentials,
     SalesforceCredentials,
+    ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
     # MCP
@@ -386,6 +388,18 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system", "user"])  # likely system
         }),
         client_path=None,
+    ),
+    "servicenow": DataSourceRegistryEntry(
+        type="servicenow",
+        title="ServiceNow",
+        description="Cloud platform for IT service management, operations, and workflows.",
+        config_schema=ServiceNowConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=ServiceNowCredentials, scopes=["system", "user"]),
+        }),
+        # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
+        client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
         type="MSSQL",
