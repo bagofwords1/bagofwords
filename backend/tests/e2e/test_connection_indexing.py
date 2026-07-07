@@ -86,6 +86,12 @@ def test_indexing_happy_path(
     assert final["progress_total"] >= 1
     assert (final.get("stats") or {}).get("table_count", 0) >= 1
 
+    # Timestamps must carry a UTC marker so the browser's `new Date()` parses
+    # them as UTC — a bare (offset-less) ISO string is parsed as *local* time
+    # and skews the "Last indexed X ago" label by the viewer's tz offset.
+    assert final["finished_at"] and final["finished_at"].endswith("Z"), final["finished_at"]
+    assert final["started_at"] and final["started_at"].endswith("Z"), final["started_at"]
+
     # Verify /tables reflects the indexed set (ConnectionTable rows).
     headers = {
         "Authorization": f"Bearer {token}",
@@ -170,6 +176,55 @@ def test_indexing_reindex_endpoint(
     second = _poll_until_terminal(test_client, conn_id, token, org_id)
     assert second["status"] == "completed"
     assert second["id"] == new_idx["id"]
+
+
+@pytest.mark.e2e
+def test_indexing_cancel_endpoint(
+    create_connection,
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """POST /indexing/cancel stops an active run and 404s once nothing is active.
+
+    The stop-while-running leg is inherently racy against a fast sqlite index,
+    so we assert the contract: if we catch it active we get a cancelled row;
+    once the connection has settled, cancelling again is a clean 404.
+    """
+    _skip_if_no_chinook()
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    connection = create_connection(
+        name="Cancel Test",
+        type="sqlite",
+        config={"database": str(CONNECTION_TEST_DB_PATH)},
+        credentials={},
+        user_token=token,
+        org_id=org_id,
+    )
+    conn_id = connection["id"]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Organization-Id": str(org_id),
+    }
+
+    # Fire cancel right away — the run is pending/running (or may have just
+    # finished on a very fast machine).
+    r = test_client.post(f"/api/connections/{conn_id}/indexing/cancel", headers=headers)
+    assert r.status_code in (200, 404), r.text
+    if r.status_code == 200:
+        body = r.json()["indexing"]
+        assert body["status"] == "cancelled", body
+        assert body["finished_at"] is not None
+
+    # Let any in-flight run settle, then a second cancel finds nothing active.
+    _poll_until_terminal(test_client, conn_id, token, org_id)
+    r2 = test_client.post(f"/api/connections/{conn_id}/indexing/cancel", headers=headers)
+    assert r2.status_code == 404, r2.text
 
 
 @pytest.mark.e2e

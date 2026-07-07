@@ -45,6 +45,22 @@ connection_service = ConnectionService()
 indexing_service = ConnectionIndexingService()
 
 
+def _iso_utc(dt) -> "str | None":
+    """Serialize an indexing timestamp as an ISO string the browser will parse
+    as UTC. These columns are stored as naive `datetime.utcnow()`; a bare
+    `.isoformat()` (no offset) is parsed as *local* time by `new Date()`, which
+    skews the "Last indexed X ago" label by the viewer's timezone offset. Append
+    a `Z` for naive values (matching the event-log timestamps), and normalize
+    any tz-aware value to a `Z`-suffixed UTC string.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    from datetime import timezone
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
     """Adapt a ConnectionIndexing ORM row to the polling payload. Returns None
     when no row is provided.
@@ -58,8 +74,8 @@ def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
         current_item=row.current_item,
         progress_done=row.progress_done or 0,
         progress_total=row.progress_total or 0,
-        started_at=row.started_at.isoformat() if row.started_at else None,
-        finished_at=row.finished_at.isoformat() if row.finished_at else None,
+        started_at=_iso_utc(row.started_at),
+        finished_at=_iso_utc(row.finished_at),
         error=row.error,
         stats=row.stats_json,
         events=row.events_json or [],
@@ -697,6 +713,31 @@ async def get_connection_indexing(
     if row is None:
         raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
     return _indexing_to_progress(row)
+
+
+@router.post("/{connection_id}/indexing/cancel")
+@requires_resource_permission('connection', 'manage_connection')
+async def cancel_connection_indexing(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Stop the in-flight indexing run for this connection.
+
+    Signals the background runner to abort cooperatively — killing a long
+    QVD→Parquet convert mid-stream — and marks the run `cancelled`. Idempotent:
+    404 only when there is no active run to stop.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    row = await indexing_service.request_cancel(db, connection_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No active indexing to cancel")
+    progress = _indexing_to_progress(row)
+    return {
+        "message": "Indexing cancellation requested.",
+        "indexing": progress.model_dump() if progress else None,
+    }
 
 
 async def _ensure_can_read_connection(db, organization, current_user, connection):

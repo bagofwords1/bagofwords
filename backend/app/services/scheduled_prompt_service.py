@@ -101,6 +101,7 @@ class ScheduledPromptService:
             prompt=data.prompt,
             cron_schedule=data.cron_schedule,
             is_active=True,
+            spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
         )
         db.add(sp)
@@ -132,6 +133,8 @@ class ScheduledPromptService:
             sp.cron_schedule = data.cron_schedule
         if data.is_active is not None:
             sp.is_active = data.is_active
+        if data.spawn_new_report is not None:
+            sp.spawn_new_report = data.spawn_new_report
         if data.notification_subscribers is not None:
             sp.notification_subscribers = [s.model_dump() for s in data.notification_subscribers]
 
@@ -281,12 +284,23 @@ class ScheduledPromptService:
                 logger.error(f"Scheduled prompt {sp.id}: organization not found")
                 return
 
+            # Routing: spawn_new_report = fresh dated report per run (clean
+            # snapshot, no context growth), else run in the host report
+            # (default — keeps cross-run memory for trend commentary).
+            target_report = report
+            if sp.spawn_new_report:
+                try:
+                    target_report = await self._spawn_run_report(db, sp, report, user, organization)
+                except Exception as e:
+                    logger.error(f"Scheduled prompt {sp.id}: spawning run report failed: {e}")
+                    return
+
             response = None
             try:
                 prompt_data = PromptSchema(**sp.prompt)
                 response = await completion_service.create_completion(
                     db=db,
-                    report_id=report.id,
+                    report_id=target_report.id,
                     completion_data=CompletionCreate(prompt=prompt_data),
                     current_user=user,
                     organization=organization,
@@ -307,9 +321,10 @@ class ScheduledPromptService:
             if sp.notification_subscribers:
                 from app.dependencies import _locale_from_org
                 base_url = getattr(settings.bow_config, 'base_url', 'http://localhost:3000') if settings.bow_config else 'http://localhost:3000'
-                report_url = f"{base_url}/reports/{report.id}"
-                # notify-first: durable in-app row for user subscribers (collapsed
-                # per report so repeated runs refresh one entry). Email follows.
+                # Link to where the run actually landed (the spawned report in
+                # report-per-run mode); grouping stays keyed on the schedule's
+                # host report so repeated runs still collapse to one inbox row.
+                report_url = f"{base_url}/reports/{target_report.id}"
                 try:
                     from app.services.inbox_service import inbox_service
                     user_ids = [str(s.get("id")) for s in sp.notification_subscribers
@@ -319,25 +334,52 @@ class ScheduledPromptService:
                         await inbox_service.notify_users(
                             db, organization_id=str(report.organization_id), user_ids=user_ids,
                             source="schedule", type="scheduled_run",
-                            title=f'"{report.title or "Untitled"}" ran',
+                            title=f'"{target_report.title or "Untitled"}" ran',
                             body=(f"Your scheduled report ran — {es.get('iterations', 0)} steps, "
                                   f"{es.get('queries', 0)} queries, {es.get('artifacts', 0)} artifacts."),
-                            link=f"/reports/{report.id}",
-                            subject={"kind": "report", "report_id": str(report.id)},
+                            link=f"/reports/{target_report.id}",
+                            subject={"kind": "report", "report_id": str(target_report.id)},
                             group_key=f"schedule:{report.id}",
                         )
                 except Exception:
                     logger.warning("scheduled-run in-app notification failed", exc_info=True)
                 asyncio.create_task(
                     notification_service.send_scheduled_prompt_results(
-                        report_id=report.id,
-                        report_title=report.title or "Untitled Report",
+                        report_id=target_report.id,
+                        report_title=target_report.title or "Untitled Report",
                         subscribers=sp.notification_subscribers,
                         report_url=report_url,
                         exec_summary=exec_summary,
                         locale=_locale_from_org(organization),
                     )
                 )
+
+    async def _spawn_run_report(self, db: AsyncSession, sp: ScheduledPrompt, host_report: Report, user: User, organization: Organization) -> Report:
+        """Report-per-run routing: create a fresh, dated report for this run.
+
+        Copies the host report's data source attachments (create_report
+        re-validates the creator's access, so drifted access is dropped) and
+        stamps scheduled_prompt_id provenance for the 🕐 origin indicator.
+        """
+        from app.services.report_service import ReportService
+        from app.schemas.report_schema import ReportCreate
+
+        ds_ids = [str(ds.id) for ds in (host_report.data_sources or [])]
+        run_date = datetime.utcnow().strftime("%b %d, %Y")
+        title = f"{host_report.title or 'Scheduled run'} — {run_date}"
+
+        report_schema = await ReportService().create_report(
+            db=db,
+            report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
+            current_user=user,
+            organization=organization,
+        )
+        spawned = await db.get(Report, report_schema.id)
+        spawned.scheduled_prompt_id = str(sp.id)
+        spawned.mode = getattr(host_report, "mode", "chat") or "chat"
+        await db.commit()
+        logger.info(f"Scheduled prompt {sp.id}: spawned run report {spawned.id} ({title})")
+        return spawned
 
     def _build_execution_summary(self, response) -> dict:
         """Extract execution stats from CompletionsV2Response."""

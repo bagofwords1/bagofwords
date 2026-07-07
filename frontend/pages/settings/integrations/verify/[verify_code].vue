@@ -1,16 +1,23 @@
 <template>
   <div class="flex justify-center py-40 px-5 sm:px-0">
     <div class="w-full sm:w-1/3 bg-white dark:bg-gray-900 rounded-lg shadow p-8 flex flex-col items-center">
+      <!-- While verifying, show a neutral spinner so we never flash the wrong
+           platform's branding — platformType is only known after the API call. -->
+      <div v-if="loading" class="flex flex-col items-center">
+        <Icon name="heroicons:arrow-path" class="w-12 h-12 mb-4 text-blue-500 animate-spin" />
+        <div class="text-blue-500 font-medium">Verifying...</div>
+      </div>
+      <template v-else>
       <div class="mb-4">
         <img v-if="platformType === 'teams'" src="/icons/teams.png" alt="Teams" class="w-12 h-12" />
+        <img v-else-if="platformType === 'whatsapp'" src="/icons/whatsapp.png" alt="WhatsApp" class="w-12 h-12" />
         <img v-else src="/icons/slack.png" alt="Slack" class="w-12 h-12" />
       </div>
       <h1 class="font-bold text-lg mb-2">Verify your {{ platformLabel }} account</h1>
       <p class="mt-3 text-sm text-gray-700 dark:text-gray-300 text-center mb-6">
         Please follow the instructions below to activate your {{ platformLabel }} integration.
       </p>
-      <div v-if="loading" class="text-blue-500 font-medium">Verifying...</div>
-      <div v-else-if="success && alreadyVerified" class="text-blue-600 font-medium text-center">
+      <div v-if="success && alreadyVerified" class="text-blue-600 font-medium text-center">
         <Icon name="heroicons:information-circle" class="inline w-6 h-6 me-1" />
         {{ message || 'Your account is already verified.' }}
       </div>
@@ -22,6 +29,7 @@
         <Icon name="heroicons:x-circle" class="inline w-6 h-6 me-1" />
         Verification failed: {{ error }}
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -43,7 +51,7 @@ const error = ref('')
 const platformType = ref('slack')
 
 const platformLabel = computed(() => {
-  const labels = { slack: 'Slack', teams: 'Microsoft Teams' }
+  const labels = { slack: 'Slack', teams: 'Microsoft Teams', whatsapp: 'WhatsApp' }
   return labels[platformType.value] || 'Slack'
 })
 

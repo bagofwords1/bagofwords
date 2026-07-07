@@ -95,3 +95,99 @@ def test_query_returns_real_dates_not_serials(client):
     assert pd.api.types.is_datetime64_any_dtype(df["Date"])
     years = df["Date"].dt.year
     assert years.between(1990, 2050).all(), f"unexpected years: {sorted(set(years))}"
+
+
+# ── Indexing progress + cancellation ────────────────────────────────────────
+# These guard the fix for "the progress bar finishes in 3s but indexing takes
+# 40 minutes": the QVD→Parquet convert (the real work) now reports row-level
+# progress through awarm_all and can be stopped mid-flight.
+
+_FIXTURE_ROWS = 120  # test_source.qvd carries 120 records (see header NoOfRecords)
+
+
+@pytest.fixture
+def fresh_client(tmp_path, monkeypatch) -> QVDClient:
+    """A QVDClient with an isolated (cold) cache — awarm_all will really convert."""
+    monkeypatch.setattr(qvd_client, "_QVD2PARQUET_BIN", _BIN)
+    monkeypatch.setattr(qvd_client, "_CACHE_DIR", tmp_path / "qvd_cache")
+    return QVDClient(file_paths=str(_FIXTURE))
+
+
+def test_record_count_from_header():
+    assert QVDClient._read_qvd_record_count(str(_FIXTURE)) == _FIXTURE_ROWS
+
+
+def test_warm_reports_row_level_converting_progress(fresh_client):
+    """awarm_all drives a 'converting' phase whose done/total are ROWS, ending
+    at the file's true row count — so a long convert moves the bar instead of
+    the schema-only header read that used to finish instantly."""
+    seen: list[tuple] = []
+
+    def cb(phase, item, done, total):
+        seen.append((phase, done, total))
+
+    paths = asyncio.run(fresh_client.awarm_all(progress_callback=cb))
+    assert len(paths) == 1
+
+    converting = [e for e in seen if e[0] == "converting"]
+    assert converting, "expected a 'converting' phase to be reported"
+    # Total is the header row count, not the file count.
+    assert converting[-1][2] == _FIXTURE_ROWS
+    # Progress ends at 100% and never regresses.
+    dones = [d for _, d, _ in converting]
+    assert dones == sorted(dones), f"progress regressed: {dones}"
+    assert dones[-1] == _FIXTURE_ROWS
+
+
+def test_warm_honors_cancel_and_writes_no_parquet(fresh_client):
+    """A cancel request aborts warming and leaves no half-written cache."""
+    from app.data_sources.clients.progress import IndexingCancelled
+
+    with pytest.raises(IndexingCancelled):
+        asyncio.run(fresh_client.awarm_all(cancel_check=lambda: True))
+
+    cache_dir = qvd_client._CACHE_DIR
+    leftovers = list(cache_dir.glob("*.parquet")) if cache_dir.exists() else []
+    assert not leftovers, f"cancelled warm left cache files: {leftovers}"
+
+
+def test_index_stats_reports_source_size(fresh_client):
+    stats = fresh_client.index_stats()
+    assert stats["file_count"] == 1
+    assert stats["row_count"] == _FIXTURE_ROWS
+    assert stats["source_bytes"] > 0
+
+
+def test_convert_streaming_cancels_midway(tmp_path, monkeypatch):
+    """The subprocess-streaming convert polls cancel_check while the child is
+    running and kills it — validated with a stand-in binary that emits progress
+    slowly so the cancel lands mid-convert."""
+    from app.data_sources.clients.progress import IndexingCancelled
+
+    fake_bin = tmp_path / "slow_qvd2parquet.sh"
+    fake_bin.write_text(
+        "#!/usr/bin/env bash\n"
+        "out=\"$2\"\n"
+        "echo 'qvd2parquet: progress 0 100' 1>&2\n"
+        "for i in 1 2 3 4 5 6 7 8 9 10; do\n"
+        "  echo \"qvd2parquet: progress $((i*10)) 100\" 1>&2\n"
+        "  sleep 0.5\n"
+        "done\n"
+        "echo done > \"$out\"\n"
+    )
+    fake_bin.chmod(0o755)
+    monkeypatch.setattr(qvd_client, "_QVD2PARQUET_BIN", str(fake_bin))
+
+    c = QVDClient(file_paths=str(_FIXTURE))
+    calls = {"n": 0}
+
+    def cancel_after_a_bit() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 3  # let a few progress lines through, then cancel
+
+    out = tmp_path / "out.parquet"
+    with pytest.raises(IndexingCancelled):
+        c._run_convert_streaming(
+            str(_FIXTURE), out, cancel_check=cancel_after_a_bit,
+        )
+    assert not out.exists(), "cancelled convert must not leave output"
