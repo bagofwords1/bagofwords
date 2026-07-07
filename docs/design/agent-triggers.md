@@ -39,12 +39,19 @@ source; the design starts **generic**). Target flow:
 
 ### The design in one line
 
-**An org-level webhook = auth/receiving config + a completion-shaped run spec
+**A user-owned webhook = auth/receiving config + a completion-shaped run spec
 (agents, model, mode, task text — same shape as Prompt/scheduled task) + an
-optional classifier gate; each accepted delivery spawns a new session.**
+optional classifier gate; each accepted delivery spawns a new session owned by
+the webhook's creator.**
 
-Symmetry to keep in mind (not to over-build in v1):
-scheduled task = time-fired run spec; webhook = event-fired run spec.
+Two symmetries to keep in mind (not to over-build in v1):
+
+- scheduled task = time-fired run spec; webhook = event-fired run spec.
+- **Identity is preset, not resolved.** External platforms resolve the acting
+  user per-message from the sender (`ExternalUserMapping`); a webhook's
+  identity is fixed at creation — it always runs as its creator, with the
+  creator's agent access and quota. This is what makes it a per-user feature
+  (like ScheduledPrompt/private Prompts) rather than org infrastructure.
 
 ---
 
@@ -52,8 +59,9 @@ scheduled task = time-fired run spec; webhook = event-fired run spec.
 
 - **Generic custom webhook first.** Source presets (ServiceNow/GitHub/Jira)
   are adapters on top later; nothing in the core assumes any vendor.
-- Org-level webhook entity with per-webhook **agents, model, mode, task
-  template**, classifier, run-as identity, notifications, caps.
+- **User-owned** webhook entity (any user can create, scoped to agents they can
+  access) with per-webhook **agents, model, mode, task template**, classifier,
+  notifications, caps. Identity preset = the creator.
 - Firing pipeline: verify → dedup → (classify) → **spawn new session** with the
   run spec → agent run with payload as untrusted data → notify.
 - Origin/provenance: spawned reports + completions identifiable as
@@ -73,16 +81,21 @@ incident, updates appended), source adapters/presets, cron-fired variant
 one "Webhook" concept with two scopes:
 
 - `report_id` becomes **nullable**. Set → today's behavior exactly (events into
-  that report; run-spec fields unused/null). Null → **org-scoped, spawn mode**.
+  that report; run-spec fields unused/null). Null → **spawn mode** (user-owned
+  standalone webhook). `user_id` (already on the model) is the owner AND the
+  run identity in both modes.
 - New run-spec columns, mirroring `Prompt`'s execution spec:
   - `task_template` (Text) — the standing instruction; the normalized event
     payload is appended as untrusted data at run time.
   - `mode` (`'chat' | 'deep'`, default `'chat'`) — RCA/investigation mode slots
     in here later.
   - `model_id` (nullable) — LLM override; null = org default. Respect LLM model
-    access control (`docs/design/llm-model-access-control.md`).
-  - `run_as_user_id` — identity for spawned reports/runs; prefer a service
-    account (`app/models/service_account.py`) over the webhook creator.
+    access control (`docs/design/llm-model-access-control.md`) — validated
+    against the *creator's* model access.
+  - No `run_as` column: the run identity is `user_id` (the creator), preset at
+    creation. An admin-configurable run-as / service-account variant
+    (`app/models/service_account.py`) is a possible later addition for
+    org-infrastructure webhooks, not v1.
 - New `webhook_data_source_association` M2M (pattern:
   `prompt_data_source_association`) — the agents attached to every spawned
   session. At spawn time re-check each is still live
@@ -116,9 +129,10 @@ refactor can extract the shared run-spec if both grow.
 - Inbound: reuse `POST /webhooks/{token}` (`webhook_receiver.py`) — the token
   resolves the webhook either way; verification/rate-limit/handshake logic
   unchanged.
-- CRUD: `GET/POST /api/organizations/{org_id}/webhooks` +
-  `PUT/DELETE /api/webhooks/{id}` + `rotate-secret` (org-scoped variants of the
-  existing report-scoped routes in `routes/webhook.py`).
+- CRUD: `GET/POST /api/webhooks` + `PUT/DELETE /api/webhooks/{id}` +
+  `rotate-secret` — user-scoped: users see/manage their own webhooks (admins
+  may list all for the org). Same shape as the existing report-scoped routes
+  in `routes/webhook.py`.
 - `POST /api/webhooks/{id}/test-fire` — manual sample-payload test.
 - `GET /api/webhooks/{id}/runs` — spawned sessions + classifier decisions
   (reports by `webhook_id`, events by completion `webhook_id`).
@@ -129,7 +143,8 @@ Today's pipeline (dedup → event entry → classify → agent run) stays; the f
 is **where the event lands**:
 
 1. `wh.report_id` set → current behavior, byte-for-byte.
-2. `wh.report_id` null → **spawn**: create Report owned by `run_as_user_id`,
+2. `wh.report_id` null → **spawn**: create Report owned by the webhook's
+   creator (`wh.user_id`), private to them by default,
    attach the webhook's agents, title from the adapter's `normalize()` summary,
    stamp `reports.webhook_id`; post the visible `webhook_event` completion
    there; classify; on act → `CompletionService.create_completion` with
@@ -149,31 +164,40 @@ declined deliveries are visible in the webhook's delivery log instead).
 
 ### Permissions / cost
 
-- Create/edit org-scoped webhook: `manage` on **all** selected agents, or org
-  admin (`data_source_membership` machinery). A standing webhook is standing
-  authority to burn quota.
-- `UsageLimitContext`: attribute runs to `run_as_user_id` with
-  `source="webhook"`, `source_ref_id=webhook_id` so the cost console can show
-  per-webhook spend.
+- Create/edit: any user, but only selecting **agents they can access** (same
+  bar as creating a report with those agents — NOT `manage` rights; this is a
+  personal automation like a scheduled task, not org infrastructure).
+  Re-validate access at spawn time, not just creation time (access revoked
+  since → drop the agent / fail the run, mirroring `agent_v2.py`'s
+  client-based snapshot filtering).
+- Runs execute **as the creator**: their data-source credentials/overlays,
+  their model access, their quota. `UsageLimitContext` attributes to
+  (org, creator) with `source="webhook"`, `source_ref_id=webhook_id` so the
+  cost console shows per-webhook spend.
+- Security note for the UI/docs: the delivery URL+secret is standing authority
+  to spawn agent runs **as that user** — treat it like an API key
+  (secret-shown-once already; encourage rotation; deactivation kills it
+  immediately via `is_active`).
 - Org settings: existing `allow_report_webhooks` / `max_webhooks` /
-  `webhook_rate_limit_per_min` govern both scopes (possibly split the flag if
-  orgs want report-webhooks on but org-webhooks off).
+  `webhook_rate_limit_per_min` govern both scopes; `max_webhooks` likely
+  becomes per-user + per-org caps.
 
 ---
 
 ## 4. Frontend
 
-- **Webhooks management page** (nav near `integrations` / `scheduled-tasks`):
+- **Webhooks management page** (nav near `scheduled-tasks` — it's the same
+  kind of personal automation surface): each user sees their own webhooks;
   list (name, source icon, agents, model, mode, active, last delivery, runs
   this week) + create/edit modal sectioned like the scheduled-task/prompt
   editors:
   1. Receiving: name, auth mode → delivery URL + secret-shown-once (reuse the
      existing per-report webhook UI pieces).
-  2. Run spec: agents multi-select (only agents the user can manage), model
+  2. Run spec: agents multi-select (agents the user can access), model
      picker (access-controlled), mode, task template textarea (document that
      the event payload is appended automatically).
   3. Gate: classifier on/off + prompt.
-  4. Ops: run-as picker, notification subscribers, run cap.
+  4. Ops: notification subscribers, run cap.
 - **Run history drawer**: deliveries with classifier decision (act/decline +
   reason), spawned report link, status.
 - **Origin icon**: reports list + report header show a webhook/source icon for
@@ -222,15 +246,20 @@ declined deliveries are visible in the webhook's delivery log instead).
 
 ## 7. Open questions
 
-1. Nav placement: standalone Webhooks page vs a tab under Integrations vs
-   folded into a future unified "Automations" surface with scheduled tasks.
+1. Nav placement: standalone Webhooks page vs folded into a future unified
+   "Automations" surface with scheduled tasks (both are user-owned, run-spec
+   shaped, fire-and-spawn — a merged page may be the end state).
 2. `report_type` for spawned sessions (like `report_type="test"` for evals) —
    e.g. `'triggered'` — so product surfaces can treat them specially. Cheap
    now, painful to retrofit. Leaning yes.
-3. Service accounts: is `service_account.py` wired far enough to own
-   reports/completions, or does v1 run-as fall back to a chosen org user?
+3. What happens to a user's webhooks when they're deactivated/leave the org —
+   auto-disable (leaning yes; same question presumably already answered for
+   ScheduledPrompt, follow that precedent).
 4. Should spawn-mode webhooks allow `mode='training'`? Leaning no — chat/deep
    only.
+5. Spawned-report visibility: private to the creator by default — do we want
+   an optional "share with group/org" setting on the webhook for team alert
+   feeds, or leave sharing to the normal report-share flow?
 
 ---
 
