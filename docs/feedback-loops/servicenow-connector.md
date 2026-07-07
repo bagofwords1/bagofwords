@@ -93,8 +93,22 @@ Full-stack UI loop (what the screenshots show): `tools/agent/boot_stack.sh`,
 seed org + Anthropic provider, then in the browser — ServiceNow tile in the
 Add Connection catalog → schema-driven form → "Connected successfully. Found
 11 tables." → live indexing progress → agent wizard with 5 tables selected →
-report prompts ("open incidents by priority…") produce widgets/dashboards
-from live PDI data.
+report prompts against live PDI data. Observed end-state: "Show open
+incidents by priority as a bar chart" produced a populated bar chart
+(Critical 17 / Planning 9 / Moderate 7 / High 4 / Low 3, total 40) with a
+correct narrative summary; the dashboard prompt produced an incidents master
+table (67 rows, display values: "1 - Critical", "In Progress", assignee
+names) and the agent self-captured a knowledge instruction ("ServiceNow
+Incident State and Priority Mappings") from what it learned probing the
+schema.
+
+The first live run exposed a prompt-quality gap, fixed in the client: with
+display values on, the coder generated `pd.to_numeric(df["priority"])` on
+"1 - Critical" strings and coerced every row to NaN (widget showed 0 rows;
+the agent noticed and pulled a raw sample to investigate). The client's
+`system_prompt` now spells out the display-value shapes and that
+encoded-query *filters* still use raw codes — the rerun produced correct
+charts on the first attempt.
 
 ## What this proves / regression notes
 
@@ -105,3 +119,12 @@ from live PDI data.
   (`LLMService` has no `create_model`; route `routes/llm.py:130` calls it) —
   hit while seeding the LLM provider, worked around by creating models
   inline with the provider. Reproduces on main with this branch stashed.
+- When `BOW_ENCRYPTION_KEY` is unset, `bow_config.py` generates a random
+  Fernet key **per process** — every backend restart orphans all stored
+  credentials (`InvalidToken` on decrypt, surfacing as "An error occurred"
+  in chat with no user-visible cause). Bit us twice in this loop; dev/agent
+  environments should pin the key (docs/boot script candidate).
+- The generated dashboard artifact for this report initially failed to
+  render ("React is not defined") — an artifact-codegen issue unrelated to
+  the connector (the underlying widgets/queries had data); the in-app
+  "Fix Error" flow repairs it.
