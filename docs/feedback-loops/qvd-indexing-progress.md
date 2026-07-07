@@ -81,13 +81,45 @@ tests/unit/test_qvd_client.py .........                    [9 passed]
 tests/e2e/test_connection_indexing.py ......               [6 passed]
 ```
 
-## UI evidence
+## Loop B — live confirmation (enterprise license + real QVD)
 
-The real `ConnectionIndexingProgress` component in the three new states —
-row-level convert progress with a **Stop** button, a completed run showing
-duration + source size, and a stopped run with its event log:
+QVD is an enterprise connector, so this leg needs a license
+(`BOW_LICENSE_KEY`, read by `bow-config.dev.yaml`). Generated a real
+**306 MB / 16 M-row** QVD, created the connection, and drove the actual app
+(`tools/agent/boot_stack.sh --dev`).
 
-![indexing states](assets/qvd-indexing-progress-states.png)
+Indexing (`GET /connections/{id}/indexing`) ran through real phases and only
+completed after the convert:
+
+```
+status=completed phase=converting  progress 16000000/16000000
+stats: elapsed_s=11.544  source_bytes=320092834  row_count=16000000
+events: qvd_files (1) -> converting (16000000) -> "Completed: 1 table(s) in 11.544s (305.3 MB)"
+```
+
+Cancel while converting (`POST /connections/{id}/indexing/cancel`), observed:
+
+```
+before: a live `qvd2parquet` child pid converting BigSales.qvd
+after:  0 qvd2parquet processes, no *.parquet.tmp left, status=cancelled,
+        error="Cancelled by user", last event "Indexing cancelled"
+```
+
+## UI evidence (real app)
+
+The actual connection detail modal, driven end-to-end against the 16 M-row QVD:
+
+Converting — row-level progress with a live **Stop** button:
+
+![converting](assets/qvd-indexing-converting.png)
+
+Completed — "Last indexed 4m ago · 11s · 305.3 MB", plus the phase log:
+
+![completed](assets/qvd-indexing-completed.png)
+
+Stopped — after clicking Stop mid-convert:
+
+![stopped](assets/qvd-indexing-stopped.png)
 
 ## What this proves / regression notes
 
