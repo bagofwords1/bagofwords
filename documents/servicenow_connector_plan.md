@@ -363,6 +363,15 @@ developer portal) and are **reclaimed after ~10 days idle**. So the PDI is a
 developer's tool and an on-demand integration target — not an always-on CI
 dependency.
 
+> **Validated 2026-07:** a PDI was provisioned and probed read-only from a
+> cloud sandbox (via the outbound proxy): basic auth, bulk `sys_db_object` /
+> `sys_dictionary` reads, and the Aggregate API all returned as designed, and
+> the instance ships with demo data (67 incidents). One payload quirk
+> confirmed for the fixture set: reference-type values come back as
+> `{link, value}` objects, not scalars. Live-loop credentials are passed via
+> `SERVICENOW_INSTANCE_URL` / `_USERNAME` / `_PASSWORD` env vars only — never
+> committed (PDI instance names in a public repo invite credential stuffing).
+
 ### 6.2 Test tiers (matching repo conventions)
 
 1. **Unit tests (CI, default)** — mock at the HTTP layer, no network, in the
