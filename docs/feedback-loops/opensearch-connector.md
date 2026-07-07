@@ -184,6 +184,36 @@ the UI sends the selected `auth_type` inside `config`), `GET
 .../test_connection` → `{"success": true, "message": "Connected to opensearch
 2.19.1"}`, `GET .../full_schema` → both tables with all 11 columns.
 
+## Live agent run — a real report from OpenSearch data — RUN
+
+With an Anthropic key configured via `POST /api/llm/providers` (model
+`claude-sonnet-4-6`) and the `orders` index grown to 154 seeded docs, a real
+prompt was sent through the New Report chat: *"From the OpenSearch orders
+index: show total revenue by customer tier as a bar chart, monthly revenue
+trend as a line chart, and a table of the top 10 active orders by total."*
+
+The agent (unmodified, no hand-holding) planned three `create_data` steps and
+one `create_artifact`, generated envelope queries against the connector
+(`Created Data ·OpenSearch· orders`, ~10s each), and produced the "Orders
+Revenue Dashboard" report. Screenshots in `media/pr/opensearch-connector/`:
+
+- `report-widgets-top.png` — agent narrative + "Total Revenue by Customer
+  Tier" bar chart widget (terms + sum aggregation, flattened by the client).
+- `report-line-chart.png` — "Monthly Revenue Trend" (date_histogram) widget
+  and the dashboard side-by-side.
+- `report-table.png` — "Top 10 Active Orders by Total" (10 rows, dot-path
+  columns `customer.name` / `customer.tier`).
+- `dashboard.png`, `dashboard-table.png` — the generated dashboard artifact
+  rendering all three sections with ECharts.
+
+Sandbox gotcha worth recording: the artifact iframe initially failed with
+"React is not defined" — `frontend/public/libs/*.js` (React/Babel/ECharts,
+gitignored) are provisioned by `scripts/download-vendor-libs.sh` during the
+Docker build, and a bare `boot_stack.sh` sandbox never runs it. Run the script
+(with `--cacert /root/.ccr/ca-bundle.crt` behind the agent proxy — plain
+`curl -sL` truncated the downloads) **before** `yarn build`, since the built
+Nitro server snapshots public assets at build time.
+
 ## What this proves / regression notes
 
 - The registry resolves `"opensearch"` via the explicit `client_path`, the
