@@ -239,6 +239,13 @@ def test_trigger_delivery_spawns_session(
     assert runs["runs"][0]["report_id"] == report["id"]
     assert "Checkout latency spike" in (runs["runs"][0]["event_summary"] or runs["runs"][0]["title"])
 
+    # The owner got an in-app notification linking to the spawned session
+    notifs = test_client.get("/api/notifications", headers=_headers(token, org_id)).json()
+    trig_notifs = [n for n in notifs["items"] if n.get("source") == "trigger"]
+    assert len(trig_notifs) == 1
+    assert trig["name"] in trig_notifs[0]["title"]
+    assert trig_notifs[0]["link"] == f"/reports/{report['id']}"
+
 
 @pytest.mark.e2e
 def test_trigger_delivery_dedup(

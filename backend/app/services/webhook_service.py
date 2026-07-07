@@ -611,6 +611,7 @@ class WebhookService:
         from app.services.completion_service import CompletionService
         from app.schemas.completion_v2_schema import CompletionCreate
         from app.schemas.completion_schema import PromptSchema
+        run_ok = True
         try:
             await CompletionService().create_completion(
                 db=db,
@@ -629,9 +630,34 @@ class WebhookService:
             await db.commit()
             logger.info("Trigger %s: spawned report %s and completed agent run", wh.id, report.id)
         except Exception as e:
+            run_ok = False
             logger.error("Trigger %s: agent run failed on spawned report %s: %s", wh.id, report.id, e)
             event.status = "error"
             await db.commit()
+
+        # 5) Owner in-app notification — acted deliveries only (declined/noise
+        #    events stay silent). Grouped per trigger so alert bursts collapse
+        #    into one refreshed inbox row. The run executes AS the owner but the
+        #    actor is the external system, so actor_user_id stays unset (the
+        #    inbox service suppresses self-actions). Non-fatal by contract.
+        try:
+            from app.services.inbox_service import inbox_service
+            await inbox_service.notify_users(
+                db,
+                organization_id=str(wh.organization_id),
+                user_ids=[str(wh.user_id)],
+                source="trigger",
+                type="trigger_run",
+                title=f'⚡ "{wh.name}" fired — {(norm.get("summary") or "event")[:120]}',
+                body=("The investigation completed — open the session for the findings."
+                      if run_ok else "The run failed — open the session for details."),
+                severity="info" if run_ok else "warning",
+                link=f"/reports/{report.id}",
+                subject={"kind": "report", "report_id": str(report.id)},
+                group_key=f"trigger:{wh.id}",
+            )
+        except Exception:
+            logger.warning("Trigger %s: owner notification failed", wh.id, exc_info=True)
 
     async def _report_data_source_ids(self, db, report_id) -> list:
         try:
