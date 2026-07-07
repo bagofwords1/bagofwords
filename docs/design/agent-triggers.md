@@ -225,17 +225,71 @@ declined deliveries are visible in the webhook's delivery log instead).
 
 ---
 
-## 5. Testing
+## 5. Verification — sandbox feedback loop
 
-- Spawn mode: delivery → new report with configured agents/model/mode; run-spec
-  fields honored; `report_id`-set webhooks byte-for-byte unchanged.
-- Dedup: same `external_message_id` → no second spawn.
-- Classifier decline in spawn mode → no orphan report; delivery logged.
-- Caps: `max_runs_per_hour` + org rate limit enforced pre-spawn.
-- Permissions: non-manager can't select an agent they don't manage; agent
-  unpublished after webhook creation is dropped at spawn time.
-- Concurrency: two near-simultaneous deliveries → two independent sessions, no
-  completion-sequence collision.
+Build this the way the repo's `.agents/skills/sandbox-feedback-loop` skill
+prescribes: a **runnable feedback-loop doc** at
+`docs/feedback-loops/trigger-webhooks.md` that anyone (human or agent) can
+re-execute in a fresh sandbox. Two legs, because e2e agent runs require
+`OPENAI_API_KEY_TEST` (see `tests/e2e/test_completion.py`) and the sandbox
+seed (`tools/agent/seed_org.py`) provisions no LLM:
+
+### Loop A — deterministic pytest (no LLM, runs in any clean sandbox)
+
+Precedent: `tests/e2e/test_scheduled_prompt.py` — CRUD + firing mechanics
+tested for real, the model-dependent step monkeypatched (there:
+`scheduled_run_prompt`; here: `WebhookClassifier.classify` returning a canned
+act/decline, and/or `CompletionService.create_completion`).
+
+Assertions, in pipeline order:
+1. CRUD: create webhook with agents/model/mode/task_template → delivery URL +
+   secret-once; non-owner can't read/update it (mirror the scheduled-prompt
+   ownership tests); selecting an inaccessible agent → 403.
+2. Delivery: signed POST to `/webhooks/{token}` → 202/200; bad signature → 401;
+   inactive → 404.
+3. Spawn: new Report exists — owner = webhook creator, `webhook_id` stamped,
+   configured agents attached, title from payload summary; the
+   `webhook_event` completion (role='external') is in it; the agent-run
+   completion carries the task_template + `<inbound_event>` envelope and the
+   webhook's mode/model.
+4. Fixed-report regression: `report_id`-set webhooks behave byte-for-byte as
+   today (existing tests keep passing).
+5. Dedup: re-POST same `external_message_id` → no second report.
+6. Classifier decline (canned) → no orphan report; delivery logged.
+7. Caps: `max_runs_per_hour` + org rate limit → 429 pre-spawn.
+8. Concurrency: two near-simultaneous deliveries → two independent sessions,
+   no completion-sequence collision.
+9. Access drift: agent unpublished / access revoked after webhook creation →
+   dropped at spawn time.
+
+### Loop B — live end-to-end in the running sandbox (real LLM)
+
+The full "alert → investigation" proof, following the curl conventions in
+`docs/design/sandbox-feedback-loop.md` (running stack via
+`tools/agent/boot_stack.sh` + `seed_org.py`, state in
+`backend/sandbox_state.json`, chinook demo data source as the agent, an LLM
+provider configured with a real key):
+
+1. Create a webhook via API: agents=[chinook], mode=chat, task_template =
+   "An alert fired. Query the data relevant to the alert and summarize
+   findings.", classifier on.
+2. `curl -X POST /webhooks/{token}` with a realistic fake alert JSON
+   (service name, severity, timestamp).
+3. Poll (SSE or `GET /api/completions?report_id=...`): classifier decision
+   recorded on the event entry → agent run streams → system completion
+   flips to `success`; inspect `sqlite3 db/app.db` for the spawned report row
+   (`webhook_id`, data-source association) and tool_executions.
+4. Repeat the POST → dedup observed live; POST a noise payload the classifier
+   prompt excludes → decline observed live, no report.
+5. UI (Playwright screenshots, per the skill's visual-validation flow):
+   `/automations` page — Scheduled + Triggers tabs render, the webhook listed
+   with agents/model/mode; run-history drawer shows the delivery + decision +
+   report link; reports list shows the origin icon + filter chip; the spawned
+   report renders the event entry and the agent's answer.
+
+Loop A gates CI (all pipeline mechanics, no external services). Loop B is the
+acceptance pass the implementing session runs before calling the feature done
+— and doubles as the customer-demo script.
 
 ---
 
