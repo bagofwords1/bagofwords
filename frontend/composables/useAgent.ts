@@ -70,6 +70,13 @@ const agents = ref<Agent[]>([])
 const loading = ref(false)
 let watcherInitialized = false
 let agentsWatcherInitialized = false
+// initAgent dedupe: one in-flight GET /data_sources shared by all callers,
+// and a short freshness window so the burst of mounts on a page load doesn't
+// refetch. Kept short (seconds) so a just-created agent still shows up in
+// selectors on the next navigation.
+let inflightInit: Promise<void> | null = null
+let lastInitAt = 0
+const INIT_CACHE_TTL_MS = 10_000
 
 export function useAgent() {
   // Set up watcher to persist selection changes (only once)
@@ -189,18 +196,37 @@ export function useAgent() {
     return selectedAgents.value.includes(agentId)
   }
 
-  // Initialize agents by fetching from API
-  async function initAgent() {
-    loading.value = true
-    try {
-      const { data } = await useMyFetch<Agent[]>('/data_sources', { method: 'GET' })
-      if (data.value) {
-        agents.value = data.value
+  // Initialize agents by fetching from API.
+  //
+  // GET /data_sources is one of the heavier list endpoints and several
+  // always-mounted components (layout, command palette, agent selector) call
+  // initAgent() around the same time, so the page used to fire it 2-3× per
+  // load. Dedupe: callers share one in-flight request, and a result fresher
+  // than the TTL is reused instead of refetched. Pass { force: true } to
+  // bypass (e.g. right after creating/deleting an agent).
+  async function initAgent(opts: { force?: boolean } = {}) {
+    if (!opts.force) {
+      if (inflightInit) return inflightInit
+      if (agents.value.length > 0 && Date.now() - lastInitAt < INIT_CACHE_TTL_MS) return
+    }
+    inflightInit = (async () => {
+      loading.value = true
+      try {
+        const { data } = await useMyFetch<Agent[]>('/data_sources', { method: 'GET' })
+        if (data.value) {
+          agents.value = data.value
+          lastInitAt = Date.now()
+        }
+      } catch (error) {
+        console.error('Failed to fetch agents:', error)
+      } finally {
+        loading.value = false
       }
-    } catch (error) {
-      console.error('Failed to fetch agents:', error)
+    })()
+    try {
+      await inflightInit
     } finally {
-      loading.value = false
+      inflightInit = null
     }
   }
 

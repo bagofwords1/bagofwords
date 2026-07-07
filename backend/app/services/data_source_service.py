@@ -99,7 +99,9 @@ class DataSourceService:
     def __init__(self):
         pass
 
-    async def _bulk_connection_aux(self, db: AsyncSession, data_sources: list):
+    async def _bulk_connection_aux(
+        self, db: AsyncSession, data_sources: list, *, defer_indexing_events: bool = False
+    ):
         """Precompute the per-connection indexing rows and table counts for MANY
         data sources in a handful of grouped queries.
 
@@ -109,9 +111,16 @@ class DataSourceService:
         per data source plus one (or two) table-count queries per connection —
         an N+1 whose cost grows with the number of agents, which is exactly what
         makes "show all" slow. This batches all of it into three queries and
-        returns maps keyed by connection id / data source id for
-        ``_build_connections_list`` to read.
+        returns maps keyed by (data source id, connection id) / data source id
+        for ``_build_connections_list`` to read.
+
+        ``defer_indexing_events`` skips loading each indexing row's
+        ``events_json`` (up to 200 log entries per connection) — pass it from
+        list callers that also pass ``include_indexing_events=False`` to
+        ``_build_connections_list``, so the event logs are neither fetched nor
+        serialized.
         """
+        from sqlalchemy.orm import defer
         from app.models.connection_indexing import ConnectionIndexing
         from app.models.connection_table import ConnectionTable
 
@@ -134,22 +143,29 @@ class DataSourceService:
                 .group_by(ConnectionIndexing.connection_id)
                 .subquery()
             )
-            rows = await db.execute(
-                select(ConnectionIndexing).join(
-                    latest_subq,
-                    (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
-                    & (ConnectionIndexing.created_at == latest_subq.c.max_created),
-                )
+            latest_stmt = select(ConnectionIndexing).join(
+                latest_subq,
+                (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                & (ConnectionIndexing.created_at == latest_subq.c.max_created),
             )
+            if defer_indexing_events:
+                latest_stmt = latest_stmt.options(defer(ConnectionIndexing.events_json))
+            rows = await db.execute(latest_stmt)
             for idx in rows.scalars().all():
                 indexing_by_conn[str(idx.connection_id)] = idx
         except Exception:
             logger.exception("indexing.bulk_lookup_failed_multi")
 
-        # Active table count grouped by connection — one query for all connections.
+        # Active table count grouped by (data source, connection) — one query
+        # for all connections. Keyed by the pair so a connection shared by two
+        # selected agents doesn't report the sum of both agents' tables.
         try:
             count_rows = await db.execute(
-                select(ConnectionTable.connection_id, func.count(DataSourceTable.id))
+                select(
+                    DataSourceTable.datasource_id,
+                    ConnectionTable.connection_id,
+                    func.count(DataSourceTable.id),
+                )
                 .select_from(DataSourceTable)
                 .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
@@ -157,10 +173,10 @@ class DataSourceService:
                     DataSourceTable.is_active == True,
                     ConnectionTable.connection_id.in_(conn_ids),
                 )
-                .group_by(ConnectionTable.connection_id)
+                .group_by(DataSourceTable.datasource_id, ConnectionTable.connection_id)
             )
-            for cid, cnt in count_rows.all():
-                table_count_by_conn[str(cid)] = cnt or 0
+            for dsid, cid, cnt in count_rows.all():
+                table_count_by_conn[(str(dsid), str(cid))] = cnt or 0
         except Exception:
             logger.exception("table_count.bulk_lookup_failed")
 
@@ -191,6 +207,7 @@ class DataSourceService:
         indexing_by_conn: dict | None = None,
         table_count_by_conn: dict | None = None,
         legacy_count_by_ds: dict | None = None,
+        include_indexing_events: bool = True,
     ) -> List[ConnectionEmbedded]:
         """
         Build list of ConnectionEmbedded from all connections of a DataSource.
@@ -203,6 +220,13 @@ class DataSourceService:
         the whole list instead of run per-connection — avoiding an N+1 that
         scales with the agent count. Single-data-source callers omit them and
         keep the original per-call queries.
+
+        ``include_indexing_events=False`` drops the indexing event log (up to
+        200 entries per connection) from the payload. List endpoints pass it:
+        nothing on the /agents page renders the log from a list response, and
+        with ~50 connections the logs alone are megabytes per request. The
+        single-data-source detail keeps events (the connections modal shows
+        live logs from it while indexing runs).
         """
         if not data_source.connections:
             return []
@@ -269,7 +293,9 @@ class DataSourceService:
             # When the caller supplied batched maps, read the counts from them
             # instead of issuing per-connection queries (avoids the N+1).
             if table_count_by_conn is not None:
-                table_count = table_count_by_conn.get(str(conn.id), 0)
+                table_count = table_count_by_conn.get(
+                    (str(data_source.id), str(conn.id)), 0
+                )
                 # Fallback to legacy (connection_table_id IS NULL) tables, mirroring
                 # the per-connection path below.
                 if table_count == 0 and legacy_count_by_ds is not None:
@@ -356,7 +382,7 @@ class DataSourceService:
                     "finished_at": indexing_row.finished_at.isoformat() if indexing_row.finished_at else None,
                     "error": indexing_row.error,
                     "stats": indexing_row.stats_json,
-                    "events": indexing_row.events_json or [],
+                    "events": (indexing_row.events_json or []) if include_indexing_events else [],
                 }
 
             connections_list.append(ConnectionEmbedded(
@@ -1018,12 +1044,22 @@ class DataSourceService:
                 pass
 
         # Build connections list - always use cached status (live_test=False)
-        # since we already tested if needed above
+        # since we already tested if needed above. Batch the indexing +
+        # table-count lookups: this endpoint is polled every ~2s while an
+        # indexing run is live, and per-connection COUNTs made each poll issue
+        # 2×N queries for agents with many connections. Events stay included —
+        # the connections modal renders the live indexing log from this payload.
+        indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
+            await self._bulk_connection_aux(db, [data_source])
+        )
         connections_list = await self._build_connections_list(
             db=db,
             data_source=data_source,
             current_user=current_user,
-            live_test=False
+            live_test=False,
+            indexing_by_conn=indexing_by_conn,
+            table_count_by_conn=table_count_by_conn,
+            legacy_count_by_ds=legacy_count_by_ds,
         )
 
         # Get first connection for legacy fields
@@ -1199,6 +1235,14 @@ class DataSourceService:
         data_sources = result.scalars().all()
         # Non-published agents (draft/disabled) are only visible to managers.
         is_gov, manage_ids, resolved = await self._publish_visibility(db, current_user, organization)
+        # Batch the per-connection indexing + table-count lookups across the
+        # whole list (same as get_active_data_sources) — without this, an org
+        # with many connections per agent pays one COUNT round-trip per
+        # connection per agent, which is what made GET /data_sources take tens
+        # of seconds on large deployments.
+        indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
+            await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
+        )
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
@@ -1215,7 +1259,11 @@ class DataSourceService:
                 db=db,
                 data_source=d,
                 current_user=current_user,
-                live_test=False
+                live_test=False,
+                indexing_by_conn=indexing_by_conn,
+                table_count_by_conn=table_count_by_conn,
+                legacy_count_by_ds=legacy_count_by_ds,
+                include_indexing_events=False,
             )
             conn = d.connections[0] if d.connections else None
 
@@ -1307,7 +1355,7 @@ class DataSourceService:
         # whole list so building N agents doesn't issue N×(queries) — the N+1
         # that made the admin "show all" view slow as the org's agent count grew.
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
-            await self._bulk_connection_aux(db, data_sources)
+            await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
 
         # Compute once whether the current user has admin-level access to data sources
@@ -1372,6 +1420,7 @@ class DataSourceService:
                 indexing_by_conn=indexing_by_conn,
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
+                include_indexing_events=False,
             )
             conn = d.connections[0] if d.connections else None
 
@@ -1446,7 +1495,7 @@ class DataSourceService:
 
         # Batch per-connection indexing + table-count lookups (avoid N+1).
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
-            await self._bulk_connection_aux(db, data_sources)
+            await self._bulk_connection_aux(db, data_sources, defer_indexing_events=True)
         )
 
         items: list[DataSourceListItemSchema] = []
@@ -1469,6 +1518,7 @@ class DataSourceService:
                 indexing_by_conn=indexing_by_conn,
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
+                include_indexing_events=False,
             )
 
             s = DataSourceListItemSchema(
