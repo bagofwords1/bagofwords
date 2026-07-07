@@ -1,6 +1,6 @@
 # Org-level webhooks that spawn agent sessions — build plan
 
-Status: **design, iterating**. Branch: `claude/rca-product-requirements-xjboqv`.
+Status: **implemented & verified end-to-end** (Loop A: 9 pytest e2e green; Loop B: live run — see docs/feedback-loops/trigger-webhooks.md). Branch: `claude/rca-product-requirements-xjboqv`.
 
 ## Context / why
 
