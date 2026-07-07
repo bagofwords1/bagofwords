@@ -60,6 +60,10 @@ class Report(BaseSchema):
     # circular FK with webhooks.report_id; powers the ⚡ origin indicator and
     # per-trigger run history.
     webhook_id = Column(String(36), nullable=True, index=True, default=None)
+    # Scheduled-run provenance: set when this report was spawned by a
+    # scheduled prompt with spawn_new_report routing (report per run). Plain
+    # string like webhook_id; powers the 🕐 origin indicator.
+    scheduled_prompt_id = Column(String(36), nullable=True, index=True, default=None)
 
     widgets = relationship("Widget", back_populates="report", lazy="selectin")
     text_widgets = relationship("TextWidget", back_populates="report", lazy="selectin")

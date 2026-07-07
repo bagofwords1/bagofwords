@@ -91,3 +91,33 @@ tools/agent/boot_stack.sh --dev
 - Delivery URL host comes from `bow_config.base_url`; in sandboxes it may
   render as `0.0.0.0:3000` — POST to the backend (`:8000`) directly, the
   `/webhooks/{token}` route lives there (the `:3000` proxy only forwards `/api`).
+
+## Round 2 — scheduled report-per-run routing + PromptBoxV2 trigger modal
+
+Added in the same branch (plan §6.3 / §6.4):
+
+- **ScheduledPrompt.spawn_new_report** (migration `trig0002`): per-task
+  "Results" routing — `This report` (default, keeps cross-run memory) vs
+  `New report per run` (fresh dated report per run, stamped with
+  `reports.scheduled_prompt_id` → 🕐 origin icon in the reports list).
+  Notifications link to the spawned run; inbox grouping stays per schedule.
+- **TriggerModal composes via PromptBoxV2** in standalone (no report_id)
+  mode — the standard DataSourceSelector/mode/model pills author the trigger's
+  run spec; saved values verified round-tripping through the box's getters.
+
+Loop A additions: `tests/e2e/test_scheduled_spawn_routing.py` (3 tests —
+spawn routing with agents copied + provenance stamp + second run spawns a
+second report; default routing regression; routing updatable). Combined run:
+`test_triggers.py + test_scheduled_spawn_routing.py + test_scheduled_prompt.py`
+→ 26 passed.
+
+Loop B (live): created a trigger through the PromptBoxV2 modal (task, agents,
+mode, model persisted from the box); created a scheduled task with
+`New report per run`, fired it via the trigger endpoint → spawned
+"Scheduled task — Jul 07, 2026" with a real agent answer (revenue by genre),
+🕐 shown in the reports list next to the ⚡ trigger session.
+
+Sandbox gotcha: `BOW_ENCRYPTION_KEY` is generated per-process when unset, so
+LLM provider credentials stored before a backend restart fail to decrypt
+after it ("Failed to decrypt credentials"). Pin the key in `backend/.env`
+for multi-restart sandbox sessions.

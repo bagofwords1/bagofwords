@@ -8,6 +8,9 @@ class ScheduledPromptCreate(BaseModel):
     prompt: dict  # PromptSchema-compatible JSON: {"content": "...", ...}
     cron_schedule: str
     is_active: Optional[bool] = True
+    # Routing: False = run in the host report (default), True = spawn a
+    # fresh report per run.
+    spawn_new_report: Optional[bool] = False
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
 
 
@@ -15,6 +18,7 @@ class ScheduledPromptUpdate(BaseModel):
     prompt: Optional[dict] = None
     cron_schedule: Optional[str] = None
     is_active: Optional[bool] = None
+    spawn_new_report: Optional[bool] = None
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
 
 
@@ -24,6 +28,7 @@ class ScheduledPromptSchema(BaseModel):
     prompt: dict
     cron_schedule: str
     is_active: bool
+    spawn_new_report: bool = False
     last_run_at: Optional[datetime] = None
     notification_subscribers: Optional[list] = None
     created_at: datetime

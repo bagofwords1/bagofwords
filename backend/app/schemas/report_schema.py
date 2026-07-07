@@ -76,6 +76,9 @@ class ReportSchema(ReportBase):
     # Trigger provenance: set when this report was spawned by a trigger
     # webhook delivery (powers the ⚡ indicator in the reports list).
     webhook_id: Optional[str] = None
+    # Scheduled-run provenance: set when spawned by a scheduled prompt with
+    # report-per-run routing (powers the 🕐 origin indicator).
+    scheduled_prompt_id: Optional[str] = None
     # Fork lineage
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None

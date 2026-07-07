@@ -390,6 +390,8 @@ class ReportService:
             is_starred=is_starred,
             # Trigger provenance (⚡ indicator)
             webhook_id=getattr(report, "webhook_id", None),
+            # Scheduled-run provenance (🕐 indicator)
+            scheduled_prompt_id=getattr(report, "scheduled_prompt_id", None),
         )
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step

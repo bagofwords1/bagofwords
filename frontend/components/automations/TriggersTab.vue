@@ -115,22 +115,22 @@
     </template>
 
     <!-- Create / edit modal -->
-    <UModal v-model="showModal" :ui="{ width: 'sm:max-w-xl' }">
-      <UCard :ui="{ body: { padding: 'px-6 py-5 sm:p-6' }, header: { padding: 'px-6 py-4 sm:px-6 sm:py-4' } }">
+    <UModal v-model="showModal" :ui="{ width: 'sm:max-w-2xl' }">
+      <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
         <template #header>
           <div class="flex items-start justify-between">
             <div>
-              <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
                 {{ editing ? $t('triggers.editTitle') : $t('triggers.newTitle') }}
               </h3>
-              <p class="text-sm text-gray-400 mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
+              <p class="text-xs text-gray-400 mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
             </div>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="showModal = false" />
           </div>
         </template>
 
         <!-- Secret reveal (shown once after create / rotate) -->
-        <section v-if="reveal" class="mb-6" data-testid="trigger-reveal">
+        <section v-if="reveal" class="mb-5" data-testid="trigger-reveal">
           <h4 class="text-xs font-medium text-green-600 uppercase tracking-wide mb-2">{{ $t('triggers.copyOnce') }}</h4>
           <div class="space-y-2">
             <div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
@@ -146,7 +146,23 @@
           </div>
         </section>
 
-        <div class="space-y-4">
+        <!-- Task + run spec: the standard prompt box (agents, mode, model) -->
+        <div data-testid="trigger-task-box">
+          <PromptBoxV2
+            v-if="showModal"
+            ref="promptBoxRef"
+            :key="editing?.id || 'new'"
+            :initialSelectedDataSources="initialDataSources"
+            :initialMode="editing?.mode || 'chat'"
+            :initialModel="editing?.model_id || ''"
+            :textareaContent="editing?.task_template || ''"
+            :hideScheduleButton="true"
+            :hideSubmitButton="true"
+          />
+          <p class="mt-1 text-[11px] text-gray-400">{{ $t('triggers.taskHint') }}</p>
+        </div>
+
+        <div class="space-y-4 mt-4">
           <!-- Receiving -->
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -163,47 +179,6 @@
                 <option value="url_token">{{ $t('triggers.authUrlToken') }}</option>
               </select>
             </div>
-          </div>
-
-          <!-- Run spec: agents -->
-          <div>
-            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.agents') }}</label>
-            <div class="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800 max-h-36 overflow-y-auto">
-              <div v-if="agents.length === 0" class="px-3 py-2 text-xs text-gray-400">{{ $t('triggers.noAgentsAvailable') }}</div>
-              <label v-for="agent in agents" :key="agent.id" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                <input type="checkbox" :value="agent.id" v-model="form.data_source_ids" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" :data-testid="`agent-check-${agent.name}`" />
-                <DataSourceIcon v-if="agent.type" :type="agent.type" class="h-3.5 inline" />
-                {{ agent.name }}
-              </label>
-            </div>
-          </div>
-
-          <!-- Run spec: model + mode -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.model') }}</label>
-              <select v-model="form.model_id" data-testid="trigger-model"
-                class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
-                <option :value="null">{{ $t('triggers.defaultModel') }}</option>
-                <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.mode') }}</label>
-              <select v-model="form.mode"
-                class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
-                <option value="chat">{{ $t('triggers.modeChat') }}</option>
-                <option value="deep">{{ $t('triggers.modeDeep') }}</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Run spec: task template -->
-          <div>
-            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.task') }}</label>
-            <textarea v-model="form.task_template" rows="3" :placeholder="$t('triggers.taskPlaceholder')" data-testid="trigger-task"
-              class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
-            <p class="mt-1 text-[11px] text-gray-400">{{ $t('triggers.taskHint') }}</p>
           </div>
 
           <!-- Classifier gate -->
@@ -242,13 +217,12 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
-import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 
 const toast = useToast()
 const { t } = useI18n()
 
 const triggers = ref<any[]>([])
-const agents = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
 const saving = ref(false)
@@ -258,20 +232,23 @@ const reveal = ref<any>(null)
 const expandedId = ref<string | null>(null)
 const runs = ref<any[]>([])
 const runsLoading = ref(false)
+const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
+// Receiving/gate config kept as a plain form; the run spec (task text,
+// agents, mode, model) lives in the embedded PromptBoxV2 (standalone mode —
+// no report_id) and is read back via its exposed getters on save.
 const defaultForm = () => ({
   name: '',
   source: 'generic',
   auth_mode: 'token',
   classify_enabled: false,
   classifier_prompt: '',
-  task_template: '',
-  mode: 'chat',
-  model_id: null as string | null,
-  data_source_ids: [] as string[],
   is_active: true,
 })
 const form = ref(defaultForm())
+
+// Agents pre-selected in the prompt box when editing an existing trigger.
+const initialDataSources = computed(() => (editing.value?.data_sources || []).map((d: any) => ({ ...d })))
 
 function modelName(id: string | null): string {
   if (!id) return t('triggers.defaultModel')
@@ -299,15 +276,6 @@ async function fetchTriggers() {
   } catch { triggers.value = [] } finally { isLoading.value = false }
 }
 
-async function fetchAgents() {
-  try {
-    const { data } = await useMyFetch('/data_sources')
-    agents.value = ((data.value as any[]) || []).map((d: any) => ({
-      id: d.id, name: d.name, type: d.type || d.connections?.[0]?.type,
-    }))
-  } catch { agents.value = [] }
-}
-
 async function fetchModels() {
   try {
     const { data } = await useMyFetch('/llm/models?is_enabled=true')
@@ -331,28 +299,37 @@ function openEdit(trig: any) {
     auth_mode: trig.auth_mode,
     classify_enabled: trig.classify_enabled,
     classifier_prompt: trig.classifier_prompt || '',
-    task_template: trig.task_template || '',
-    mode: trig.mode || 'chat',
-    model_id: trig.model_id || null,
-    data_source_ids: (trig.data_sources || []).map((d: any) => d.id),
     is_active: trig.is_active,
   }
   showModal.value = true
 }
 
+function readRunSpec() {
+  const box = promptBoxRef.value as any
+  const fallback = editing.value || {}
+  return {
+    task_template: box?.getText?.() ?? fallback.task_template ?? '',
+    mode: box?.getMode?.() || fallback.mode || 'chat',
+    model_id: box?.getModel?.() || fallback.model_id || null,
+    data_source_ids: ((box?.getDataSources?.() as any[]) || fallback.data_sources || [])
+      .map((d: any) => d?.id).filter(Boolean),
+  }
+}
+
 async function save() {
   saving.value = true
   try {
+    const body = { ...form.value, ...readRunSpec() }
     if (editing.value) {
       const { data, error } = await useMyFetch(`/triggers/${editing.value.id}`, {
-        method: 'PUT', body: { ...form.value },
+        method: 'PUT', body,
       })
       if (error.value) throw error.value
       toast.add({ title: t('triggers.toastSaved'), color: 'green' })
       showModal.value = false
     } else {
       const { data, error } = await useMyFetch('/triggers', {
-        method: 'POST', body: { ...form.value },
+        method: 'POST', body,
       })
       if (error.value) throw error.value
       reveal.value = data.value
@@ -399,7 +376,7 @@ function copy(text: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchTriggers(), fetchAgents(), fetchModels()])
+  await Promise.all([fetchTriggers(), fetchModels()])
 })
 </script>
 

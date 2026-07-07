@@ -536,7 +536,8 @@
       "createdViaMcp": "Created via MCP",
       "createdViaExcel": "Created via Excel",
       "runningOnSchedule": "Running on a schedule",
-      "createdByTrigger": "Created by a trigger"
+      "createdByTrigger": "Created by a trigger",
+      "createdBySchedule": "Created by a scheduled task"
     },
     "pagination": {
       "showing": "Showing {from} to {to} of {total} reports",
@@ -3009,7 +3010,12 @@
     "runNow": "Run now",
     "runNeedsPrompt": "Add a prompt before running",
     "toastRunStarted": "Run started",
-    "toastRunFailed": "Failed to start run"
+    "toastRunFailed": "Failed to start run",
+    "outputLabel": "Results",
+    "outputSameReport": "This report",
+    "outputNewReport": "New report per run",
+    "outputSameReportHint": "Runs land here — the agent remembers previous runs and can comment on trends.",
+    "outputNewReportHint": "Each run creates a fresh, dated report — a clean snapshot every time."
   },
   "errorPage": {
     "notFoundTitle": "404",
