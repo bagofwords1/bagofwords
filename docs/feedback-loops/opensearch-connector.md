@@ -2,7 +2,7 @@
 
 Adds an **OpenSearch** data source connector: a `DataSourceClient` subclass
 speaking plain REST (no engine SDK), Pydantic config/credentials schemas, and
-a `REGISTRY` entry (`dev_only=True`, beta). Design doc:
+a `REGISTRY` entry (beta). Design doc:
 `docs/design/opensearch-connector.md`. This is the runnable loop used to build
 and validate it in a fresh cloud sandbox — Loop A is fully mocked, Loop B runs
 a real populated OpenSearch 2.19.1 in the sandbox.
@@ -13,7 +13,7 @@ a real populated OpenSearch 2.19.1 in the sandbox.
 |-------|------|--------|
 | Client | `backend/app/data_sources/clients/opensearch_client.py` | New `OpenSearchClient(DataSourceClient)` (+ `OpensearchClient` alias for dynamic naming) |
 | Config | `backend/app/schemas/data_sources/configs.py` | `OpenSearchConfig`, `OpenSearchCredentials`, `OpenSearchNoAuthCredentials` |
-| Registry | `backend/app/schemas/data_source_registry.py` | `"opensearch"` entry: explicit `client_path`, `data_shape="objects"`, `dev_only=True`, `version="beta"` |
+| Registry | `backend/app/schemas/data_source_registry.py` | `"opensearch"` entry: explicit `client_path`, `data_shape="objects"`, `version="beta"` |
 | Driver | — | none: plain `requests` (already a dependency), no Dockerfile change |
 | Icon | `frontend/public/data_sources_icons/opensearch.png` | Official logo (darkmode variant, per request) |
 | Unit tests | `backend/tests/unit/test_opensearch_client.py` | 37 tests, transport mocked |
@@ -170,7 +170,7 @@ Playwright (`/opt/pw-browsers/chromium` via `executablePath`). Observed, with
 screenshots in `media/pr/opensearch-connector/`:
 
 - `grid.png` — OpenSearch tile (with icon) in the Add Connection modal
-  (`dev_only` visible: the stack runs with `TESTING=true`, a dev environment).
+  (visible in the add-connection grid).
 - `connect-form.png` — the schema-generated form: Host, Port, Use HTTPS,
   Verify TLS Certificates, Index Pattern + System Credentials variant picker.
 - `test-connection.png` — host `localhost`, auth **No Authentication** →

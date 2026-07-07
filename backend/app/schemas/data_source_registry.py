@@ -568,7 +568,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="objects",
         version="beta",
-        dev_only=True,
     ),
     "posthog": DataSourceRegistryEntry(
         type="posthog",

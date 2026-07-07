@@ -15,9 +15,9 @@ decisions, the file-by-file plan, and the **validated** sandbox feedback loop
 Build **both** engines from **one shared implementation**, shipped in two
 phases:
 
-1. **Phase 1 — OpenSearch** (`type="opensearch"`, `dev_only=True` while
-   incubating). OpenSearch is fully verifiable in the sandbox (Apache-2.0
-   image, no license gate) — the whole loop runs locally.
+1. **Phase 1 — OpenSearch** (`type="opensearch"`). OpenSearch is fully
+   verifiable in the sandbox (Apache-2.0 image, no license gate) — the whole
+   loop runs locally.
 2. **Phase 2 — Elasticsearch** (`type="elasticsearch"`) as a thin subclass on
    the same base, differing only in auth variants and endpoint paths.
    Elasticsearch's default image runs with security enabled and the free Basic
@@ -174,7 +174,7 @@ worked examples. Engine-specific rules the LLM must see:
 | Client | `backend/app/data_sources/clients/opensearch_client.py` | `SearchEngineBaseClient(DataSourceClient)` + `OpenSearchClient`; `get_schemas`/`get_tables`, `execute_query`, `test_connection`, `description`, mapping + agg flatteners |
 | Client (P2) | same module | `ElasticsearchClient` subclass (SQL path, `ApiKey` header) |
 | Config | `backend/app/schemas/data_sources/configs.py` | `OpenSearchConfig`, `OpenSearchCredentials`, `OpenSearchNoAuthCredentials` (+ P2: `ElasticsearchConfig`, `ElasticsearchApiKeyCredentials`) |
-| Registry | `backend/app/schemas/data_source_registry.py` | Two entries, `dev_only=True`, `version="beta"`, explicit `client_path` (the contract — never rely on the dynamic fallback), `data_shape="objects"`, `is_document_based=True` |
+| Registry | `backend/app/schemas/data_source_registry.py` | Two entries, `version="beta"`, explicit `client_path` (the contract — never rely on the dynamic fallback), `data_shape="objects"`, `is_document_based=True` |
 | Driver | — | none (`requests` already a dependency); no Dockerfile change |
 | Icons | `frontend/public/data_sources_icons/opensearch.png`, `elasticsearch.png` | + mapping in `frontend/components/DataSourceIcon.vue` |
 | Unit tests | `backend/tests/unit/test_opensearch_client.py` | mock the transport boundary only (fake `requests.Session`, per `test_druid_client.py`) |
@@ -268,13 +268,13 @@ unaffected. Irrelevant outside sandboxes.
 
 ## Phasing
 
-1. **OpenSearch connector** — base client + config + registry (`dev_only`),
+1. **OpenSearch connector** — base client + config + registry,
    unit tests, testcontainers integration, feedback-loop doc, icon. The live
    leg re-runs the probe above through the real client.
 2. **Elasticsearch variant** — subclass (+ `api_key` auth, `/_sql` path),
    `elasticsearch:8.x` testcontainers leg, icon.
 3. **Polish / follow-ups** — ~~data streams in discovery~~ (done), `search_after`
-   pagination, drop `dev_only`, docs page under `documents/`.
+   pagination, docs page under `documents/`.
 
 ## Open questions
 

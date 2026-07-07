@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.437 (July 7, 2026)
-- **OpenSearch data source connector (#560)** — new search-engine connector (beta, dev-only for now) following the PostgreSQL/MongoDB plugin pattern: plain REST via `requests` (no engine SDK), schema discovery straight from index mappings (dot-path columns, nested `[]` markers, `.keyword` multi-fields — no document sampling), with aliases **and data streams** surfacing as first-class catalog tables and hidden `.ds-*` backing indices excluded. Queries use a JSON envelope over `_search` (query DSL + aggregations, recursive bucket flattening to DataFrames, 10k result-window guard) plus a `{"sql": ...}` escape hatch to the bundled SQL plugin. Auth: HTTP basic or none, with a `verify_certs` toggle for self-signed dev clusters. Verified end-to-end against a live OpenSearch 2.19.1 — including log-search workloads (full-text + date_histogram + percentiles) and a real agent-built report/dashboard; runnable loop in `docs/feedback-loops/opensearch-connector.md`.
+- **OpenSearch data source connector (#560)** — indices, aliases and data streams become queryable with the query DSL, aggregations, or SQL.
 
 ## Version 0.0.436 (July 6, 2026)
 - **Excel (.xlsx) export for CreateData + Hebrew CSV fix (#559)** — the CreateData result download becomes a CSV / Excel dropdown, with `.xlsx` generated server-side via `GET /steps/{id}/export?format=xlsx`. Every CSV export path (server, email attachment, client-side) now emits a UTF-8 BOM so non-ASCII (e.g. Hebrew) headers and values render correctly in Excel instead of ANSI mojibake, and a Unicode widget title no longer crashes the download (RFC 6266 `filename*`).
