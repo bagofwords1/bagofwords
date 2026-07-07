@@ -334,7 +334,59 @@ Nothing needed in the agent layer: `app/ai/agents/data_source/data_source.py`
   ServiceNow", §3.5) for ACL-faithful querying; knowledge-base articles as a
   document-shaped source; attachment retrieval.
 
-## 6. Open questions
+## 6. Development & test environment (how to "simulate" ServiceNow)
+
+ServiceNow is proprietary SaaS — there is **no official Docker image or
+self-hosted option**, so unlike Postgres/MySQL it can never go in the
+testcontainers registry in `tests/integrations/ds_clients.py`. The strategy
+mirrors how the repo already handles SaaS-only sources (Snowflake, Power BI):
+
+### 6.1 Personal Developer Instance (PDI) — the real thing, free
+
+Sign up at <https://developer.servicenow.com> (free, personal email fine) →
+"Request Instance" → latest release. You get a full instance at
+`https://devXXXXXX.service-now.com` with an admin login and **demo data
+preloaded** (incidents, users, groups, CMDB CIs, catalog items) — enough to
+exercise every part of the connector immediately. It's the canonical dev
+target because it lets us test the things a mock can't prove:
+
+- real `sys_dictionary` / `sys_db_object` payloads and table hierarchies
+- create `u_*` custom tables + custom fields → validate `discover_all` (§3.2)
+- create a **non-admin integration user** → reproduce the 200-plus-empty-body
+  metadata ACL failure (§3.2) and validate the least-privilege setup doc
+- create restricted users → verify per-user row filtering (§3.5)
+- register an OAuth app in the Application Registry → develop the delegated
+  OAuth flow (§3.5) against real endpoints
+
+Caveats: PDIs **hibernate** after inactivity (woken by logging in to the
+developer portal) and are **reclaimed after ~10 days idle**. So the PDI is a
+developer's tool and an on-demand integration target — not an always-on CI
+dependency.
+
+### 6.2 Test tiers (matching repo conventions)
+
+1. **Unit tests (CI, default)** — mock at the HTTP layer, no network, in the
+   style of `test_druid_client.py` (fake plumbing) / `posthog`-type clients.
+   Fixtures are **real JSON captured once from a PDI** and committed:
+   `sys_db_object` page, `sys_dictionary` pages for the curated tables, an
+   `incident` query result page, a multi-page pagination sequence, the
+   empty-body ACL response, a 429. Capturing real payloads (rather than
+   hand-writing them) is what makes the sysparm quirks — display_value
+   variants, reference fields as `{value, display_value}` objects — show up
+   in tests.
+2. **Live integration tests (manual/optional)** — add `servicenow` to
+   `tests/integrations/ds_clients.py` configured via env vars
+   (`SERVICENOW_INSTANCE_URL` / `_USERNAME` / `_PASSWORD`) pointing at a PDI;
+   skip when unset, like the other SaaS entries. Run locally before releases
+   rather than in CI (hibernation makes PDIs flaky as a CI target).
+3. **Optional e2e mock server (only if we want full-flow coverage)** — the
+   repo already has precedent in `tests/mocks/mock_mcp_server.py` /
+   `mock_oauth_provider.py`: a small FastAPI app emulating
+   `/api/now/table/{table}` over the committed fixtures would let e2e tests
+   drive connection-create → test → index → query without network. Nice to
+   have, not required for Phase 1.
+
+## 7. Open questions
 
 1. **Default table set** — is ITSM (incident/change/problem/catalog) the right
    default, or do target users care more about CMDB or HRSD tables? (Config
