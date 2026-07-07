@@ -55,6 +55,12 @@ class Report(BaseSchema):
     external_platform_id = Column(String(36), ForeignKey('external_platforms.id'), nullable=True, index=True, default=None)
     external_platform = relationship("ExternalPlatform", back_populates="reports", lazy="joined")  # to-one: fold into parent query
 
+    # Trigger provenance: set when this report was spawned by a standalone
+    # trigger webhook delivery. Plain string (no FK constraint) to avoid a
+    # circular FK with webhooks.report_id; powers the ⚡ origin indicator and
+    # per-trigger run history.
+    webhook_id = Column(String(36), nullable=True, index=True, default=None)
+
     widgets = relationship("Widget", back_populates="report", lazy="selectin")
     text_widgets = relationship("TextWidget", back_populates="report", lazy="selectin")
     completions = relationship("Completion", back_populates="report", lazy="selectin")

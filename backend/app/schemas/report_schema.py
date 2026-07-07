@@ -73,6 +73,9 @@ class ReportSchema(ReportBase):
     scheduled_prompt_count: int = 0
     instruction_count: int = 0
     webhook_count: int = 0
+    # Trigger provenance: set when this report was spawned by a trigger
+    # webhook delivery (powers the ⚡ indicator in the reports list).
+    webhook_id: Optional[str] = None
     # Fork lineage
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None

@@ -309,6 +309,10 @@
                                         <UTooltip v-if="report.cron_schedule && !report.has_scheduled_prompts" :text="$t('reports.tooltips.runningOnSchedule')">
                                             <Icon name="heroicons:clock" class="h-3.5 w-3.5 text-gray-400" />
                                         </UTooltip>
+                                        <!-- Trigger provenance: session spawned by a trigger delivery -->
+                                        <UTooltip v-if="report.webhook_id" :text="$t('reports.tooltips.createdByTrigger')">
+                                            <Icon name="heroicons:bolt-solid" class="h-3.5 w-3.5 text-amber-500" data-testid="trigger-origin-icon" />
+                                        </UTooltip>
                                     </div>
                                     <!-- Type sub-label + data sources + metrics -->
                                     <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap">

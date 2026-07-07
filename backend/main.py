@@ -79,6 +79,7 @@ from app.routes import (
     whatsapp_webhook,
     webhook,
     webhook_receiver,
+    trigger,
     step,
     instruction,
     onboarding,
@@ -254,6 +255,7 @@ app.include_router(slack_webhook.router)
 app.include_router(teams_webhook.router)
 app.include_router(whatsapp_webhook.router)
 app.include_router(webhook.router, prefix="/api")
+app.include_router(trigger.router, prefix="/api")
 app.include_router(webhook_receiver.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
