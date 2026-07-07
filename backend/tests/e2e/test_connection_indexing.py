@@ -86,6 +86,12 @@ def test_indexing_happy_path(
     assert final["progress_total"] >= 1
     assert (final.get("stats") or {}).get("table_count", 0) >= 1
 
+    # Timestamps must carry a UTC marker so the browser's `new Date()` parses
+    # them as UTC — a bare (offset-less) ISO string is parsed as *local* time
+    # and skews the "Last indexed X ago" label by the viewer's tz offset.
+    assert final["finished_at"] and final["finished_at"].endswith("Z"), final["finished_at"]
+    assert final["started_at"] and final["started_at"].endswith("Z"), final["started_at"]
+
     # Verify /tables reflects the indexed set (ConnectionTable rows).
     headers = {
         "Authorization": f"Bearer {token}",

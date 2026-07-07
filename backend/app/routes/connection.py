@@ -45,6 +45,22 @@ connection_service = ConnectionService()
 indexing_service = ConnectionIndexingService()
 
 
+def _iso_utc(dt) -> "str | None":
+    """Serialize an indexing timestamp as an ISO string the browser will parse
+    as UTC. These columns are stored as naive `datetime.utcnow()`; a bare
+    `.isoformat()` (no offset) is parsed as *local* time by `new Date()`, which
+    skews the "Last indexed X ago" label by the viewer's timezone offset. Append
+    a `Z` for naive values (matching the event-log timestamps), and normalize
+    any tz-aware value to a `Z`-suffixed UTC string.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    from datetime import timezone
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
     """Adapt a ConnectionIndexing ORM row to the polling payload. Returns None
     when no row is provided.
@@ -58,8 +74,8 @@ def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
         current_item=row.current_item,
         progress_done=row.progress_done or 0,
         progress_total=row.progress_total or 0,
-        started_at=row.started_at.isoformat() if row.started_at else None,
-        finished_at=row.finished_at.isoformat() if row.finished_at else None,
+        started_at=_iso_utc(row.started_at),
+        finished_at=_iso_utc(row.finished_at),
         error=row.error,
         stats=row.stats_json,
         events=row.events_json or [],
