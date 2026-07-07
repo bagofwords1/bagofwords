@@ -2481,14 +2481,21 @@ const InstrLeaf = defineComponent({
     return () => {
       const ins = props.ins
       const sel = selectedId.value === ins.id
+      const pending = pendingInstrIds.value.has(ins.id)
+      // Inactive (draft/archived) rows stay muted even while a change is
+      // pending: the amber dot flags the pending review, a second gray dot
+      // keeps the live lifecycle state visible, and the title never turns
+      // amber for an instruction that isn't live.
+      const inactive = (ins.status || 'published') !== 'published'
       return createElement('button', {
         class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
         style: { paddingInlineStart: (20 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         onClick: () => openInstruction(ins),
       }, [
-        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pendingInstrIds.value.has(ins.id) ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pendingInstrIds.value.has(ins.id) ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
-        createElement('span', { class: ['flex-1 text-start truncate', pendingInstrIds.value.has(ins.id) ? 'text-amber-700 dark:text-amber-300' : ''] }, displayTitle(ins)),
-        pendingInstrIds.value.has(ins.id) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
+        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(ins) }),
+        (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
+        createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+        pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
         createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
