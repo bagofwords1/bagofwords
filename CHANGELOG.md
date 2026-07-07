@@ -1,5 +1,8 @@
 # Release Notes
 
+## Unreleased
+- **ServiceNow connector (beta)** — new `servicenow` data source: query ITSM data (incidents, changes, problems, requests, CMDB, users) through the REST Table API with encoded queries. Bulk schema discovery from `sys_db_object`/`sys_dictionary` resolves inherited fields (incident ⊂ task) and turns reference fields into foreign keys; curated default table set with `tables` override and a `discover_all` mode for custom `u_*`/`x_*` tables; human-readable display values by default; actionable error when the instance user lacks metadata read access (a failure ServiceNow reports as HTTP 200 + empty result). Also fixes connection creation ignoring a registry entry's explicit `client_path`.
+
 ## Version 0.0.436 (July 6, 2026)
 - **Excel (.xlsx) export for CreateData + Hebrew CSV fix (#559)** — the CreateData result download becomes a CSV / Excel dropdown, with `.xlsx` generated server-side via `GET /steps/{id}/export?format=xlsx`. Every CSV export path (server, email attachment, client-side) now emits a UTF-8 BOM so non-ASCII (e.g. Hebrew) headers and values render correctly in Excel instead of ANSI mojibake, and a Unicode widget title no longer crashes the download (RFC 6266 `filename*`).
 - **Fix agent-name chips and unreachable suggestion popover in instruction review (#558)** — the instruction editor's agents chip now shows the real agent name instead of its raw UUID even for deactivated or hidden agents (and lets you remove them), and the pending-review Accept/Reject popover is a single JS-positioned floating card anchored under the pointer — fixing it rendering far from the change and vanishing en route in RTL.
