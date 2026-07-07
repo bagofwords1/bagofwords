@@ -1995,6 +1995,7 @@
     "disconnect": "Disconnect",
     "serviceAccountNote": "Queries run with the connection's service account.",
     "switchIdentityFailed": "Failed to switch query identity",
+    "stopIndexingFailed": "Failed to stop indexing",
     "autoReindex": "Auto-reindex schema",
     "autoReindexHint": "Periodically re-index this connection so tables stay fresh.",
     "autoReindexEnterprise": "Scheduled reindexing is an enterprise feature.",

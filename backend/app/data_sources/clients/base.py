@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Optional
 
-from app.data_sources.clients.progress import ProgressCallback
+from app.data_sources.clients.progress import CancelCheck, ProgressCallback
 
 
 class Capability(str, Enum):
@@ -127,9 +127,25 @@ class DataSourceClient(ABC):
         """Async alias for aexecute_query (mirrors the sync `query` alias)."""
         return await self.aexecute_query(*args, **kwargs)
 
-    async def awarm_all(self) -> list:
-        """Pre-warm any local caches needed before queries. No-op for most clients."""
+    async def awarm_all(
+        self,
+        progress_callback: Optional[ProgressCallback] = None,
+        cancel_check: Optional[CancelCheck] = None,
+    ) -> list:
+        """Pre-warm any local caches needed before queries. No-op for most clients.
+
+        Clients whose warm step is the expensive part of indexing (e.g. QVD →
+        Parquet conversion) override this to report `progress_callback` as they
+        work and to honor `cancel_check` between chunks so the run can be
+        stopped. Base is a no-op that ignores both.
+        """
         return []
+
+    def index_stats(self) -> dict:
+        """Extra stats to fold into the indexing row after warming — e.g.
+        `source_bytes`, `file_count`, `row_count` for file-based sources so the
+        UI can show how big the indexed data was. Default empty."""
+        return {}
 
     # File-shaped capabilities. Default implementations raise NotImplementedError;
     # clients that declare LIST_FILES / READ_FILE / SEARCH_FILES override.
