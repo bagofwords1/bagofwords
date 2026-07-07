@@ -81,9 +81,58 @@ URL/params passthrough (no guardrails, worse prompting story).
 
 ### 3.2 Schema discovery
 
-Enumerating all tables is a non-starter (a vanilla instance has 3,000+). 
+Full discovery is cheap in request count. The metadata lives in ordinary
+tables queryable through the same Table API, so it's bulk dumps, not
+one-call-per-table:
 
-**Decision: curated default table set + config override.**
+- **All tables (incl. custom):** `GET /api/now/table/sys_db_object` with
+  `sysparm_fields=name,label,super_class,sys_scope` — a vanilla instance has
+  ~3–5k rows; at the API's max page size of 10,000 that's 1 request.
+- **All columns of all tables:** `GET /api/now/table/sys_dictionary` with
+  `sysparm_query=internal_type!=collection` and slim `sysparm_fields` — tens
+  of thousands of rows → roughly 3–10 paginated requests total.
+- **Inheritance** (incident extends task, etc.) is resolved *in memory* by
+  walking `sys_db_object.super_class` over the already-fetched dump — no
+  extra queries.
+- **Custom tables come for free**: `u_*` and scoped-app `x_*` tables and their
+  fields are just rows in `sys_db_object`/`sys_dictionary` like everything
+  else. Reference fields on custom tables give us their FKs too.
+
+So a complete instance snapshot — every table, every field, every custom
+field — is on the order of **5–15 HTTP requests**.
+
+The real constraints are elsewhere:
+
+1. **ACLs, not query count.** Out of the box only `admin` and
+   `personalize_dictionary` can read `sys_dictionary`. Worse failure mode: a
+   non-admin integration user gets **HTTP 200 with an empty result array**
+   (while `X-Total-Count` still shows the real count) — schema discovery
+   silently returns nothing instead of erroring. The client must detect this
+   (empty dictionary rows for a table that exists ⇒ raise an actionable
+   "grant metadata read access" error, checked in `test_connection`). Setup
+   doc for admins: either grant `personalize_dictionary` (broad — includes
+   write) or, better, a custom role with read ACLs on `sys_db_object`,
+   `sys_dictionary`, `sys_glide_object` and their `.*` field ACLs.
+   Fallbacks if metadata access is refused: the per-table Table Schema API
+   (`/api/now/doc/table/schema/{table}`, also role-gated), or inferring
+   field names from a sampled record (`sysparm_limit=1`,
+   `sysparm_display_value=all`) — weak types, no FK targets, but never
+   blocked.
+2. **Noise, not volume.** Most of those 3–5k tables are platform internals
+   (`sys_*`, `v_*`, `ts_*`, rollup/audit tables) that would pollute the
+   catalog and the prompt schema. Discovery should filter to "business"
+   tables: the `task` and `cmdb_ci` hierarchies, whitelisted standalone
+   tables (`sys_user`, `sys_user_group`, `kb_knowledge`, …), plus anything
+   `u_*`/`x_*` (custom = almost certainly business data).
+
+**Decision: two discovery modes, both cheap.**
+
+- **Default: curated table set + config override** (drives the demo
+  experience, keeps the prompt schema tight).
+- **`discover_all` config flag: bulk-dump discovery** per the above —
+  business-table filter + custom tables, hierarchy-resolved in memory. This
+  is what picks up customers' custom tables/fields without them typing a
+  table list.
 
 Default set (ITSM-centric, mirrors Salesforce's curated object list):
 
@@ -94,18 +143,13 @@ sys_user, sys_user_group, cmdb_ci, kb_knowledge
 ```
 
 - `ServiceNowConfig.tables` — optional comma-separated override/extension, same
-  pattern as ClickHouse's `database` config field.
-- `get_schema(table)` queries `sys_dictionary` for that table: field name +
+  pattern as ClickHouse's `database` config field. For a curated list,
+  `get_schemas()` still bulk-fetches: one `sys_dictionary` query with
+  `nameIN <tables + their ancestors>` covers everything.
+- `get_schema(table)` maps `sys_dictionary` rows: field name +
   `internal_type` → `TableColumn`; `reference` → populate `Table.fks` pointing
   at the referenced table (real FK info — better than most service connectors).
 - `sys_id` is always the PK.
-- Note: `sys_dictionary` rows for a table don't include fields inherited from
-  parent tables (e.g. `incident` extends `task`). Query with
-  `sysparm_query=name=task^ORname=incident` style resolution of the table
-  hierarchy via `sys_db_object.super_class`, or use `/api/now/doc/table/schema`
-  (Table Schema API) where available. Implementation detail to settle in Phase 1;
-  the hierarchy walk via `sys_db_object` is the safe default since it needs no
-  extra roles.
 
 ### 3.3 Auth
 
@@ -150,6 +194,7 @@ field) since it's just a header swap.
    class ServiceNowConfig(BaseModel):
        instance_url: str          # e.g. https://acme.service-now.com
        tables: Optional[str]      # comma-separated extra/override tables
+       discover_all: bool = False # bulk-discover business + custom tables (§3.2)
        display_values: bool = True
    ```
 
@@ -202,7 +247,11 @@ field) since it's just a header swap.
 5. **`backend/tests/unit/test_servicenow_client.py`** (mocked `requests`, in
    the style of `test_druid_client.py` / `test_qlik_sense_client.py`):
    - `test_connection` success / 401 / bad-URL paths
+   - ACL silent-failure detection: sys_dictionary returns 200 + empty array
+     for a table known to exist → actionable "grant metadata read" error (§3.2)
    - `get_schema` parses sys_dictionary incl. inherited fields and reference→fk
+   - `discover_all` mode: business-table filter keeps `u_*`/`x_*`, drops `sys_*`
+     internals; inheritance resolved from the in-memory `sys_db_object` dump
    - `execute_query`: valid JSON spec → correct URL/params; pagination across
      pages; limit cap; malformed spec → clear error
    - display_values on/off parameter propagation
