@@ -303,11 +303,22 @@ acceptance pass the implementing session runs before calling the feature done
 2. **Source adapters/presets** — vendor presets (GitHub/Jira exist in
    `webhook_adapters/`; ITSM/alerting vendors later) that pre-fill auth mode
    and payload normalization/field mapping on top of the generic webhook.
-3. **Cron-fired variant** — schedule on a `Prompt` (it already has agents M2M,
-   model, mode, and run→new-report); gives scheduled-task symmetry without a
-   new entity. At that point consider extracting the shared run-spec from
-   Webhook/Prompt/ScheduledPrompt.
-4. **Incident lifecycle** — a "resolved" event with a known correlation key
+3. **Scheduled tasks get routing too** — per-task choice: `append to this
+   report` (today; keeps cross-run memory in past_observations → trend
+   commentary) vs `new report per run` (clean dated snapshots, no context
+   bloat). Reuses the trigger machinery: origin stamp on reports (🕐 next to
+   the ⚡ convention), run history, existing notification_subscribers. At that
+   point ScheduledPrompt and Trigger are one concept — a run spec fired by
+   cron or webhook — so extract the shared run-spec (possibly via `Prompt`,
+   which already has agents M2M + model + mode + run→new-report).
+4. **TriggerModal adopts PromptBoxV2** — make `report_id` optional in
+   PromptBoxV2/DataSourceSelector (fall back to the user's org-wide accessible
+   agents), then the trigger modal composes the task via the standard prompt
+   box: DataSourceSelector for agents, the familiar mode toggle + LLM selector
+   pills, @-mentions in task templates for free. Side benefit: the
+   scheduled-tasks page can stop pre-creating an empty placeholder report just
+   to satisfy PromptBoxV2's report_id (see `openNewTask` in the Scheduled tab).
+5. **Incident lifecycle** — a "resolved" event with a known correlation key
    finalizes/archives the session.
 
 ---
