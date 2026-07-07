@@ -25,6 +25,19 @@ ProgressCallback = Callable[
     Union[None, Awaitable[None]],
 ]
 
+# A zero-arg predicate a client polls during long work (schema discovery, cache
+# warming). Returns True once the caller wants the work aborted. Clients that
+# accept it must check it at coarse checkpoints (per file, per chunk) and raise
+# `IndexingCancelled` promptly so a stuck long-running convert can be stopped.
+CancelCheck = Callable[[], bool]
+
+
+class IndexingCancelled(Exception):
+    """Raised from inside a client (schema discovery or `awarm_all`) when a
+    cancel has been requested via a `CancelCheck`. The indexing runner catches
+    it and marks the run `cancelled` rather than `failed`.
+    """
+
 
 class ProgressReporter:
     """Cheap no-op when no callback is set; else forwards emissions."""
@@ -84,6 +97,10 @@ class ProgressReporter:
                     loop.create_task(result)  # type: ignore[arg-type]
                 except RuntimeError:
                     asyncio.run(result)  # type: ignore[arg-type]
+        except IndexingCancelled:
+            # Cancellation is control flow, not a reporting error — let it
+            # unwind the client's discovery/warm loop so the run stops promptly.
+            raise
         except Exception:
             # Progress reporting must never break schema discovery.
             pass

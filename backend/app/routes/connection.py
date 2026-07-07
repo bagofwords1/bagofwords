@@ -699,6 +699,31 @@ async def get_connection_indexing(
     return _indexing_to_progress(row)
 
 
+@router.post("/{connection_id}/indexing/cancel")
+@requires_resource_permission('connection', 'manage_connection')
+async def cancel_connection_indexing(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Stop the in-flight indexing run for this connection.
+
+    Signals the background runner to abort cooperatively — killing a long
+    QVD→Parquet convert mid-stream — and marks the run `cancelled`. Idempotent:
+    404 only when there is no active run to stop.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    row = await indexing_service.request_cancel(db, connection_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No active indexing to cancel")
+    progress = _indexing_to_progress(row)
+    return {
+        "message": "Indexing cancellation requested.",
+        "indexing": progress.model_dump() if progress else None,
+    }
+
+
 async def _ensure_can_read_connection(db, organization, current_user, connection):
     """Allow read if user is admin, has an explicit connection grant, or the
     connection backs a data source the user can access (public DS or DS grant).
