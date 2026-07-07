@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.438 (July 7, 2026)
+- **Triggers (#562)** — user-owned webhooks that spawn agent sessions, plus report-per-run routing for scheduled tasks, under a new Automations page.
+- **QVD indexing progress (#564)** — real per-file indexing progress with stop, file size, and duration.
+- **WhatsApp fixes (#565)** — agent replies (text + data) are now delivered back to WhatsApp, and the account-verification page shows WhatsApp branding instead of Slack.
+
 ## Version 0.0.437 (July 7, 2026)
 - **OpenSearch data source connector (#560)** — indices, aliases and data streams become queryable with the query DSL, aggregations, or SQL.
 
