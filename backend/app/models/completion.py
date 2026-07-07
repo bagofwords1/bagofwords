@@ -241,12 +241,15 @@ def after_update_completion(mapper, connection, target):
         if target.step_id:
             data["step_id"] = str(target.step_id)
 
-        # Send completion blocks to Slack when completion finishes
+        # Send completion blocks to the chat platform when completion finishes.
+        # WhatsApp is driven through the same path as Slack (text answer + step
+        # data + eyes->checkmark reaction swap). Teams delivers via the
+        # per-block listeners in completion_block.py instead.
         if (target.status == "success" and
             target.role == "system" and
-            target.external_platform == "slack" and
+            target.external_platform in ("slack", "whatsapp") and
             target.external_user_id is not None):
-            
+
             logger.debug("SLACK_SENDER: Triggering completion blocks DM for completion %s", target.id)
             from app.models.completion_block import send_completion_blocks_to_slack
             asyncio.create_task(send_completion_blocks_to_slack(str(target.id)))

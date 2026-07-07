@@ -72,8 +72,8 @@ async def send_completion_blocks_to_slack(completion_id: str):
             if not completion:
                 return
 
-            # Route only if originated from Slack
-            if not (completion.external_platform in ('slack', 'teams') and completion.external_user_id):
+            # Route only if originated from a supported chat platform
+            if not (completion.external_platform in ('slack', 'teams', 'whatsapp') and completion.external_user_id):
                 return
 
             # Get thread context from completion
@@ -196,8 +196,8 @@ async def _send_block_to_slack(block_id: str):
             if not completion:
                 return
 
-            # Route only if originated from Slack
-            if not (completion.external_platform in ('slack', 'teams') and completion.external_user_id):
+            # Route only if originated from a supported chat platform
+            if not (completion.external_platform in ('slack', 'teams', 'whatsapp') and completion.external_user_id):
                 return
 
             block_id_str = str(block_id)
