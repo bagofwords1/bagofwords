@@ -10,6 +10,7 @@ from app.models.llm_model import LLMModel
 import re
 import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+from app.ai.agents.planner.clock import current_time_str
 from app.ai.schemas.codegen import CodeGenContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
@@ -32,6 +33,21 @@ class Coder:
         # Back-compat: accept either legacy builder or new context hub
         self.instruction_context_builder = instruction_context_builder
         self.context_hub = context_hub
+
+    def _time_context(self) -> str:
+        """Current-time line for codegen prompts, same clock the planner sees.
+
+        Rendered in the org's timezone/week-start/locale settings so relative
+        date phrases ("today", "last week") resolve consistently between the
+        planner and the generated code; server-local time when unset.
+        """
+        def _get(key):
+            try:
+                value = self.organization_settings.get_config(key)
+            except Exception:
+                value = getattr(self.organization_settings, key, None)
+            return value if isinstance(value, str) else None
+        return current_time_str(_get("timezone"), _get("week_start"), _get("locale"))
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages):
         # Implementation left out as not requested.
@@ -188,6 +204,9 @@ class Coder:
         {instructions_context}
 
         **Context and Inputs**:
+        - Current Time: {self._time_context()}
+          Resolve relative date expressions ("today", "last week", "this month") against this time, not the database server's clock.
+
         - Data Model (newly generated):
         <data_model>
         {data_model}
@@ -495,11 +514,14 @@ class Coder:
             {instructions_context}
 
             **Context and Inputs**:
+            - Current Time: {self._time_context()}
+              Resolve relative date expressions ("today", "last week", "this month") against this time, not the database server's clock.
+
             - User Prompt:
             <user_prompt>
             {prompt}
             </user_prompt>
-            
+
             - Interpreted Prompt:
             <interpreted_prompt>
             {interpreted_prompt}
@@ -722,6 +744,8 @@ class Coder:
         This is not for generating insights — insights come from create_data. This is just a quick peek.
 
         **Context and Inputs**:
+        - Current Time: {self._time_context()}
+
         - User Prompt (Validation Goal):
         <user_prompt>
         {prompt}
