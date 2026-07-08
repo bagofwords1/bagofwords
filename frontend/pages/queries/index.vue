@@ -191,7 +191,6 @@ const router = useRouter()
 const { t } = useI18n()
 const { data: authData } = useAuth()
 const { selectedAgents } = useAgent()
-const items = ref<EntityList[]>([])
 const allItems = ref<EntityList[]>([])
 const loading = ref(true)
 const page = ref(1)
@@ -209,8 +208,13 @@ const suggestedCount = computed(() => {
   }).length
 })
 
-// Filter items based on current filter type and user permissions
-const isPageEmpty = computed(() => !q.value && items.value.length === 0 && suggestedCount.value === 0)
+const publishedCount = computed(() => {
+  return allItems.value.filter(item => getEntityType(item) === 'global' && !isArchived(item)).length
+})
+
+// Full-page empty state only when there is genuinely nothing to show across
+// both tabs (no published entities, no drafts/suggestions) and no active search.
+const isPageEmpty = computed(() => !q.value && publishedCount.value === 0 && suggestedCount.value === 0)
 const filteredItems = computed(() => {
   let filtered = allItems.value
 
