@@ -707,8 +707,6 @@ class UsagePolicyService:
         if not has_feature("usage_limits") or amount <= 0:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
-        if limits.monthly_token_limit is None:
-            return
         await self._increment_counter(
             db,
             org_id=org_id,
@@ -747,15 +745,13 @@ class UsagePolicyService:
     ) -> None:
         """Record LLM spend (in micro-USD) against the monthly spend counter.
 
-        No-op unless the feature is on AND a spend cap is configured for the
-        user — mirroring record_llm_tokens, which skips counter writes when no
-        token cap applies.
+        Recorded whenever the feature is licensed, cap or no cap — the per-user
+        counters back the profile Usage tab, and always-on recording keeps a
+        cap accurate when an admin introduces one mid-month.
         """
         if not has_feature("usage_limits") or amount_micro_usd <= 0:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
-        if limits.monthly_spend_micro_usd is None:
-            return
         await self._increment_counter(
             db,
             org_id=org_id,
@@ -797,8 +793,6 @@ class UsagePolicyService:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
         data_bytes_limit = limits.data_bytes_limit_for_connection(connection_id)
-        if data_bytes_limit is None:
-            return
         await self._increment_counter(
             db,
             org_id=org_id,
@@ -838,8 +832,6 @@ class UsagePolicyService:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
         query_limit = limits.query_limit_for_connection(connection_id)
-        if query_limit is None:
-            return
         await self._increment_counter(
             db,
             org_id=org_id,

@@ -751,6 +751,14 @@ async function loadMcp() {
 }
 
 // --- Usage (per-user quota summary from whoami) ---
+// The summary rides on the whoami session, which is only refetched on window
+// focus — force a fresh snapshot whenever the tab is shown so the counters
+// reflect activity from the current session instead of page-load state.
+const { refreshQuotaIfStale } = useUsageQuota()
+function loadUsage() {
+  refreshQuotaIfStale({ force: true }).catch(() => {})
+}
+
 const emptyMetric = { used: 0, limit: null as number | null }
 const usage = computed(() => {
   const orgs = (currentUser.value as any)?.organizations || []
@@ -857,6 +865,7 @@ watch(isOpen, (open) => {
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()
     if (activeTab.value === 'mcp') loadMcp()
+    if (activeTab.value === 'usage') loadUsage()
   } else {
     // Reset one-time key reveal and force a fresh fetch on next open.
     newApiKey.value = null
@@ -869,5 +878,6 @@ watch(activeTab, (tab) => {
   if (tab === 'instructions') loadInstructions()
   if (tab === 'apiKeys') loadApiKeys()
   if (tab === 'mcp') loadMcp()
+  if (tab === 'usage') loadUsage()
 })
 </script>
