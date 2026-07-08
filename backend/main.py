@@ -368,6 +368,13 @@ async def check_db_connection():
 
 @app.on_event("startup")
 async def startup_event():
+    # Must run before any Oracle connection is opened; see the helper's docstring.
+    from app.data_sources.clients.oracledb_client import init_thick_mode_if_available
+    if init_thick_mode_if_available():
+        logger.info("Oracle Client libraries loaded — python-oracledb running in thick mode")
+    else:
+        logger.info("Oracle Client libraries not found — python-oracledb running in thin mode")
+
     try:
         # Check database connection first with retries
         await check_db_connection()

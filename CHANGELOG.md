@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.440 (July 8, 2026)
+- **Oracle thick-mode support for legacy servers (#548)** — Oracle connections to servers or accounts that python-oracledb thin mode can't handle (pre-12.1 versions, 10G-only password verifiers producing DPY-3015, Native Network Encryption) failed at connect time. The Docker image now bundles Oracle Instant Client 19c (amd64/arm64) and the backend switches the driver to thick mode at startup whenever the libraries are present — thick is a superset of thin, so existing connections are unaffected; hosts without the libraries (dev, airgapped) keep thin mode. Set `ORACLE_THICK_MODE=0` to force thin mode.
+- **Oracle TCPS (TLS) connections (#548)** — the Oracle connector gains a "Use TCPS (TLS)" toggle for listeners that only accept TLS-encrypted SQL*Net (plain-TCP clients get their connection reset), plus a "Verify SSL" option that can be disabled for internal-CA certificates (thin mode only — thick mode's TLS trust requires an Oracle wallet).
+
 ## Version 0.0.439 (July 7, 2026)
 - **ServiceNow connector (beta) (#563)** — new `servicenow` data source: query ITSM data (incidents, changes, problems, requests, CMDB, users) through the REST Table API with encoded queries. Bulk schema discovery from `sys_db_object`/`sys_dictionary` resolves inherited fields (incident ⊂ task) and turns reference fields into foreign keys; curated default table set with `tables` override and a `discover_all` mode for custom `u_*`/`x_*` tables; human-readable display values by default; actionable error when the instance user lacks metadata read access (a failure ServiceNow reports as HTTP 200 + empty result). Also fixes connection creation ignoring a registry entry's explicit `client_path`.
 

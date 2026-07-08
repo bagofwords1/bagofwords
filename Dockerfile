@@ -137,6 +137,39 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# Oracle Instant Client (Basic Light) lets python-oracledb run in "thick"
+# mode, which the backend enables at startup whenever these libraries are
+# present (see init_thick_mode_if_available in oracledb_client.py). Thin mode
+# cannot reach Oracle servers older than 12.1, accounts with 10G-only
+# password verifiers (DPY-3015), or Native Network Encryption (DPY-4011
+# "connection reset by peer"); thick mode handles all of these and is a
+# superset of thin. Pinned to 19c rather than 23c because the 19c client
+# connects to servers 11.2+ while 23c requires 19+. Install failure is
+# non-fatal so airgapped builds still succeed (the driver stays thin).
+RUN ARCH="$(dpkg --print-architecture)" && \
+    case "${ARCH}" in \
+      amd64) IC_ARCH="linux.x64"; GNU_TRIPLET="x86_64-linux-gnu" ;; \
+      arm64) IC_ARCH="linux.arm64"; GNU_TRIPLET="aarch64-linux-gnu" ;; \
+      *) IC_ARCH="" ;; \
+    esac && \
+    if [ -n "${IC_ARCH}" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends libaio1t64 unzip && \
+      ln -sf "/usr/lib/${GNU_TRIPLET}/libaio.so.1t64" "/usr/lib/${GNU_TRIPLET}/libaio.so.1" && \
+      (curl -fsSL -o /tmp/instantclient.zip \
+         "https://download.oracle.com/otn_software/linux/instantclient/1928000/instantclient-basiclite-${IC_ARCH}-19.28.0.0.0dbru.zip" && \
+       mkdir -p /opt/oracle && \
+       unzip -q /tmp/instantclient.zip -d /opt/oracle && \
+       ln -s /opt/oracle/instantclient_19_28 /opt/oracle/instantclient && \
+       echo /opt/oracle/instantclient > /etc/ld.so.conf.d/oracle-instantclient.conf && \
+       ldconfig \
+       || echo "WARN: Oracle Instant Client install failed; python-oracledb stays in thin mode") && \
+      rm -f /tmp/instantclient.zip && \
+      apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    else \
+      echo "WARN: no Oracle Instant Client build for ${ARCH}; python-oracledb stays in thin mode"; \
+    fi
+
 RUN groupadd -r app \
     && useradd -r -g app -m -d /home/app -s /usr/sbin/nologin app \
     && mkdir -p /home/app /app/backend/db /app/frontend \

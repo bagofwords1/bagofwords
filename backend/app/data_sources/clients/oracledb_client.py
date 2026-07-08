@@ -1,5 +1,9 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import os
+import ssl
+
+import oracledb
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
@@ -10,13 +14,43 @@ from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
 
+def init_thick_mode_if_available() -> bool:
+    """Load Oracle Client libraries (thick mode) when they are installed.
+
+    Called once at application startup, before any Oracle connection exists —
+    the mode is process-wide and cannot change after the first connection.
+    Thin mode (the pure-Python default) cannot talk to Oracle servers older
+    than 12.1, to accounts with only a 10G password verifier (DPY-3015), or
+    through Native Network Encryption (DPY-4011 "connection reset by peer").
+    Thick mode supports all of those plus everything thin mode does, so it is
+    preferred whenever the Instant Client libraries are present (bundled in
+    the Docker image). Hosts without the libraries keep thin mode unchanged.
+
+    Returns True when thick mode was enabled, False when staying thin.
+
+    Set ORACLE_THICK_MODE=0 to stay in thin mode even when the libraries are
+    installed — needed e.g. for TCPS with "Verify SSL" disabled, which only
+    thin mode supports (thick mode's TLS trust comes from an Oracle wallet).
+    """
+    if os.getenv("ORACLE_THICK_MODE", "").strip().lower() in ("0", "false", "off", "thin", "no"):
+        return False
+    try:
+        oracledb.init_oracle_client()
+        return True
+    except Exception:
+        return False
+
+
 class OracledbClient(DataSourceClient):
-    def __init__(self, host, port, service_name, user, password, schema: Optional[str] = None):
+    def __init__(self, host, port, service_name, user, password, schema: Optional[str] = None,
+                 use_tcps: bool = False, verify_ssl: bool = True):
         self.host = host
         self.port = port
         self.service_name = service_name
         self.user = user
         self.password = password
+        self.use_tcps = use_tcps
+        self.verify_ssl = verify_ssl
         # Optional schema or comma-separated list of schemas
         self.schema = schema
         self._schemas = []
@@ -37,13 +71,39 @@ class OracledbClient(DataSourceClient):
         )
         return uri
 
+    def _connect_args(self) -> dict:
+        """Extra DBAPI connect arguments for TCPS (TLS) connections.
+
+        The SQLAlchemy dialect builds a plain-TCP connect descriptor from the
+        URI, so for TCPS we override the dsn with an explicit descriptor —
+        connect_args take precedence over dialect-generated parameters.
+        Skipping certificate verification is only possible in thin mode
+        (ssl_context is a thin-only parameter; thick mode trusts wallets).
+        """
+        if not self.use_tcps:
+            return {}
+        args = {
+            "dsn": (
+                f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(HOST={self.host})(PORT={self.port}))"
+                f"(CONNECT_DATA=(SERVICE_NAME={self.service_name})))"
+            )
+        }
+        if not self.verify_ssl:
+            args["ssl_server_dn_match"] = False
+            if oracledb.is_thin_mode():
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                args["ssl_context"] = ctx
+        return args
+
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to an Oracle database."""
         engine = None
         conn = None
         try:
-            engine = sqlalchemy.create_engine(self.oracle_uri)
+            engine = sqlalchemy.create_engine(self.oracle_uri, connect_args=self._connect_args())
             conn = engine.connect()
             # Set current schema if provided (Oracle has no search_path; use first schema)
             if self._schemas:
