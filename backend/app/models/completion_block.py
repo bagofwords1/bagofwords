@@ -57,6 +57,10 @@ class CompletionBlock(BaseSchema):
 # Track text and tool-result sends independently so a block can send both once.
 _sent_block_text_ids = set()
 _sent_block_tool_ids = set()
+# Completions whose processing reaction has already been swapped to a checkmark.
+# The finish path can fire more than once (status flip, then transcript rebuild),
+# so this guards against re-swapping.
+_swapped_completion_ids = set()
 _block_locks: Dict[str, asyncio.Lock] = {}
 
 
@@ -91,6 +95,30 @@ async def send_completion_blocks_to_slack(completion_id: str):
             else:
                 response_channel = channel_id if channel_type == "channel" else None
 
+            # Resolve the platform + adapter BEFORE loading blocks so the
+            # eyes->checkmark reaction swap at the end always runs once the
+            # completion has finished — even if no transcript blocks are
+            # queryable yet. Background (chat) completions flip to
+            # status=success *before* their blocks finish persisting (the
+            # transcript rebuild/drain runs afterward), so this path can run
+            # with an empty/partial block set. The per-block listener
+            # (_send_block_to_slack) delivers the message text; this path owns
+            # the reaction swap and must not be gated on blocks being ready.
+            org_id = completion.report.organization_id if completion.report else None
+            if not org_id:
+                return
+
+            platform_stmt = select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == completion.external_platform
+            )
+            platform_result = await db.execute(platform_stmt)
+            platform = platform_result.scalar_one_or_none()
+            if not platform:
+                return
+
+            adapter = PlatformAdapterFactory.create_adapter(platform)
+
             # Get all terminal completion blocks for this completion, excluding knowledge harness
             blocks_stmt = (
                 select(CompletionBlock)
@@ -107,26 +135,7 @@ async def send_completion_blocks_to_slack(completion_id: str):
             blocks_result = await db.execute(blocks_stmt)
             blocks = blocks_result.scalars().all()
 
-            if not blocks:
-                return
-
-            # Resolve Slack platform for the organization
-            org_id = completion.report.organization_id if completion.report else None
-            if not org_id:
-                return
-
-            platform_stmt = select(ExternalPlatform).where(
-                ExternalPlatform.organization_id == org_id,
-                ExternalPlatform.platform_type == completion.external_platform
-            )
-            platform_result = await db.execute(platform_stmt)
-            platform = platform_result.scalar_one_or_none()
-            if not platform:
-                return
-
-            adapter = PlatformAdapterFactory.create_adapter(platform)
-
-            # Send each block as a separate message in the thread
+            # Send each block as a separate message in the thread (no-op if none yet)
             for block in blocks:
                 block_id_str = str(block.id)
                 lock = _block_locks.setdefault(block_id_str, asyncio.Lock())
@@ -159,12 +168,16 @@ async def send_completion_blocks_to_slack(completion_id: str):
                         except Exception as e:
                             print(f"Error sending step result for block {block.id}: {e}")
 
-            # After sending all blocks, swap reactions: remove eyes, add checkmark
-            if channel_id and message_ts:
+            # Once the completion has finished, swap the processing reaction:
+            # remove eyes, add checkmark. Guarded so repeated finish-updates
+            # (status flip, then transcript rebuild) don't re-swap.
+            if channel_id and message_ts and completion_id not in _swapped_completion_ids:
+                _swapped_completion_ids.add(completion_id)
                 try:
                     await adapter.remove_reaction(channel_id, message_ts, "eyes")
                     await adapter.add_reaction(channel_id, message_ts, "white_check_mark")
                 except Exception as e:
+                    _swapped_completion_ids.discard(completion_id)
                     print(f"Error updating reactions for completion {completion_id}: {e}")
 
         except Exception as e:
