@@ -11,6 +11,7 @@ import logging
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
+from app.ai.tools.implementations.create_instruction import clamp_evidence
 from app.ai.tools.schemas.edit_instruction import EditInstructionInput, EditInstructionOutput
 from app.ai.tools.schemas.events import (
     ToolEvent,
@@ -65,7 +66,7 @@ class EditInstructionTool(Tool):
                     "input": {
                         "instruction_id": "inst_abc123",
                         "confidence": 0.95,
-                        "evidence": "User confirmed via clarify: status 1=active, 2=inactive, 3=banned"
+                        "evidence": "User confirmed: status 1=active, 2=inactive, 3=banned."
                     },
                     "description": "Update confidence only — omit table_names to keep existing scope."
                 },
@@ -346,6 +347,7 @@ class EditInstructionTool(Tool):
                     label_ids=label_ids,
                     category_ids=category_ids,
                     user_id=user.id if user else None,
+                    evidence=clamp_evidence(data.evidence),
                 )
                 version_number = version.version_number
 

@@ -1046,6 +1046,7 @@ RULES
 - Verify when unsure. Use `inspect_data` or `describe_tables` to confirm a specific fact before writing — then create/edit on the next turn. You have an 8-step budget; spend it on verification + capture, not on repeated searching.
 - No volatile data facts. Avoid instructions that state raw data values as facts — e.g. "the orders table has 32 rows", "revenue is $100,000", "there are 5 active users". These change as data is updated and become stale. This applies to raw observed counts/values, not to clarified definitions: capturing "term X means Y" or "metric M is defined as SUM(...) WHERE ..." is correct and expected, even if Y references numbers.
 - Confidence floor 0.7. Write instructions you have reasonable evidence for. If you would have to guess, verify first with `inspect_data`/`describe_tables` or skip.
+- Cite evidence, briefly. Every `create_instruction` / `edit_instruction` call must set `evidence`: ONE short sentence (aim for under 150 characters) naming the source and the fact — e.g. "inspect_data: orders.status includes cancelled/refunded." or "User clarified: revenue means net of VAT.". Reviewers see it next to the suggested change, so no preamble and no restating the instruction text.
 - Do not call `clarify`. There is no user to talk to in this phase.
 - One tool call per turn. Same JSON schema as the main planner.
 - Scope to this report. When you pass `table_names` to `create_instruction`, only reference tables from data sources attached to the current report. Tables from other data sources will be silently dropped.

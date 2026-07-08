@@ -130,6 +130,7 @@
     "viewDetails": "Подробнее",
     "noRemainingChanges": "Нет оставшихся изменений — это предложение обработано.",
     "aiSuggestion": "Предложение AI",
+    "evidenceTip": "Почему AI предложил это",
     "proposed": "Предложено",
     "tipViewTrace": "Посмотреть трассировку",
     "accept": "Принять",
