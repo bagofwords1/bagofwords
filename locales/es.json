@@ -1,4 +1,16 @@
 {
+  "changelog": {
+    "menuItem": "Registro de cambios",
+    "title": "Novedades",
+    "subtitle": "Últimas actualizaciones y mejoras",
+    "latest": "Reciente",
+    "viewOnGithub": "Ver todas las versiones",
+    "retry": "Reintentar",
+    "errorTitle": "No se pudo cargar el registro de cambios",
+    "errorBody": "Algo salió mal al obtener las notas de la versión.",
+    "emptyTitle": "Aún no hay notas de la versión",
+    "changeCount": "{count} cambio | {count} cambios"
+  },
   "agentsPage": {
     "title": "Agentes",
     "subtitle": "Configura tus agentes y los datos, herramientas, habilidades e instrucciones con los que razonan.",
@@ -896,6 +908,8 @@
       "rowsFiltered": "{filtered}/{total} filas",
       "downloadPng": "Descargar como PNG",
       "downloadCsv": "Descargar como CSV",
+      "download": "Descargar",
+      "downloadExcel": "Descargar como Excel",
       "noData": "No hay datos disponibles.",
       "tabChart": "Gráfico",
       "tabData": "Datos",
@@ -961,6 +975,12 @@
       "queryScope": "prompts de {scope}",
       "queryThisAgent": "este agente",
       "queryAll": "todos los prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
@@ -2069,7 +2089,12 @@
   },
   "artifactFrame": {
     "loading": "Cargando…",
-    "loadingArtifact": "Cargando artefacto…"
+    "loadingArtifact": "Cargando artefacto…",
+    "refreshed": "Panel actualizado",
+    "refreshPartial": "Panel parcialmente actualizado",
+    "refreshFailed": "Error al actualizar el panel",
+    "refreshNothing": "Nada que actualizar",
+    "refreshSummary": "{succeeded} de {total} consultas actualizadas"
   },
   "filter": {
     "addFilters": "Añadir filtros",

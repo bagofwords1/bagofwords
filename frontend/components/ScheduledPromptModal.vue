@@ -107,6 +107,36 @@
                 </div>
             </div>
 
+            <!-- Output routing: run in this report vs a fresh report per run -->
+            <div class="mt-3">
+                <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('scheduledPrompt.outputLabel') }}</div>
+                <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit" data-testid="output-routing">
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded transition-colors"
+                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        data-testid="routing-same-report"
+                        @click="spawnNewReport = false"
+                    >
+                        <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
+                        {{ $t('scheduledPrompt.outputSameReport') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded transition-colors"
+                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        data-testid="routing-new-report"
+                        @click="spawnNewReport = true"
+                    >
+                        <Icon name="heroicons:document-plus" class="w-3 h-3" />
+                        {{ $t('scheduledPrompt.outputNewReport') }}
+                    </button>
+                </div>
+                <p class="mt-1 text-[11px] text-gray-400">
+                    {{ spawnNewReport ? $t('scheduledPrompt.outputNewReportHint') : $t('scheduledPrompt.outputSameReportHint') }}
+                </p>
+            </div>
+
             <!-- Active toggle (edit mode) -->
             <div v-if="isEditing" class="mt-3 flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('scheduledPrompt.active') }}</span>
@@ -196,6 +226,7 @@
 <script lang="ts" setup>
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '@/components/prompt/PromptBoxV2.vue'
+import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -228,6 +259,9 @@ const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || p
 const initialDataSources = computed(() => props.initialDataSources || [])
 
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
+// Output routing: false = run in this report (keeps cross-run memory),
+// true = spawn a fresh, dated report per run (clean snapshots).
+const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? false)
 
 // ---- Summary-email toggle + prompt-intent heuristic ----
 // Phrases that signal the prompt itself asks to email/notify the user. When the
@@ -264,7 +298,6 @@ const delayAmount = ref(1)
 const delayUnit = ref<'minutes' | 'hours' | 'days'>('hours')
 
 // Recurring structured inputs
-type RecurInterval = 'minutes' | 'hours' | 'day' | 'weekdays' | 'week' | 'month'
 const recurInterval = ref<RecurInterval>('day')
 const recurEveryN = ref(15)
 const recurHour = ref(8)
@@ -291,36 +324,13 @@ function toggleRecurDay(value: number) {
 }
 
 function parseCronToStructured(cron: string) {
-    if (!cron) return
-    const parts = cron.split(' ')
-    if (parts.length < 5) return
-    const [min, hour, dom, , dow] = parts
-    if (min.startsWith('*/')) {
-        recurInterval.value = 'minutes'
-        recurEveryN.value = parseInt(min.slice(2)) || 15
-    } else if (hour.startsWith('*/')) {
-        recurInterval.value = 'hours'
-        recurEveryN.value = parseInt(hour.slice(2)) || 1
-    } else if (dow === '1-5') {
-        recurInterval.value = 'weekdays'
-        recurHour.value = parseInt(hour) || 0
-    } else if (dom !== '*' && dow === '*') {
-        recurInterval.value = 'month'
-        recurHour.value = parseInt(hour) || 0
-        recurDayOfMonth.value = parseInt(dom) || 1
-    } else if (dow !== '*') {
-        recurInterval.value = 'week'
-        recurHour.value = parseInt(hour) || 0
-        // Parse a comma list of days ("1,3,5" -> [1,3,5]). Guard NaN but keep 0
-        // (Sunday). Fall back to Monday if nothing valid parsed.
-        const parsedDays = dow.split(',')
-            .map((d) => parseInt(d, 10))
-            .filter((d) => !Number.isNaN(d) && d >= 0 && d <= 6)
-        recurDays.value = parsedDays.length > 0 ? [...new Set(parsedDays)].sort((a, b) => a - b) : [1]
-    } else {
-        recurInterval.value = 'day'
-        recurHour.value = parseInt(hour) || 0
-    }
+    const patch = parseRecurringCron(cron)
+    if (!patch) return
+    if (patch.interval !== undefined) recurInterval.value = patch.interval
+    if (patch.everyN !== undefined) recurEveryN.value = patch.everyN
+    if (patch.hour !== undefined) recurHour.value = patch.hour
+    if (patch.days !== undefined) recurDays.value = patch.days
+    if (patch.dayOfMonth !== undefined) recurDayOfMonth.value = patch.dayOfMonth
 }
 
 // Hydrate the schedule form from the existing cron on setup. The watch below is
@@ -334,6 +344,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 // Reset form when scheduledPrompt changes
 watch(() => props.scheduledPrompt, (sp) => {
     isActive.value = sp?.is_active ?? true
+    spawnNewReport.value = sp?.spawn_new_report ?? false
     subscribers.value = (sp?.notification_subscribers || []).map((s: any) => ({ ...s }))
     promptText.value = sp?.prompt?.content || props.draftContent || ''
     if (sp) {
@@ -422,15 +433,13 @@ function computeCronSchedule(): string {
         const target = new Date(now.getTime() + delayAmount.value * multiplier * 60_000)
         return `${target.getMinutes()} ${target.getHours()} ${target.getDate()} ${target.getMonth() + 1} *`
     }
-    if (recurInterval.value === 'minutes') return `*/${recurEveryN.value} * * * *`
-    if (recurInterval.value === 'hours') return `0 */${recurEveryN.value} * * *`
-    if (recurInterval.value === 'weekdays') return `0 ${recurHour.value} * * 1-5`
-    if (recurInterval.value === 'week') {
-        const days = [...recurDays.value].sort((a, b) => a - b)
-        return `0 ${recurHour.value} * * ${(days.length > 0 ? days : [1]).join(',')}`
-    }
-    if (recurInterval.value === 'month') return `0 ${recurHour.value} ${recurDayOfMonth.value} * *`
-    return `0 ${recurHour.value} * * *`
+    return buildRecurringCron({
+        interval: recurInterval.value,
+        everyN: recurEveryN.value,
+        hour: recurHour.value,
+        days: recurDays.value,
+        dayOfMonth: recurDayOfMonth.value,
+    })
 }
 
 function buildNotificationSubscribers(): Subscriber[] | null {
@@ -474,6 +483,7 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
         prompt,
         cron_schedule: computeCronSchedule(),
         is_active: isActive.value,
+        spawn_new_report: spawnNewReport.value,
         notification_subscribers: buildNotificationSubscribers(),
     }
 

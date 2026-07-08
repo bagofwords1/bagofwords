@@ -261,8 +261,24 @@ class LDAPGroupSyncService:
         )
         existing_ids = set((await db.execute(stmt)).scalars().all())
 
+        # New members to create (users in LDAP groups but not yet in the org).
+        # Enforce the license seat cap: fill up to the remaining seats and skip the
+        # rest (sorted for a deterministic selection), logging the overflow — never
+        # abort the whole sync. Existing members are untouched (already excluded).
+        to_create = sorted(user_ids - existing_ids)
+        if to_create:
+            from app.core.seats import seats_remaining
+            remaining = await seats_remaining(db, organization_id)
+            if remaining is not None and len(to_create) > remaining:
+                logger.warning(
+                    "LDAP sync: %d new users would exceed the license seat cap for "
+                    "org %s; adding %d, skipping %d (raise seats to add the rest)",
+                    len(to_create), organization_id, remaining, len(to_create) - remaining,
+                )
+                to_create = to_create[:remaining]
+
         from app.core.permission_resolver import ensure_system_role_assignment
-        for user_id in user_ids - existing_ids:
+        for user_id in to_create:
             db.add(Membership(
                 user_id=user_id,
                 organization_id=organization_id,

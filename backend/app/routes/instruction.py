@@ -832,7 +832,10 @@ async def get_instruction_review_hunks(
     """Server-authoritative tracked changes for an instruction: every pending
     suggestion as word-level hunks diffed against current main (rejected hunks
     filtered out). The unit of accept/reject is the hunk."""
-    existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
+    # Light access check (row + attached data-source ids) — the review pane
+    # calls this endpoint per instruction and re-calls it after every hunk
+    # action, so it must not pay get_instruction's full detail eager graph.
+    existing = await instruction_service.get_instruction_access_view(db, instruction_id, organization)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
@@ -840,6 +843,7 @@ async def get_instruction_review_hunks(
     result = await instruction_service.review_hunks(db, instruction_id, organization=organization, current_user=current_user)
     if result is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
 
 

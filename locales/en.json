@@ -1,4 +1,16 @@
 {
+  "changelog": {
+    "menuItem": "Changelog",
+    "title": "What's New",
+    "subtitle": "Latest updates and improvements",
+    "latest": "Latest",
+    "viewOnGithub": "View all releases",
+    "retry": "Try again",
+    "errorTitle": "Couldn't load changelog",
+    "errorBody": "Something went wrong fetching the release notes.",
+    "emptyTitle": "No release notes yet",
+    "changeCount": "{count} change | {count} changes"
+  },
   "agentsPage": {
     "title": "Agents",
     "subtitle": "Configure your agents and the data, tools, skills and instructions they reason with.",
@@ -310,7 +322,8 @@
     "prompts": "Prompts",
     "starOnGithub": "Star our GitHub",
     "admin": "Admin",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "automations": "Automations"
   },
   "auth": {
     "signIn": "Login",
@@ -523,7 +536,9 @@
       "chat": "Chat",
       "createdViaMcp": "Created via MCP",
       "createdViaExcel": "Created via Excel",
-      "runningOnSchedule": "Running on a schedule"
+      "runningOnSchedule": "Running on a schedule",
+      "createdByTrigger": "Created by a trigger",
+      "createdBySchedule": "Created by a scheduled task"
     },
     "pagination": {
       "showing": "Showing {from} to {to} of {total} reports",
@@ -976,7 +991,9 @@
       "rows": "{count} rows",
       "rowsFiltered": "{filtered}/{total} rows",
       "downloadPng": "Download as PNG",
+      "download": "Download",
       "downloadCsv": "Download as CSV",
+      "downloadExcel": "Download as Excel",
       "noData": "No data is available.",
       "tabChart": "Chart",
       "tabData": "Data",
@@ -1042,6 +1059,12 @@
       "queryScope": "{scope} prompts",
       "queryThisAgent": "this agent",
       "queryAll": "all prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
@@ -1976,6 +1999,7 @@
     "disconnect": "Disconnect",
     "serviceAccountNote": "Queries run with the connection's service account.",
     "switchIdentityFailed": "Failed to switch query identity",
+    "stopIndexingFailed": "Failed to stop indexing",
     "autoReindex": "Auto-reindex schema",
     "autoReindexHint": "Periodically re-index this connection so tables stay fresh.",
     "autoReindexEnterprise": "Scheduled reindexing is an enterprise feature.",
@@ -2235,7 +2259,12 @@
   },
   "artifactFrame": {
     "loading": "Loading…",
-    "loadingArtifact": "Loading artifact…"
+    "loadingArtifact": "Loading artifact…",
+    "refreshed": "Dashboard refreshed",
+    "refreshPartial": "Dashboard partially refreshed",
+    "refreshFailed": "Dashboard refresh failed",
+    "refreshNothing": "Nothing to refresh",
+    "refreshSummary": "{succeeded} of {total} queries refreshed"
   },
   "filter": {
     "addFilters": "Add Filters",
@@ -2933,6 +2962,8 @@
     "schedule": "Schedule",
     "typeOnce": "One-time",
     "typeRecurring": "Recurring",
+    "scheduleOff": "Off",
+    "scheduleOn": "On",
     "runIn": "Run in",
     "unitMinutes": "min",
     "unitHours": "hr",
@@ -2981,7 +3012,12 @@
     "runNow": "Run now",
     "runNeedsPrompt": "Add a prompt before running",
     "toastRunStarted": "Run started",
-    "toastRunFailed": "Failed to start run"
+    "toastRunFailed": "Failed to start run",
+    "outputLabel": "Results",
+    "outputSameReport": "This report",
+    "outputNewReport": "New report per run",
+    "outputSameReportHint": "Runs land here — the agent remembers previous runs and can comment on trends.",
+    "outputNewReportHint": "Each run creates a fresh, dated report — a clean snapshot every time."
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -3178,5 +3214,60 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…"
+  },
+  "automations": {
+    "title": "Automations",
+    "scheduledTab": "Scheduled",
+    "triggersTab": "Triggers",
+    "scheduledDescription": "Recurring tasks that run on a schedule."
+  },
+  "triggers": {
+    "description": "Webhooks that spawn a new session on each event — runs as you, with your agents.",
+    "newTrigger": "New trigger",
+    "empty": "No triggers yet",
+    "emptyDescription": "Create a trigger to let external systems (alerts, CI, custom services) POST events that start a new session with your agents automatically.",
+    "loading": "Loading...",
+    "active": "Active",
+    "paused": "Paused",
+    "filter": "filter",
+    "noTask": "No task template — the AI filter authors the task per event",
+    "noAgents": "No agents",
+    "noAgentsAvailable": "No agents available",
+    "runs": "{n} runs",
+    "noRuns": "No sessions spawned yet",
+    "lastDelivery": "last delivery {time}",
+    "rotate": "Rotate signing key",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this trigger? Its delivery URL stops working immediately.",
+    "editTitle": "Edit trigger",
+    "newTitle": "New trigger",
+    "modalSubtitle": "Each accepted event spawns a new session with these agents.",
+    "copyOnce": "Copy now — shown only once",
+    "secret": "Key",
+    "name": "Name",
+    "namePlaceholder": "Production alerts",
+    "auth": "Auth",
+    "authToken": "Token header",
+    "authHmac": "HMAC (signed)",
+    "authUrlToken": "URL token",
+    "agents": "Agents",
+    "model": "Model",
+    "defaultModel": "Default model",
+    "mode": "Mode",
+    "modeChat": "Chat",
+    "modeDeep": "Deep Analytics",
+    "task": "Task",
+    "taskPlaceholder": "An alert fired. Investigate the affected data, find the likely root cause, and summarize findings with evidence.",
+    "taskHint": "The event payload is appended automatically as untrusted data.",
+    "classifierToggle": "Let AI decide whether each event warrants a run",
+    "classifierGuidance": "Guidance (optional)",
+    "classifierPlaceholder": "Only act on P1/P2 alerts; ignore heartbeats and staging.",
+    "activeToggle": "Active",
+    "save": "Save",
+    "create": "Create trigger",
+    "toastCreated": "Trigger created",
+    "toastSaved": "Trigger saved",
+    "toastDeleted": "Trigger deleted",
+    "saveFailed": "Could not save the trigger"
   }
 }

@@ -62,15 +62,34 @@ class PromptService:
         ]
 
     @staticmethod
-    def _can_access_all(resolved: ResolvedPermissions, data_sources: List[DataSource]) -> bool:
-        """Target can use every agent: explicit membership/grant OR the data
-        source is public — the same OR that filter_user_visible_data_sources
-        applies when reports attach data sources."""
+    def _can_access_all(data_sources: List[DataSource], member_ds_ids: set) -> bool:
+        """Principal can use every agent: the data source is public OR they hold
+        an EXPLICIT membership/grant on it (``member_ds_ids``).
+
+        This mirrors the default /agents list (data_source_service.
+        get_data_sources): the membership filter applies to admins too. Unlike
+        ResolvedPermissions.has_resource_membership, a full_admin does NOT
+        implicitly satisfy this — the member set is built from
+        get_member_data_source_ids, which deliberately does not short-circuit on
+        full_admin_access. Admins keep their manage/capability bypass on the
+        write and can_manage paths; only agent-prompt READ visibility is scoped
+        here so it matches what the admin sees on /agents."""
         return all(
-            getattr(ds, 'is_public', False)
-            or resolved.has_resource_membership('data_source', str(ds.id))
+            getattr(ds, 'is_public', False) or str(ds.id) in member_ds_ids
             for ds in data_sources
         )
+
+    @staticmethod
+    async def _member_ds_ids(db: AsyncSession, user_id: str, organization: Organization) -> set:
+        """Explicit-membership data-source ids for a principal, matching the
+        default /agents list. Does NOT short-circuit on full_admin — that is the
+        whole point of scoping agent-prompt visibility to what the admin has
+        actually joined."""
+        from app.core.permission_resolver import get_member_data_source_ids
+        return {
+            str(ds_id)
+            for ds_id in await get_member_data_source_ids(db, str(user_id), str(organization.id))
+        }
 
     @staticmethod
     def _can_manage_all(resolved: ResolvedPermissions, ds_ids: List[str]) -> bool:
@@ -80,17 +99,29 @@ class PromptService:
             return False
         return all(resolved.has_resource_permission('data_source', ds, 'manage') for ds in ds_ids)
 
-    def _is_visible(self, resolved: ResolvedPermissions, p: Prompt, user_id: str, active_dss: List[DataSource]) -> bool:
-        if FULL_ADMIN in resolved.org_permissions:
-            return True
+    def _is_visible(self, p: Prompt, user_id: str, active_dss: List[DataSource], member_ds_ids: set) -> bool:
+        """Whether ``user_id`` can resolve this prompt — the single source of
+        truth for both the prompt list/get and run-for target eligibility.
+
+        Note there is intentionally no full_admin short-circuit: agent-scoped
+        prompts are visible only to explicit members of ALL their active agents
+        (public agents count), so an admin sees the same agent prompts they see
+        agents for on /agents — no more. global/private and the write/manage
+        paths keep the admin bypass elsewhere."""
         if p.scope == 'global':
             return True
+        # The owner always sees their own prompt, whatever its scope — this is
+        # never a leak, and it keeps an author (incl. an admin who created an
+        # agent prompt via the manage bypass without joining the agent) from
+        # being locked out of the thing they just wrote.
+        if str(p.user_id) == str(user_id):
+            return True
         if p.scope == 'private':
-            return str(p.user_id) == str(user_id)
-        # agent
+            return False
+        # agent: visible to members of ALL active agents; hidden once none remain.
         if not active_dss:
-            return str(p.user_id) == str(user_id)
-        return self._can_access_all(resolved, active_dss)
+            return False
+        return self._can_access_all(active_dss, member_ds_ids)
 
     def _to_response(self, p: Prompt, resolved: ResolvedPermissions, user_id: str) -> dict:
         ds_ids = self._ds_ids(p)
@@ -117,6 +148,7 @@ class PromptService:
         limit: Optional[int] = None,
     ) -> dict:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        member_ds_ids = await self._member_ds_ids(db, current_user.id, organization)
         q = (
             select(Prompt)
             .filter(Prompt.organization_id == organization.id)
@@ -142,7 +174,7 @@ class PromptService:
         visible = []
         for p in prompts:
             active_dss = self._active_data_sources(p)
-            if not self._is_visible(resolved, p, str(current_user.id), active_dss):
+            if not self._is_visible(p, str(current_user.id), active_dss, member_ds_ids):
                 continue
             # Hide agent-scoped prompts whose agents are ALL gone/unusable
             # (inactive, disabled, or deleted). They can't be run and would
@@ -174,7 +206,8 @@ class PromptService:
     async def get_prompt_response(self, db, prompt_id, current_user, organization) -> dict:
         p = await self.get_prompt_or_404(db, prompt_id, organization)
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        if not self._is_visible(resolved, p, str(current_user.id), self._active_data_sources(p)):
+        member_ds_ids = await self._member_ds_ids(db, current_user.id, organization)
+        if not self._is_visible(p, str(current_user.id), self._active_data_sources(p), member_ds_ids):
             raise HTTPException(status_code=403, detail="Access denied to this prompt")
         return self._to_response(p, resolved, str(current_user.id))
 
@@ -491,8 +524,8 @@ class PromptService:
         eligible_ids: set = set()
         users = []
         for u in members:
-            t_resolved = await resolve_permissions(db, str(u.id), str(organization.id))
-            if not self._is_visible(t_resolved, prompt, str(u.id), active_dss):
+            t_member_ds_ids = await self._member_ds_ids(db, u.id, organization)
+            if not self._is_visible(prompt, str(u.id), active_dss, t_member_ds_ids):
                 continue
             eligible_ids.add(str(u.id))
             users.append({"id": str(u.id), "name": u.name, "email": u.email})
@@ -571,8 +604,8 @@ class PromptService:
             if target is None:
                 skipped.append(str(tid))
                 continue
-            t_resolved = await resolve_permissions(db, str(tid), str(organization.id))
-            if not self._is_visible(t_resolved, prompt, str(tid), active_dss):
+            t_member_ds_ids = await self._member_ds_ids(db, tid, organization)
+            if not self._is_visible(prompt, str(tid), active_dss, t_member_ds_ids):
                 skipped.append(str(tid))
                 continue
 

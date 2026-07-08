@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, get_current_organization
 from app.services.step_service import StepService
@@ -9,27 +9,48 @@ from app.core.permissions_decorator import requires_permission
 from app.ee.audit.service import audit_service
 import io
 import logging
+from urllib.parse import quote
 from app.schemas.step_schema import StepSchema
 
 router = APIRouter(tags=["steps"])
 step_service = StepService()
+
+# (maintype/subtype, file extension) per supported export format.
+_EXPORT_FORMATS = {
+    "csv": ("text/csv", "csv"),
+    "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+}
 
 @router.get("/steps/{step_id}/export", response_class=Response)
 @requires_permission('view_reports')
 async def export_step(
     step_id: str,
     request: Request,
+    format: str = Query("csv", description="Export format: 'csv' or 'xlsx'"),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    logging.info(f"CSV export request received for step {step_id}")
+    fmt = (format or "csv").lower()
+    if fmt not in _EXPORT_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Unsupported export format '{format}'. Use 'csv' or 'xlsx'.")
+
+    logging.info(f"{fmt.upper()} export request received for step {step_id}")
     try:
         df, step = await step_service.export_step_to_csv(db, step_id)
 
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_buffer.seek(0)
+        if fmt == "xlsx":
+            buffer = io.BytesIO()
+            # openpyxl is the default engine (declared in pyproject); Excel reads
+            # Unicode natively so no BOM/encoding handling is needed here.
+            df.to_excel(buffer, index=False)
+            content = buffer.getvalue()
+        else:
+            # utf-8-sig prepends a BOM so Excel auto-detects UTF-8 and renders
+            # non-ASCII headers/values (e.g. Hebrew) correctly instead of ANSI mojibake.
+            content = df.to_csv(index=False).encode("utf-8-sig")
+
+        media_type, extension = _EXPORT_FORMATS[fmt]
 
         try:
             await audit_service.log(
@@ -39,16 +60,22 @@ async def export_step(
                 user_id=current_user.id,
                 resource_type="step",
                 resource_id=step_id,
-                details={"format": "csv", "row_count": len(df)},
+                details={"format": fmt, "row_count": len(df)},
                 request=request,
             )
         except Exception:
             pass
 
-        response = Response(content=csv_buffer.getvalue(), media_type="text/csv")
+        response = Response(content=content, media_type=media_type)
         widget_title = "".join(c for c in step.widget.title if c.isalnum() or c in (' ', '_')).rstrip()
-        file_name = f"{widget_title}-{step.slug}.csv".replace(" ", "_")
-        response.headers["Content-Disposition"] = f"attachment; filename=\"{file_name}\""
+        file_name = f"{widget_title}-{step.slug}.{extension}".replace(" ", "_")
+        # HTTP headers are latin-1 only, so a Unicode (e.g. Hebrew) title would
+        # crash the response. Emit an ASCII fallback plus an RFC 6266 UTF-8
+        # filename* so clients still get the original name.
+        ascii_name = file_name.encode("ascii", "ignore").decode("ascii").strip("-_") or f"export.{extension}"
+        response.headers["Content-Disposition"] = (
+            f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(file_name)}"
+        )
         return response
 
     except ValueError as e:
@@ -56,7 +83,7 @@ async def export_step(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logging.error(f"Error in export_step route for step {step_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error during export: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Internal server error during export: {str(e)}")
 
 
 @router.get("/steps/{step_id}", response_model=StepSchema)

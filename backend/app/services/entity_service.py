@@ -472,7 +472,10 @@ class EntityService:
             ds_clients.update(ds_conns)
         excel_files = []
 
-        executor = StreamingCodeExecutor()
+        # Pass organization_settings so widget serialization honors the org's
+        # limit_row_count instead of falling back to the hardcoded 1000-row cap.
+        org_settings = await organization.get_settings(db) if organization else None
+        executor = StreamingCodeExecutor(organization_settings=org_settings)
         try:
             exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)
@@ -534,7 +537,10 @@ class EntityService:
             ds_clients.update(ds_conns)
         excel_files = []
 
-        executor = StreamingCodeExecutor()
+        # Pass organization_settings so widget serialization honors the org's
+        # limit_row_count instead of falling back to the hardcoded 1000-row cap.
+        org_settings = await organization.get_settings(db) if organization else None
+        executor = StreamingCodeExecutor(organization_settings=org_settings)
         try:
             exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)

@@ -263,7 +263,10 @@ class QueryService:
         org = await db.get(Organization, str(organization_id or report.organization_id)) if (organization_id or getattr(report, "organization_id", None)) else None
         loadables = await resolve_loadables_for_code(db, org, report, run_user, step.code)
         usage_context = self._usage_context(organization_id, user_id, source="query_run", source_ref_id=query_id)
-        executor = StreamingCodeExecutor(usage_context=usage_context)
+        # Pass organization_settings so widget serialization honors the org's
+        # limit_row_count instead of falling back to the hardcoded 1000-row cap.
+        org_settings = await org.get_settings(db) if org else None
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(
                 code=step.code,
@@ -331,6 +334,9 @@ class QueryService:
         1) Query.default_step_id
         2) Latest successful step by widget
         3) Latest step by widget
+
+        report_service._rerun_target_steps mirrors this resolution so report
+        reruns re-execute exactly what dashboards render — keep them in sync.
 
         Scoped to the caller's organization: a query owned by a different
         org returns None (and the route decorator returns 404 first).
@@ -401,7 +407,12 @@ class QueryService:
             ds_clients.update(ds_conns)
         excel_files = report.files
         usage_context = self._usage_context(organization_id, user_id, source="query_preview", source_ref_id=query_id)
-        executor = StreamingCodeExecutor(usage_context=usage_context)
+        # Pass organization_settings so widget serialization honors the org's
+        # limit_row_count instead of falling back to the hardcoded 1000-row cap.
+        from app.models.organization import Organization
+        org = await db.get(Organization, str(organization_id or report.organization_id)) if (organization_id or getattr(report, "organization_id", None)) else None
+        org_settings = await org.get_settings(db) if org else None
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
 
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(

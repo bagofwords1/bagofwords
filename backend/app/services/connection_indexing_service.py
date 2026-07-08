@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.data_sources.clients.progress import IndexingCancelled
 from app.models.connection import Connection
 from app.models.connection_indexing import (
     ConnectionIndexing,
@@ -33,6 +34,30 @@ from app.models.connection_indexing import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# Cooperative cancellation. Keyed by indexing_id. The request thread sets the
+# event via `request_cancel`; the runner thread (and the clients it drives via
+# progress/cancel checks) poll it and abort at the next checkpoint — between
+# schema items and, crucially, mid QVD→Parquet convert so a 40-minute job can
+# actually be stopped. Guarded by a lock because setter and reader live on
+# different threads.
+_cancel_events: dict[str, threading.Event] = {}
+_cancel_lock = threading.Lock()
+
+
+def _get_cancel_event(indexing_id: str) -> threading.Event:
+    with _cancel_lock:
+        ev = _cancel_events.get(indexing_id)
+        if ev is None:
+            ev = threading.Event()
+            _cancel_events[indexing_id] = ev
+        return ev
+
+
+def _clear_cancel_event(indexing_id: str) -> None:
+    with _cancel_lock:
+        _cancel_events.pop(indexing_id, None)
 
 
 # A single daemon thread runs an event loop for the whole process — any thread
@@ -106,6 +131,17 @@ _PROGRESS_FLUSH_SECONDS = 0.25
 _EVENT_LOG_MAX = 200
 
 
+def _human_bytes(n: int) -> str:
+    """Compact human-readable size (e.g. 1.5 GB) for indexing log lines."""
+    step = 1024.0
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < step or unit == "TB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= step
+    return f"{size:.1f} PB"
+
+
 class ConnectionIndexingService:
     """Create, poll, and (internally) run `ConnectionIndexing` rows."""
 
@@ -142,6 +178,34 @@ class ConnectionIndexingService:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def request_cancel(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+    ) -> Optional[ConnectionIndexing]:
+        """Request cancellation of the active indexing run for a connection.
+
+        Signals the running task to stop cooperatively (kills an in-flight QVD
+        convert subprocess mid-stream) and optimistically marks the row
+        `cancelled` so polling reflects it immediately. The runner re-checks the
+        cancel event before finalizing and will not flip a cancelled row back to
+        completed. Returns the row, or None if nothing was active.
+        """
+        row = await self.get_active(db, connection_id)
+        if row is None:
+            return None
+        _get_cancel_event(str(row.id)).set()
+        row.status = ConnectionIndexingStatus.CANCELLED.value
+        row.finished_at = datetime.utcnow()
+        row.error = "Cancelled by user"
+        await db.commit()
+        await db.refresh(row)
+        logger.info(
+            "indexing.cancel.requested",
+            extra={"connection_id": str(connection_id), "indexing_id": str(row.id)},
+        )
+        return row
 
     async def wait_for_active(
         self,
@@ -220,6 +284,10 @@ class ConnectionIndexingService:
         # and must post their flush coroutine BACK to this loop.
         runner_loop = asyncio.get_running_loop()
         start = time.perf_counter()
+
+        # Cancellation flag for this run — set by `request_cancel` from a request
+        # thread, polled here and inside the client's schema/warm loops.
+        cancel_event = _get_cancel_event(indexing_id)
 
         # Dedicated NullPool engine for this run — see
         # `create_async_database_engine_for_indexing` for the rationale.
@@ -335,9 +403,13 @@ class ConnectionIndexingService:
                     await _maybe_log_phase_event(snap["phase"], snap["total"])
 
                 def progress_cb(phase, current_item, done, total):
-                    # Called from inside `asyncio.to_thread(get_schemas)` — a
-                    # worker thread. Update state under a lock so the runner
-                    # loop never reads a torn (phase, item, done, total).
+                    # Called from inside `asyncio.to_thread(...)` — a worker
+                    # thread (schema discovery or warm/convert). Raising here
+                    # aborts that loop promptly on cancel.
+                    if cancel_event.is_set():
+                        raise IndexingCancelled()
+                    # Update state under a lock so the runner loop never reads a
+                    # torn (phase, item, done, total).
                     with state_lock:
                         pending_state["phase"] = phase
                         pending_state["item"] = current_item
@@ -368,6 +440,9 @@ class ConnectionIndexingService:
                             current_user=None,
                             progress_callback=progress_cb,
                         )
+                except IndexingCancelled:
+                    await self._finalize_cancelled(_new_session, indexing_id, _append_event, _state_snapshot)
+                    return
                 except Exception as exc:  # pragma: no cover — surface via row
                     logger.exception("indexing.run.failed", extra={"indexing_id": indexing_id})
                     # Use a fresh session — the service may have rolled back.
@@ -390,24 +465,50 @@ class ConnectionIndexingService:
                     await _append_event("error", _state_snapshot()["phase"], f"Indexing failed: {exc}")
                     return
 
-                # Force one final flush so progress ends at the true total.
+                # Force one final flush so schema-phase progress ends at its total.
                 await _flush(force=True)
 
+                # ── Warm phase — the expensive part for file-based sources. ──
+                # For QVD this is the 40-minute QVD→Parquet convert. We now run it
+                # *inside* the tracked run (awaited, progress-reported, cancellable)
+                # so the bar reflects real work and doesn't settle at 100% while a
+                # long convert is still churning in the background. Warm failures
+                # are non-fatal: the catalog is already indexed and the scheduled
+                # warmup retries the convert.
+                extra_stats: dict = {}
                 if not is_tool_provider:
-                    # Pre-warm any local caches (e.g. QVD → Parquet) so the first
-                    # query after indexing hits a warm cache. Fire-and-forget so the
-                    # indexing row completes immediately; warm failures are logged inside awarm_all.
                     try:
                         client = await svc.construct_client(db, connection)
-                        asyncio.ensure_future(client.awarm_all())
+                        await client.awarm_all(
+                            progress_callback=progress_cb,
+                            cancel_check=cancel_event.is_set,
+                        )
+                        extra_stats = client.index_stats() or {}
+                        await _flush(force=True)
+                    except IndexingCancelled:
+                        await self._finalize_cancelled(
+                            _new_session, indexing_id, _append_event, _state_snapshot
+                        )
+                        return
                     except HTTPException as exc:
                         # Expected for user_required connections: warming runs in a
                         # background context with no current_user, so credential
                         # resolution returns 403. The first user-initiated query warms
                         # the cache instead. Log cleanly without a scary traceback.
                         logger.debug("indexing.warm.skipped status=%s detail=%s", exc.status_code, exc.detail)
-                    except Exception:
-                        logger.debug("indexing.warm.skipped", exc_info=True)
+                    except Exception as warm_exc:
+                        logger.warning("indexing.warm.failed", exc_info=True)
+                        await _append_event(
+                            "warn", _state_snapshot()["phase"],
+                            f"Cache warm failed (catalog still indexed): {warm_exc}",
+                        )
+
+                # A cancel that arrived during sync/finalize still wins.
+                if cancel_event.is_set():
+                    await self._finalize_cancelled(
+                        _new_session, indexing_id, _append_event, _state_snapshot
+                    )
+                    return
 
                 synced_domains = 0
                 if not is_tool_provider:
@@ -431,6 +532,7 @@ class ConnectionIndexingService:
                     count_key: item_count,
                     "synced_domains": synced_domains,
                     "elapsed_s": elapsed_s,
+                    **extra_stats,  # source_bytes / file_count / row_count for file sources
                 }
                 # Ensure progress_done == progress_total so the UI settles at 100%.
                 if fresh.progress_total and fresh.progress_done < fresh.progress_total:
@@ -438,12 +540,22 @@ class ConnectionIndexingService:
                 await db.commit()
 
                 item_label = "tool(s)" if is_tool_provider else "table(s)"
+                size_note = ""
+                if extra_stats.get("source_bytes"):
+                    size_note = f" ({_human_bytes(extra_stats['source_bytes'])})"
                 await _append_event(
                     "info", _state_snapshot()["phase"],
-                    f"Completed: {item_count} {item_label} in {elapsed_s}s",
+                    f"Completed: {item_count} {item_label} in {elapsed_s}s{size_note}",
                     done=item_count, total=item_count,
                 )
 
+        except IndexingCancelled:
+            # A cancel that surfaced outside the inner handlers — treat as a
+            # clean stop, never a failure.
+            try:
+                await self._finalize_cancelled(_new_session, indexing_id, _append_event, _state_snapshot)
+            except Exception:
+                pass
         except Exception as exc:  # pragma: no cover — last-ditch guard
             logger.exception("indexing.run.crash", extra={"indexing_id": indexing_id})
             try:
@@ -457,10 +569,42 @@ class ConnectionIndexingService:
             except Exception:
                 pass
         finally:
+            _clear_cancel_event(indexing_id)
             try:
                 await engine.dispose()
             except Exception:
                 logger.debug("indexing.engine_dispose_failed", exc_info=True)
+
+    async def _finalize_cancelled(
+        self,
+        new_session,
+        indexing_id: str,
+        append_event,
+        state_snapshot,
+    ) -> None:
+        """Mark a run cancelled from inside the runner. Idempotent: if
+        `request_cancel` already flipped the row (the common path), we only
+        stamp finished_at/error when still missing and log the stop event once.
+        """
+        try:
+            async with new_session() as db:
+                fresh = await db.get(ConnectionIndexing, indexing_id)
+                if fresh is None:
+                    return
+                already_cancelled = fresh.status == ConnectionIndexingStatus.CANCELLED.value
+                fresh.status = ConnectionIndexingStatus.CANCELLED.value
+                if fresh.finished_at is None:
+                    fresh.finished_at = datetime.utcnow()
+                if not fresh.error:
+                    fresh.error = "Cancelled by user"
+                await db.commit()
+        except Exception:
+            logger.debug("indexing.finalize_cancelled_failed", exc_info=True)
+        try:
+            await append_event("warn", state_snapshot()["phase"], "Indexing cancelled")
+        except Exception:
+            pass
+        logger.info("indexing.cancelled", extra={"indexing_id": indexing_id})
 
     async def _sync_linked_data_sources(
         self,

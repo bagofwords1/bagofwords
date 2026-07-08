@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Optional
 
-from app.data_sources.clients.progress import ProgressCallback
+from app.data_sources.clients.progress import CancelCheck, ProgressCallback
 
 
 class Capability(str, Enum):
@@ -15,12 +15,21 @@ class Capability(str, Enum):
     LIST_FILES + READ_FILE. A single client may declare both — e.g. SharePoint
     declaring LIST_FILES + READ_FILE for general files and QUERY for promoted
     spreadsheet ranges.
+
+    WRITE_FILE is the only mutating file capability: a client that declares it
+    can create/overwrite files back in the source (e.g. a writable network
+    directory). Read-only file sources must NOT declare it. Because write is a
+    trust-sensitive operation, clients gate it per-instance — the class may
+    advertise WRITE_FILE (so the write tool shows in the catalog) while a
+    read-only instance drops it from `self.capabilities` so runtime resolution
+    rejects the call.
     """
 
     QUERY = "query"
     LIST_FILES = "list_files"
     READ_FILE = "read_file"
     SEARCH_FILES = "search_files"
+    WRITE_FILE = "write_file"
 
 
 def _accepts_progress_callback(fn) -> bool:
@@ -118,9 +127,25 @@ class DataSourceClient(ABC):
         """Async alias for aexecute_query (mirrors the sync `query` alias)."""
         return await self.aexecute_query(*args, **kwargs)
 
-    async def awarm_all(self) -> list:
-        """Pre-warm any local caches needed before queries. No-op for most clients."""
+    async def awarm_all(
+        self,
+        progress_callback: Optional[ProgressCallback] = None,
+        cancel_check: Optional[CancelCheck] = None,
+    ) -> list:
+        """Pre-warm any local caches needed before queries. No-op for most clients.
+
+        Clients whose warm step is the expensive part of indexing (e.g. QVD →
+        Parquet conversion) override this to report `progress_callback` as they
+        work and to honor `cancel_check` between chunks so the run can be
+        stopped. Base is a no-op that ignores both.
+        """
         return []
+
+    def index_stats(self) -> dict:
+        """Extra stats to fold into the indexing row after warming — e.g.
+        `source_bytes`, `file_count`, `row_count` for file-based sources so the
+        UI can show how big the indexed data was. Default empty."""
+        return {}
 
     # File-shaped capabilities. Default implementations raise NotImplementedError;
     # clients that declare LIST_FILES / READ_FILE / SEARCH_FILES override.
@@ -145,6 +170,32 @@ class DataSourceClient(ABC):
         """Free-text search over the connection's accessible files."""
         raise NotImplementedError("search_files not supported by this client")
 
+    def write_file(
+        self,
+        filename: str,
+        content: Any,
+        folder_id: Optional[str] = None,
+        overwrite: bool = False,
+        **kwargs,
+    ) -> dict:
+        """Create (or overwrite) a file in the source. Mutating — only clients
+        that declare Capability.WRITE_FILE implement this.
+
+        Args:
+            filename: Target file name (may include a relative folder path,
+                e.g. "contracts/acme.pdf"). Resolved under the connection's
+                configured root; path traversal outside the root is rejected.
+            content: The bytes or text to write. `str` is written as UTF-8.
+            folder_id: Optional destination folder (client-specific id/path).
+                None means the connection's configured root.
+            overwrite: If False (default) and the target exists, raise instead
+                of clobbering it.
+
+        Returns a dict describing the written file:
+            {id, name, path, size, modified_at, web_url}
+        """
+        raise NotImplementedError("write_file not supported by this client")
+
     async def alist_files(self, folder_id: Optional[str] = None, recursive: bool = False) -> list:
         return await asyncio.to_thread(self.list_files, folder_id, recursive)
 
@@ -153,3 +204,15 @@ class DataSourceClient(ABC):
 
     async def asearch_files(self, query: str, **kwargs) -> list:
         return await asyncio.to_thread(self.search_files, query, **kwargs)
+
+    async def awrite_file(
+        self,
+        filename: str,
+        content: Any,
+        folder_id: Optional[str] = None,
+        overwrite: bool = False,
+        **kwargs,
+    ) -> dict:
+        return await asyncio.to_thread(
+            self.write_file, filename, content, folder_id, overwrite, **kwargs
+        )

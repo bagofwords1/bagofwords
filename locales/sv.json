@@ -886,6 +886,8 @@
       "rowsFiltered": "{filtered}/{total} rader",
       "downloadPng": "Ladda ner som PNG",
       "downloadCsv": "Ladda ner som CSV",
+      "download": "Ladda ner",
+      "downloadExcel": "Ladda ner som Excel",
       "noData": "Ingen data tillgänglig.",
       "tabChart": "Diagram",
       "tabData": "Data",
@@ -951,6 +953,12 @@
       "queryScope": "{scope}-prompter",
       "queryThisAgent": "den här agenten",
       "queryAll": "alla prompter"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
@@ -1989,7 +1997,12 @@
   },
   "artifactFrame": {
     "loading": "Laddar…",
-    "loadingArtifact": "Laddar artefakt…"
+    "loadingArtifact": "Laddar artefakt…",
+    "refreshed": "Instrumentpanelen uppdaterad",
+    "refreshPartial": "Instrumentpanelen delvis uppdaterad",
+    "refreshFailed": "Det gick inte att uppdatera instrumentpanelen",
+    "refreshNothing": "Inget att uppdatera",
+    "refreshSummary": "{succeeded} av {total} frågor uppdaterade"
   },
   "filter": {
     "addFilters": "Lägg till filter",

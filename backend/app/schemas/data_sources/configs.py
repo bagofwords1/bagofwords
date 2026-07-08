@@ -228,6 +228,39 @@ class SalesforceConfig(BaseModel):
     domain: str = Field("login", title="Domain", description="", json_schema_extra={"ui:type": "string"})
 
 
+# ServiceNow
+class ServiceNowCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class ServiceNowConfig(BaseModel):
+    instance_url: str = Field(
+        ...,
+        title="Instance URL",
+        description="Your ServiceNow instance URL, e.g. https://acme.service-now.com",
+        json_schema_extra={"ui:type": "string"}
+    )
+    tables: Optional[str] = Field(
+        None,
+        title="Tables",
+        description="Optional comma-separated list of tables to expose. If empty, uses a curated set of common ITSM tables.",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+    discover_all: bool = Field(
+        False,
+        title="Discover All Tables",
+        description="Discover all business tables including custom (u_/x_) tables instead of the curated set.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    display_values: bool = Field(
+        True,
+        title="Display Values",
+        description="Return human-readable display values for reference and choice fields.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
 # Service Demo
 class ServiceDemoCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="", json_schema_extra={"ui:type": "string"})
@@ -635,6 +668,62 @@ class MongoDBConfig(BaseModel):
     )
 
 
+# OpenSearch
+class OpenSearchCredentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User",
+        description="Username for HTTP basic authentication (OpenSearch security plugin).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP basic authentication.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class OpenSearchNoAuthCredentials(BaseModel):
+    """Clusters with the security plugin disabled or network-gated access."""
+    pass
+
+
+class OpenSearchConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="OpenSearch host (e.g. localhost) or full URL (e.g. https://search.example.com:9200)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    port: int = Field(
+        9200,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="OpenSearch REST port (default: 9200). Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "number"}
+    )
+    secure: bool = Field(
+        False,
+        title="Use HTTPS",
+        description="Connect over HTTPS. Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    verify_certs: bool = Field(
+        True,
+        title="Verify TLS Certificates",
+        description="Disable only for clusters using self-signed demo certificates.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    index_pattern: Optional[str] = Field(
+        None,
+        title="Index Pattern",
+        description="Optional comma-separated index names or globs to expose (e.g. logs-*,orders). Default: all non-system indices.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Azure Data Explorer (Kusto)
 class AzureDataExplorerCredentials(BaseModel):
     client_id: str = Field(..., title="Client ID", description="Azure AD Application (Client) ID", json_schema_extra={"ui:type": "string"})
@@ -1022,6 +1111,66 @@ class GoogleDriveConfig(BaseModel):
     """Google Drive needs no admin-side configuration — each user's OAuth
     token determines what files are visible."""
     pass
+
+
+# Network Directory (local / mounted file share — SMB/NFS/local path)
+class NetworkDirCredentials(BaseModel):
+    """A network directory is accessed via the filesystem (a local path or an
+    already-mounted SMB/NFS share), so the app itself needs no credentials —
+    mount-level auth is handled by the OS. `extra = 'allow'` keeps the schema
+    forgiving if a deployment later stashes mount hints here."""
+    class Config:
+        extra = "allow"
+
+
+class NetworkDirConfig(BaseModel):
+    root_path: str = Field(
+        ...,
+        title="Directory Path",
+        description=(
+            "Absolute path to the directory to expose (a local folder or an "
+            "already-mounted network share, e.g. '/mnt/contracts'). All reads, "
+            "searches and writes are confined to this directory."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of file extensions to include (e.g. 'csv,xlsx,pdf,png'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    recursive: bool = Field(
+        True,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders when listing / searching.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    writable: bool = Field(
+        False,
+        title="Allow Writes",
+        description=(
+            "Permit the agent to create / overwrite files in this directory "
+            "(the write_file tool). Leave off for a read-only connection."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_file_mb: int = Field(
+        100,
+        title="Max File Size (MB)",
+        description="Skip files larger than this when reading. Guards against loading huge files into memory.",
+        json_schema_extra={"ui:type": "number"}
+    )
+    index_content: bool = Field(
+        True,
+        title="Index File Contents",
+        description=(
+            "When indexing the directory, extract keywords from each file's "
+            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
+            "files by topic quickly. Turn off to index filenames only."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 # QVD Files (QlikView Data)

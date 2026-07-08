@@ -113,8 +113,10 @@ async function fetchPrompts(q: string) {
 
 async function fetchAgents() {
   try {
-    const res: any = await useMyFetch('/data_sources', { method: 'GET' })
-    const list = res?.data?.value ?? []
+    // Reuse the shared agent list (deduped/cached in useAgent) instead of
+    // firing another GET /data_sources — the layout already loads it.
+    await initAgent()
+    const list: any[] = (sharedAgents.value as any[]) ?? []
     // newest first for the "recent" default view
     agentItemsRaw.value = [...list].sort((a: any, b: any) =>
       new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
@@ -293,7 +295,7 @@ function onPromptParamsConfirm(values: Record<string, any>) {
 }
 
 // --- actions ---
-const { initAgent, selectedAgentObjects } = useAgent()
+const { initAgent, selectedAgentObjects, agents: sharedAgents } = useAgent()
 const creatingReport = ref(false)
 async function createReport(initialPrompt: string, mentions: any[] = []) {
   if (creatingReport.value) return
@@ -343,5 +345,4 @@ function onInstructionSaved() {
   showInstructionModal.value = false
 }
 
-onMounted(() => { initAgent() })
 </script>

@@ -1,0 +1,266 @@
+# Feedback Loop — OpenSearch connector
+
+Adds an **OpenSearch** data source connector: a `DataSourceClient` subclass
+speaking plain REST (no engine SDK), Pydantic config/credentials schemas, and
+a `REGISTRY` entry (beta). Design doc:
+`docs/design/opensearch-connector.md`. This is the runnable loop used to build
+and validate it in a fresh cloud sandbox — Loop A is fully mocked, Loop B runs
+a real populated OpenSearch 2.19.1 in the sandbox.
+
+## What was added
+
+| Layer | File | Change |
+|-------|------|--------|
+| Client | `backend/app/data_sources/clients/opensearch_client.py` | New `OpenSearchClient(DataSourceClient)` (+ `OpensearchClient` alias for dynamic naming) |
+| Config | `backend/app/schemas/data_sources/configs.py` | `OpenSearchConfig`, `OpenSearchCredentials`, `OpenSearchNoAuthCredentials` |
+| Registry | `backend/app/schemas/data_source_registry.py` | `"opensearch"` entry: explicit `client_path`, `data_shape="objects"`, `version="beta"` |
+| Driver | — | none: plain `requests` (already a dependency), no Dockerfile change |
+| Icon | `frontend/public/data_sources_icons/opensearch.png` | Official mark (darkmode variant, per request) |
+| Unit tests | `backend/tests/unit/test_opensearch_client.py` | 37 tests, transport mocked |
+| Integration | `backend/tests/integrations/ds_clients.py` | `opensearch` in `DATA_SOURCES`; `_OpenSearchContainer` + new generic `seed_fn` hook in `CONTAINER_REGISTRY` (the `seed_sql` path is SQLAlchemy-only) |
+
+Key design points (rationale in the design doc):
+
+- **Schema = the index mapping.** `get_schemas()` is one bulk `GET /_mapping`
+  (+ `GET /_alias`): no document sampling. Fields flatten to dot-path columns
+  using the MongoDB client's conventions — `object` recurses
+  (`customer.tier`), `nested` gets an `array` column plus `items[].sku`
+  children, multi-fields surface (`title.keyword`) so the coder can pick the
+  aggregatable variant. `.`-prefixed system indices are excluded; aliases
+  surface as union tables.
+- **Queries** are a JSON envelope over `POST /{index}/_search` (query DSL +
+  aggregations, whitelisted keys, `size` defaults 100 / 0-with-aggs, result
+  window capped at 10k), with a `{"sql": ...}` escape hatch to the bundled
+  SQL plugin. Agg results flatten recursively: bucket levels become key
+  columns, metric leaves become value columns.
+- **Auth**: HTTP basic (security plugin default) or none (system scope only);
+  `verify_certs` toggle for self-signed demo certs; `host` accepts a full URL.
+
+## Environment setup (fresh sandbox)
+
+```bash
+cd backend
+pip install uv
+uv sync --frozen --extra dev
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+mkdir -p db
+```
+
+## Loop A — unit validation (no live OpenSearch)
+
+Self-contained: `requests.request` is monkeypatched at the module boundary
+with a `{(method, path): response}` routing table. Covers URL/auth/TLS
+construction, mapping flattening (object / nested / multi-field), system-index
+exclusion, alias union, envelope validation, hits→DataFrame, size defaults and
+the 10k window cap, aggregation flattening (terms+metrics, nested levels,
+date_histogram `key_as_string`, `filters` dict buckets, stats, percentiles,
+unknown-shape fallback), SQL escape hatch, `test_connection`, and registry
+wiring.
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+uv run pytest tests/unit/test_opensearch_client.py -q
+```
+
+**Observed (PASS):** `37 passed, 207 warnings in 73.10s`
+
+Registry + e2e regression legs:
+
+```bash
+uv run python -c "from app.schemas.data_source_registry import resolve_client_class; print(resolve_client_class('opensearch'))"
+# <class 'app.data_sources.clients.opensearch_client.OpenSearchClient'>
+uv run pytest tests/e2e/test_data_source.py tests/e2e/test_connection.py --db=sqlite -q
+# 11 passed, 1158 warnings in 41.99s
+```
+
+## Loop B — live confirmation (real OpenSearch in the sandbox) — RUN
+
+The sandbox has Docker but **dockerd is not started**; boot it with the
+pre-configured proxy env, then run a single node with security disabled:
+
+```bash
+HTTPS_PROXY=$DOCKER_HTTPS_PROXY HTTP_PROXY=$DOCKER_HTTPS_PROXY setsid dockerd \
+  > /tmp/dockerd.log 2>&1 &
+until docker info >/dev/null 2>&1; do sleep 1; done
+
+docker run -d --name os-dev -p 9200:9200 \
+  -e discovery.type=single-node \
+  -e DISABLE_SECURITY_PLUGIN=true \
+  -e "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" \
+  opensearchproject/opensearch:2.19.1
+```
+
+(~1.0 GiB RSS; ready in ~15s.) Seed a populated `orders` index exercising
+every mapping feature the flattener handles — object field
+(`customer.{name,tier}`), nested field (`items.{sku,qty}`), multi-field
+(`title` + `title.keyword`), an alias (`recent_orders`), 4 docs via
+`_bulk?refresh=true` — then run the real client:
+
+```bash
+cd backend
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+uv run python - <<'PY'
+from app.data_sources.clients.opensearch_client import OpenSearchClient
+c = OpenSearchClient(host="localhost", port=9200)
+print(c.test_connection())
+for t in c.get_schemas():
+    print(t.name, t.metadata_json["type"], [f"{x.name}:{x.dtype}" for x in t.columns])
+print(c.execute_query('{"index":"orders","query":{"bool":{"filter":[{"term":{"status":"active"}}]}},"sort":[{"created_at":"desc"}],"_source":["order_id","total","customer.tier"]}'))
+print(c.execute_query('{"index":"orders","aggs":{"by_status":{"terms":{"field":"status"},"aggs":{"by_tier":{"terms":{"field":"customer.tier"},"aggs":{"revenue":{"sum":{"field":"total"}}}}}}}}'))
+print(c.execute_query('{"index":"orders","query":{"nested":{"path":"items","query":{"term":{"items.sku":"A1"}}}},"_source":["order_id"]}'))
+print(c.execute_query('{"sql":"SELECT status, COUNT(*) AS n, SUM(total) AS revenue FROM orders GROUP BY status"}'))
+PY
+```
+
+**Observed (PASS), abridged:**
+
+```
+{'success': True, 'message': 'Connected to opensearch 2.19.1'}
+orders index ['created_at:datetime', 'customer.name:string', 'customer.tier:string',
+              'items:array', 'items[].qty:integer', 'items[].sku:string',
+              'order_id:string', 'status:string', 'title:string',
+              'title.keyword:string', 'total:number']
+recent_orders alias [same 11 columns]
+
+# hits query -> _id + dot-path columns, sorted desc
+   _id  total order_id customer.tier
+0  ...   42.0       o4        bronze
+1  ...   80.0       o2        silver
+2  ...  120.5       o1          gold
+
+# two-level terms agg + sum -> flat rows
+   by_status by_tier  doc_count  revenue
+0     active  bronze          1     42.0
+1     active    gold          1    120.5
+2     active  silver          1     80.0
+3  cancelled    gold          1     15.0
+
+# nested query matched o1, o2; SQL escape hatch:
+      status  n  revenue
+0     active  3    242.5
+1  cancelled  1     15.0
+```
+
+### Container-mode integration test (same leg, via testcontainers)
+
+`tests/integrations/integrations.json` (local only, gitignored — CI restores
+it from `INTEGRATIONS_JSON_B64`; the CI copy needs
+`"opensearch": {"enabled": true, "container": true}` added for this leg to
+run there):
+
+```json
+{"data_sources": {"opensearch": {"enabled": true, "container": true}}}
+```
+
+```bash
+uv run pytest tests/integrations/ds_clients.py -k opensearch -v
+```
+
+**Observed (PASS):** `1 passed, 8 deselected in 29.36s` — container starts,
+`seed_fn` bulk-indexes, `test_connection` + `get_schemas` succeed through the
+dynamic-naming path (`OpensearchClient` alias).
+
+## Live UI pass — RUN
+
+`tools/agent/boot_stack.sh` + `uv run python ../tools/agent/seed_org.py`
+(mark onboarding complete via `PUT /api/organization/onboarding
+{"completed": true, "dismissed": true}` to reach the app), then driven with
+Playwright (`/opt/pw-browsers/chromium` via `executablePath`). Observed, with
+screenshots in `media/pr/opensearch-connector/`:
+
+- `grid.png` — OpenSearch tile (with icon) in the Add Connection modal
+  (visible in the add-connection grid).
+- `connect-form.png` — the schema-generated form: Host, Port, Use HTTPS,
+  Verify TLS Certificates, Index Pattern + System Credentials variant picker.
+- `test-connection.png` — host `localhost`, auth **No Authentication** →
+  “Connected successfully. Found 2 collections.”
+- `after-save.png` — saved: “Connected” badge, “Discovered 2 tables in 0.106s”.
+- `tables-selector.png` — Select Tables step lists `orders` and
+  `recent_orders` from the live cluster.
+
+The same flow was also confirmed API-side: `POST /api/data_sources` (note:
+the UI sends the selected `auth_type` inside `config`), `GET
+.../test_connection` → `{"success": true, "message": "Connected to opensearch
+2.19.1"}`, `GET .../full_schema` → both tables with all 11 columns.
+
+## Live agent run — a real report from OpenSearch data — RUN
+
+With an Anthropic key configured via `POST /api/llm/providers` (model
+`claude-sonnet-4-6`) and the `orders` index grown to 154 seeded docs, a real
+prompt was sent through the New Report chat: *"From the OpenSearch orders
+index: show total revenue by customer tier as a bar chart, monthly revenue
+trend as a line chart, and a table of the top 10 active orders by total."*
+
+The agent (unmodified, no hand-holding) planned three `create_data` steps and
+one `create_artifact`, generated envelope queries against the connector
+(`Created Data ·OpenSearch· orders`, ~10s each), and produced the "Orders
+Revenue Dashboard" report. Screenshots in `media/pr/opensearch-connector/`:
+
+- `report-widgets-top.png` — agent narrative + "Total Revenue by Customer
+  Tier" bar chart widget (terms + sum aggregation, flattened by the client).
+- `report-line-chart.png` — "Monthly Revenue Trend" (date_histogram) widget
+  and the dashboard side-by-side.
+- `report-table.png` — "Top 10 Active Orders by Total" (10 rows, dot-path
+  columns `customer.name` / `customer.tier`).
+- `dashboard.png`, `dashboard-table.png` — the generated dashboard artifact
+  rendering all three sections with ECharts.
+
+Sandbox gotcha worth recording: the artifact iframe initially failed with
+"React is not defined" — `frontend/public/libs/*.js` (React/Babel/ECharts,
+gitignored) are provisioned by `scripts/download-vendor-libs.sh` during the
+Docker build, and a bare `boot_stack.sh` sandbox never runs it. Run the script
+(with `--cacert /root/.ccr/ca-bundle.crt` behind the agent proxy — plain
+`curl -sL` truncated the downloads) **before** `yarn build`, since the built
+Nitro server snapshots public assets at build time.
+
+## Logs & data streams — RUN
+
+Log-search suitability was verified live against the same cluster, seeded
+with a 400-line daily application-log index (`logs-app-2026.07.07`, dynamic
+mappings — the realistic case: everything `text` + `.keyword`) and a real
+data stream (`logs-stream-app` via an index template). Observed through the
+client:
+
+- Full-text search (`match` on `message` + `term` on `level.keyword` + time
+  range + sort, wildcard target `logs-app-*`) → correct rows with trace ids.
+- `date_histogram` × `terms` (error volume per 6h per level) and
+  `percentiles` (p95 `duration_ms` per service) → flat DataFrames.
+- The dynamic-mapping pitfall was hit deliberately: `terms` on bare `level`
+  → the engine's fielddata error surfaces verbatim, and the catalog's
+  `level.keyword` column plus the `description` rules steer the agent to the
+  aggregatable subfield.
+
+**Data-stream discovery** (added after the first probe showed the gap):
+`get_tables()` now calls `GET /_data_stream` (per-pattern when
+`index_pattern` is set — an exact-name pattern that is a plain index 404s and
+must not hide other streams; failures degrade to "no streams" for pre-stream
+clusters). Streams surface as tables with `metadata_json.type =
+"data_stream"` and columns unioned across backing-index generations; the
+hidden `.ds-*` backing indices are excluded from the index list even when a
+pattern matches them directly. Observed live:
+
+```
+logs-stream-app (data_stream) backing=['.ds-logs-stream-app-000001']
+  columns: ['@timestamp:datetime', 'level:string', 'message:string']
+by_level: INFO 16 / ERROR 4        # aggregation by stream name
+```
+
+and through the app: `GET .../refresh_schema` → `logs-app-2026.07.07`,
+`logs-stream-app`, `orders`, `recent_orders` (new tables inactive by
+default, as expected). Unit coverage: 4 new tests (union columns across
+generations, backing-index exclusion under patterns, graceful discovery
+failure, bad-pattern isolation) → `41 passed`.
+
+## What this proves / regression notes
+
+- The registry resolves `"opensearch"` via the explicit `client_path`, the
+  config/credentials schemas validate and render the connect form, and both
+  client-naming conventions work.
+- Schema discovery and the query surface (DSL hits, multi-level agg
+  flattening, nested queries, aliases, SQL plugin) are correct against a
+  **real** OpenSearch 2.19.1, not just the mocked contract.
+- The client degrades gracefully: discovery errors → `[]`, connection
+  failures → `{"success": False, ...}`, HTTP errors raise with status + body.
+- Pre-existing warnings (pydantic `schema` shadowing, `utcnow` deprecations)
+  reproduce without this change and are unrelated.

@@ -315,25 +315,27 @@ class ExternalPlatformManager:
         # Find a recent report for this user from the same platform
         platform_name = user_mapping.platform_type.capitalize()
 
-        # this will neer work, need to be re-written to use completion reports and by that to find the relevant one
-        result = await db.execute(
-            select(Report)
-            .filter(
-                and_(
-                    Report.external_platform_id == user_mapping.platform_id,
-                    Report.organization_id == organization.id,
-                    Report.user_id == user.id,
-                    Report.created_at >= twenty_four_hours_ago
+        # WhatsApp has no native threading or a stable conversation id, so reuse
+        # the user's most recent report from the last 24h (mirrors Teams'
+        # per-conversation reuse). Other platforms mint a fresh report per
+        # top-level message and rely on thread replies for continuation.
+        if user_mapping.platform_type == "whatsapp":
+            result = await db.execute(
+                select(Report)
+                .filter(
+                    and_(
+                        Report.external_platform_id == user_mapping.platform_id,
+                        Report.organization_id == organization.id,
+                        Report.user_id == user.id,
+                        Report.created_at >= twenty_four_hours_ago
+                    )
                 )
+                .order_by(Report.created_at.desc())
+                .limit(1)
             )
-            .order_by(Report.created_at.desc())
-            .limit(1)
-        )
-        report = result.scalar_one_or_none()
-        report = None
-
-        if report:
-            return report, False
+            report = result.scalar_one_or_none()
+            if report:
+                return report, False
 
         # If no recent report, create a new one
         # For channel mentions, only use public data sources (visible to everyone in the channel)
@@ -448,8 +450,10 @@ class ExternalPlatformManager:
 
         platform_type = processed_data.get("platform_type", "slack")
 
-        if is_thread_reply and thread_ts:
-            # This is a reply in an existing thread - find the associated report
+        if is_thread_reply and thread_ts and platform_type != "whatsapp":
+            # This is a reply in an existing thread - find the associated report.
+            # WhatsApp is excluded: its thread_ts is the (per-message) inbound id,
+            # not a stable conversation key, so it reuses by 24h window instead.
             report = await self._find_report_by_thread_ts(
                 db, organization.id, user.id, thread_ts,
                 platform_type=platform_type,
@@ -472,7 +476,10 @@ class ExternalPlatformManager:
                 db, organization, user, user_mapping, channel_type
             )
 
-            if created:
+            if created and platform_type != "whatsapp":
+                # WhatsApp intentionally skips the "new report" announcement — with
+                # 24h report reuse it would only fire on the first message of a
+                # window, and the URL adds noise to a 1:1 chat.
                 report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
                 # Send the "new report" message in the thread
                 # For channel mentions, respond in the channel; for DMs, open a DM
@@ -504,10 +511,11 @@ class ExternalPlatformManager:
         # a reused report can outlive changes to the user's data-source access:
         # grants made after creation wouldn't appear, and revocations would still
         # be queryable from the stale snapshot. Re-sync the report's attached
-        # sources to the user's current set on each message — but only for Teams
-        # (Slack DMs/channels mint a fresh report per top-level message) and only
-        # when reusing an existing report (a freshly created one is already current).
-        if platform_type == "teams" and report is not None and not created:
+        # sources to the user's current set on each message — for Teams and
+        # WhatsApp, both of which reuse a report across messages (Slack DMs/
+        # channels mint a fresh report per top-level message) and only when
+        # reusing an existing report (a freshly created one is already current).
+        if platform_type in ("teams", "whatsapp") and report is not None and not created:
             from app.services.report_service import ReportService
             if channel_type == "channel":
                 fresh = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)

@@ -261,8 +261,8 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 comp_result = await db.execute(comp_stmt)
                 completion = comp_result.scalar_one_or_none()
 
-                if not (completion and completion.external_platform in ("slack", "teams") and completion.external_user_id):
-                    logger.info("SLACK_NOTIFIER: No Slack-linked completion found for step %s. Caller should supply routing details.", step_id)
+                if not (completion and completion.external_platform in ("slack", "teams", "whatsapp") and completion.external_user_id):
+                    logger.info("SLACK_NOTIFIER: No chat-linked completion found for step %s. Caller should supply routing details.", step_id)
                     return
 
                 external_user_id = external_user_id or completion.external_user_id

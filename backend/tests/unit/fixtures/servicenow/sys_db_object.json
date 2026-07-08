@@ -1,0 +1,29 @@
+{
+ "result": [
+  {
+   "name": "sys_user",
+   "super_class.name": "",
+   "label": "User"
+  },
+  {
+   "name": "cmdb_ci_service",
+   "super_class.name": "cmdb_ci",
+   "label": "Service"
+  },
+  {
+   "name": "cmdb_ci",
+   "super_class.name": "cmdb",
+   "label": "Configuration Item"
+  },
+  {
+   "name": "task",
+   "super_class.name": "",
+   "label": "Task"
+  },
+  {
+   "name": "incident",
+   "super_class.name": "task",
+   "label": "Incident"
+  }
+ ]
+}

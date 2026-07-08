@@ -886,6 +886,8 @@
       "rowsFiltered": "{filtered}/{total} lignes",
       "downloadPng": "Télécharger en PNG",
       "downloadCsv": "Télécharger en CSV",
+      "download": "Télécharger",
+      "downloadExcel": "Télécharger en Excel",
       "noData": "Aucune donnée disponible.",
       "tabChart": "Graphique",
       "tabData": "Données",
@@ -951,6 +953,12 @@
       "queryScope": "prompts {scope}",
       "queryThisAgent": "cet agent",
       "queryAll": "tous les prompts"
+    },
+    "wait": {
+      "waiting": "Waiting",
+      "resuming": "Resuming…",
+      "cancelled": "Wait cancelled",
+      "cancel": "Cancel wait"
     }
   },
   "entityCreate": {
@@ -1989,7 +1997,12 @@
   },
   "artifactFrame": {
     "loading": "Chargement…",
-    "loadingArtifact": "Chargement de l'artefact…"
+    "loadingArtifact": "Chargement de l'artefact…",
+    "refreshed": "Tableau de bord actualisé",
+    "refreshPartial": "Tableau de bord partiellement actualisé",
+    "refreshFailed": "Échec de l'actualisation du tableau de bord",
+    "refreshNothing": "Rien à actualiser",
+    "refreshSummary": "{succeeded} requêtes sur {total} actualisées"
   },
   "filter": {
     "addFilters": "Ajouter des filtres",

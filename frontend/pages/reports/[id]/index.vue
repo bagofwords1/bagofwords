@@ -761,6 +761,7 @@ import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import AttachFileTool from '~/components/tools/AttachFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -773,6 +774,7 @@ import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
+import WaitTool from '~/components/tools/WaitTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
@@ -1619,6 +1621,8 @@ function getToolComponent(toolName: string) {
 			return ListFilesTool
 		case 'read_file':
 			return ReadFileTool
+		case 'attach_file':
+			return AttachFileTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
@@ -1631,6 +1635,8 @@ function getToolComponent(toolName: string) {
 			return NotifyTool
 		case 'create_scheduled_task':
 			return CreateScheduledTaskTool
+		case 'wait':
+			return WaitTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
 		case 'edit_scheduled_task':

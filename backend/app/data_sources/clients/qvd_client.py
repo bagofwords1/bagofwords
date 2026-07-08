@@ -12,14 +12,20 @@ import time
 from defusedxml import ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, List, Optional
+import select as _select_mod
+from typing import Callable, Generator, List, Optional
 
 import duckdb
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
-from app.data_sources.clients.progress import ProgressCallback, make_reporter
+from app.data_sources.clients.progress import (
+    CancelCheck,
+    IndexingCancelled,
+    ProgressCallback,
+    make_reporter,
+)
 from app.settings.logging_config import get_logger
 
 
@@ -151,6 +157,25 @@ class QVDClient(DataSourceClient):
         return fields
 
     @classmethod
+    def _read_qvd_record_count(cls, filepath: str) -> int:
+        """Parse the row count from the QVD XML header (<NoOfRecords>) without
+        loading data. Returns 0 when the tag is absent or unparseable — callers
+        treat 0 as "unknown total" and fall back to an indeterminate bar.
+        """
+        try:
+            with open(filepath, "rb") as f:
+                buf = f.read(_HEADER_SCAN_LIMIT)
+            idx = buf.find(_HEADER_END_TAG)
+            if idx == -1:
+                return 0
+            xml_str = buf[: idx + len(_HEADER_END_TAG)].decode("utf-8", errors="replace")
+            root = ET.fromstring(xml_str)
+            text = root.findtext("NoOfRecords")
+            return int(text) if text and text.strip().isdigit() else 0
+        except Exception:
+            return 0
+
+    @classmethod
     def _describe_parquet(cls, parquet_path: Path) -> List[tuple[str, str]]:
         """Ground-truth schema from DuckDB over the cached Parquet."""
         con = duckdb.connect(database=":memory:")
@@ -191,9 +216,124 @@ class QVDClient(DataSourceClient):
         )
         return candidates[0] if candidates else None
 
-    def _ensure_parquet(self, filepath: str) -> Path:
+    # Machine-parseable progress line the Rust converter writes to stderr:
+    #   "qvd2parquet: progress <done_rows> <total_rows>"
+    _PROGRESS_RE = re.compile(r"progress\s+(\d+)\s+(\d+)")
+
+    def _run_convert_streaming(
+        self,
+        filepath: str,
+        tmp_path: Path,
+        *,
+        progress_cb: Optional[Callable[[int, int], None]] = None,
+        cancel_check: Optional[CancelCheck] = None,
+        timeout: float = 3600.0,
+    ) -> str:
+        """Run qvd2parquet as a child process, streaming its stderr so we can
+        (a) forward row-level progress to `progress_cb(done_rows, total_rows)`
+        and (b) kill it promptly when `cancel_check()` flips to True.
+
+        Returns the collected stderr text. Raises RuntimeError on non-zero exit
+        or timeout, and IndexingCancelled when cancelled mid-convert.
+        """
+        try:
+            proc = subprocess.Popen(
+                [_QVD2PARQUET_BIN, filepath, str(tmp_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"qvd2parquet binary not found at {_QVD2PARQUET_BIN}. "
+                "Set QVD2PARQUET_BIN or install the binary at /usr/local/bin/qvd2parquet."
+            ) from exc
+
+        stderr_lines: list[str] = []
+        deadline = time.perf_counter() + timeout
+        cancelled = False
+        try:
+            # Poll stderr with a short timeout so we still notice a cancel
+            # request even while the converter is churning a slow chunk.
+            while True:
+                if cancel_check is not None and cancel_check():
+                    cancelled = True
+                    break
+                if time.perf_counter() > deadline:
+                    proc.kill()
+                    proc.wait(timeout=10)
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    raise RuntimeError(
+                        f"qvd2parquet timed out after {timeout}s on {filepath}"
+                    )
+                ready, _, _ = _select_mod.select([proc.stderr], [], [], 0.25)
+                if ready:
+                    line = proc.stderr.readline()
+                    if line == "":
+                        break  # EOF — process is finishing
+                    stderr_lines.append(line)
+                    if progress_cb is not None:
+                        m = self._PROGRESS_RE.search(line)
+                        if m:
+                            try:
+                                progress_cb(int(m.group(1)), int(m.group(2)))
+                            except Exception:
+                                pass
+                elif proc.poll() is not None:
+                    # No pending output and the process has exited — drain and stop.
+                    rest = proc.stderr.read()
+                    if rest:
+                        stderr_lines.append(rest)
+                    break
+        finally:
+            if proc.stderr is not None:
+                try:
+                    proc.stderr.close()
+                except Exception:
+                    pass
+
+        if cancelled:
+            proc.kill()
+            try:
+                proc.wait(timeout=10)
+            except Exception:
+                pass
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise IndexingCancelled(f"QVD conversion cancelled: {filepath}")
+
+        returncode = proc.wait()
+        stderr = "".join(stderr_lines)
+        if returncode != 0:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"qvd2parquet failed on {filepath}: exit={returncode} "
+                f"stderr={stderr.strip()!r}"
+            )
+        return stderr
+
+    def _ensure_parquet(
+        self,
+        filepath: str,
+        *,
+        progress_cb: Optional[Callable[[int, int], None]] = None,
+        cancel_check: Optional[CancelCheck] = None,
+    ) -> Path:
         """Return cached Parquet path, parsing QVD if cache is stale/missing.
-        Only called from the scheduled warmup path — never from the hot query path.
+        Only called from the scheduled/indexing warmup path — never from the hot
+        query path.
+
+        `progress_cb(done_rows, total_rows)` receives streamed conversion
+        progress; `cancel_check` is polled so a long convert can be stopped.
         """
         file_hash, cache_path = self._cache_key(filepath)
         if cache_path.exists():
@@ -221,52 +361,9 @@ class QVDClient(DataSourceClient):
             # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
             # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
             # wheel which materialized the full table (~13× file size, OOM on 4GB+).
-            try:
-                result = subprocess.run(
-                    [_QVD2PARQUET_BIN, filepath, str(tmp_path)],
-                    check=True,
-                    timeout=3600,
-                    capture_output=True,
-                    text=True,
-                )
-            except FileNotFoundError as exc:
-                raise RuntimeError(
-                    f"qvd2parquet binary not found at {_QVD2PARQUET_BIN}. "
-                    "Set QVD2PARQUET_BIN or install the binary at /usr/local/bin/qvd2parquet."
-                ) from exc
-            except subprocess.CalledProcessError as exc:
-                logger.error(
-                    "qvd.convert.failed",
-                    extra={
-                        "qvd_file": filepath,
-                        "qvd_exit": exc.returncode,
-                        "qvd_stderr": (exc.stderr or "").strip(),
-                        "qvd_elapsed_s": round(time.perf_counter() - t_conv, 2),
-                    },
-                )
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                raise RuntimeError(
-                    f"qvd2parquet failed on {filepath}: exit={exc.returncode} "
-                    f"stderr={(exc.stderr or '').strip()!r}"
-                ) from exc
-            except subprocess.TimeoutExpired as exc:
-                logger.error(
-                    "qvd.convert.timeout",
-                    extra={
-                        "qvd_file": filepath,
-                        "qvd_timeout_s": exc.timeout,
-                    },
-                )
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                raise RuntimeError(
-                    f"qvd2parquet timed out after {exc.timeout}s on {filepath}"
-                ) from exc
+            stderr = self._run_convert_streaming(
+                filepath, tmp_path, progress_cb=progress_cb, cancel_check=cancel_check,
+            )
 
             try:
                 parquet_bytes = tmp_path.stat().st_size
@@ -277,7 +374,7 @@ class QVDClient(DataSourceClient):
                 extra={
                     "qvd_file": filepath,
                     "qvd_parquet_bytes": parquet_bytes,
-                    "qvd_stderr": (result.stderr or "").strip() or None,
+                    "qvd_stderr": stderr.strip() or None,
                     "qvd_elapsed_s": round(time.perf_counter() - t_conv, 2),
                 },
             )
@@ -291,7 +388,13 @@ class QVDClient(DataSourceClient):
                     pass
         return cache_path
 
-    async def _warm_one(self, filepath: str) -> Path:
+    async def _warm_one(
+        self,
+        filepath: str,
+        *,
+        progress_cb: Optional[Callable[[int, int], None]] = None,
+        cancel_check: Optional[CancelCheck] = None,
+    ) -> Path:
         """Parse one QVD to Parquet under the pod-wide warmup semaphore."""
         sem = _get_warmup_semaphore()
         async with sem:
@@ -312,7 +415,13 @@ class QVDClient(DataSourceClient):
                 extra={"qvd_file": filepath, "qvd_bytes": size},
             )
             try:
-                result = await asyncio.to_thread(self._ensure_parquet, filepath)
+                result = await asyncio.to_thread(
+                    self._ensure_parquet, filepath,
+                    progress_cb=progress_cb, cancel_check=cancel_check,
+                )
+            except IndexingCancelled:
+                logger.info("qvd.warm.cancelled", extra={"qvd_file": filepath})
+                raise
             except Exception as exc:
                 logger.exception(
                     "qvd.warm.failed",
@@ -333,7 +442,13 @@ class QVDClient(DataSourceClient):
             )
             return result
 
-    async def aensure_warm(self, filepath: str) -> Path:
+    async def aensure_warm(
+        self,
+        filepath: str,
+        *,
+        progress_cb: Optional[Callable[[int, int], None]] = None,
+        cancel_check: Optional[CancelCheck] = None,
+    ) -> Path:
         """
         Ensure the Parquet cache for `filepath` is populated.
         Deduplicates in-flight parses by (abspath, mtime) so concurrent callers
@@ -347,7 +462,9 @@ class QVDClient(DataSourceClient):
         async with lock:
             task = _INFLIGHT.get(cache_path)
             if task is None or task.done():
-                task = asyncio.create_task(self._warm_one(filepath))
+                task = asyncio.create_task(
+                    self._warm_one(filepath, progress_cb=progress_cb, cancel_check=cancel_check)
+                )
                 _INFLIGHT[cache_path] = task
 
                 def _cleanup(t: "asyncio.Task[Path]", key: Path = cache_path) -> None:
@@ -363,29 +480,82 @@ class QVDClient(DataSourceClient):
                 )
         return await task
 
-    async def awarm_all(self) -> List[Path]:
-        """Warm every resolved QVD file. Errors on individual files are logged, not raised."""
+    async def awarm_all(
+        self,
+        progress_callback: Optional[ProgressCallback] = None,
+        cancel_check: Optional[CancelCheck] = None,
+    ) -> List[Path]:
+        """Warm every resolved QVD file. Errors on individual files are logged, not raised.
+
+        When `progress_callback` is set, reports a "converting" phase whose
+        done/total are *rows* across all files, so a single multi-GB file still
+        moves the bar (the Rust converter streams per-chunk row counts). Honors
+        `cancel_check` between files and mid-convert — a set cancel raises
+        `IndexingCancelled` out of this call.
+        """
         files = self._resolve_files()
         t0 = time.perf_counter()
         logger.info("qvd.warm_all.start", extra={"qvd_files": len(files), "qvd_patterns": self.patterns})
+
+        # Pre-scan headers for a global row total so the bar reflects true work.
+        per_file_rows = [self._read_qvd_record_count(f) for f in files]
+        total_rows = sum(per_file_rows)
+        reporter = make_reporter(progress_callback)
+        # Fall back to file-count granularity when no header carried a row count.
+        use_rows = total_rows > 0
+        reporter.phase("converting", total=(total_rows if use_rows else len(files)))
+
         paths: List[Path] = []
         failed = 0
-        for filepath in files:
+        base_done = 0  # rows (or files) completed before the current file
+        for filepath, nrows in zip(files, per_file_rows):
+            if cancel_check is not None and cancel_check():
+                raise IndexingCancelled("QVD warm cancelled")
+            basename = os.path.basename(filepath)
+
+            def _file_progress(done_rows: int, file_total: int, _bn=basename) -> None:
+                if use_rows:
+                    reporter.item(_bn, done=min(total_rows, base_done + done_rows))
+
             try:
-                paths.append(await self.aensure_warm(filepath))
+                paths.append(await self.aensure_warm(
+                    filepath, progress_cb=_file_progress, cancel_check=cancel_check,
+                ))
+            except IndexingCancelled:
+                raise
             except Exception:
                 # _warm_one already logged qvd.warm.failed
                 failed += 1
+            base_done += nrows if use_rows else 1
+            reporter.item(basename, done=base_done)
+        reporter.done()
         logger.info(
             "qvd.warm_all.done",
             extra={
                 "qvd_files": len(files),
                 "qvd_warmed": len(paths),
                 "qvd_failed": failed,
+                "qvd_rows": total_rows,
                 "qvd_elapsed_s": round(time.perf_counter() - t0, 2),
             },
         )
         return paths
+
+    def index_stats(self) -> dict:
+        """Source-size stats folded into the indexing row after warming. Sums
+        the on-disk size and header row counts of the resolved QVD files."""
+        files = self._resolve_files()
+        total_bytes = 0
+        for f in files:
+            try:
+                total_bytes += os.path.getsize(f)
+            except OSError:
+                pass
+        return {
+            "source_bytes": total_bytes,
+            "file_count": len(files),
+            "row_count": sum(self._read_qvd_record_count(f) for f in files),
+        }
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:

@@ -28,12 +28,16 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftConfig,
     TableauConfig,
     SalesforceConfig,
+    ServiceNowConfig,
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
     DruidTokenCredentials,
     DruidBasicTokenCredentials,
     MongoDBConfig,
+    OpenSearchConfig,
+    OpenSearchCredentials,
+    OpenSearchNoAuthCredentials,
     PostHogConfig,
     # DuckDB
     DuckDBConfig,
@@ -57,6 +61,9 @@ from app.schemas.data_sources.configs import (
     # Power BI Report Server (on-prem)
     PowerBIReportServerConfig,
     PowerBIReportServerCredentials,
+    # Network Directory (local / mounted file share)
+    NetworkDirConfig,
+    NetworkDirCredentials,
     # QVD Files
     QVDConfig,
     QVDCredentials,
@@ -121,6 +128,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftAssumeRoleCredentials,
     TableauPATCredentials,
     SalesforceCredentials,
+    ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
     # MCP
@@ -381,6 +389,18 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path=None,
     ),
+    "servicenow": DataSourceRegistryEntry(
+        type="servicenow",
+        title="ServiceNow",
+        description="Cloud platform for IT service management, operations, and workflows.",
+        config_schema=ServiceNowConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=ServiceNowCredentials, scopes=["system", "user"]),
+        }),
+        # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
+        client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
     "MSSQL": DataSourceRegistryEntry(
         type="MSSQL",
         title="Microsoft SQL Server",
@@ -538,6 +558,31 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="objects",
     ),
+    "opensearch": DataSourceRegistryEntry(
+        type="opensearch",
+        title="OpenSearch",
+        description="Search and analytics engine. Query indices with the native query DSL, aggregations, or SQL.",
+        config_schema=OpenSearchConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=OpenSearchCredentials,
+                    scopes=["system", "user"],
+                ),
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=OpenSearchNoAuthCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.opensearch_client.OpenSearchClient",
+        is_document_based=True,
+        data_shape="objects",
+        version="beta",
+    ),
     "posthog": DataSourceRegistryEntry(
         type="posthog",
         title="PostHog",
@@ -635,6 +680,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.powerbi_report_server_client.PowerBIReportServerClient",
         requires_license="enterprise",
+    ),
+    "network_dir": DataSourceRegistryEntry(
+        type="network_dir",
+        title="Files and Directories",
+        description=(
+            "Browse, search and read files from a directory — a local folder or "
+            "a mounted network share (SMB/NFS). Searches inside PDF, Word, "
+            "PowerPoint, Excel and CSV, and can attach files to a report."
+        ),
+        config_schema=NetworkDirConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=NetworkDirCredentials,
+                    scopes=["system"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.network_dir_client.NetworkDirClient",
+        # An admin points the connection at one directory whose catalog is the
+        # single source of truth for everyone (like a SharePoint library), so
+        # the catalog is shared rather than per-user. Community tier (no license
+        # gate) — a plain directory connector is core functionality.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
@@ -1043,7 +1116,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
 # are instances of the "mcp" type above (connection.type stays "mcp") — only the
 # server_url / default auth / brand differ. The DCR set (auth="oauth") needs zero
 # admin setup — verified DCR-capable by live probe (2026-06). github/gmail need
-# an OAuth app; supabase a personal access token.
+# an OAuth app; x an app-only bearer token.
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
               description="Boards, items and updates from monday.com."),
@@ -1064,6 +1137,11 @@ MCP_PRESETS: List[McpPreset] = [
               auth="oauth_app", description="Files in Google Drive (needs a Google OAuth client)."),
     McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
               auth="oauth_app", description="Gmail messages (needs a Google OAuth client)."),
+    # X's MCP server takes an app-only bearer token from the X Developer Portal
+    # (no DCR — verified by live probe 2026-07). App-only auth is read-only:
+    # public posts/users/search/trends work; bookmarks and "me" tools 403.
+    McpPreset(key="x", title="X", server_url="https://api.x.com/mcp",
+              auth="bearer", description="Posts, users, search and trends from X (needs an X API bearer token)."),
 ]
 
 

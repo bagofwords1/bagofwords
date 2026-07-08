@@ -18,7 +18,6 @@ from typing import Optional
 from app.models.report import Report
 from app.models.user import User
 
-from app.ai.code_execution.code_execution import CodeExecutionManager
 
 
 
@@ -111,41 +110,81 @@ class StepService:
 
         return step_schema
     
-    async def rerun_step(self, db: AsyncSession, step_id: str, current_user: Optional[User] = None):
+    async def rerun_step(
+        self,
+        db: AsyncSession,
+        step_id: str,
+        current_user: Optional[User] = None,
+        report: Optional[Report] = None,
+        db_clients: Optional[dict] = None,
+        organization=None,
+        organization_settings=None,
+    ):
+        """Re-execute a step's saved code and persist the result in place.
 
-        step = await self.get_step_by_id(db, step_id)
+        A report-level rerun passes `report` (with data_sources/files loaded),
+        prebuilt `db_clients`, and the org context so N steps don't each
+        re-hydrate the report graph, re-construct data-source clients, and
+        re-read organization settings.
+        """
+        if report is not None:
+            from sqlalchemy.orm import lazyload
+            result = await db.execute(
+                select(Step).options(lazyload("*")).filter(Step.id == step_id)
+            )
+            step = result.scalar_one_or_none()
+        else:
+            step = await self.get_step_by_id(db, step_id)
         if not step:
             raise ValueError("Step not found")
 
-        # get messages from the original step
-        report = step.widget.report
+        if report is None:
+            report = step.widget.report
         if not report:
             raise ValueError("Report not found")
 
-        # Build db_clients using construct_clients for multi-connection support.
-        # Run as the user who triggered the rerun so user_required connections use
-        # their credentials (or owner/admin → system-cred fallback). Background
-        # callers that pass no user still get None here (handled in case B).
-        from app.services.data_source_service import DataSourceService
-        ds_service = DataSourceService()
-        db_clients = {}
-        for data_source in report.data_sources:
-            ds_clients = await ds_service.construct_clients(db, data_source, current_user=current_user)
-            db_clients.update(ds_clients)
+        if db_clients is None:
+            # Build db_clients using construct_clients for multi-connection support.
+            # Run as the user who triggered the rerun so user_required connections use
+            # their credentials (or owner/admin → system-cred fallback). Background
+            # callers that pass no user still get None here (handled in case B).
+            from app.services.data_source_service import DataSourceService
+            ds_service = DataSourceService()
+            db_clients = {}
+            for data_source in report.data_sources:
+                ds_clients = await ds_service.construct_clients(db, data_source, current_user=current_user)
+                db_clients.update(ds_clients)
 
         excel_files = report.files
-        code_execution_manager = CodeExecutionManager()
         code = step.code
 
         # Pre-resolve any load_step()/load_entity() refs in the saved code.
         from app.ai.code_execution.loadables import resolve_loadables_for_code
         from app.models.organization import Organization
-        org = await db.get(Organization, str(report.organization_id)) if getattr(report, "organization_id", None) else None
+        org = organization
+        if org is None and getattr(report, "organization_id", None):
+            org = await db.get(Organization, str(report.organization_id))
         loadables = await resolve_loadables_for_code(db, org, report, current_user, code)
 
-        df, output_log, _ = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files, loadables=loadables)
-        df = code_execution_manager.format_df_for_widget(df)
-        
+        # Pass organization_settings so format_df_for_widget honors the org's
+        # limit_row_count; without it the executor falls back to a hardcoded
+        # 1000-row cap regardless of the configured limit.
+        org_settings = organization_settings
+        if org_settings is None and org is not None:
+            org_settings = await org.get_settings(db)
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        executor = StreamingCodeExecutor(organization_settings=org_settings)
+
+        # Execution is fully synchronous (DB drivers + pandas):
+        # execute_code_async runs it on the bounded code-exec pool (same cap
+        # and contextvar propagation as the agent path), and the result
+        # formatting — also pandas-heavy for large frames — goes off-loop too.
+        import asyncio
+        df, output_log, _ = await executor.execute_code_async(
+            code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
+        )
+        df = await asyncio.to_thread(executor.format_df_for_widget, df)
+
         # Update existing step instead of creating new one
         step.data = df
         await db.commit()

@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from typing import List
 
 from app.ee.audit.service import audit_service
-from app.dependencies import get_async_db
+from app.dependencies import get_async_db, release_request_db
 from app.models.user import User
 from app.core.auth import current_user
 from app.models.organization import Organization
@@ -45,9 +45,30 @@ connection_service = ConnectionService()
 indexing_service = ConnectionIndexingService()
 
 
-def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
+def _iso_utc(dt) -> "str | None":
+    """Serialize an indexing timestamp as an ISO string the browser will parse
+    as UTC. These columns are stored as naive `datetime.utcnow()`; a bare
+    `.isoformat()` (no offset) is parsed as *local* time by `new Date()`, which
+    skews the "Last indexed X ago" label by the viewer's timezone offset. Append
+    a `Z` for naive values (matching the event-log timestamps), and normalize
+    any tz-aware value to a `Z`-suffixed UTC string.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    from datetime import timezone
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _indexing_to_progress(row, include_events: bool = True) -> "ConnectionIndexingProgress | None":
     """Adapt a ConnectionIndexing ORM row to the polling payload. Returns None
     when no row is provided.
+
+    ``include_events=False`` leaves the event log out (and must be paired with
+    a row loaded with ``events_json`` deferred, so the log is never fetched) —
+    used by the list endpoint, where 50 connections × 200 log entries made the
+    response megabytes for a pane that never shows the log.
     """
     if row is None:
         return None
@@ -58,11 +79,11 @@ def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
         current_item=row.current_item,
         progress_done=row.progress_done or 0,
         progress_total=row.progress_total or 0,
-        started_at=row.started_at.isoformat() if row.started_at else None,
-        finished_at=row.finished_at.isoformat() if row.finished_at else None,
+        started_at=_iso_utc(row.started_at),
+        finished_at=_iso_utc(row.finished_at),
         error=row.error,
         stats=row.stats_json,
-        events=row.events_json or [],
+        events=(row.events_json or []) if include_events else [],
     )
 
 
@@ -137,39 +158,95 @@ async def list_connections(
 
         connections = [c for c in connections if _conn_visible(c)]
 
+    # ── Batched lookups (one grouped query each, instead of 2-4 queries per
+    # connection — with ~50 connections the per-row loop was 100-200 round
+    # trips per page load) ────────────────────────────────────────────────
+    from sqlalchemy.orm import defer
+    from app.models.connection_indexing import ConnectionIndexing
+    from app.schemas.data_source_registry import tool_provider_types
+    _TOOL_PROVIDER_TYPES = tool_provider_types()
+
+    conn_ids = [str(c.id) for c in connections]
+
+    # Catalog table count per connection (all available tables in the database).
+    catalog_count_by_conn: dict = {}
+    if conn_ids:
+        count_rows = await db.execute(
+            select(ConnectionTable.connection_id, func.count(ConnectionTable.id))
+            .where(ConnectionTable.connection_id.in_(conn_ids))
+            .group_by(ConnectionTable.connection_id)
+        )
+        catalog_count_by_conn = {str(cid): (n or 0) for cid, n in count_rows.all()}
+
+    # Fallback for legacy connections with an empty catalog: count from
+    # DataSourceTable (existing domains using this connection), grouped per
+    # data source and summed per connection below.
+    legacy_ds_ids = {
+        str(ds.id)
+        for c in connections
+        if catalog_count_by_conn.get(str(c.id), 0) == 0
+        for ds in (c.data_sources or [])
+    }
+    legacy_count_by_ds: dict = {}
+    if legacy_ds_ids:
+        legacy_rows = await db.execute(
+            select(DataSourceTable.datasource_id, func.count(DataSourceTable.id))
+            .where(DataSourceTable.datasource_id.in_(legacy_ds_ids))
+            .group_by(DataSourceTable.datasource_id)
+        )
+        legacy_count_by_ds = {str(dsid): (n or 0) for dsid, n in legacy_rows.all()}
+
+    # Latest indexing row per connection (portable MAX(created_at) join), with
+    # the event log deferred — the list payload doesn't include it.
+    indexing_by_conn: dict = {}
+    if conn_ids:
+        latest_subq = (
+            select(
+                ConnectionIndexing.connection_id,
+                func.max(ConnectionIndexing.created_at).label("max_created"),
+            )
+            .where(ConnectionIndexing.connection_id.in_(conn_ids))
+            .group_by(ConnectionIndexing.connection_id)
+            .subquery()
+        )
+        idx_rows = await db.execute(
+            select(ConnectionIndexing)
+            .options(defer(ConnectionIndexing.events_json))
+            .join(
+                latest_subq,
+                (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+            )
+        )
+        for idx in idx_rows.scalars().all():
+            indexing_by_conn[str(idx.connection_id)] = idx
+
+    # Tool count per tool-provider connection.
+    tool_count_by_conn: dict = {}
+    tool_conn_ids = [str(c.id) for c in connections if c.type in _TOOL_PROVIDER_TYPES]
+    if tool_conn_ids:
+        tool_rows = await db.execute(
+            select(ConnectionTool.connection_id, func.count(ConnectionTool.id))
+            .where(ConnectionTool.connection_id.in_(tool_conn_ids))
+            .group_by(ConnectionTool.connection_id)
+        )
+        tool_count_by_conn = {str(cid): (n or 0) for cid, n in tool_rows.all()}
+
     result = []
     for conn in connections:
-        # Count tables from ConnectionTable (all available tables in the database)
-        count_result = await db.execute(
-            select(func.count(ConnectionTable.id))
-            .where(ConnectionTable.connection_id == str(conn.id))
-        )
-        table_count = count_result.scalar() or 0
-
-        # Fallback for legacy connections: if ConnectionTable is empty,
-        # count from DataSourceTable (existing domains using this connection)
+        table_count = catalog_count_by_conn.get(str(conn.id), 0)
         if table_count == 0 and conn.data_sources:
-            ds_ids = [str(ds.id) for ds in conn.data_sources]
-            if ds_ids:
-                fallback_result = await db.execute(
-                    select(func.count(DataSourceTable.id))
-                    .where(DataSourceTable.datasource_id.in_(ds_ids))
-                )
-                table_count = fallback_result.scalar() or 0
-
-        # Inline latest indexing for the dot status / polling.
-        indexing_row = await indexing_service.get_latest(db, str(conn.id))
-        indexing_payload = _indexing_to_progress(indexing_row)
-
-        from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
-        if conn.type in _TOOL_PROVIDER_TYPES:
-            tool_count_result = await db.execute(
-                select(func.count(ConnectionTool.id))
-                .where(ConnectionTool.connection_id == str(conn.id))
+            table_count = sum(
+                legacy_count_by_ds.get(str(ds.id), 0) for ds in conn.data_sources
             )
-            tool_count = tool_count_result.scalar() or 0
-        else:
-            tool_count = 0
+
+        # Inline latest indexing for the dot status / polling (no event log —
+        # the detail modal fetches GET /connections/{id}/indexing for that).
+        indexing_payload = _indexing_to_progress(
+            indexing_by_conn.get(str(conn.id)), include_events=False
+        )
+
+        tool_count = tool_count_by_conn.get(str(conn.id), 0) if conn.type in _TOOL_PROVIDER_TYPES else 0
 
         # Per-user auth status (so the UI can show Connected/Disconnect vs Connect
         # for user_required connections). Cached (live_test=False) — cheap.
@@ -229,6 +306,7 @@ async def list_connections(
             indexing=indexing_payload.model_dump() if indexing_payload else None,
             user_status=user_status_payload,
         ))
+    await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
 
 
@@ -697,6 +775,31 @@ async def get_connection_indexing(
     if row is None:
         raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
     return _indexing_to_progress(row)
+
+
+@router.post("/{connection_id}/indexing/cancel")
+@requires_resource_permission('connection', 'manage_connection')
+async def cancel_connection_indexing(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Stop the in-flight indexing run for this connection.
+
+    Signals the background runner to abort cooperatively — killing a long
+    QVD→Parquet convert mid-stream — and marks the run `cancelled`. Idempotent:
+    404 only when there is no active run to stop.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    row = await indexing_service.request_cancel(db, connection_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No active indexing to cancel")
+    progress = _indexing_to_progress(row)
+    return {
+        "message": "Indexing cancellation requested.",
+        "indexing": progress.model_dump() if progress else None,
+    }
 
 
 async def _ensure_can_read_connection(db, organization, current_user, connection):

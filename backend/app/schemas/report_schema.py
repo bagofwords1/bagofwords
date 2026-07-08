@@ -73,6 +73,12 @@ class ReportSchema(ReportBase):
     scheduled_prompt_count: int = 0
     instruction_count: int = 0
     webhook_count: int = 0
+    # Trigger provenance: set when this report was spawned by a trigger
+    # webhook delivery (powers the ⚡ indicator in the reports list).
+    webhook_id: Optional[str] = None
+    # Scheduled-run provenance: set when spawned by a scheduled prompt with
+    # report-per-run routing (powers the 🕐 origin indicator).
+    scheduled_prompt_id: Optional[str] = None
     # Fork lineage
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None
@@ -101,6 +107,16 @@ class ReportRecentSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ReportRerunResultSchema(BaseModel):
+    """Outcome of POST /reports/{id}/rerun — what actually ran, so clients
+    can tell a refreshed dashboard from a silent no-op or a failed run."""
+    message: str
+    steps_total: int
+    steps_succeeded: int
+    steps_failed: int
+    last_run_at: Optional[datetime] = None
 
 
 VISIBILITY_LITERAL = Literal["none", "shared", "internal", "public"]

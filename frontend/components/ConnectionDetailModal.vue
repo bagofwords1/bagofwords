@@ -51,7 +51,10 @@
           <span class="text-xs text-gray-700 dark:text-gray-300">
             {{ lastIndexedDisplay }}
             <span v-if="indexingState.stats?.elapsed_s != null" class="text-gray-400 dark:text-gray-500">
-              · {{ indexingState.stats.elapsed_s }}s
+              · {{ formatIndexDuration(indexingState.stats.elapsed_s) }}
+            </span>
+            <span v-if="indexingState.stats?.source_bytes" class="text-gray-400 dark:text-gray-500">
+              · {{ formatIndexBytes(indexingState.stats.source_bytes) }}
             </span>
           </span>
         </div>
@@ -67,8 +70,15 @@
       <!-- Indexing block — service-principal run (live progress / logs / reindex).
            Admin-only: this is the shared catalog index, not the viewer's. -->
       <div v-if="canUpdateDataSource" class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <ConnectionIndexingProgress v-if="indexingState" :indexing="indexingState" :show-logs="true" />
-        <div class="mt-2">
+        <ConnectionIndexingProgress
+          v-if="indexingState"
+          :indexing="indexingState"
+          :show-logs="true"
+          :allow-cancel="true"
+          :cancelling="cancelling"
+          @cancel="cancelIndexing"
+        />
+        <div v-if="!isIndexingActive(indexingState)" class="mt-2">
           <UButton size="xs" color="gray" variant="soft" :loading="reindexing" @click="reindex">
             <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
             {{ indexingState?.status === 'failed' ? 'Retry' : 'Reindex' }}
@@ -750,6 +760,46 @@ async function reindex() {
   } finally {
     reindexing.value = false
   }
+}
+
+const cancelling = ref(false)
+async function cancelIndexing() {
+  if (!props.connection?.id || cancelling.value) return
+  cancelling.value = true
+  try {
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/indexing/cancel`, { method: 'POST' })
+    if (error.value) {
+      toast.add({ title: t('data.stopIndexingFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
+    } else {
+      const result = (data as any).value
+      if (result?.indexing) indexingState.value = result.indexing as ConnectionIndexing
+      // Keep polling briefly — the runner finalizes the row asynchronously.
+      fetchIndexing()
+    }
+  } catch (e: any) {
+    toast.add({ title: t('data.stopIndexingFailed'), description: e?.message, color: 'red' })
+  } finally {
+    cancelling.value = false
+  }
+}
+
+function formatIndexBytes(n?: number | null): string {
+  if (!n || n <= 0) return ''
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = n
+  let i = 0
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++ }
+  return `${i === 0 ? Math.round(size) : size.toFixed(1)} ${units[i]}`
+}
+
+function formatIndexDuration(seconds?: number | null): string {
+  if (seconds == null) return ''
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m % 60}m`
 }
 
 const editFormValues = computed(() => {
