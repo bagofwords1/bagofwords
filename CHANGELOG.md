@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.441 (July 8, 2026)
+- **AI-suggestion evidence in the Knowledge Explorer (#573)** — AI-proposed instruction changes now carry a brief evidence line (why the change was suggested), shown in review hover cards and the instruction detail.
+- **Fix blank instruction editor in dev (#575)** — dedupe `prosemirror-state` so the tiptap editor mounts instead of rendering an empty body; falls back to a raw-markdown textarea if initialization ever fails.
+- **Fix profile Usage tab never updating (#576)** — usage counters now record without a hard cap configured, and the tab refreshes the session on open instead of showing stale zeros.
+- **Sandbox-violation feedback loop for codegen (#577)** — `unsafe_python` violations consume a retry instead of ending the run, and the failed code + error are fed back into the next generation attempt so it can self-correct.
+
 ## Version 0.0.440 (July 8, 2026)
 - **Oracle thick-mode support for legacy servers (#548)** — Oracle connections to servers or accounts that python-oracledb thin mode can't handle (pre-12.1 versions, 10G-only password verifiers producing DPY-3015, Native Network Encryption) failed at connect time. The Docker image now bundles Oracle Instant Client 19c (amd64/arm64) and the backend switches the driver to thick mode at startup whenever the libraries are present — thick is a superset of thin, so existing connections are unaffected; hosts without the libraries (dev, airgapped) keep thin mode. Set `ORACLE_THICK_MODE=0` to force thin mode.
 - **Oracle TCPS (TLS) connections (#548)** — the Oracle connector gains a "Use TCPS (TLS)" toggle for listeners that only accept TLS-encrypted SQL*Net (plain-TCP clients get their connection reset), plus a "Verify SSL" option that can be disabled for internal-CA certificates (thin mode only — thick mode's TLS trust requires an Oracle wallet).
