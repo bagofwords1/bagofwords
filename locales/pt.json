@@ -130,6 +130,7 @@
     "viewDetails": "Ver detalhes",
     "noRemainingChanges": "Nenhuma alteração restante — esta sugestão está resolvida.",
     "aiSuggestion": "Sugestão de AI",
+    "evidenceTip": "Por que a AI sugeriu isso",
     "proposed": "Proposto",
     "tipViewTrace": "Ver rastreamento",
     "accept": "Aceitar",
@@ -2767,6 +2768,7 @@
       "queries": "Consultas",
       "data": "Dados analisados",
       "windowNote": "O uso é reiniciado no início de cada mês.",
+      "dailyNote": "por dia desde o início do mês",
       "disabledTitle": "O monitoramento de uso não está ativado",
       "disabledNote": "O uso por usuário (tokens, consultas e dados analisados) é monitorado quando o recurso Limites de uso está ativado no seu plano."
     },

@@ -3,7 +3,7 @@ import uuid
 
 import pandas as pd
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, estimate_result_size_bytes
@@ -70,22 +70,6 @@ async def _counter_used(org_id, user_id, metric, *, scope_type="organization", s
         )
         counter = result.scalar_one_or_none()
         return counter.used if counter else 0
-
-
-async def _counter_exists(org_id, user_id, metric, *, scope_type="organization", scope_ref_id=""):
-    window_start, _ = current_month_window()
-    async with async_session_maker() as db:
-        result = await db.execute(
-            select(UsageCounter.id).where(
-                UsageCounter.organization_id == org_id,
-                UsageCounter.user_id == user_id,
-                UsageCounter.metric == metric,
-                UsageCounter.scope_type == scope_type,
-                UsageCounter.scope_ref_id == scope_ref_id,
-                UsageCounter.window_start == window_start,
-            )
-        )
-        return result.scalar_one_or_none() is not None
 
 
 async def _record_usage_summary_sample(org_id, user_id, conn_id):
@@ -341,6 +325,129 @@ def test_whoami_includes_usage_quota_summary(create_user, login_user, whoami):
 
 
 @pytest.mark.e2e
+def test_uncapped_user_usage_is_still_recorded_and_visible_in_whoami(create_user, login_user, whoami):
+    """Profile "Usage" tab regression: a user with NO capped policy (the default
+    state) must still see real usage accrue. Counters are recorded whenever the
+    usage_limits feature is licensed, cap or no cap."""
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+
+    # No policy assigned: resolution_source == "default", every limit is None.
+    _run(_record_usage_summary_sample(org_id, user_id, conn_id))
+
+    async def _record_cost():
+        async with async_session_maker() as db:
+            await usage_policy_service.record_llm_cost(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                amount_micro_usd=250_000,
+                source="test.uncapped",
+            )
+            await db.commit()
+
+    _run(_record_cost())
+
+    profile = whoami(token)
+    org = next(item for item in profile["organizations"] if item["id"] == org_id)
+    quota = org["usage_quota"]
+    assert quota["enabled"] is True
+    assert quota["resolution_source"] == "default"
+    assert quota["tokens"]["used"] == 3
+    assert quota["tokens"]["limit"] is None
+    assert quota["queries"]["used"] == 2
+    assert quota["queries"]["limit"] is None
+    assert quota["data_bytes"]["used"] == 50
+    assert quota["data_bytes"]["limit"] is None
+    assert quota["spend"]["used"] == 0.25
+    assert quota["spend"]["limit"] is None
+
+
+@pytest.mark.e2e
+def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, create_user, login_user, whoami):
+    """The profile Usage tab's daily charts: events aggregate per UTC day per
+    metric, and every day from the 1st through today is present (zero-filled)."""
+    from datetime import datetime as dt, timedelta as td
+
+    from app.models.usage_policy import UsageEvent
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+
+    today = dt.utcnow().date()
+    window_start, _ = current_month_window()
+    # Two days of activity: today and (when the month allows) an earlier day.
+    earlier = max(window_start.date(), today - td(days=3))
+
+    async def _seed_events():
+        async with async_session_maker() as db:
+            def event(metric, amount, day, **kw):
+                return UsageEvent(
+                    organization_id=org_id,
+                    user_id=user_id,
+                    metric=metric,
+                    amount=amount,
+                    scope_type=kw.get("scope_type", "organization"),
+                    scope_ref_id=kw.get("scope_ref_id", ""),
+                    source="test.daily",
+                    created_at=dt(day.year, day.month, day.day, 12, 0, 0),
+                )
+            db.add_all([
+                event(METRIC_LLM_TOKENS, 100, earlier),
+                event(METRIC_LLM_TOKENS, 40, today),
+                event(METRIC_LLM_TOKENS, 2, today),
+                event(METRIC_DATA_QUERIES, 1, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),
+                event(METRIC_DATA_BYTES, 512, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),
+                event(METRIC_LLM_COST, 250_000, today),  # $0.25
+            ])
+            await db.commit()
+
+    _run(_seed_events())
+
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/usage/daily",
+        headers=_headers(token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    series = resp.json()
+    assert series["enabled"] is True
+
+    days = {point["date"]: point for point in series["days"]}
+    # Zero-filled: one point per day from the 1st through today, no gaps.
+    expected_count = (today - window_start.date()).days + 1
+    assert len(series["days"]) == expected_count
+    assert series["days"][0]["date"] == window_start.date().isoformat()
+    assert series["days"][-1]["date"] == today.isoformat()
+
+    assert days[today.isoformat()]["tokens"] == 42
+    assert days[today.isoformat()]["queries"] == 1
+    assert days[today.isoformat()]["data_bytes"] == 512
+    assert days[today.isoformat()]["spend_usd"] == 0.25
+    if earlier != today:
+        assert days[earlier.isoformat()]["tokens"] == 100
+        assert days[earlier.isoformat()]["queries"] == 0
+
+    # Self-serve only for members: once the membership is gone, the same
+    # authenticated user is rejected.
+    async def _remove_membership():
+        from app.models.membership import Membership
+        async with async_session_maker() as db:
+            await db.execute(
+                update(Membership)
+                .where(Membership.organization_id == org_id, Membership.user_id == user_id)
+                .values(deleted_at=dt.utcnow())
+            )
+            await db.commit()
+
+    _run(_remove_membership())
+    denied = test_client.get(
+        f"/api/organizations/{org_id}/usage/daily",
+        headers=_headers(token, org_id),
+    )
+    assert denied.status_code == 403, denied.json()
+
+
+@pytest.mark.e2e
 def test_usage_policy_persists_and_resolves_monthly_spend_limit_usd(test_client, create_user, login_user, whoami):
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
 
@@ -549,7 +656,10 @@ def test_connection_override_applies_per_policy_and_falls_back_to_default(create
 
 
 @pytest.mark.e2e
-def test_default_unlimited_usage_limits_do_not_write_counter_rows(create_user, login_user, whoami):
+def test_default_unlimited_usage_limits_record_counters_without_enforcement(create_user, login_user, whoami):
+    """Unlimited (default) limits never *block*, but usage is still recorded —
+    the per-user counters back the profile Usage tab and keep a cap accurate
+    if an admin introduces one mid-month."""
     _, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
     conn_id = _run(_create_connection(org_id, "warehouse"))
 
@@ -586,21 +696,21 @@ def test_default_unlimited_usage_limits_do_not_write_counter_rows(create_user, l
             await db.commit()
 
     _run(_exercise_default_limits())
-    assert _run(_counter_exists(org_id, user_id, METRIC_LLM_TOKENS)) is False
-    assert _run(_counter_exists(
+    assert _run(_counter_used(org_id, user_id, METRIC_LLM_TOKENS)) == 10
+    assert _run(_counter_used(
         org_id,
         user_id,
         METRIC_DATA_QUERIES,
         scope_type=SCOPE_CONNECTION,
         scope_ref_id=conn_id,
-    )) is False
-    assert _run(_counter_exists(
+    )) == 1
+    assert _run(_counter_used(
         org_id,
         user_id,
         METRIC_DATA_BYTES,
         scope_type=SCOPE_CONNECTION,
         scope_ref_id=conn_id,
-    )) is False
+    )) == 100
 
 
 class _FakeProvider:

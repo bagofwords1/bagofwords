@@ -13,8 +13,23 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.schemas.codegen import CodeGenContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
+from app.ai.code_execution.code_execution import FORBIDDEN_BUILTINS, FORBIDDEN_MODULES
 
 tracer = get_tracer(__name__)
+
+
+def _sandbox_rules_section() -> str:
+    """Sandbox constraints for codegen prompts, derived from the validator's
+    own lists so the prompt can never drift from what execute_code enforces."""
+    builtins_list = ", ".join(sorted(FORBIDDEN_BUILTINS))
+    modules_list = ", ".join(sorted(FORBIDDEN_MODULES))
+    return f"""**Sandbox rules — the code is AST-validated BEFORE it runs; ANY of these constructs rejects the whole attempt:**
+        - Forbidden function calls (never call these, in any context): {builtins_list}.
+          * Use plain dot access instead of getattr/hasattr — fields on provided objects (e.g. `excel_files[N].path`, FetchedPage fields) always exist; check truthiness, not presence.
+          * For messy or mixed-type Excel column labels, normalize with `str(col).strip()` — never `getattr(col, 'strip', ...)`.
+        - Forbidden imports: {modules_list}.
+        - Never access dunder attributes (e.g. `obj.__class__`, `obj.__dict__`).
+        - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
 class Coder:
     def __init__(
@@ -404,6 +419,49 @@ class Coder:
             )
         return ""
 
+    @staticmethod
+    def _render_error_feedback(code_and_error_messages, limit: int = 2) -> str:
+        """Render the failing (code, error) pairs of THIS request's earlier
+        attempts for prompt inclusion, so a retry can actually correct the
+        failure instead of re-rolling blind. Bounded to the most recent
+        `limit` attempts to keep the prompt small."""
+        if not code_and_error_messages:
+            return "None"
+        parts = []
+        for code, error in code_and_error_messages[-limit:]:
+            parts.append(
+                f"<failed_attempt>\n<code>\n{code or ''}\n</code>\n<error>\n{error or ''}\n</error>\n</failed_attempt>"
+            )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _render_last_failed_observation(last_observation) -> str:
+        """When the previous tool call failed (e.g. the planner re-invoked
+        inspect_data after a sandbox violation), surface that failure so the
+        fresh codegen doesn't repeat it. Successful observations return ""
+        — a prior success is noise for a quick inspection."""
+        if not isinstance(last_observation, dict):
+            return ""
+        obs = last_observation.get("observation") or {}
+        if not isinstance(obs, dict) or obs.get("success") is not False:
+            return ""
+        err = obs.get("error")
+        if isinstance(err, dict):
+            err_text = err.get("detail") or err.get("message") or ""
+        else:
+            err_text = str(err or "")
+        err_text = err_text or obs.get("summary") or ""
+        if not err_text:
+            return ""
+        section = (
+            "- The previous attempt at this task FAILED — do not repeat its mistake:\n"
+            f"<previous_failed_attempt>\n<error>\n{err_text}\n</error>"
+        )
+        code = obs.get("code") or ""
+        if code:
+            section += f"\n<code>\n{str(code)[:1500]}\n</code>"
+        return section + "\n</previous_failed_attempt>"
+
     async def generate_code(
         self,
         data_model,  # kept for signature compatibility; ignored
@@ -541,10 +599,17 @@ class Coder:
             - Last Observation:
             <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
 
+            - Previous code attempts for THIS request that FAILED (retry #{retries}; fix these errors, do not repeat them):
+            <code_and_error_messages>
+            {self._render_error_feedback(code_and_error_messages)}
+            </code_and_error_messages>
+
             - Similar successful code snippets (for reference on what is working):
             <similar_successful_code_snippets>
             {similar_successful_code_snippets}
             </similar_successful_code_snippets>
+
+            {_sandbox_rules_section()}
 
             **Guidelines and Requirements**:
 
@@ -619,9 +684,10 @@ class Coder:
                - Do not use tables/cols that exist in instructions but are not in the provided schemas.
 
             4. **Handling Previous Code and Errors**:
-               - If `retries` ≥ 1, review the code_and_error_messages:
-                 * Understand the error.
+               - If the <code_and_error_messages> section above is not "None", review each failed attempt:
+                 * Understand the error and write code that cannot fail the same way.
                  * If it's related to a missing column or invalid query, fix it by removing or correcting that column/query.
+                 * If it's a "Security violation" from the sandbox, rewrite the code without the forbidden construct (see the sandbox rules above).
                - If `retries` ≥ 2 and still failing due to a specific column or measure, remove that problematic part and return a reduced but valid DataFrame.
                - Ensure you produce some output even if reduced.
                - If the error is related to size of the query, try to use partitions when available in context/metadata resources.
@@ -715,6 +781,12 @@ class Coder:
             excel_files_description.append(f"{index}: {file.description}")
         excel_files_section = "\n".join(excel_files_description)
 
+        # Cross-call memory: when the planner re-invokes inspection after a
+        # failed attempt, surface that failure instead of regenerating blind.
+        prev_failure_section = self._render_last_failed_observation(
+            context.last_observation if context is not None else None
+        )
+
         text = f"""
         Role: data investigator doing a quick hypothesis validation.
 
@@ -742,6 +814,15 @@ class Coder:
 
         - Excel Files (available via `excel_files` list):
         {excel_files_section}
+
+        {prev_failure_section}
+
+        - Previous code attempts for THIS request that FAILED (retry #{retries}; fix the error, do not repeat it):
+        <code_and_error_messages>
+        {self._render_error_feedback(code_and_error_messages)}
+        </code_and_error_messages>
+
+        {_sandbox_rules_section()}
 
         **Excel File Access**: Use `pd.read_excel(excel_files[INDEX].path, sheet_name=0)` to read Excel files.
         - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)

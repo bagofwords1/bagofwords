@@ -50,6 +50,13 @@ class InstructionVersion(BaseSchema):
     # List of category IDs: ["cat_1", "cat_2"]
     category_ids = Column(JSON, nullable=True)
     
+    # Brief evidence supporting an AI-suggested version (one short sentence
+    # captured from the create/edit_instruction tool call). Shown next to the
+    # "AI suggested" provenance in the Knowledge Explorer hunk review.
+    # NULL for user/git-authored versions. Excluded from content_hash — it is
+    # provenance metadata, not content.
+    evidence = Column(Text, nullable=True)
+
     # SHA-256 hash of content for fast change detection
     content_hash = Column(String(64), nullable=False)
     

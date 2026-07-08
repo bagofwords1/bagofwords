@@ -142,6 +142,7 @@
     "viewDetails": "View details",
     "noRemainingChanges": "No remaining changes — this suggestion is resolved.",
     "aiSuggestion": "AI suggestion",
+    "evidenceTip": "Why the AI suggested this",
     "proposed": "Proposed",
     "tipViewTrace": "View trace",
     "accept": "Accept",
@@ -3067,6 +3068,7 @@
       "queries": "Queries",
       "data": "Data scanned",
       "windowNote": "Usage resets at the start of each month.",
+      "dailyNote": "daily since the start of the month",
       "disabledTitle": "Usage tracking isn't enabled",
       "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan."
     },

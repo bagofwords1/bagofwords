@@ -217,6 +217,42 @@ export default defineNuxtConfig({
       allowedHosts: [
         '.ngrok-free.app'
       ]
+    },
+    optimizeDeps: {
+      // nuxt-tiptap-editor puts the tiptap packages it registers into
+      // build.transpile, which excludes them from Vite's dev pre-bundling —
+      // they are served as raw ESM. The app's own tiptap deps
+      // (@tiptap/extension-mention, @tiptap/suggestion) were NOT excluded, so
+      // Vite pre-bundled them with a second, inlined copy of prosemirror-state.
+      // Two prosemirror-state instances run separate auto-key counters, and
+      // their unkeyed plugins collide ("RangeError: Adding different instances
+      // of a keyed plugin (plugin$…)"), which aborts Editor creation and leaves
+      // every instruction editor blank in dev. Exclude the whole
+      // tiptap/prosemirror family so dev resolves exactly one copy of each
+      // module. Production builds are unaffected (single Rollup graph).
+      exclude: [
+        '@tiptap/extension-mention',
+        '@tiptap/suggestion',
+        '@tiptap/pm',
+        'prosemirror-changeset',
+        'prosemirror-collab',
+        'prosemirror-commands',
+        'prosemirror-dropcursor',
+        'prosemirror-gapcursor',
+        'prosemirror-history',
+        'prosemirror-inputrules',
+        'prosemirror-keymap',
+        'prosemirror-markdown',
+        'prosemirror-menu',
+        'prosemirror-model',
+        'prosemirror-schema-basic',
+        'prosemirror-schema-list',
+        'prosemirror-state',
+        'prosemirror-tables',
+        'prosemirror-trailing-node',
+        'prosemirror-transform',
+        'prosemirror-view',
+      ]
     }
   },
 

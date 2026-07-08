@@ -24,6 +24,20 @@ logger = logging.getLogger(__name__)
 # Minimum confidence to create an instruction
 MIN_CONFIDENCE_THRESHOLD = 0.7
 
+# Evidence is shown inline next to "AI suggested" in the Knowledge Explorer
+# hunk review, so it must stay brief. Clamp gracefully instead of rejecting.
+MAX_EVIDENCE_LENGTH = 280
+
+
+def clamp_evidence(evidence) -> str | None:
+    """Normalize evidence to one brief string (<= MAX_EVIDENCE_LENGTH chars)."""
+    ev = (evidence or "").strip()
+    if not ev:
+        return None
+    if len(ev) > MAX_EVIDENCE_LENGTH:
+        ev = ev[: MAX_EVIDENCE_LENGTH - 1].rstrip() + "…"
+    return ev
+
 # Valid categories
 VALID_CATEGORIES = {"general", "code_gen", "visualization", "dashboard", "system"}
 
@@ -68,7 +82,7 @@ class CreateInstructionTool(Tool):
                         "text": "When calculating revenue, always exclude orders with status='cancelled' or status='refunded' to avoid double-counting.",
                         "category": "code_gen",
                         "confidence": 0.9,
-                        "evidence": "Observed in inspect_data: orders table has status values including 'cancelled' and 'refunded' which should not count as revenue.",
+                        "evidence": "inspect_data: orders.status includes 'cancelled' and 'refunded'.",
                         "load_mode": "intelligent",
                         "table_names": ["orders"]
                     },
@@ -79,7 +93,7 @@ class CreateInstructionTool(Tool):
                         "text": "User status values: 1=active, 2=inactive, 3=banned. Always filter status=1 for active user counts.",
                         "category": "general",
                         "confidence": 0.95,
-                        "evidence": "Confirmed via clarify tool: user provided status code meanings.",
+                        "evidence": "User confirmed status code meanings via clarify.",
                         "load_mode": "always",
                     },
                     "description": "Global / always-on: critical business rule — OMIT table_names so it applies everywhere."
@@ -89,7 +103,7 @@ class CreateInstructionTool(Tool):
                         "text": "When summarizing the Music Store dataset at a high level, note that Chinook is the sample database behind it (artists, albums, tracks, customers, invoices, invoice lines).",
                         "category": "general",
                         "confidence": 0.9,
-                        "evidence": "Schema inspection identified the Music Store dataset as the Chinook sample.",
+                        "evidence": "Schema inspection: Music Store matches the Chinook sample.",
                         "load_mode": "intelligent",
                     },
                     "description": "Global semantic note: applies across the data source — OMIT table_names rather than listing every table."
@@ -99,7 +113,7 @@ class CreateInstructionTool(Tool):
                         "text": "The 'amount' column in transactions table is stored in cents. Always divide by 100 when displaying as currency.",
                         "category": "code_gen",
                         "confidence": 0.85,
-                        "evidence": "Observed in inspect_data: amount values are large integers (e.g., 9999 for $99.99).",
+                        "evidence": "inspect_data: amount values are cents (9999 = $99.99).",
                         "load_mode": "intelligent",
                         "table_names": ["transactions"]
                     },
@@ -347,6 +361,7 @@ class CreateInstructionTool(Tool):
                 auto_finalize=False,  # Don't finalize yet - wait for session end
                 agent_execution_id=agent_execution_id,  # Link to training session for tracking
                 version_status_override="published",
+                evidence=clamp_evidence(data.evidence),
             )
 
             ref_count = len(references)

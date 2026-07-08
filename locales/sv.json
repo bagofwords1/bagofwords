@@ -130,6 +130,7 @@
     "viewDetails": "Visa detaljer",
     "noRemainingChanges": "Inga återstående ändringar — detta förslag är löst.",
     "aiSuggestion": "AI-förslag",
+    "evidenceTip": "Varför AI föreslog detta",
     "proposed": "Föreslaget",
     "tipViewTrace": "Visa spårning",
     "accept": "Godkänn",
@@ -2767,6 +2768,7 @@
       "queries": "Frågor",
       "data": "Skannade data",
       "windowNote": "Användningen återställs i början av varje månad.",
+      "dailyNote": "per dag sedan månadens början",
       "disabledTitle": "Användningsspårning är inte aktiverad",
       "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan."
     },

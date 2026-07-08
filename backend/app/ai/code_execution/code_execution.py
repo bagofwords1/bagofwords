@@ -45,6 +45,19 @@ DEFAULT_QUERY_TIMEOUT_SECONDS = 60
 
 _tracer = get_tracer(__name__)
 
+import logging
+from sqlalchemy.exc import OperationalError
+
+logger = logging.getLogger(__name__)
+
+
+def _is_sqlite_lock_error(exc: Exception) -> bool:
+    """True for SQLite's single-writer lock timeout (dev/sandbox databases)."""
+    if not isinstance(exc, OperationalError):
+        return False
+    message = str(exc).lower()
+    return "database is locked" in message or "database table is locked" in message
+
 # Dedicated thread pool for user code execution.
 # Keeps code-exec threads isolated from the default asyncio executor so that
 # stuck DB/network calls in generated code cannot starve other server operations.
@@ -475,13 +488,23 @@ class QueryCapturingClientWrapper:
         if not connection_id:
             return
         metadata = self._usage_metadata(query)
-        context.run_blocking(
-            usage_policy_service.consume_data_query_with_context(
-                context,
-                connection_id=str(connection_id),
-                metadata=metadata,
+        try:
+            context.run_blocking(
+                usage_policy_service.consume_data_query_with_context(
+                    context,
+                    connection_id=str(connection_id),
+                    metadata=metadata,
+                )
             )
-        )
+        except OperationalError as e:
+            # SQLite-only: the agent's long-lived session can hold the single
+            # write lock while model code runs, making this bookkeeping write
+            # time out. Metering is best-effort there (same policy as the LLM
+            # usage recorder); enforcement raises UsageLimitExceeded, which is
+            # not an OperationalError and still propagates.
+            if not _is_sqlite_lock_error(e):
+                raise
+            logger.debug("Skipping data-query quota write; SQLite is locked")
 
     def _consume_data_bytes_quota(self, query: str, result_bytes: int, rows: Optional[int]) -> None:
         context = self._usage_context
@@ -495,14 +518,19 @@ class QueryCapturingClientWrapper:
             "rows": rows,
             "result_bytes": result_bytes,
         }
-        context.run_blocking(
-            usage_policy_service.consume_data_bytes_with_context(
-                context,
-                connection_id=str(connection_id),
-                amount=result_bytes,
-                metadata=metadata,
+        try:
+            context.run_blocking(
+                usage_policy_service.consume_data_bytes_with_context(
+                    context,
+                    connection_id=str(connection_id),
+                    amount=result_bytes,
+                    metadata=metadata,
+                )
             )
-        )
+        except OperationalError as e:
+            if not _is_sqlite_lock_error(e):
+                raise
+            logger.debug("Skipping data-bytes quota write; SQLite is locked")
 
     def _connection_id(self) -> Optional[str]:
         connection_id = getattr(self._original, "_bow_connection_id", None)
@@ -1256,7 +1284,16 @@ class StreamingCodeExecutor:
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "security_violation", "payload": {"violation_type": violation_type, "message": str(e), "code_snippet": final_code[:500]}}
                 yield {"type": "stdout", "payload": msg}
-                # Security violations are not retryable
+                if violation_type == "unsafe_python":
+                    # AST validation runs BEFORE exec() — nothing has executed,
+                    # so this is a correctable style problem (e.g. the coder
+                    # used getattr()). Feed the violation back and regenerate.
+                    retries += 1
+                    if retries < max_retries:
+                        yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
+                    continue
+                # unsafe_sql fires mid-execution (a write query reached a real
+                # client wrapper), so the attempt is not safely repeatable.
                 break
             except Exception as e:
                 msg = f"Execution error: {str(e)}"

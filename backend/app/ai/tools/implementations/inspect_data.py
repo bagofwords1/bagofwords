@@ -191,9 +191,10 @@ Queries are subject to a per-connection timeout.
         execution_start = time.monotonic()
         raw_errors: List[Any] = []
 
-        # No retries by default for inspection to keep it fast, unless it crashes hard
+        # One retry: with error feedback wired into the prompt a second attempt
+        # can self-correct (e.g. after a sandbox violation) while staying fast.
         async for e in streamer.generate_and_execute_stream_v2(
-            request=CodeGenRequest(context=codegen_context, retries=1),
+            request=CodeGenRequest(context=codegen_context, retries=2),
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=runtime_ctx.get("excel_files", []),
             code_generator_fn=_inspection_generator_fn,
