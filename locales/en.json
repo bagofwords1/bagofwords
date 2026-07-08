@@ -3068,6 +3068,7 @@
       "queries": "Queries",
       "data": "Data scanned",
       "windowNote": "Usage resets at the start of each month.",
+      "dailyNote": "daily since the start of the month",
       "disabledTitle": "Usage tracking isn't enabled",
       "disabledNote": "Per-user usage (tokens, queries, and data scanned) is tracked when the Usage Limits feature is enabled on your plan."
     },

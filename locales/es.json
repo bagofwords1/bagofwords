@@ -2875,6 +2875,7 @@
       "queries": "Consultas",
       "data": "Datos analizados",
       "windowNote": "El uso se reinicia al comienzo de cada mes.",
+      "dailyNote": "por día desde el inicio del mes",
       "disabledTitle": "El seguimiento de uso no está habilitado",
       "disabledNote": "El uso por usuario (tokens, consultas y datos analizados) se registra cuando la función de Límites de uso está habilitada en tu plan."
     },
