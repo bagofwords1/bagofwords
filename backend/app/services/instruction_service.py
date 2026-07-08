@@ -72,6 +72,7 @@ class InstructionService:
         auto_finalize: bool = True,  # If False, skip auto-finalization (for batching)
         agent_execution_id: str = None,  # Optional: link instruction to agent execution (for training mode)
         version_status_override: Optional[str] = None,  # AI flows pass 'published' to flip the live row on build promotion
+        evidence: Optional[str] = None,  # AI flows: brief provenance note stored on the staged version
     ) -> InstructionSchema:
         """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
@@ -147,6 +148,7 @@ class InstructionService:
             version = await self.version_service.create_version(
                 db, instruction, user_id=current_user.id,
                 status_override=version_status_override,
+                evidence=evidence,
             )
 
             # Update instruction's current version
@@ -1421,6 +1423,18 @@ class InstructionService:
             base_text = base_text_by_build.get(base_id, "") if base_id else ""
             live_rows.append((build, proposed_text, proposed_vid, base_text))
 
+        # Evidence for the surviving proposed versions — one bulk query. Brief
+        # provenance notes stamped by the AI create/edit_instruction tools;
+        # shown next to "AI suggestion" in the per-hunk review.
+        evidence_by_vid: dict = {}
+        proposed_vids = {str(v) for _b, _t, v, _bt in live_rows}
+        if proposed_vids:
+            for vid, ev in (await db.execute(
+                select(_IV.id, _IV.evidence).where(_IV.id.in_(proposed_vids))
+            )).all():
+                if ev:
+                    evidence_by_vid[str(vid)] = ev
+
         # Agent-execution traces for the surviving builds — one query, not one
         # per build.
         exec_ids = {
@@ -1461,6 +1475,7 @@ class InstructionService:
                 "created_by": ({"id": str(creator.id), "name": getattr(creator, "name", None) or getattr(creator, "email", None)} if creator else None),
                 "proposed_version_id": str(proposed_vid),
                 "message": build.description,
+                "evidence": evidence_by_vid.get(str(proposed_vid)),
                 "report_id": (trace or {}).get("report_id"),
                 "completion_id": (trace or {}).get("completion_id"),
                 "hunks": shown,
@@ -3709,6 +3724,17 @@ class InstructionService:
         """
         # Convert to basic schema
         instruction_dict = InstructionSchema.from_orm(instruction).model_dump()
+
+        # Evidence of the current version (stamped by AI create/edit tools) —
+        # lets the detail view show why the AI suggested this instruction.
+        try:
+            if instruction.current_version_id:
+                from app.models.instruction_version import InstructionVersion as _IV
+                instruction_dict["evidence"] = (await db.execute(
+                    select(_IV.evidence).where(_IV.id == str(instruction.current_version_id))
+                )).scalar_one_or_none()
+        except Exception:
+            pass
 
         # Authoritative pending check (shared source of truth). None => caller
         # didn't supply org/user, fall back to the heuristic below.

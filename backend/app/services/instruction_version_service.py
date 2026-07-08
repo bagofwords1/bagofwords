@@ -22,6 +22,7 @@ class InstructionVersionService:
         instruction: Instruction,
         user_id: Optional[str] = None,
         status_override: Optional[str] = None,
+        evidence: Optional[str] = None,
     ) -> InstructionVersion:
         """
         Create a new version by snapshotting the current instruction state.
@@ -35,6 +36,10 @@ class InstructionVersionService:
         intended live state ('published') differs from the staged instruction
         state ('draft'); promote_build reads version.status to decide whether
         to flip the live row.
+
+        evidence: brief provenance note for AI-suggested versions (why the AI
+        proposed this change). Stored on the version, excluded from
+        content_hash.
         """
         # Get next version number
         version_number = await self.get_next_version_number(db, instruction.id)
@@ -102,6 +107,7 @@ class InstructionVersionService:
             data_source_ids=data_source_ids,
             label_ids=label_ids,
             category_ids=category_ids,
+            evidence=evidence,
             content_hash=content_hash,
             created_by_user_id=user_id,
         )
@@ -130,6 +136,7 @@ class InstructionVersionService:
         label_ids: Optional[list] = None,
         category_ids: Optional[list] = None,
         user_id: Optional[str] = None,
+        evidence: Optional[str] = None,
     ) -> InstructionVersion:
         """
         Create a version from explicit data.
@@ -173,14 +180,15 @@ class InstructionVersionService:
             data_source_ids=data_source_ids,
             label_ids=label_ids,
             category_ids=category_ids,
+            evidence=evidence,
             content_hash=content_hash,
             created_by_user_id=user_id,
         )
-        
+
         db.add(version)
         await db.commit()
         await db.refresh(version)
-        
+
         return version
     
     async def get_version(

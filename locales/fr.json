@@ -130,6 +130,7 @@
     "viewDetails": "Voir les détails",
     "noRemainingChanges": "Aucune modification restante — cette suggestion est résolue.",
     "aiSuggestion": "Suggestion AI",
+    "evidenceTip": "Pourquoi l'AI a suggéré cela",
     "proposed": "Proposé",
     "tipViewTrace": "Voir la trace",
     "accept": "Accepter",

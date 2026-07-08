@@ -61,8 +61,10 @@ class EditInstructionInput(BaseModel):
     evidence: Optional[str] = Field(
         None,
         description=(
-            "Updated or additional evidence supporting this instruction. "
-            "E.g., 'User confirmed via clarify: status 1=active, 2=inactive'"
+            "ALWAYS provide. ONE short sentence (aim for under 150 characters) naming the "
+            "source and the fact behind this edit. Shown to reviewers next to 'AI suggested' "
+            "in the review UI, so keep it scannable — no preamble. "
+            "E.g. 'User confirmed: status 1=active, 2=inactive.'"
         ),
         max_length=500,
     )

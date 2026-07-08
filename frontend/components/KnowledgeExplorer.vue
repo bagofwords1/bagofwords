@@ -612,6 +612,8 @@
                             <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ activeSuggestion?.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
                             <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ms-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" :title="$t('agentsPage.tipViewTrace')" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
+                          <!-- Brief evidence stamped by the AI when it proposed this change -->
+                          <span v-if="activeSuggestion?.evidence" class="block mb-1.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-3">{{ activeSuggestion.evidence }}</span>
                           <span class="flex items-center gap-1.5">
                             <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="acceptHunk(seg.idx)"><UIcon :name="resolving === seg.idx ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === seg.idx }]" />{{ $t('agentsPage.accept') }}</button>
                             <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="resolving !== null" @click.stop="rejectHunk(seg.idx)"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.reject') }}</button>
@@ -729,6 +731,10 @@
                   <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3 h-3" />{{ detail.user.name || detail.user.email }}</span>
                   <span v-if="detail.created_at">{{ $t('agentsPage.created', { date: fmtDate(detail.created_at) }) }}</span>
                   <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">· {{ $t('agentsPage.updated', { date: fmtDate(detail.updated_at) }) }}</span>
+                </div>
+                <!-- Brief evidence stamped by the AI when it suggested the current version -->
+                <div v-if="detail?.evidence" class="mt-1 text-[11px] text-gray-400 dark:text-gray-500 italic" :title="$t('agentsPage.evidenceTip')">
+                  <UIcon name="i-heroicons-light-bulb" class="w-3 h-3 inline-block align-[-2px] me-1" />{{ detail.evidence }}
                 </div>
               </div>
 

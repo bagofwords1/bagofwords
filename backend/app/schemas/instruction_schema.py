@@ -178,6 +178,11 @@ class InstructionSchema(InstructionBase):
     current_build_id: Optional[str] = None
     current_build_status: Optional[str] = None
 
+    # Brief evidence stamped on the current version when it was AI-suggested
+    # (create/edit_instruction tool calls). Populated by the service layer —
+    # not an ORM column. None for user/git-authored versions.
+    evidence: Optional[str] = None
+
     # Data sources for which this instruction is the primary — populated by service layer
     primary_for: List[DataSourceMinimalSchema] = []
 

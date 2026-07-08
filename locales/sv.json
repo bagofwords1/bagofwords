@@ -130,6 +130,7 @@
     "viewDetails": "Visa detaljer",
     "noRemainingChanges": "Inga återstående ändringar — detta förslag är löst.",
     "aiSuggestion": "AI-förslag",
+    "evidenceTip": "Varför AI föreslog detta",
     "proposed": "Föreslaget",
     "tipViewTrace": "Visa spårning",
     "accept": "Godkänn",

@@ -56,8 +56,12 @@ class CreateInstructionInput(BaseModel):
     evidence: Optional[str] = Field(
         None,
         description=(
-            "Brief explanation of evidence supporting this instruction. "
-            "E.g., 'Observed in inspect_data: status column has values 1,2,3 mapping to active/inactive/banned'"
+            "ALWAYS provide. ONE short sentence (aim for under 150 characters) naming the "
+            "source and the fact: what you observed or who confirmed it. Shown to reviewers "
+            "next to 'AI suggested' in the review UI, so keep it scannable — no preamble, "
+            "no restating the instruction. "
+            "E.g. 'inspect_data: orders.status includes cancelled/refunded.' or "
+            "'User confirmed: status 1=active, 2=inactive, 3=banned.'"
         ),
         max_length=500,
     )
