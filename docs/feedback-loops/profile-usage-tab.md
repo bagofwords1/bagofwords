@@ -128,6 +128,25 @@ The policy-resolution SELECTs were already paid on every call before the fix
 just the atomic counter `UPDATE` + event `INSERT`. Per-LLM-call recording was
 already buffered in memory and is unaffected.
 
+## Follow-up — daily per-metric charts
+
+The tab now also renders a daily breakdown since the start of the month: one
+small bar chart per metric (Tokens / Queries / Data Scanned), single series
+each, per-day tooltip, light + dark.
+
+- Backend: `GET /organizations/{org_id}/usage/daily` (self-serve, membership
+  checked, enterprise-gated) aggregates `usage_events` by UTC day and
+  zero-fills day 1 → today. Covered by
+  `test_daily_usage_series_groups_events_by_day_and_zero_fills`.
+- Frontend: `UserProfileModal.vue` fetches the series on tab open and renders
+  three ECharts small multiples. Hues (#2563eb / #0d9488 / #7c3aed) validated
+  with the dataviz palette checker against both surfaces (all six checks pass,
+  worst adjacent CVD ΔE 72.5).
+- Evidence: `assets/profile-usage-tab-daily-light.png`,
+  `profile-usage-tab-daily-dark.png`, `profile-usage-tab-daily-hover.png`
+  (tooltip). Multi-day series seeded via backdated `usage_events` in the
+  sandbox; the totals in the tiles match the sum of the bars.
+
 ## What this proves / regression notes
 
 - Counters accrue for uncapped users through the real paths (agent token

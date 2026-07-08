@@ -1,10 +1,10 @@
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,8 @@ from app.models.usage_policy import (
 )
 from app.schemas.usage_policy_schema import (
     EffectiveUsagePolicySchema,
+    UsageDailyPointSchema,
+    UsageDailySeriesSchema,
     UsagePolicyAssignmentSchema,
     UsagePolicyConnectionOverrideInput,
     UsagePolicyCreate,
@@ -660,6 +662,63 @@ class UsagePolicyService:
             spend=self._spend_metric(spend_used_micro, limits.monthly_spend_micro_usd),
             connections=connections,
         )
+
+    async def get_user_daily_usage(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        user_id: str,
+    ) -> UsageDailySeriesSchema:
+        """Per-day usage since the start of the month, zero-filled through today.
+
+        Aggregated from usage_events (counters are one row per month, so events
+        are the only per-day source). Days before recording existed simply show 0.
+        """
+        window_start, window_end = current_month_window()
+        series = UsageDailySeriesSchema(
+            enabled=False,
+            organization_id=org_id,
+            user_id=user_id,
+            window_start=window_start.isoformat(),
+            window_end=window_end.isoformat(),
+        )
+        if not has_feature("usage_limits"):
+            return series
+
+        day_expr = func.date(UsageEvent.created_at)
+        result = await db.execute(
+            select(day_expr, UsageEvent.metric, func.sum(UsageEvent.amount))
+            .where(
+                UsageEvent.organization_id == org_id,
+                UsageEvent.user_id == user_id,
+                UsageEvent.created_at >= window_start,
+                UsageEvent.created_at < window_end,
+            )
+            .group_by(day_expr, UsageEvent.metric)
+        )
+        by_day: Dict[str, Dict[str, int]] = {}
+        for day, metric, total in result.all():
+            by_day.setdefault(str(day), {})[metric] = int(total or 0)
+
+        metric_field = {
+            METRIC_LLM_TOKENS: "tokens",
+            METRIC_DATA_QUERIES: "queries",
+            METRIC_DATA_BYTES: "data_bytes",
+        }
+        today = datetime.utcnow().date()
+        cursor = window_start.date()
+        while cursor <= today and cursor < window_end.date():
+            key = cursor.isoformat()
+            point = UsageDailyPointSchema(date=key)
+            for metric, amount in (by_day.get(key) or {}).items():
+                if metric == METRIC_LLM_COST:
+                    point.spend_usd = micro_to_usd(amount) or 0.0
+                elif metric in metric_field:
+                    setattr(point, metric_field[metric], amount)
+            series.days.append(point)
+            cursor += timedelta(days=1)
+        series.enabled = True
+        return series
 
     async def check_llm_tokens_available(
         self,

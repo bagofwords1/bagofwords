@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -7,10 +8,12 @@ from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.ee.license import require_enterprise
 from app.ee.audit.service import audit_service
+from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.usage_policy_schema import (
     EffectiveUsagePolicySchema,
+    UsageDailySeriesSchema,
     UsagePolicyCreate,
     UsagePolicyPrincipalAssignmentResult,
     UsagePolicyPrincipalAssignmentUpdate,
@@ -94,6 +97,34 @@ async def get_effective_usage_policy(
     _ensure_org_match(organization_id, organization)
     effective = await usage_policy_service.resolve_effective_limits(db, organization_id, user_id)
     return effective.to_schema()
+
+
+@router.get("/organizations/{organization_id}/usage/daily", response_model=UsageDailySeriesSchema)
+@require_enterprise(feature="usage_limits")
+async def get_my_daily_usage(
+    organization_id: str,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Current user's per-day usage since the start of the month (profile Usage tab).
+
+    Self-serve: any member can read their own usage, so this checks membership
+    directly instead of an admin permission.
+    """
+    _ensure_org_match(organization_id, organization)
+    member = await db.execute(
+        select(Membership).where(
+            Membership.organization_id == str(organization.id),
+            Membership.user_id == str(current_user.id),
+            Membership.deleted_at.is_(None),
+        )
+    )
+    if member.scalar_one_or_none() is None:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    return await usage_policy_service.get_user_daily_usage(
+        db, str(organization.id), str(current_user.id)
+    )
 
 
 @router.put(

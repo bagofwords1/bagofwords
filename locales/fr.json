@@ -2758,6 +2758,7 @@
       "queries": "Requêtes",
       "data": "Données analysées",
       "windowNote": "L'utilisation est réinitialisée au début de chaque mois.",
+      "dailyNote": "par jour depuis le début du mois",
       "disabledTitle": "Le suivi de l'utilisation n'est pas activé",
       "disabledNote": "L'utilisation par utilisateur (jetons, requêtes et données analysées) est suivie lorsque la fonctionnalité Limites d'utilisation est activée sur votre forfait."
     },

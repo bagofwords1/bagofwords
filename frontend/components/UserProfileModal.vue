@@ -211,6 +211,25 @@
                 </div>
               </div>
               <p class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('profile.usage.windowNote') }}</p>
+
+              <!-- Daily breakdown since the start of the month, one small
+                   multiple per metric (single series each, so no legends). -->
+              <div v-if="dailyCharts.length" class="space-y-3">
+                <div
+                  v-for="chart in dailyCharts"
+                  :key="chart.key"
+                  class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 pt-3 pb-1"
+                >
+                  <div class="flex items-baseline gap-2">
+                    <span class="inline-block w-2 h-2 rounded-sm" :style="{ backgroundColor: chart.color }" />
+                    <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ chart.title }}</span>
+                    <span class="text-[11px] text-gray-400 dark:text-gray-500">· {{ $t('profile.usage.dailyNote') }}</span>
+                  </div>
+                  <ClientOnly>
+                    <VChart class="!h-28 w-full" :option="chart.option" autoresize />
+                  </ClientOnly>
+                </div>
+              </div>
             </template>
 
             <div v-else class="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/30 px-6 py-8 text-center">
@@ -757,7 +776,84 @@ async function loadMcp() {
 const { refreshQuotaIfStale } = useUsageQuota()
 function loadUsage() {
   refreshQuotaIfStale({ force: true }).catch(() => {})
+  loadDailyUsage()
 }
+
+// --- Usage: daily breakdown since the start of the month ---
+type DailyPoint = { date: string; tokens: number; queries: number; data_bytes: number; spend_usd: number }
+const dailyDays = ref<DailyPoint[]>([])
+
+async function loadDailyUsage() {
+  const orgId = organization.value?.id
+  if (!orgId) return
+  try {
+    const res = await useMyFetch(`/organizations/${orgId}/usage/daily`)
+    const data: any = res.data?.value
+    dailyDays.value = data?.enabled ? (data.days || []) : []
+  } catch {
+    dailyDays.value = []
+  }
+}
+
+// One small multiple per metric: single series each (no legend — the title
+// names it), daily columns, y from zero, per-bar tooltip. Hues are fixed per
+// metric and CVD-validated against both surfaces.
+const DAILY_METRICS = [
+  { key: 'tokens', color: '#2563eb', format: (v: number) => formatNumber(v) },
+  { key: 'queries', color: '#0d9488', format: (v: number) => formatNumber(v) },
+  { key: 'data_bytes', color: '#7c3aed', format: (v: number) => formatBytes(v) },
+] as const
+
+const dailyCharts = computed(() => {
+  const days = dailyDays.value
+  if (!days.length) return []
+  const dark = colorMode.value === 'dark'
+  const ink = dark ? '#9ca3af' : '#6b7280'
+  const gridLine = dark ? '#1f2937' : '#e5e7eb'
+  const labelEvery = Math.max(1, Math.ceil(days.length / 10))
+  return DAILY_METRICS.map((metric) => {
+    const values = days.map(d => Number((d as any)[metric.key]) || 0)
+    return {
+      key: metric.key,
+      color: metric.color,
+      title: t(`profile.usage.${metric.key === 'data_bytes' ? 'data' : metric.key}`),
+      option: {
+        backgroundColor: 'transparent',
+        animation: false,
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          formatter: (params: any) => {
+            const p = params?.[0]
+            if (!p) return ''
+            return `${days[p.dataIndex].date}<br/><b>${metric.format(values[p.dataIndex])}</b>`
+          },
+        },
+        grid: { left: 4, right: 4, top: 8, bottom: 2, containLabel: true },
+        xAxis: {
+          type: 'category',
+          data: days.map(d => d.date.slice(8)),  // day of month
+          axisTick: { show: false },
+          axisLine: { lineStyle: { color: gridLine } },
+          axisLabel: { color: ink, fontSize: 10, interval: labelEvery - 1 },
+        },
+        yAxis: {
+          type: 'value',
+          min: 0,
+          splitNumber: 3,
+          splitLine: { lineStyle: { color: gridLine } },
+          axisLabel: { color: ink, fontSize: 10, formatter: (v: number) => metric.format(v) },
+        },
+        series: [{
+          type: 'bar',
+          data: values,
+          barWidth: '60%',
+          itemStyle: { color: metric.color, borderRadius: [3, 3, 0, 0] },
+        }],
+      },
+    }
+  })
+})
 
 const emptyMetric = { used: 0, limit: null as number | null }
 const usage = computed(() => {

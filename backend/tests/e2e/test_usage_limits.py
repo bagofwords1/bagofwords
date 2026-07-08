@@ -3,7 +3,7 @@ import uuid
 
 import pandas as pd
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, estimate_result_size_bytes
@@ -361,6 +361,90 @@ def test_uncapped_user_usage_is_still_recorded_and_visible_in_whoami(create_user
     assert quota["data_bytes"]["limit"] is None
     assert quota["spend"]["used"] == 0.25
     assert quota["spend"]["limit"] is None
+
+
+@pytest.mark.e2e
+def test_daily_usage_series_groups_events_by_day_and_zero_fills(test_client, create_user, login_user, whoami):
+    """The profile Usage tab's daily charts: events aggregate per UTC day per
+    metric, and every day from the 1st through today is present (zero-filled)."""
+    from datetime import datetime as dt, timedelta as td
+
+    from app.models.usage_policy import UsageEvent
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+
+    today = dt.utcnow().date()
+    window_start, _ = current_month_window()
+    # Two days of activity: today and (when the month allows) an earlier day.
+    earlier = max(window_start.date(), today - td(days=3))
+
+    async def _seed_events():
+        async with async_session_maker() as db:
+            def event(metric, amount, day, **kw):
+                return UsageEvent(
+                    organization_id=org_id,
+                    user_id=user_id,
+                    metric=metric,
+                    amount=amount,
+                    scope_type=kw.get("scope_type", "organization"),
+                    scope_ref_id=kw.get("scope_ref_id", ""),
+                    source="test.daily",
+                    created_at=dt(day.year, day.month, day.day, 12, 0, 0),
+                )
+            db.add_all([
+                event(METRIC_LLM_TOKENS, 100, earlier),
+                event(METRIC_LLM_TOKENS, 40, today),
+                event(METRIC_LLM_TOKENS, 2, today),
+                event(METRIC_DATA_QUERIES, 1, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),
+                event(METRIC_DATA_BYTES, 512, today, scope_type=SCOPE_CONNECTION, scope_ref_id=conn_id),
+                event(METRIC_LLM_COST, 250_000, today),  # $0.25
+            ])
+            await db.commit()
+
+    _run(_seed_events())
+
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/usage/daily",
+        headers=_headers(token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    series = resp.json()
+    assert series["enabled"] is True
+
+    days = {point["date"]: point for point in series["days"]}
+    # Zero-filled: one point per day from the 1st through today, no gaps.
+    expected_count = (today - window_start.date()).days + 1
+    assert len(series["days"]) == expected_count
+    assert series["days"][0]["date"] == window_start.date().isoformat()
+    assert series["days"][-1]["date"] == today.isoformat()
+
+    assert days[today.isoformat()]["tokens"] == 42
+    assert days[today.isoformat()]["queries"] == 1
+    assert days[today.isoformat()]["data_bytes"] == 512
+    assert days[today.isoformat()]["spend_usd"] == 0.25
+    if earlier != today:
+        assert days[earlier.isoformat()]["tokens"] == 100
+        assert days[earlier.isoformat()]["queries"] == 0
+
+    # Self-serve only for members: once the membership is gone, the same
+    # authenticated user is rejected.
+    async def _remove_membership():
+        from app.models.membership import Membership
+        async with async_session_maker() as db:
+            await db.execute(
+                update(Membership)
+                .where(Membership.organization_id == org_id, Membership.user_id == user_id)
+                .values(deleted_at=dt.utcnow())
+            )
+            await db.commit()
+
+    _run(_remove_membership())
+    denied = test_client.get(
+        f"/api/organizations/{org_id}/usage/daily",
+        headers=_headers(token, org_id),
+    )
+    assert denied.status_code == 403, denied.json()
 
 
 @pytest.mark.e2e

@@ -2758,6 +2758,7 @@
       "queries": "Abfragen",
       "data": "Gescannte Daten",
       "windowNote": "Die Nutzung wird zu Beginn jedes Monats zurückgesetzt.",
+      "dailyNote": "täglich seit Monatsbeginn",
       "disabledTitle": "Nutzungserfassung ist nicht aktiviert",
       "disabledNote": "Die Nutzung pro Benutzer (Tokens, Abfragen und gescannte Daten) wird erfasst, wenn die Funktion „Nutzungslimits“ in Ihrem Tarif aktiviert ist."
     },

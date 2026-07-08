@@ -158,3 +158,22 @@ class UsageQuotaSummarySchema(BaseModel):
     data_bytes: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
     spend: UsageQuotaSpendMetricSchema = Field(default_factory=UsageQuotaSpendMetricSchema)
     connections: List[UsageQuotaConnectionSchema] = []
+
+
+class UsageDailyPointSchema(BaseModel):
+    """One calendar day of a user's usage (UTC), zero-filled."""
+    date: str  # YYYY-MM-DD
+    tokens: int = 0
+    queries: int = 0
+    data_bytes: int = 0
+    spend_usd: float = 0.0
+
+
+class UsageDailySeriesSchema(BaseModel):
+    """Per-day usage for the current month window, month start through today."""
+    enabled: bool = False
+    organization_id: str
+    user_id: str
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    days: List[UsageDailyPointSchema] = []

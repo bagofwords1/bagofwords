@@ -2758,6 +2758,7 @@
       "queries": "Frågor",
       "data": "Skannade data",
       "windowNote": "Användningen återställs i början av varje månad.",
+      "dailyNote": "per dag sedan månadens början",
       "disabledTitle": "Användningsspårning är inte aktiverad",
       "disabledNote": "Användning per användare (tokens, frågor och skannade data) spåras när funktionen Användningsgränser är aktiverad i din plan."
     },
