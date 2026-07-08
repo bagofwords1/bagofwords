@@ -1,7 +1,7 @@
 <template>
   <div class="instruction-wysiwyg" ref="containerRef" :dir="containerDir">
     <!-- WYSIWYG mode (v-show keeps EditorContent in DOM so ProseMirror stays attached) -->
-    <div v-show="mode === 'wysiwyg'">
+    <div v-show="mode === 'wysiwyg' && !editorFailed">
       <!-- Floating bubble toolbar (appears on text selection, edit mode only) -->
       <BubbleMenu
         v-if="editor && isEditable"
@@ -88,11 +88,13 @@
       </div>
     </div>
 
-    <!-- Raw markdown mode (v-show keeps textarea in DOM) -->
+    <!-- Raw markdown mode (v-show keeps textarea in DOM). Also the fallback
+         surface when the WYSIWYG editor failed to initialize. -->
     <textarea
-      v-show="mode === 'raw'"
+      v-show="mode === 'raw' || editorFailed"
       v-model="rawText"
       :dir="rawDir"
+      :readonly="!isEditable"
       class="raw-textarea"
       :placeholder="placeholder || 'Write instructions using markdown...'"
       @input="onRawInput"
@@ -101,10 +103,10 @@
 </template>
 
 <script setup lang="ts">
-import { useEditor, EditorContent, BubbleMenu, Extension } from '@tiptap/vue-3'
+import { Editor, EditorContent, BubbleMenu, Extension } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
-import { Plugin } from '@tiptap/pm/state'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import MarkdownIt from 'markdown-it'
 import { useI18n } from 'vue-i18n'
@@ -356,6 +358,7 @@ const AutoDir = Extension.create({
   addProseMirrorPlugins() {
     return [
       new Plugin({
+        key: new PluginKey('instructionAutoDir'),
         props: {
           decorations(state) {
             const decos: Decoration[] = []
@@ -384,7 +387,13 @@ const containerDir = computed(() => (props.modelValue?.trim() ? undefined : empt
 
 let skipPropWatch = false
 
-const editor = useEditor({
+// Constructed manually (instead of useEditor) so an initialization failure —
+// e.g. a dependency-level ProseMirror error — degrades to the raw-markdown
+// textarea instead of silently rendering an empty panel.
+const editor = shallowRef<InstanceType<typeof Editor> | undefined>()
+const editorFailed = ref(false)
+
+const editorOptions = () => ({
   extensions: [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
@@ -454,7 +463,7 @@ const editor = useEditor({
   editorProps: {
     attributes: { class: 'tiptap-prose' },
   },
-  onUpdate: ({ editor: e }) => {
+  onUpdate: ({ editor: e }: { editor: any }) => {
     if (!isEditable.value) return
     const mdText = docToMarkdown(e.getJSON())
     skipPropWatch = true
@@ -462,9 +471,24 @@ const editor = useEditor({
   },
 })
 
-// Apply editable state after mount — always explicit, to avoid stale state from HMR / component reuse
+// Create the editor on mount (same lifecycle as useEditor), but guarded: if
+// construction throws, flip to the raw-markdown fallback so the instruction
+// text is still readable/editable instead of a blank pane.
 onMounted(() => {
-  editor.value?.setEditable(isEditable.value)
+  try {
+    editor.value = new Editor(editorOptions() as any)
+    // Apply editable state explicitly, to avoid stale state from HMR / component reuse
+    editor.value.setEditable(isEditable.value)
+  } catch (e) {
+    console.error('[InstructionEditor] editor failed to initialize; falling back to raw markdown', e)
+    editorFailed.value = true
+    rawText.value = props.modelValue
+  }
+})
+
+onBeforeUnmount(() => {
+  editor.value?.destroy()
+  editor.value = undefined
 })
 
 watch(isEditable, (val) => {
@@ -479,7 +503,7 @@ watch(
       skipPropWatch = false
       return
     }
-    if (props.mode === 'raw') {
+    if (props.mode === 'raw' || editorFailed.value) {
       rawText.value = newVal
       return
     }
