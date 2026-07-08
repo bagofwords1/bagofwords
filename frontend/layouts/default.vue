@@ -261,13 +261,10 @@
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
             :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
             <template #item="{ item }">
-              <span v-if="item.isVersion" class="text-[11px] text-gray-400 dark:text-gray-500">{{ item.label }}</span>
-              <template v-else>
-                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                <span v-else class="w-4 h-4 shrink-0"></span>
-                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
-              </template>
+              <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <span v-else class="w-4 h-4 shrink-0"></span>
+              <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
             </template>
              <button :class="[
                'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
@@ -289,6 +286,24 @@
               </template>
             </button>
           </UDropdown>
+        </li>
+        <!-- App version — bottom-left of the sidebar (centered when collapsed).
+             Clicking it opens the changelog modal. -->
+        <li v-if="version">
+          <button
+            type="button"
+            name="app-version"
+            @click="showChangelogModal = true"
+            :class="[
+              'flex items-center w-full py-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors',
+              isCollapsed ? 'justify-center px-0' : 'px-3'
+            ]"
+            :aria-label="$t('nav.version')"
+          >
+            <UTooltip :text="$t('changelog.title')" :popper="{ placement: tooltipPlacement }">
+              <span>v{{ version }}</span>
+            </UTooltip>
+          </button>
         </li>
       </ul>
     </div>
@@ -818,9 +833,6 @@
       icon: 'heroicons-arrow-left',
       click: signOff
     }])
-    if (version) {
-      groups.push([{ label: `v${version}`, isVersion: true, disabled: true }])
-    }
     return groups
   })
 

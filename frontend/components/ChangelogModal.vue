@@ -54,8 +54,15 @@
               class="absolute -start-[5px] top-1 w-[9px] h-[9px] rounded-full ring-4 ring-white dark:ring-gray-900"
               :class="i === 0 ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'"
             />
-            <!-- Version header -->
-            <div class="flex items-center flex-wrap gap-x-2 gap-y-1 mb-2">
+            <!-- Version header — click to expand/collapse. Only the latest
+                 release is expanded by default; older ones start collapsed. -->
+            <button
+              type="button"
+              class="w-full flex items-center flex-wrap gap-x-2 gap-y-1 text-start group/version"
+              :class="isExpanded(i) ? 'mb-2' : ''"
+              :aria-expanded="isExpanded(i)"
+              @click="toggleVersion(i)"
+            >
               <span
                 class="text-[13px] font-semibold font-mono"
                 :class="i === 0 ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'"
@@ -65,9 +72,17 @@
                 class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
               >{{ $t('changelog.latest') }}</span>
               <span v-if="v.date" class="text-[11px] text-gray-400 dark:text-gray-500">· {{ v.date }}</span>
-            </div>
+              <span v-if="!isExpanded(i)" class="text-[11px] text-gray-400 dark:text-gray-500">
+                · {{ $t('changelog.changeCount', { count: v.entries.length }, v.entries.length) }}
+              </span>
+              <UIcon
+                name="i-heroicons-chevron-down"
+                class="w-3.5 h-3.5 ms-auto shrink-0 text-gray-300 dark:text-gray-600 group-hover/version:text-gray-500 dark:group-hover/version:text-gray-400 transition-transform"
+                :class="isExpanded(i) ? '' : '-rotate-90 rtl:rotate-90'"
+              />
+            </button>
             <!-- Entries -->
-            <ul class="space-y-1.5">
+            <ul v-if="isExpanded(i)" class="space-y-1.5">
               <li
                 v-for="(entry, j) in v.entries"
                 :key="j"
@@ -126,6 +141,16 @@ const loading = ref(false)
 const error = ref(false)
 const loaded = ref(false)
 
+// Per-version expand/collapse. Only the latest release (index 0) starts
+// expanded; the user can toggle any of them.
+const expandedVersions = ref<Set<number>>(new Set())
+const isExpanded = (i: number): boolean => expandedVersions.value.has(i)
+const toggleVersion = (i: number) => {
+  const next = new Set(expandedVersions.value)
+  next.has(i) ? next.delete(i) : next.add(i)
+  expandedVersions.value = next
+}
+
 // Inline-only markdown: entries are single sentences with **bold**, `code`
 // and the occasional link — render them without wrapping <p> tags.
 const md = new MarkdownIt({ html: false, breaks: false, linkify: true })
@@ -140,6 +165,7 @@ const fetchChangelog = async () => {
     const body = resp?.data?.value
     versions.value = (body?.versions || []) as ChangelogVersion[]
     currentVersion.value = body?.current_version || ''
+    expandedVersions.value = new Set(versions.value.length ? [0] : [])
     loaded.value = true
   } catch (e) {
     error.value = true
