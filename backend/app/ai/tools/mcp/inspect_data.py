@@ -213,8 +213,10 @@ class InspectDataMCPTool(MCPTool):
 
         sigkill_event = asyncio.Event()
 
+        # One retry: error feedback in the prompt lets a second attempt
+        # self-correct (e.g. after a sandbox violation).
         async for e in streamer.generate_and_execute_stream_v2(
-            request=CodeGenRequest(context=codegen_context, retries=1),
+            request=CodeGenRequest(context=codegen_context, retries=2),
             ds_clients=rich_ctx.ds_clients,
             excel_files=[],
             code_generator_fn=_inspection_generator_fn,

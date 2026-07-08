@@ -1284,7 +1284,16 @@ class StreamingCodeExecutor:
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "security_violation", "payload": {"violation_type": violation_type, "message": str(e), "code_snippet": final_code[:500]}}
                 yield {"type": "stdout", "payload": msg}
-                # Security violations are not retryable
+                if violation_type == "unsafe_python":
+                    # AST validation runs BEFORE exec() — nothing has executed,
+                    # so this is a correctable style problem (e.g. the coder
+                    # used getattr()). Feed the violation back and regenerate.
+                    retries += 1
+                    if retries < max_retries:
+                        yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
+                    continue
+                # unsafe_sql fires mid-execution (a write query reached a real
+                # client wrapper), so the attempt is not safely repeatable.
                 break
             except Exception as e:
                 msg = f"Execution error: {str(e)}"
