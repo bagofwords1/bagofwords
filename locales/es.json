@@ -8,7 +8,8 @@
     "retry": "Reintentar",
     "errorTitle": "No se pudo cargar el registro de cambios",
     "errorBody": "Algo salió mal al obtener las notas de la versión.",
-    "emptyTitle": "Aún no hay notas de la versión"
+    "emptyTitle": "Aún no hay notas de la versión",
+    "changeCount": "{count} cambio | {count} cambios"
   },
   "agentsPage": {
     "title": "Agentes",

@@ -8,7 +8,8 @@
     "retry": "Try again",
     "errorTitle": "Couldn't load changelog",
     "errorBody": "Something went wrong fetching the release notes.",
-    "emptyTitle": "No release notes yet"
+    "emptyTitle": "No release notes yet",
+    "changeCount": "{count} change | {count} changes"
   },
   "agentsPage": {
     "title": "Agents",
