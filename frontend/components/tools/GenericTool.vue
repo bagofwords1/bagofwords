@@ -201,6 +201,10 @@ const status = computed(() => props.toolExecution.status)
 const statusReason = computed(() => props.toolExecution.status_reason)
 
 const toolTitle = computed(() => {
+  // Prefer a model-authored, human-readable label when the tool provides one
+  // (e.g. connection tools that set `title` — "Searching Notion for customer").
+  const t = props.toolExecution.arguments_json?.title
+  if (typeof t === 'string' && t.trim()) return t.trim()
   const name = props.toolExecution.tool_name
   const action = props.toolExecution.tool_action
   return action ? `${name} → ${action}` : name

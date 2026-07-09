@@ -4,11 +4,11 @@
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Reading {{ fileLabel }}…</span>
+          <span>{{ modelTitle ? modelTitle + '…' : 'Reading ' + fileLabel + '…' }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Read {{ fileLabel }}</span>
+          <span>{{ modelTitle || ('Read ' + fileLabel) }}</span>
           <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
           <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
@@ -57,6 +57,11 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution }>()
 
 const status = computed(() => props.toolExecution?.status || '')
+
+const modelTitle = computed<string>(() => {
+  const t = props.toolExecution?.arguments_json?.title
+  return typeof t === 'string' && t.trim() ? t.trim() : ''
+})
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 
 const fileLabel = computed(() => {

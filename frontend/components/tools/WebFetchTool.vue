@@ -4,13 +4,16 @@
       <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-gray-400" />
-          {{ $t('tools.webFetch.fetching') }}
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">{{ displayUrl }}</span>
+          <template v-if="modelTitle">{{ modelTitle }}</template>
+          <template v-else>
+            {{ $t('tools.webFetch.fetching') }}
+            <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">{{ displayUrl }}</span>
+          </template>
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
-          <span>{{ $t('tools.webFetch.fetched') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
+          <span>{{ modelTitle || $t('tools.webFetch.fetched') }}</span>
+          <span v-if="displayUrl && !modelTitle" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
           <span v-if="statusCode" class="ms-1.5 text-[10px] text-gray-400 shrink-0">{{ statusCode }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -48,6 +51,11 @@ interface Props {
 const props = defineProps<Props>()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
+
+const modelTitle = computed<string>(() => {
+  const t = props.toolExecution?.arguments_json?.title
+  return typeof t === 'string' && t.trim() ? t.trim() : ''
+})
 
 const result = computed<any>(() => props.toolExecution?.result_json || {})
 

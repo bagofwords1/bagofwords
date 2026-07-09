@@ -7,6 +7,14 @@ class WebFetchInput(BaseModel):
         ...,
         description="The HTTP or HTTPS URL to fetch. Must be a publicly reachable address.",
     )
+    title: Optional[str] = Field(
+        default=None,
+        description=(
+            "A short, human-readable label for this action in the active voice — "
+            "3-6 words, e.g. 'Reading the pricing page'. Shown to the user as the "
+            "live title while the tool runs, instead of the raw tool name."
+        ),
+    )
 
 
 class WebFetchOutput(BaseModel):

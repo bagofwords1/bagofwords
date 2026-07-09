@@ -134,7 +134,16 @@ const duration = computed(() => {
   return `${(ms / 1000).toFixed(1)}s`
 })
 
+// Model-authored, human-readable label for this call (e.g. "Searching Notion
+// for churned customers"). When present it replaces the mechanical
+// connection/tool-name label in the header — the brand icon still renders.
+const modelTitle = computed<string>(() => {
+  const tt = args.value?.title
+  return typeof tt === 'string' && tt.trim() ? tt.trim() : ''
+})
+
 const runningLabel = computed(() => {
+  if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
     const connName = resultJson.value.connection_name
@@ -147,15 +156,26 @@ const runningLabel = computed(() => {
 
 const doneLabel = computed(() => {
   if (toolName.value === 'search_mcps') {
+    // Prefer the model's label but keep the useful result count suffix.
+    if (modelTitle.value) {
+      const count = resultJson.value.total_count ?? resultJson.value.tools?.length
+      return count != null ? `${modelTitle.value} (${count})` : modelTitle.value
+    }
     const count = resultJson.value.total_count ?? resultJson.value.tools?.length ?? 0
     return t('tools.mcp.foundTools', { count })
   }
   if (toolName.value === 'execute_mcp') {
+    // On failure always surface the failed state; otherwise prefer the label.
+    if (resultJson.value.success === false) {
+      const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
+      return t('tools.mcp.failed', { name: connName })
+    }
+    if (modelTitle.value) return modelTitle.value
     const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
     if (resultJson.value.file_id) return t('tools.mcp.csvSuccess', { name: connName })
-    if (resultJson.value.success === false) return t('tools.mcp.failed', { name: connName })
     return `${connName}`
   }
+  if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'write_csv') {
     const rows = resultJson.value.row_count
     return rows ? t('tools.common.rows', { n: rows }) : 'CSV'

@@ -4,11 +4,11 @@
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
-          <span>Listing files…</span>
+          <span>{{ modelTitle ? modelTitle + '…' : 'Listing files…' }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
-          <span>Listed files</span>
+          <span>{{ modelTitle || 'Listed files' }}</span>
           <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">({{ files.length }}{{ truncated ? '+' : '' }})</span>
         </span>
       </div>
@@ -62,6 +62,11 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution }>()
 
 const status = computed(() => props.toolExecution?.status || '')
+
+const modelTitle = computed<string>(() => {
+  const t = props.toolExecution?.arguments_json?.title
+  return typeof t === 'string' && t.trim() ? t.trim() : ''
+})
 const files = computed<any[]>(() => {
   const rj = props.toolExecution?.result_json || {}
   return Array.isArray(rj.files) ? rj.files : []

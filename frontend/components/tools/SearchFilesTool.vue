@@ -4,19 +4,28 @@
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Searching files for&nbsp;</span>
-          <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''">{{ queryLabel }}</span>
-          </Transition>
-          <span>…</span>
+          <template v-if="modelTitle">{{ modelTitle }}<span>…</span></template>
+          <template v-else>
+            <span>Searching files for&nbsp;</span>
+            <Transition name="fade-in" mode="out-in">
+              <span :key="queryLabel || ''">{{ queryLabel }}</span>
+            </Transition>
+            <span>…</span>
+          </template>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span class="align-middle">Searched files for&nbsp;</span>
-          <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
-          </Transition>
-          <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+          <template v-if="modelTitle">
+            <span class="align-middle">{{ modelTitle }}</span>
+            <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+          </template>
+          <template v-else>
+            <span class="align-middle">Searched files for&nbsp;</span>
+            <Transition name="fade-in" mode="out-in">
+              <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
+            </Transition>
+            <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+          </template>
         </span>
       </div>
     </Transition>
@@ -70,6 +79,11 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution }>()
 
 const status = computed(() => props.toolExecution?.status || '')
+
+const modelTitle = computed<string>(() => {
+  const t = props.toolExecution?.arguments_json?.title
+  return typeof t === 'string' && t.trim() ? t.trim() : ''
+})
 
 const queryLabel = computed(() => {
   const q = props.toolExecution?.arguments_json?.query
