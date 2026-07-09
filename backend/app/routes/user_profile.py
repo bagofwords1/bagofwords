@@ -18,9 +18,11 @@ from app.dependencies import get_async_db, get_current_organization, release_req
 from app.schemas.user_profile_schema import UserProfileSchema
 from app.schemas.organization_schema import OrganizationAndRoleSchema, MEMBERSHIP_NOTE_MAX_LENGTH
 from app.services.organization_service import OrganizationService
+from app.services.llm_service import LLMService
 
 router = APIRouter(tags=["users"])
 organization_service = OrganizationService()
+llm_service = LLMService()
 
 
 class UserInstructionsSchema(BaseModel):
@@ -88,6 +90,36 @@ async def update_my_instructions(
     membership.note = note or None
     await db.commit()
     return UserInstructionsSchema(note=membership.note)
+
+
+class UserDefaultModelSchema(BaseModel):
+    # LLMModel.id (not the provider model string). None = follow the org default.
+    model_id: Optional[str] = None
+
+
+@router.get("/users/me/default_model", response_model=UserDefaultModelSchema)
+async def get_my_default_model(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Return the current user's default LLM model preference for the active
+    organization (raw preference; resolution/fallback happens at use time)."""
+    model_id = await llm_service.get_user_default_model_id(db, organization, current_user)
+    return UserDefaultModelSchema(model_id=model_id)
+
+
+@router.put("/users/me/default_model", response_model=UserDefaultModelSchema)
+async def update_my_default_model(
+    payload: UserDefaultModelSchema,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Set or clear (model_id=null) the current user's default LLM model.
+    Self-service, but the model must be one the user is allowed to use."""
+    model_id = await llm_service.set_user_default_model(db, organization, current_user, payload.model_id)
+    return UserDefaultModelSchema(model_id=model_id)
 
 
 _AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB upload cap

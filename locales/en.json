@@ -3052,7 +3052,12 @@
       "platformsSubtitle": "Accounts linked to your profile across integrations.",
       "connected": "Connected",
       "pending": "Pending",
-      "noPlatforms": "No external platforms connected yet."
+      "noPlatforms": "No external platforms connected yet.",
+      "defaultModel": "Default model",
+      "defaultModelSubtitle": "The model used by default when you start a new chat. Only models you have access to are listed.",
+      "orgDefault": "Organization default",
+      "defaultModelSaved": "Default model updated",
+      "defaultModelFailed": "Failed to update default model"
     },
     "instructions": {
       "title": "Custom Instructions",

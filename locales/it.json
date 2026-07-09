@@ -2752,7 +2752,12 @@
       "platformsSubtitle": "Account collegati al tuo profilo tramite le integrazioni.",
       "connected": "Connesso",
       "pending": "In sospeso",
-      "noPlatforms": "Nessuna piattaforma esterna ancora collegata."
+      "noPlatforms": "Nessuna piattaforma esterna ancora collegata.",
+      "defaultModel": "Modello predefinito",
+      "defaultModelSubtitle": "Il modello usato per impostazione predefinita quando avvii una nuova chat. Sono elencati solo i modelli a cui hai accesso.",
+      "orgDefault": "Predefinito dell'organizzazione",
+      "defaultModelSaved": "Modello predefinito aggiornato",
+      "defaultModelFailed": "Impossibile aggiornare il modello predefinito"
     },
     "instructions": {
       "title": "Istruzioni personalizzate",

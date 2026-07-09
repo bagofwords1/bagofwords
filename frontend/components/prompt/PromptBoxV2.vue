@@ -953,8 +953,8 @@ async function loadModels() {
                 if (props.initialModel && models.value.find(m => m.id === props.initialModel)) {
                     selectedModel.value = props.initialModel
                 } else {
-                // First try to find the model marked as default
-                const defaultModel = models.value.find(m => m.is_default)
+                // Personal default first, then the org-wide default
+                const defaultModel = models.value.find(m => m.is_user_default) || models.value.find(m => m.is_default)
                 if (defaultModel) {
                     selectedModel.value = defaultModel.id
                 } else {

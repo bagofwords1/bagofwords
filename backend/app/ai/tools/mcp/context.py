@@ -101,8 +101,9 @@ async def build_rich_context(
     # Get organization settings
     org_settings = await organization.get_settings(db)
 
-    # Get default model
-    model = await organization.get_default_llm_model(db)
+    # Get default model (honors the running user's personal default when valid)
+    from app.services.llm_service import LLMService
+    model = await LLMService().get_default_model_for_user(db, organization, user)
 
     # Build data source clients
     ds_clients: Dict[str, Any] = {}

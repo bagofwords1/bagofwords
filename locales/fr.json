@@ -2752,7 +2752,12 @@
       "platformsSubtitle": "Comptes liés à votre profil via les intégrations.",
       "connected": "Connecté",
       "pending": "En attente",
-      "noPlatforms": "Aucune plateforme externe connectée pour le moment."
+      "noPlatforms": "Aucune plateforme externe connectée pour le moment.",
+      "defaultModel": "Modèle par défaut",
+      "defaultModelSubtitle": "Le modèle utilisé par défaut lorsque vous démarrez une nouvelle conversation. Seuls les modèles auxquels vous avez accès sont affichés.",
+      "orgDefault": "Valeur par défaut de l'organisation",
+      "defaultModelSaved": "Modèle par défaut mis à jour",
+      "defaultModelFailed": "Échec de la mise à jour du modèle par défaut"
     },
     "instructions": {
       "title": "Instructions personnalisées",

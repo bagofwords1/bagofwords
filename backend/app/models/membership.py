@@ -15,6 +15,9 @@ class Membership(BaseSchema):
     # no expiry enforced (legacy rows / non-invite memberships).
     invite_expires_at = Column(DateTime, nullable=True)
     note = Column(String, nullable=True)
+    # Per-user default LLM model for this org. Soft reference (no FK): a stale
+    # value falls back to the org default at resolve time.
+    default_llm_model_id = Column(String(36), nullable=True)
 
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")

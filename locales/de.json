@@ -2752,7 +2752,12 @@
       "platformsSubtitle": "Mit Ihrem Profil verknüpfte Konten über Integrationen.",
       "connected": "Verbunden",
       "pending": "Ausstehend",
-      "noPlatforms": "Noch keine externen Plattformen verbunden."
+      "noPlatforms": "Noch keine externen Plattformen verbunden.",
+      "defaultModel": "Standardmodell",
+      "defaultModelSubtitle": "Das Modell, das standardmäßig verwendet wird, wenn Sie einen neuen Chat starten. Es werden nur Modelle angezeigt, auf die Sie Zugriff haben.",
+      "orgDefault": "Organisationsstandard",
+      "defaultModelSaved": "Standardmodell aktualisiert",
+      "defaultModelFailed": "Standardmodell konnte nicht aktualisiert werden"
     },
     "instructions": {
       "title": "Benutzerdefinierte Anweisungen",
