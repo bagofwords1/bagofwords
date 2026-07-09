@@ -1,16 +1,20 @@
-"""Streaming query results to Parquet (out-of-core ingest, step 1 of 2).
+"""Out-of-core query results (v2, opt-in) — `execute_query_lazy`.
 
 The default `execute_query` path is unchanged: it runs the query and returns a
-full `pandas.DataFrame` held in memory. This module adds the ingest half of a
-*separate*, opt-in path that never materializes the whole result:
+full `pandas.DataFrame` held in memory. This module adds a *separate*, opt-in
+path that never materializes the whole result:
 
-  Stream the source result in chunks (server-side cursor) straight to a
-  Parquet file on disk. Peak memory during ingest is one chunk, not the whole
-  result. An early byte/row cap aborts oversized scans *before* they OOM.
+  1. Stream the source result in chunks (server-side cursor) straight to a
+     Parquet file on disk. Peak memory during ingest is one chunk, not the whole
+     result. An early byte/row cap aborts oversized scans *before* they OOM.
+  2. Return a `LazyFrame` — a thin handle over a DuckDB relation backed by that
+     Parquet file. Filtering / aggregation run out-of-core inside DuckDB (which
+     spills to disk); only the final, presumably-small result enters RAM, when
+     the caller explicitly calls `.to_df()`.
 
-A follow-up adds the read half: a `LazyFrame` handle over the written Parquet
-so filtering/aggregation run out-of-core in DuckDB. Nothing here changes
-existing behavior; nothing calls these writers yet.
+Nothing here changes existing behavior. A client opts in by overriding
+`execute_query_lazy` (wired per connector in a follow-up stage); callers opt
+in by calling it instead of `execute_query`.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Callable, ContextManager, Optional
 
@@ -66,7 +71,7 @@ _swept_roots: set = set()
 
 def _sweep_stale_files(root: Path) -> None:
     """Best-effort orphan cleanup for the lazy spill dir, once per root per
-    process. Consumers delete their own files, but a crashed/killed run
+    process. LazyFrame.close() deletes its own file, but a crashed/killed run
     never gets there and would leak Parquet files forever. Anything older than
     24h is long past any live query's lifetime, so delete it. Only files
     matching our own naming pattern are touched, and errors are swallowed —
@@ -101,6 +106,92 @@ class StreamConfig:
 
     def limit_desc(self) -> str:
         return f"max_rows={self.max_rows}, max_bytes={self.max_bytes}"
+
+
+class LazyFrame:
+    """An out-of-core handle over a Parquet file via a DuckDB relation.
+
+    Data stays on disk; DuckDB executes filters/aggregations and spills as
+    needed. Only `.to_df()` / `.to_arrow()` pull results into memory — so keep
+    those for the *reduced* result, not the raw scan.
+    """
+
+    def __init__(self, con, relation, source_path: Path, owns_source: bool = True):
+        self._con = con
+        self._rel = relation
+        self._source_path = source_path
+        self._owns_source = owns_source
+
+    @classmethod
+    def from_parquet(cls, path: Path, owns_source: bool = True) -> "LazyFrame":
+        import duckdb
+
+        con = duckdb.connect(database=":memory:")  # DuckDB spills to disk on its own
+        rel = con.read_parquet(str(path))
+        return cls(con, rel, path, owns_source=owns_source)
+
+    # -- lazy transforms (return new handles, no materialization) -----------
+
+    def sql(self, sql_query: str, table_name: str = "data") -> "LazyFrame":
+        """Run SQL against this result, referring to it as `table_name`.
+
+        e.g. lf.sql("SELECT region, SUM(amount) FROM data GROUP BY region")
+        """
+        new_rel = self._rel.query(table_name, sql_query)
+        return LazyFrame(self._con, new_rel, self._source_path, owns_source=False)
+
+    def limit(self, n: int) -> "LazyFrame":
+        return LazyFrame(self._con, self._rel.limit(n), self._source_path, owns_source=False)
+
+    # -- materialization (explicit; this is where memory is spent) ----------
+
+    def to_df(self) -> pd.DataFrame:
+        return self._rel.df()
+
+    def to_arrow(self):
+        return self._rel.arrow()
+
+    def row_count(self) -> int:
+        return int(self._rel.aggregate("count(*) AS n").fetchone()[0])
+
+    def head(self, n: int = 10) -> pd.DataFrame:
+        return self._rel.limit(n).df()
+
+    @property
+    def columns(self) -> list:
+        return list(self._rel.columns)
+
+    def byte_size(self) -> int:
+        """On-disk size of the backing Parquet, used for usage accounting without
+        materializing the frame. Returns 0 if the file is unavailable."""
+        try:
+            return int(Path(self._source_path).stat().st_size)
+        except Exception:
+            return 0
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def close(self) -> None:
+        # Derived frames from .sql()/.limit() share the parent's DuckDB connection
+        # and backing file (owns_source=False). They must tear down neither, or a
+        # `with lf.sql(...) as d:` block would close the connection the parent still
+        # needs and any later parent.to_df() would fail on a closed connection.
+        if not self._owns_source:
+            return
+        try:
+            self._con.close()
+        except Exception:
+            logger.debug("LazyFrame: failed to close duckdb connection", exc_info=True)
+        try:
+            Path(self._source_path).unlink(missing_ok=True)
+        except Exception:
+            logger.debug("LazyFrame: failed to unlink %s", self._source_path, exc_info=True)
+
+    def __enter__(self) -> "LazyFrame":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
 
 def _close_quietly(it) -> None:
@@ -198,7 +289,7 @@ def stream_sqlalchemy_to_parquet(
             # result can still yield a schema-bearing empty frame (same
             # pattern as stream_dbapi_cursor_to_parquet). pd.read_sql's chunk
             # iterator can yield nothing for empty results, which would write
-            # a zero-COLUMN Parquet and break later reads of specific columns.
+            # a zero-COLUMN Parquet and break later `.sql("SELECT col ...")`.
             columns = list(result.keys())
             produced = False
             while True:
@@ -215,6 +306,37 @@ def stream_sqlalchemy_to_parquet(
         return _consume_chunks_to_parquet(gen, path, config)
     finally:
         gen.close()
+
+
+def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None) -> LazyFrame:
+    """Wrap an already-materialized DataFrame as a LazyFrame by spilling it to a
+    temp Parquet file.
+
+    NOTE: this does NOT reduce ingest peak memory — the DataFrame is already fully
+    in RAM. It provides uniform out-of-core *downstream* compute (filter/aggregate
+    via DuckDB) and disk-backed reuse across every client. Clients that can stream
+    should override execute_query_lazy to bound the ingest peak instead.
+    """
+    config = config or StreamConfig()
+    config.root.mkdir(parents=True, exist_ok=True)
+    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    df.to_parquet(path, index=False)
+    return LazyFrame.from_parquet(path, owns_source=True)
+
+
+def lazy_query_via_sqlalchemy(
+    connect_cm: Callable[[], ContextManager],
+    sql: str,
+    config: Optional[StreamConfig] = None,
+) -> LazyFrame:
+    """Convenience: stream `sql` to a temp Parquet and return a LazyFrame over it.
+
+    The returned LazyFrame owns the temp file and deletes it on `.close()`.
+    """
+    config = config or StreamConfig()
+    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    stream_sqlalchemy_to_parquet(connect_cm, sql, path, config)
+    return LazyFrame.from_parquet(path, owns_source=True)
 
 
 def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns=None) -> Path:
@@ -249,7 +371,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
         if writer is None:
             # Empty result with no chunk yielded: write a 0-row Parquet that
             # still carries the real column names (when known) so downstream
-            # reads of specific columns keep working.
+            # `.sql("SELECT col ...")` keeps working.
             empty = pd.DataFrame(columns=list(columns)) if columns else pd.DataFrame()
             table = _widen_null_columns(pa.Table.from_pandas(empty, preserve_index=False))
             pq.write_table(table, str(path))
@@ -368,8 +490,27 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     return path
 
 
+def _lazy_via(stream_fn, connect_cm, sql, config) -> LazyFrame:
+    config = config or StreamConfig()
+    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    stream_fn(connect_cm, sql, path, config)
+    return LazyFrame.from_parquet(path, owns_source=True)
+
+
+def lazy_query_via_dbapi_readsql(connect_cm, sql, config=None) -> LazyFrame:
+    return _lazy_via(stream_dbapi_readsql_to_parquet, connect_cm, sql, config)
+
+
+def lazy_query_via_dbapi_cursor(connect_cm, sql, config=None) -> LazyFrame:
+    return _lazy_via(stream_dbapi_cursor_to_parquet, connect_cm, sql, config)
+
+
+def lazy_query_via_duckdb(connect_cm, sql, config=None) -> LazyFrame:
+    return _lazy_via(stream_duckdb_to_parquet, connect_cm, sql, config)
+
+
 # --- generic consumers: a client builds its own native iterator (Arrow batches,
-#     DataFrame chunks, or row dicts) and hands it here to spill to Parquet.
+#     DataFrame chunks, or row dicts) and hands it here to spill to a LazyFrame.
 
 def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> Path:
     """Write an iterable of pyarrow Tables/RecordBatches to one Parquet file,
@@ -419,3 +560,41 @@ def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> P
             writer.close()
         _close_quietly(arrow_iter)  # release the source stream promptly
     return path
+
+
+def consume_chunks_to_lazyframe(chunks, config: Optional[StreamConfig] = None, columns=None) -> LazyFrame:
+    """Spill an iterable of DataFrame chunks to a LazyFrame (e.g. Athena wrangler
+    chunksize iterator). `columns`, when known, preserves the schema even for a
+    fully-empty iterable."""
+    config = config or StreamConfig()
+    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    _consume_chunks_to_parquet(chunks, path, config, columns=columns)
+    return LazyFrame.from_parquet(path, owns_source=True)
+
+
+def consume_arrow_to_lazyframe(arrow_iter, config: Optional[StreamConfig] = None) -> LazyFrame:
+    """Spill an iterable of pyarrow Tables/RecordBatches to a LazyFrame."""
+    config = config or StreamConfig()
+    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    _consume_arrow_to_parquet(arrow_iter, path, config)
+    return LazyFrame.from_parquet(path, owns_source=True)
+
+
+def consume_row_dicts_to_lazyframe(
+    rows, columns=None, config: Optional[StreamConfig] = None
+) -> LazyFrame:
+    """Spill an iterable of row dicts/tuples to a LazyFrame, batching into chunks.
+    For cursor/pagination sources (MongoDB, Spark toLocalIterator)."""
+    config = config or StreamConfig()
+
+    def chunks():
+        buf = []
+        for r in rows:
+            buf.append(r)
+            if len(buf) >= config.chunksize:
+                yield pd.DataFrame(buf, columns=columns)
+                buf = []
+        if buf:
+            yield pd.DataFrame(buf, columns=columns)
+
+    return consume_chunks_to_lazyframe(chunks(), config, columns=columns)

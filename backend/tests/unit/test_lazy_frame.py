@@ -1,9 +1,9 @@
-"""Unit tests for streaming query results to Parquet (writer half).
+"""Unit tests for the out-of-core query path.
 
-Exercises the real streamers against SQLite (DBAPI), SQLAlchemy, DuckDB
-(native COPY) and pyarrow (Arrow consumer) — all dependencies, no live
-service needed. Results are verified by reading the written Parquet back
-directly; the out-of-core read handle lands in a follow-up.
+Exercises the real streamers/consumers against SQLite (DBAPI), SQLAlchemy,
+DuckDB (native COPY) and pyarrow (Arrow consumer) — all dependencies, no live
+service needed. Writer tests verify the written Parquet directly; reader
+tests go through the LazyFrame handle.
 """
 from __future__ import annotations
 
@@ -23,6 +23,14 @@ from app.data_sources.clients.lazy_frame import (
     _consume_arrow_to_parquet,
     _consume_chunks_to_parquet,
     _swept_roots,
+    consume_arrow_to_lazyframe,
+    consume_chunks_to_lazyframe,
+    consume_row_dicts_to_lazyframe,
+    lazy_from_dataframe,
+    lazy_query_via_dbapi_cursor,
+    lazy_query_via_dbapi_readsql,
+    lazy_query_via_duckdb,
+    lazy_query_via_sqlalchemy,
     stream_dbapi_cursor_to_parquet,
     stream_dbapi_readsql_to_parquet,
     stream_duckdb_to_parquet,
@@ -267,3 +275,172 @@ def test_stale_lazy_files_swept_on_config_init(tmp_path, monkeypatch):
     assert not old.exists()
     assert fresh.exists()
     assert other.exists()
+
+
+# --- reader half: the LazyFrame handle over the written Parquet ------------
+
+
+def test_lazy_from_dataframe_out_of_core(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    df = pd.DataFrame({"region": ["EU", "US", "EU", "APAC"], "amount": [10, 20, 30, 40]})
+    h = lazy_from_dataframe(df)
+    try:
+        assert h.row_count() == 4
+        out = h.sql("SELECT region, SUM(amount) t FROM data GROUP BY region ORDER BY region").to_df()
+        assert dict(zip(out.region, out.t)) == {"APAC": 40, "EU": 40, "US": 20}
+        assert h.byte_size() > 0
+    finally:
+        h.close()
+
+
+def test_lazy_query_via_dbapi_readsql(tmp_path, sqlite_db, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "50")
+    h = lazy_query_via_dbapi_readsql(sqlite_db, "SELECT * FROM s")
+    try:
+        assert h.row_count() == 300
+        total = h.sql("SELECT SUM(amt) t FROM data").to_df().iloc[0, 0]
+        assert int(total) == sum(range(300))
+    finally:
+        h.close()
+
+
+def test_lazy_query_via_dbapi_cursor_preserves_schema(tmp_path, sqlite_db, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "50")
+    h = lazy_query_via_dbapi_cursor(sqlite_db, "SELECT id, region, amt FROM s")
+    try:
+        assert h.row_count() == 300
+        assert h.columns == ["id", "region", "amt"]
+    finally:
+        h.close()
+
+
+def test_lazy_query_via_duckdb(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    duckdb = pytest.importorskip("duckdb")
+    dbf = tmp_path / "x.duckdb"
+    con = duckdb.connect(str(dbf))
+    con.execute("CREATE TABLE s AS SELECT * FROM range(300) t(id)")
+    con.close()
+
+    @contextmanager
+    def cm():
+        c = duckdb.connect(str(dbf), read_only=True)
+        try:
+            yield c
+        finally:
+            c.close()
+
+    h = lazy_query_via_duckdb(cm, "SELECT id FROM s WHERE id < 100")
+    try:
+        assert h.row_count() == 100
+        assert int(h.sql("SELECT SUM(id) s FROM data").to_df().iloc[0, 0]) == sum(range(100))
+    finally:
+        h.close()
+
+
+def test_consume_arrow_to_lazyframe(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    batches = [
+        pa.record_batch({"a": pa.array([1, 2, 3]), "b": pa.array(["x", "y", "z"])}),
+        pa.table({"a": pa.array([4, 5]), "b": pa.array(["p", "q"])}),
+    ]
+    h = consume_arrow_to_lazyframe(iter(batches))
+    try:
+        assert h.row_count() == 5
+        assert int(h.sql("SELECT SUM(a) s FROM data").to_df().iloc[0, 0]) == 15
+    finally:
+        h.close()
+
+
+def test_row_dicts_consumer(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    rows = [{"id": i, "meta": '{"k": %d}' % i} for i in range(200)]
+    h = consume_row_dicts_to_lazyframe(iter(rows))
+    try:
+        assert h.row_count() == 200
+        assert h.columns == ["id", "meta"]
+    finally:
+        h.close()
+
+
+def test_chunk_consumer(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    chunks = [pd.DataFrame({"v": range(64)}), pd.DataFrame({"v": range(64, 100)})]
+    h = consume_chunks_to_lazyframe(iter(chunks))
+    try:
+        assert h.row_count() == 100
+    finally:
+        h.close()
+
+
+def test_lazy_early_abort_leaves_no_file(tmp_path, sqlite_db, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "50")
+    monkeypatch.setenv("BOW_LAZY_MAX_ROWS", "100")
+    with pytest.raises(ResultTooLargeError) as exc:
+        lazy_query_via_dbapi_cursor(sqlite_db, "SELECT * FROM s")
+    assert exc.value.status_code == 413
+    # partial file must not be left behind
+    assert list(tmp_path.glob("*.parquet")) == []
+
+
+def test_close_removes_owned_temp_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    h = lazy_from_dataframe(pd.DataFrame({"a": [1, 2, 3]}))
+    src = h._source_path
+    assert src.exists()
+    h.close()
+    assert not src.exists()
+
+
+def test_zero_row_lazy_sqlalchemy_sql_projection(tmp_path, monkeypatch):
+    sqlalchemy = pytest.importorskip("sqlalchemy")
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    dbf = tmp_path / "z.db"
+    conn = sqlite3.connect(dbf)
+    conn.execute("CREATE TABLE s(id INTEGER, region TEXT)")
+    conn.commit()
+    conn.close()
+    engine = sqlalchemy.create_engine(f"sqlite:///{dbf}")
+
+    @contextmanager
+    def cm():
+        with engine.connect() as c:
+            yield c
+
+    h = lazy_query_via_sqlalchemy(cm, "SELECT id, region FROM s WHERE id < 0")
+    try:
+        assert h.row_count() == 0
+        assert h.columns == ["id", "region"]
+        out = h.sql("SELECT region FROM data").to_df()
+        assert list(out.columns) == ["region"] and len(out) == 0
+    finally:
+        h.close()
+        engine.dispose()
+
+
+def test_zero_row_dicts_with_columns_preserves_schema(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    h = consume_row_dicts_to_lazyframe(iter([]), columns=["id", "name"])
+    try:
+        assert h.row_count() == 0
+        assert h.columns == ["id", "name"]
+    finally:
+        h.close()
+
+
+def test_derived_frame_close_does_not_close_parent(tmp_path, monkeypatch):
+    # .sql()/.limit() return handles that share the parent's connection and
+    # file (owns_source=False); closing them must not tear down the parent.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    h = lazy_from_dataframe(pd.DataFrame({"a": [1, 2, 3]}))
+    try:
+        with h.sql("SELECT a FROM data WHERE a > 1") as derived:
+            assert derived.row_count() == 2
+        # parent still usable after the derived handle was closed
+        assert h.row_count() == 3
+        assert h._source_path.exists()
+    finally:
+        h.close()
