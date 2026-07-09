@@ -448,8 +448,97 @@ class QueryCapturingClientWrapper:
                 span.record_exception(e)
                 raise
 
-    def _call_with_timeout(self, query, args, kwargs):
-        """Run original.execute_query in a daemon thread; abandon it on timeout.
+    def execute_query_lazy(self, query: str, *args, **kwargs):
+        """Out-of-core variant: same capture/quota/timeout treatment as
+        execute_query, but the underlying call streams the result to a Parquet
+        spill and returns a LazyFrame instead of a materialized DataFrame.
+
+        Rows/bytes are metered from the spill file's metadata (row_count() reads
+        Parquet stats, byte_size() stats the file) — never by materializing the
+        frame, which would defeat the point of the lazy path. If the stream
+        exceeds its budget, ResultTooLargeError propagates to the caller after
+        being recorded in captured_timings. On timeout the abandoned daemon
+        thread may still finish the spill; the orphaned file is reclaimed by
+        the 24h stale-file sweep.
+        """
+        from app.data_sources.clients.lazy_frame import ResultTooLargeError
+
+        if isinstance(query, str):
+            self._captured_queries.append(query)
+        idx = len(self._captured_timings)
+        _q_start = _time.monotonic()
+        with _tracer.start_as_current_span("datasource.execute_query_lazy") as span:
+            span.set_attribute("datasource.type", type(self._original).__name__)
+            span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
+            try:
+                self._consume_query_quota(query)
+                result = self._call_with_timeout(query, args, kwargs, method="execute_query_lazy")
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                rows = None
+                result_bytes = 0
+                try:
+                    rows = result.row_count()
+                    result_bytes = result.byte_size()
+                except Exception:
+                    logger.debug("Could not meter LazyFrame result", exc_info=True)
+                self._consume_data_bytes_quota(query, result_bytes, rows)
+                if rows is not None:
+                    span.set_attribute("datasource.result_rows", rows)
+                span.set_attribute("datasource.result_bytes", result_bytes)
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": rows,
+                    "result_bytes": result_bytes,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "lazy": True,
+                })
+                return result
+            except QueryTimeoutError as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": None,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                    "error_type": "timeout",
+                    "timeout_seconds": self._query_timeout_seconds,
+                    "lazy": True,
+                })
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+            except ResultTooLargeError as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": getattr(e, "rows", None),
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                    "error_type": "result_too_large",
+                    "lazy": True,
+                })
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+            except Exception as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": None,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                    "lazy": True,
+                })
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+
+    def _call_with_timeout(self, query, args, kwargs, method: str = "execute_query"):
+        """Run the original client's `method` in a daemon thread; abandon it on timeout.
 
         Threading is intentional rather than asyncio.wait_for: we're already
         inside a sync code-exec worker (user code is run via exec()), so we
@@ -460,7 +549,7 @@ class QueryCapturingClientWrapper:
 
         def runner():
             try:
-                holder["value"] = self._original.execute_query(query, *args, **kwargs)
+                holder["value"] = getattr(self._original, method)(query, *args, **kwargs)
             except BaseException as exc:
                 holder["exc"] = exc
 
