@@ -99,6 +99,53 @@ def test_membership_delete(
 
 
 @pytest.mark.e2e
+def test_invite_email_is_normalized_and_case_insensitive(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Invited emails are stored lowercase and de-duplicated case-insensitively.
+
+    Regression: SSO/OIDC providers (Entra, Okta) return the email in whatever
+    casing the directory holds (e.g. ``HishamHl@Fattal.co.il``). The invite match
+    at login is case-sensitive equality, so an invite typed in a different case
+    would never match and the user got ``invitation_required`` despite being
+    invited. Invites are now normalized to lowercase on write and matched
+    case-insensitively.
+    """
+    admin_user = create_user()
+    admin_token = login_user(admin_user["email"], admin_user["password"])
+    org_id = whoami(admin_token)['organizations'][0]['id']
+    hdr = {"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id}
+
+    mixed = f"Hisham.{uuid.uuid4().hex[:8]}@Fattal.CO.IL"
+
+    # Invite with mixed-case email → stored lowercase.
+    invite = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": mixed, "role": "member"},
+        headers=hdr,
+    )
+    assert invite.status_code == 200, invite.json()
+    assert invite.json()["email"] == mixed.lower()
+
+    # Re-inviting the same address in a different case is rejected as a duplicate.
+    dup = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": mixed.upper(), "role": "member"},
+        headers=hdr,
+    )
+    assert dup.status_code == 400, dup.json()
+
+    # Registering with the invited email attaches the pending membership.
+    invited_user = create_user(email=mixed.lower(), password="test123")
+    invited_token = login_user(invited_user["email"], invited_user["password"])
+    org_ids = [o["id"] for o in whoami(invited_token)["organizations"]]
+    assert org_id in org_ids, "Invited user should be attached to the org after registration"
+
+
+@pytest.mark.e2e
 def test_user_loses_access_after_membership_removal(
     test_client,
     create_user,
