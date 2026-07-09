@@ -40,8 +40,10 @@ def register(client: httpx.Client, name: str, email: str, password: str, invite_
     r = client.post("/api/auth/register", json=body)
     if r.status_code == 201:
         return
-    # 400 REGISTER_USER_ALREADY_EXISTS is fine for idempotent reruns.
-    if r.status_code == 400 and "ALREADY_EXISTS" in r.text:
+    # 400 REGISTER_USER_ALREADY_EXISTS is fine for idempotent reruns; so is
+    # "Sign-up is disabled" when the user already exists (the disabled check
+    # fires before the already-exists check) — login below settles it.
+    if r.status_code == 400 and ("ALREADY_EXISTS" in r.text or "Sign-up is disabled" in r.text):
         return
     sys.exit(f"register {email} failed: {r.status_code} {r.text}")
 
@@ -81,6 +83,15 @@ def main() -> None:
     p.add_argument("--name", default="Agent Admin")
     p.add_argument("--org-name", default="Agent Org")
     p.add_argument("--demo", action="store_true")
+    p.add_argument(
+        "--sqlite-sources",
+        type=int,
+        default=0,
+        metavar="N",
+        help="also create N SQLite data sources, each backed by its own seeded "
+             ".db file with an orders_<i> table (for multi-source / concurrent "
+             "tool-dispatch verification)",
+    )
     p.add_argument("--invite", action="append", default=[])
     p.add_argument(
         "--db-path",
@@ -99,7 +110,7 @@ def main() -> None:
     # 2. Organization (reuse an existing one on reruns).
     r = client.get("/api/organizations", headers=auth(admin_token))
     orgs = r.json() if r.status_code == 200 else []
-    existing = next((o for o in orgs if o.get("name") == args.org_name), None)
+    existing = next((o for o in orgs if o.get("name") == args.org_name), None) or (orgs[0] if orgs else None)
     if existing:
         org_id = existing["id"]
     else:
@@ -121,6 +132,73 @@ def main() -> None:
             summary["demo_data_source"] = (
                 r.json() if r.status_code == 200 else {"error": f"{r.status_code} {r.text}"}
             )
+
+    # 3b. Optional SQLite data sources (one seeded .db file per source).
+    if args.sqlite_sources > 0:
+        ds_dir = pathlib.Path(args.db_path).resolve().parent / "seed_sources"
+        ds_dir.mkdir(parents=True, exist_ok=True)
+        created_sources = []
+        for i in range(1, args.sqlite_sources + 1):
+            db_file = ds_dir / f"source_{i}.db"
+            conn = sqlite3.connect(db_file)
+            try:
+                conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS orders_{i} ("
+                    "id INTEGER PRIMARY KEY, customer TEXT, amount REAL, region TEXT, created_at TEXT)"
+                )
+                conn.execute(f"DELETE FROM orders_{i}")
+                rows = [
+                    (j, f"customer_{i}_{j}", round(10.0 * i + j, 2),
+                     ["north", "south", "east", "west"][j % 4],
+                     f"2026-0{(j % 6) + 1}-15")
+                    for j in range(1, 51)
+                ]
+                conn.executemany(
+                    f"INSERT INTO orders_{i} (id, customer, amount, region, created_at) VALUES (?, ?, ?, ?, ?)",
+                    rows,
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            ds_name = f"sqlite_source_{i}"
+            r = client.post(
+                "/api/data_sources",
+                json={
+                    "name": ds_name,
+                    "type": "sqlite",
+                    "config": {"database": str(db_file)},
+                    "credentials": {},
+                    "auth_policy": "system_only",
+                    "generate_summary": False,
+                    "generate_conversation_starters": False,
+                    "generate_ai_rules": False,
+                },
+                headers=auth(admin_token, org_id),
+            )
+            ds_id = None
+            if r.status_code == 200:
+                ds_id = r.json().get("id")
+            elif r.status_code in (400, 409) and "already exists" in r.text.lower():
+                lr = client.get("/api/data_sources", headers=auth(admin_token, org_id))
+                existing_ds = next((d for d in (lr.json() if lr.status_code == 200 else []) if d.get("name") == ds_name), None)
+                ds_id = existing_ds["id"] if existing_ds else None
+            if not ds_id:
+                created_sources.append({"name": ds_name, "error": f"{r.status_code} {r.text}"})
+                continue
+            # Activate the seeded table — API-created sources index their
+            # schema with is_active=False until tables are selected, and
+            # create_data only targets active tables. Idempotent on reruns.
+            ar = client.put(
+                f"/api/data_sources/{ds_id}/update_tables_status",
+                json={"activate": [f"orders_{i}"], "deactivate": []},
+                headers=auth(admin_token, org_id),
+            )
+            created_sources.append({
+                "name": ds_name, "id": ds_id, "db_file": str(db_file),
+                "tables_activated": True if ar.status_code == 200 else f"{ar.status_code} {ar.text[:120]}",
+            })
+        summary["sqlite_sources"] = created_sources
 
     # 4. Optional members: invite via the org, then register with the token.
     members = []

@@ -19,15 +19,81 @@ from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 
 from app.ai.http.safe_client import SafeHttpClient
 
-# `redirect_stdout` mutates the *global* sys.stdout. When the code-exec
-# thread pool runs N executions concurrently, the enter/exit ordering
-# can leave sys.stdout pointing at a sibling thread's already-closed
-# StringIO buffer. The next print/df.info()/etc. inside ANY thread then
-# raises ValueError("I/O operation on closed file"). Serializing the
-# redirect_stdout window with a lock keeps the (very brief) duration of
-# the redirect race-free; user code executes inside the lock but it's
-# already CPU-bound by the GIL, so wall-clock impact is negligible.
-_STDOUT_REDIRECT_LOCK = threading.Lock()
+# stdout capture for sandboxed user code.
+#
+# The old approach (`redirect_stdout` + a global lock) serialized the ENTIRE
+# exec+generate_df window across all concurrent executions, because
+# redirect_stdout mutates the process-global sys.stdout. The lock's comment
+# argued user code is "CPU-bound by the GIL, so wall-clock impact is
+# negligible" — untrue for generate_df, which runs I/O-bound warehouse
+# queries that release the GIL. The lock therefore serialized every data
+# fetch in the process: across concurrent completions, and across the
+# parallel multi-tool batches introduced for agent_v2.
+#
+# Replacement: install a process-wide stdout ROUTER once. Each code-exec
+# worker thread binds its own capture buffer; writes from a thread with a
+# bound buffer go there, everything else falls through to the original
+# stdout. No global mutation per execution → no lock → executions overlap.
+# (Prints from the per-query timeout threads spawned inside generate_df go
+# to the fallback, not the capture — client internals don't print, and the
+# old behavior for those threads was "whichever buffer happened to be
+# globally active", which was strictly worse.)
+class _ThreadLocalStdoutRouter:
+    """sys.stdout replacement routing writes to a per-thread buffer."""
+
+    def __init__(self, fallback):
+        self._fallback = fallback
+        self._local = threading.local()
+
+    def bind(self, buffer) -> None:
+        self._local.buffer = buffer
+
+    def unbind(self) -> None:
+        self._local.buffer = None
+
+    def _target(self):
+        buf = getattr(self._local, "buffer", None)
+        return buf if buf is not None else self._fallback
+
+    def write(self, s):
+        return self._target().write(s)
+
+    def writelines(self, lines):
+        return self._target().writelines(lines)
+
+    def flush(self):
+        try:
+            return self._target().flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        try:
+            return bool(self._target().isatty())
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._target(), name)
+
+
+_STDOUT_ROUTER_INSTALL_LOCK = threading.Lock()
+
+
+def _stdout_router() -> _ThreadLocalStdoutRouter:
+    """Return the installed router, installing it idempotently.
+
+    Re-checks sys.stdout each call: test harnesses (pytest capsys) and some
+    servers swap sys.stdout at runtime; wrapping the current object keeps
+    their capture working (writes fall through to it when no buffer bound).
+    """
+    with _STDOUT_ROUTER_INSTALL_LOCK:
+        current = sys.stdout
+        if isinstance(current, _ThreadLocalStdoutRouter):
+            return current
+        router = _ThreadLocalStdoutRouter(current)
+        sys.stdout = router
+        return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from typing import TYPE_CHECKING
@@ -691,26 +757,31 @@ class StreamingCodeExecutor:
             if self.logger:
                 self.logger.debug(f"Executing code:\n{code}")
             wait_started = _time.monotonic()
-            _STDOUT_REDIRECT_LOCK.acquire()
-            lock_acquired_at = _time.monotonic()
+            router = _stdout_router()
+            capture_started_at = _time.monotonic()
+            stdout_capture = io.StringIO()
+            router.bind(stdout_capture)
             try:
+                # Span name + attributes kept from the lock era so existing
+                # dashboards/queries keep working; lock_wait_ms is now just
+                # the (near-zero) router install/lookup time, and a non-zero
+                # regression here means the router got re-serialized somehow.
                 with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
-                    lock_span.set_attribute("code_execution.lock_wait_ms", round((lock_acquired_at - wait_started) * 1000.0, 3))
+                    lock_span.set_attribute("code_execution.lock_wait_ms", round((capture_started_at - wait_started) * 1000.0, 3))
                     lock_span.set_attribute("code_execution.code_chars", len(code or ""))
-                    with io.StringIO() as stdout_capture:
-                        with redirect_stdout(stdout_capture):
-                            exec(code, local_namespace)
-                            generate_df = local_namespace.get('generate_df')
-                            if not generate_df:
-                                raise Exception("No generate_df function found in code")
-                            df = self._invoke_generate_df(
-                                generate_df, wrapped_clients, excel_files, http_client,
-                                load_step=load_step, load_entity=load_entity,
-                            )
-                        output_log = stdout_capture.getvalue()
-                    lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
+                    exec(code, local_namespace)
+                    generate_df = local_namespace.get('generate_df')
+                    if not generate_df:
+                        raise Exception("No generate_df function found in code")
+                    df = self._invoke_generate_df(
+                        generate_df, wrapped_clients, excel_files, http_client,
+                        load_step=load_step, load_entity=load_entity,
+                    )
+                    output_log = stdout_capture.getvalue()
+                    lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
             finally:
-                _STDOUT_REDIRECT_LOCK.release()
+                router.unbind()
+                stdout_capture.close()
             span.set_attribute("code_execution.query_count", len(executed_queries))
             span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
             return df, output_log, executed_queries

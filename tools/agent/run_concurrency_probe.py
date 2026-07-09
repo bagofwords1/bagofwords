@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Drive a real multi-source completion through the running stack and measure
+tool-execution overlap. The verification leg of the concurrent multi-tool
+dispatch feedback loop (docs/feedback-loops/concurrent-multi-tool-execution.md).
+
+Prereqs (all through the real HTTP API — this script seeds what's missing):
+  1. Stack running:      tools/agent/boot_stack.sh
+  2. Sources + admin:    seed_org.py --sqlite-sources N  (or --seed here)
+  3. LLM provider: pass --stub-base-url http://127.0.0.1:9099/v1 (stub_llm.py)
+     OR --anthropic to build an Anthropic provider from $ANTHROPIC_API_KEY
+     (Haiku; the real-model soak leg).
+
+Usage examples:
+  uv run python ../tools/agent/run_concurrency_probe.py --stub --iterations 3
+  ANTHROPIC_API_KEY=... uv run python ../tools/agent/run_concurrency_probe.py --anthropic
+
+Outputs a per-completion timeline of tool_executions (started_at→finished)
+and asserts/reports whether executions overlapped.
+"""
+import argparse
+import json
+import os
+import pathlib
+import sqlite3
+import subprocess
+import sys
+import time
+
+import httpx
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+DEFAULT_DB = ROOT / "backend" / "db" / "agent.db"
+
+
+def auth(token, org_id=None):
+    h = {"Authorization": f"Bearer {token}"}
+    if org_id:
+        h["X-Organization-Id"] = str(org_id)
+    return h
+
+
+def ensure_llm_provider(client, token, org_id, *, stub_base_url=None, anthropic=False):
+    r = client.get("/api/llm/providers", headers=auth(token, org_id))
+    providers = r.json() if r.status_code == 200 else []
+    if anthropic:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            sys.exit("ANTHROPIC_API_KEY is not set")
+        name = "anthropic probe provider"
+        if any(p.get("name") == name for p in providers):
+            return
+        r = client.post("/api/llm/providers", headers=auth(token, org_id), json={
+            "name": name,
+            "provider_type": "anthropic",
+            "credentials": {"api_key": key},
+            "models": [{
+                "model_id": "claude-haiku-4-5-20251001",
+                "name": "Claude Haiku 4.5",
+                "is_custom": False,
+                "is_default": True,
+            }],
+        })
+        if r.status_code != 200:
+            sys.exit(f"anthropic provider create failed: {r.status_code} {r.text}")
+        return
+    name = "stub probe provider"
+    if any(p.get("name") == name for p in providers):
+        return
+    r = client.post("/api/llm/providers", headers=auth(token, org_id), json={
+        "name": name,
+        "provider_type": "openai",
+        "credentials": {"api_key": "stub-key", "base_url": stub_base_url},
+        "models": [{
+            "model_id": "gpt-5.4",
+            "name": "Stub GPT",
+            "is_custom": False,
+            "is_default": True,
+        }],
+    })
+    if r.status_code != 200:
+        sys.exit(f"stub provider create failed: {r.status_code} {r.text}")
+
+
+def timeline(db_path, completion_created_after):
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT te.tool_name, te.status, te.started_at, te.duration_ms, te.success
+            FROM tool_executions te
+            WHERE te.started_at >= ?
+            ORDER BY te.started_at
+            """,
+            (completion_created_after,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def analyze(rows):
+    from datetime import datetime
+
+    windows = []
+    for r in rows:
+        if not r["started_at"] or r["duration_ms"] is None:
+            continue
+        try:
+            start = datetime.fromisoformat(str(r["started_at"]))
+        except ValueError:
+            continue
+        s = start.timestamp()
+        windows.append((r["tool_name"], s, s + (r["duration_ms"] / 1000.0)))
+    if not windows:
+        return {"tools": 0, "max_overlap": 0, "wall_s": 0.0, "sum_s": 0.0}
+    events = []
+    for _, s, e in windows:
+        events.append((s, 1))
+        events.append((e, -1))
+    events.sort()
+    depth = max_depth = 0
+    for _, d in events:
+        depth += d
+        max_depth = max(max_depth, depth)
+    wall = max(e for _, _, e in windows) - min(s for _, s, _ in windows)
+    total = sum(e - s for _, s, e in windows)
+    return {"tools": len(windows), "max_overlap": max_depth, "wall_s": round(wall, 2), "sum_s": round(total, 2)}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--base-url", default="http://localhost:8000")
+    p.add_argument("--email", default="admin@example.com")
+    p.add_argument("--password", default="Password123!")
+    p.add_argument("--db-path", default=str(DEFAULT_DB))
+    p.add_argument("--stub", action="store_true", help="use the local stub LLM")
+    p.add_argument("--stub-base-url", default="http://127.0.0.1:9099/v1")
+    p.add_argument("--anthropic", action="store_true", help="use ANTHROPIC_API_KEY + Haiku")
+    p.add_argument("--iterations", type=int, default=1, help="completions to run")
+    p.add_argument("--prompt", default="Inspect the orders table in every connected data source, then create a per-region summary for each source.")
+    p.add_argument("--report-id", default=None, help="reuse an existing report instead of creating one")
+    args = p.parse_args()
+
+    client = httpx.Client(base_url=args.base_url, timeout=600)
+    r = client.post("/api/auth/jwt/login", data={"username": args.email, "password": args.password})
+    if r.status_code != 200:
+        sys.exit(f"login failed: {r.status_code} {r.text}")
+    token = r.json()["access_token"]
+    org_id = client.get("/api/organizations", headers=auth(token)).json()[0]["id"]
+
+    ensure_llm_provider(client, token, org_id, stub_base_url=args.stub_base_url, anthropic=args.anthropic)
+
+    sources = client.get("/api/data_sources", headers=auth(token, org_id)).json()
+    probe_sources = [s for s in sources if s["name"].startswith("sqlite_source_")]
+    if not probe_sources:
+        sys.exit("no sqlite_source_* data sources — run seed_org.py --sqlite-sources 5 first")
+    print(f"[probe] {len(probe_sources)} sources: {[s['name'] for s in probe_sources]}")
+
+    report_id = args.report_id
+    if not report_id:
+        r = client.post("/api/reports", headers=auth(token, org_id), json={
+            "title": "Concurrency probe",
+            "widget": None,
+            "files": [],
+            "data_sources": [s["id"] for s in probe_sources],
+        })
+        if r.status_code != 200:
+            sys.exit(f"report create failed: {r.status_code} {r.text}")
+        report_id = r.json()["id"]
+    print(f"[probe] report: {report_id}  (BOW_AGENT_TOOL_CONCURRENCY={os.environ.get('BOW_AGENT_TOOL_CONCURRENCY', 'unset')})")
+
+    results = []
+    for it in range(args.iterations):
+        from datetime import datetime, timezone
+        # tool_executions.started_at is stored as 'YYYY-MM-DD HH:MM:SS.ffffff'
+        # (naive UTC, space separator) — match that shape for the >= filter.
+        t0_iso = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S.%f")
+        started = time.monotonic()
+        r = client.post(
+            f"/api/reports/{report_id}/completions",
+            headers=auth(token, org_id),
+            params={"background": False},
+            json={"prompt": {"content": args.prompt, "widget_id": None, "step_id": None, "mentions": [{}]}},
+        )
+        wall = time.monotonic() - started
+        if r.status_code != 200:
+            print(f"[probe] iteration {it}: completion failed {r.status_code}: {r.text[:400]}")
+            continue
+        rows = timeline(args.db_path, t0_iso)
+        stats = analyze(rows)
+        stats["completion_wall_s"] = round(wall, 2)
+        results.append(stats)
+        print(f"[probe] iteration {it}: {json.dumps(stats)}")
+        for row in rows:
+            print(f"         {row['tool_name']:<14} start={row['started_at']} dur={row['duration_ms']}ms success={row['success']}")
+
+    if results:
+        overlapped = [r for r in results if r["max_overlap"] > 1]
+        print(f"\n[probe] SUMMARY: {len(results)} completions, "
+              f"{len(overlapped)} with overlapping tool executions "
+              f"(max depth {max((r['max_overlap'] for r in results), default=0)})")
+
+
+if __name__ == "__main__":
+    main()
