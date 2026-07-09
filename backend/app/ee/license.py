@@ -35,7 +35,7 @@ TIER_FEATURES = {
 }
 
 # Data sources that require an enterprise license
-ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau"]
+ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau", "zabbix"]
 
 # Public key for license verification (RS256).
 #

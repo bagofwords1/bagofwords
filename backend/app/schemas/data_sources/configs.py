@@ -261,6 +261,49 @@ class ServiceNowConfig(BaseModel):
     )
 
 
+# Zabbix
+class ZabbixTokenCredentials(BaseModel):
+    api_token: str = Field(
+        ...,
+        title="API Token",
+        description="A Zabbix API token (Users → API tokens). Recommended for Zabbix 5.4+, and the way to connect in SSO environments.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class ZabbixUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A Zabbix user with read access to the monitored hosts. Used for older installs without API tokens.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class ZabbixConfig(BaseModel):
+    url: str = Field(
+        ...,
+        title="Zabbix URL",
+        description="Your Zabbix frontend URL, e.g. https://zabbix.acme.com (the /api_jsonrpc.php endpoint is appended automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server's TLS certificate. Disable only for self-signed certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    history_window_days: int = Field(
+        7,
+        ge=1,
+        le=365,
+        title="History Window (days)",
+        description="Default lookback window applied when querying metric history/trends without an explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Service Demo
 class ServiceDemoCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="", json_schema_extra={"ui:type": "string"})
