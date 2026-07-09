@@ -4,7 +4,7 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.models.organization import Organization
 from app.models.membership import Membership
 from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
@@ -315,6 +315,10 @@ class OrganizationService:
         # if it is, add user_id to membership and remove email
         # then, check if user (or email) already maps to a membership in this organization
         # if it does, raise an error
+        # Normalize the invite email to lowercase so it reliably matches the email
+        # an SSO/OIDC provider returns at login (Entra/Okta casing is out of our control).
+        if membership_data.email:
+            membership_data.email = membership_data.email.strip().lower()
         membership_exists = await self._is_email_already_in_organization(db, membership_data.email, membership_data.organization_id)
         if membership_exists:
             raise HTTPException(status_code=400, detail="Already a member with this email")
@@ -324,7 +328,9 @@ class OrganizationService:
         # 400s rather than being masked by a seat-limit 402.
         await self._enforce_user_limit(db, membership_data.organization_id)
         
-        user = await db.execute(select(User).where(User.email == membership_data.email))
+        user = await db.execute(
+            select(User).where(func.lower(User.email) == (membership_data.email or "").strip().lower())
+        )
         user = user.scalar_one_or_none()
 
         # Store the email for invitation before potentially setting it to None
@@ -631,14 +637,15 @@ class OrganizationService:
         return OrganizationSchema.from_orm(organization)
     
     async def _is_email_already_in_organization(self, db: AsyncSession, email: str, organization_id: str) -> bool:
-        user = await db.execute(select(User).where(User.email == email))
+        email_norm = (email or "").strip().lower()
+        user = await db.execute(select(User).where(func.lower(User.email) == email_norm))
         user = user.scalar_one_or_none()
         if user:
             membership = await db.execute(select(Membership).where(Membership.user_id == user.id, Membership.organization_id == organization_id))
             membership = membership.scalar_one_or_none()
-            return membership 
-        
-        email_membership = await db.execute(select(Membership).where(Membership.email == email, Membership.organization_id == organization_id))
+            return membership
+
+        email_membership = await db.execute(select(Membership).where(func.lower(Membership.email) == email_norm, Membership.organization_id == organization_id))
         email_membership = email_membership.scalar_one_or_none()
         if email_membership:
             return email_membership 

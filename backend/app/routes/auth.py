@@ -14,7 +14,18 @@ async def authorize(provider: str, request: Request) -> JSONResponse:
 
 
 @router.get("/auth/{provider}/callback")
-async def callback(provider: str, request: Request, code: str | None = None, state: str | None = None, user_manager=Depends(get_user_manager)) -> RedirectResponse:
-    return await handle_callback(provider, request, code, state, user_manager)
+async def callback(
+    provider: str,
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    user_manager=Depends(get_user_manager),
+) -> RedirectResponse:
+    return await handle_callback(
+        provider, request, code, state, user_manager,
+        error=error, error_description=error_description,
+    )
 
 

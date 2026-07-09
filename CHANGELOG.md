@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.442 (July 9, 2026)
+- **Fix SSO login for invited users with mismatched email casing** — invite emails are now matched case-insensitively so members can sign in via Entra/OIDC regardless of the casing the identity provider returns, and the provider's actual error is surfaced on the sign-in page.
+
 ## Version 0.0.441 (July 8, 2026)
 - **AI-suggestion evidence in the Knowledge Explorer (#573)** — AI-proposed instruction changes now carry a brief evidence line (why the change was suggested), shown in review hover cards and the instruction detail.
 - **Fix blank instruction editor in dev (#575)** — dedupe `prosemirror-state` so the tiptap editor mounts instead of rendering an empty body; falls back to a raw-markdown textarea if initialization ever fails.

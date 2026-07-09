@@ -18,7 +18,7 @@ from fastapi_users.authentication import (
     JWTStrategy,
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from httpx_oauth.oauth2 import BaseOAuth2
 
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
@@ -215,7 +215,7 @@ class UserManager(BaseUserManager[User, str]):
     async def _attach_open_memberships(self, user: User, session: AsyncSession):
         stmt = select(Membership).where(
             and_(
-                Membership.email == user.email,
+                func.lower(Membership.email) == (user.email or "").strip().lower(),
                 Membership.user_id.is_(None)
             )
         )
@@ -467,10 +467,11 @@ class UserManager(BaseUserManager[User, str]):
             if domain not in domains:
                 continue
             # Skip if this email is already linked to this org (invite or attached user)
+            email_norm = (email or "").strip().lower()
             existing_user = (await session.execute(
-                select(User).where(User.email == email)
+                select(User).where(func.lower(User.email) == email_norm)
             )).scalar_one_or_none()
-            conditions = [Membership.email == email]
+            conditions = [func.lower(Membership.email) == email_norm]
             if existing_user is not None:
                 conditions.append(Membership.user_id == existing_user.id)
             dupe = (await session.execute(
@@ -493,7 +494,7 @@ class UserManager(BaseUserManager[User, str]):
                 continue
             role = str(policy.get("auto_invite_role") or "member")
             session.add(Membership(
-                email=email,
+                email=email_norm,
                 organization_id=s.organization_id,
                 role=role,
             ))
@@ -542,7 +543,7 @@ class UserManager(BaseUserManager[User, str]):
                     if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
                         stmt = select(Membership).where(
                             and_(
-                                Membership.email == account_email,
+                                func.lower(Membership.email) == (account_email or "").strip().lower(),
                                 Membership.user_id.is_(None)
                             )
                         )
