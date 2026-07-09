@@ -176,6 +176,51 @@
         </p>
       </div>
 
+      <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
+           Admin-only. Hard-blocks agent queries once a fixed per-window
+           threshold is crossed; the budget is shared across all users. -->
+      <div v-if="canUpdateDataSource && !isToolProvider" class="py-3 border-t border-gray-100 dark:border-gray-800">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.rateLimit') }}</span>
+            <UIcon v-if="!rateLimitLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+          </div>
+          <UToggle
+            :model-value="rateLimitEnabled"
+            :disabled="!rateLimitLicensed || savingRateLimit"
+            size="sm"
+            @update:model-value="onToggleRateLimit"
+          />
+        </div>
+        <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+          {{ rateLimitLicensed ? $t('data.rateLimitHint') : $t('data.rateLimitEnterprise') }}
+        </p>
+
+        <!-- Per-window caps. Blank / 0 means "no limit" for that window. -->
+        <div v-if="rateLimitLicensed && rateLimitEnabled" class="mt-2 space-y-2">
+          <div
+            v-for="w in rateLimitWindows"
+            :key="w.key"
+            class="flex items-center justify-between"
+          >
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ w.label }}</span>
+            <div class="flex items-center gap-1">
+              <input
+                type="number"
+                min="0"
+                v-model.number="w.model.value"
+                :disabled="savingRateLimit"
+                :placeholder="$t('data.rateLimitNoLimit')"
+                class="w-24 text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+                @change="onRateLimitChange"
+              />
+              <span class="text-[11px] text-gray-400 dark:text-gray-500 w-14">{{ w.unit }}</span>
+            </div>
+          </div>
+          <p v-if="rateLimitError" class="text-[11px] text-red-500">{{ rateLimitError }}</p>
+        </div>
+      </div>
+
       <!-- Per-user summary — honest, user-scoped view for OBO viewers: what THEY
            can see, not the service-principal's "Discovered N tables" / logs. -->
       <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100 dark:border-gray-800">
@@ -747,6 +792,89 @@ function resolvedRawMinutes(): number {
   return intervalUnit.value === 'hours' ? raw * 60 : raw
 }
 
+// ── Per-connection request rate limit (enterprise `connection_rate_limit`) ───
+const rateLimitLicensed = computed(() => hasFeature('connection_rate_limit'))
+const rateLimitEnabled = ref(false)
+const rateLimitPerMinute = ref<number | null>(null)
+const rateLimitPerHour = ref<number | null>(null)
+const rateLimitPerDay = ref<number | null>(null)
+const rateLimitError = ref<string | null>(null)
+const savingRateLimit = ref(false)
+
+// Rendered rows; each binds to one window ref.
+const rateLimitWindows = computed(() => [
+  { key: 'minute', label: t('data.rateLimitPerMinute'), unit: t('data.rateLimitReqMin'), model: rateLimitPerMinute },
+  { key: 'hour', label: t('data.rateLimitPerHour'), unit: t('data.rateLimitReqHour'), model: rateLimitPerHour },
+  { key: 'day', label: t('data.rateLimitPerDay'), unit: t('data.rateLimitReqDay'), model: rateLimitPerDay },
+])
+
+// Normalize an input value to a non-negative int or null (blank / 0 = no limit).
+function normalizeRateLimit(v: number | null): number | null {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.floor(n)
+}
+
+async function fetchRateLimitConfig() {
+  if (!props.connection?.id || !canUpdateDataSource.value || isToolProvider.value) return
+  try {
+    const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
+    const d = (data as any).value
+    if (d) {
+      rateLimitEnabled.value = d.rate_limit_enabled === true
+      rateLimitPerMinute.value = d.rate_limit_per_minute ?? null
+      rateLimitPerHour.value = d.rate_limit_per_hour ?? null
+      rateLimitPerDay.value = d.rate_limit_per_day ?? null
+    }
+  } catch {
+    // Non-fatal — section just shows defaults.
+  }
+}
+
+async function saveRateLimit() {
+  if (!props.connection?.id || savingRateLimit.value) return
+  savingRateLimit.value = true
+  rateLimitError.value = null
+  try {
+    const body: Record<string, any> = {
+      rate_limit_enabled: rateLimitEnabled.value,
+      // Send 0 for "no limit" so a cleared field persists (the API treats
+      // 0/null identically as unlimited).
+      rate_limit_per_minute: normalizeRateLimit(rateLimitPerMinute.value) ?? 0,
+      rate_limit_per_hour: normalizeRateLimit(rateLimitPerHour.value) ?? 0,
+      rate_limit_per_day: normalizeRateLimit(rateLimitPerDay.value) ?? 0,
+    }
+    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
+      method: 'PUT',
+      body,
+    })
+    if (error.value) {
+      rateLimitError.value = (error.value as any)?.data?.detail || (error.value as any)?.message || t('data.rateLimitSaveFailed')
+      toast.add({
+        title: t('data.rateLimitSaveFailed'),
+        description: rateLimitError.value,
+        color: 'red',
+      })
+    }
+  } finally {
+    savingRateLimit.value = false
+  }
+}
+
+function onToggleRateLimit(val: boolean) {
+  rateLimitEnabled.value = val
+  saveRateLimit()
+}
+
+function onRateLimitChange() {
+  rateLimitError.value = null
+  // Reflect the normalization back into the inputs so the UI is honest.
+  rateLimitPerMinute.value = normalizeRateLimit(rateLimitPerMinute.value)
+  rateLimitPerHour.value = normalizeRateLimit(rateLimitPerHour.value)
+  rateLimitPerDay.value = normalizeRateLimit(rateLimitPerDay.value)
+  saveRateLimit()
+}
+
 async function reindex() {
   if (!props.connection?.id || reindexing.value) return
   reindexing.value = true
@@ -959,6 +1087,7 @@ watch(isOpen, (val) => {
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
   fetchAutoReindexConfig()
+  fetchRateLimitConfig()
 })
 
 // If the parent swaps the connection prop while the modal is open, refresh.
@@ -968,6 +1097,7 @@ watch(() => props.connection?.id, () => {
   pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
+  fetchRateLimitConfig()
 })
 
 onBeforeUnmount(() => stopPolling())

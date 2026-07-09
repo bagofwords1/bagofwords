@@ -30,6 +30,7 @@ from app.ai.http.safe_client import SafeHttpClient
 _STDOUT_REDIRECT_LOCK = threading.Lock()
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
+from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
@@ -404,6 +405,7 @@ class QueryCapturingClientWrapper:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
+                self._enforce_rate_limit(query)
                 self._consume_query_quota(query)
                 result = self._call_with_timeout(query, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
@@ -479,6 +481,37 @@ class QueryCapturingClientWrapper:
         if "exc" in holder:
             raise holder["exc"]
         return holder.get("value")
+
+    def _enforce_rate_limit(self, query: str) -> None:
+        """Hard-block this query if the connection is over its per-window rate
+        limit (enterprise `connection_rate_limit`).
+
+        Runs only when a usage context is present — i.e. the agent data-query
+        path. Indexing / connection-test paths carry no usage context, so they
+        are exempt automatically. RateLimitExceeded is not an OperationalError,
+        so it propagates (the block) even on SQLite.
+        """
+        context = self._usage_context
+        if context is None or context.session_maker is None:
+            return
+        connection_id = self._connection_id()
+        if not connection_id:
+            return
+        try:
+            context.run_blocking(
+                connection_rate_limit_service.check_and_consume_with_context(
+                    context,
+                    connection_id=str(connection_id),
+                    metadata=self._usage_metadata(query),
+                )
+            )
+        except OperationalError as e:
+            # SQLite-only best-effort, same policy as the usage recorder: a
+            # locked bookkeeping write shouldn't crash the query. Enforcement
+            # (RateLimitExceeded) is not an OperationalError and still propagates.
+            if not _is_sqlite_lock_error(e):
+                raise
+            logger.debug("Skipping rate-limit check; SQLite is locked")
 
     def _consume_query_quota(self, query: str) -> None:
         context = self._usage_context

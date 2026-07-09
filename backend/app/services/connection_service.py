@@ -369,6 +369,37 @@ class ConnectionService:
                     detail="reindex_schedule_mode must be 'interval' or 'time'.",
                 )
 
+        # Per-connection request rate limit is an enterprise feature. Gate any
+        # attempt to toggle it or set a per-window cap. Handled explicitly (not
+        # via the generic setattr loop below) so a value of 0 / None correctly
+        # persists as "no limit" — the generic loop skips None.
+        _RATE_LIMIT_FIELDS = (
+            "rate_limit_enabled",
+            "rate_limit_per_minute",
+            "rate_limit_per_hour",
+            "rate_limit_per_day",
+        )
+        if any(f in updates for f in _RATE_LIMIT_FIELDS):
+            from app.ee.license import has_feature
+            if not has_feature("connection_rate_limit"):
+                raise HTTPException(
+                    status_code=402,
+                    detail="Per-connection rate limiting requires an enterprise license.",
+                )
+            _MAX_RATE_LIMIT = 10_000_000  # sanity ceiling; guards against absurd values
+            for field in ("rate_limit_per_minute", "rate_limit_per_hour", "rate_limit_per_day"):
+                if field in updates:
+                    val = updates.pop(field)
+                    if val is not None and (val < 0 or val > _MAX_RATE_LIMIT):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"{field} must be between 0 and {_MAX_RATE_LIMIT} (0 means no limit).",
+                        )
+                    # Persist explicitly so 0 / None (unlimited) is honored.
+                    setattr(connection, field, val)
+            if "rate_limit_enabled" in updates:
+                setattr(connection, "rate_limit_enabled", bool(updates.pop("rate_limit_enabled")))
+
         # Default allowed_user_auth_modes when switching to user_required (see create_connection)
         if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes"):
             from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
