@@ -705,7 +705,11 @@ async function saveStarters() {
     await loadStarterPrompts(id)
     showEditStarters.value = false
   } catch (error) {
-    // Leave the modal open and the prior starters in place so the user can retry.
+    // Leave the modal open so the user can retry, but resync the displayed
+    // starters to server truth: this is a replace-all (delete loop then create
+    // loop), so a mid-sequence failure can leave the server partially changed
+    // and the on-screen chips stale.
+    await loadStarterPrompts(id)
     toast.add({ title: 'Failed to save starter prompts', description: getErrorMessage(error), color: 'red' })
   } finally {
     savingStarters.value = false

@@ -1441,6 +1441,11 @@ import { themes } from '@/components/dashboard/themes'
                 window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: props.report.id, action: 'removed', widget_id: widget.id, source: instanceId } }))
             } catch {}
         } catch (error: any) {
+            // Reset the reload-suppression guard on the throw path: it is set
+            // true before the awaited persistFullLayout() in the else-branch and
+            // reset false only after it, so a persist failure would otherwise
+            // strand it true and permanently disable the grid-reload watcher.
+            suppressGridReload = false;
             console.error(`Failed to remove from dashboard ${widget.id}`, error);
             toast.add({ title: 'Error', description: `Failed to remove from dashboard. ${error.message || ''}`, color: 'red' });
         }
