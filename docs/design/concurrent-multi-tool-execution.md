@@ -297,3 +297,146 @@ Anthropic key on a report with ≥2 sources; prompt "inspect X in all sources".
 
 Doc goes to `docs/feedback-loops/concurrent-multi-tool-execution.md` when the
 implementation lands, with observed FAIL→PASS output per the skill template.
+
+---
+
+## 5. Implementation plan — phased, feedback-loop-driven
+
+Each phase is independently shippable, gated by its own verify loop, and
+ordered so concurrency is opt-in (default cap 1 = today's behavior) until the
+evidence says otherwise. Build/verify/iterate happens against the **real
+stack in the sandbox**, per `.agents/skills/sandbox-feedback-loop`.
+
+### The real-env harness (used by every phase)
+
+```bash
+# Fresh sandbox setup (Python 3.12, per the skill)
+cd backend && pip install uv && uv sync --frozen --extra dev
+export BOW_DATABASE_URL="sqlite:///db/app.db" && mkdir -p db
+
+# Full stack: backend :8000 + frontend :3000, SQLite at backend/db/agent.db
+tools/agent/boot_stack.sh
+cd backend && uv run python ../tools/agent/seed_org.py --demo
+```
+
+- **Five data sources**: extend `tools/agent/seed_org.py` (or add
+  `tools/agent/seed_multi_ds.py`) to create N SQLite data sources through the
+  real API (`sqlite_client.py` exists in
+  `backend/app/data_sources/clients/`), each pointing at its own seeded
+  `.db` file with a distinct table (`orders_1`..`orders_5`). Everything
+  in-sandbox, no external warehouse needed.
+- **LLM**: real provider through the API, exactly as the e2e suite does
+  (`backend/tests/fixtures/llm.py` — key from an env var like
+  `OPENAI_API_KEY_TEST`; secrets via env only, never committed/echoed).
+  `BOW_FORCE_PARALLEL_TOOLS=1` (Anthropic) to invite multi-action decisions.
+- **Drive**: create a report attached to all 5 sources via the API, POST a
+  completion ("inspect the orders table in each of the five sources"),
+  stream SSE.
+- **Measure**: `tool_executions.started_at/duration_ms` rows give the
+  timeline (overlap vs serial); the `code_execution.stdout_lock` span
+  attribute `lock_wait_ms` (`code_execution.py:697-698`) quantifies
+  stdout-lock queueing directly.
+- **UI evidence** (Phase 4): `tools/agent/capture.mjs` + the `ui-evidence`
+  skill for before/after of concurrent tool cards.
+
+Deterministic legs live in `backend/tests/` (SQLite default, autouse
+migrations, LLM/planner stubbed) so they run in CI without credentials; the
+real-env loop is the iterate/perfect surface, and its transcript becomes
+Loop B in the feedback-loop doc.
+
+### Phase 0 — Harness + baseline (no product change)
+
+- Multi-source seeding helper (above).
+- Loop A baseline test: stubbed planner emitting one decision with 5 actions,
+  stub tools sleeping ~0.5s → assert **serial** wall-clock (≈2.5s), 5
+  tool_execution rows, 5 blocks with distinct `block_index` sub-slots,
+  `last_observation` == 5th action's observation.
+- Real-env baseline: run the 5-source prompt, record the serial
+  tool_executions timeline + `lock_wait_ms`.
+- Exit: `docs/feedback-loops/concurrent-multi-tool-execution.md` started with
+  the observed FAIL(serial) evidence.
+
+### Phase 1 — Mechanical extraction (behavior-neutral)
+
+- Extract the per-action body (`agent_v2.py:2902-3499`) into
+  `_run_single_action(...)` returning an outcome object
+  (observation, tool_output, tool_execution, created ids); loop stays serial.
+  The loop-shared `action`/`observation`/`tool_name` locals become
+  parameters/returns.
+- Fix B5: `ToolRunner.validation_failure_count` → per-call/per-tool state.
+- Exit: full suite green; Phase-0 Loop A output byte-for-byte comparable
+  (same timings ±ε, same rows/blocks); one real-env smoke run unchanged.
+
+### Phase 2 — Concurrent dispatch core (opt-in)
+
+- `asyncio.Semaphore` + `gather(return_exceptions=True)`;
+  `BOW_AGENT_TOOL_CONCURRENCY` (default **1**).
+- Group actions by `data_source_id` from `tables_by_source`; per-source
+  concurrency stays 1 (B7).
+- Shared `asyncio.Lock` around DB-touching sections inside
+  `_run_single_action` — preserves the single-writer invariant (B2);
+  `_release_db_between_steps` runs once before the batch.
+- Aggregation (B6): `last_observation` becomes
+  `{"parallel_actions": [...]}` when N>1; circuit breakers +
+  `analysis_complete`/`final_answer` policy evaluated post-gather;
+  `completion.finished` emitted once.
+- Scope guard: concurrency only for tools **not** in `_DATA_TOOLS`
+  (`agent_v2.py:4151-4161`) — i.e. `inspect_data`-class tools; step-creating
+  tools still serialize until Phase 4.
+- Loop A: cap=5 → wall-clock ≈ max not sum; cap=1 → parity with Phase 0;
+  SQLite leg shows zero "database is locked"; attribution invariants hold.
+- Real-env: cap=5 + `BOW_FORCE_PARALLEL_TOOLS=1` → codegen LLM calls overlap;
+  exec window still queues on the stdout lock — record the interim timeline
+  and `lock_wait_ms` as evidence for Phase 3.
+
+### Phase 3 — Unlock parallel execution (stdout-lock rescope, B1)
+
+- Install a process-wide `sys.stdout` proxy **once** that dispatches writes
+  to a per-thread buffer; delete `_STDOUT_REDIRECT_LOCK` (or shrink it to
+  proxy install). Keep the `lock_wait_ms`-style telemetry.
+- Loop A: two concurrent `execute_code_async` calls whose `generate_df`
+  prints and sleeps (stub client with `time.sleep` in `execute_query`) →
+  assert wall-clock overlap AND correct, non-interleaved captured stdout per
+  execution.
+- Real-env: 5-source run now shows true overlap in the exec/query phase;
+  `lock_wait_ms` ≈ 0. This phase also de-serializes code exec across
+  concurrent completions — verify no stdout cross-talk under two parallel
+  reports.
+
+### Phase 4 — Streaming identity + per-invocation state (enables `create_data`)
+
+- B4: attach `block_id` + `tool_execution_id` to
+  `tool.started/progress/stdout/partial/error` SSE events
+  (`agent_v2.py:2963-2972, 3033-3048`); frontend
+  (`frontend/pages/reports/[id]/index.vue` handlers ~2148/2222/2451/2477)
+  routes by id with lastBlock fallback for old payloads.
+- B3: replace `self.current_query/step/step_id/visualization/widget` with
+  per-invocation state keyed by `tool_call_id`
+  (already in `runtime_ctx`, `agent_v2.py:3023`); `_handle_streaming_event`
+  resolves the invocation from the emitting action's closure.
+- Then admit `create_data`/`_DATA_TOOLS` to the concurrent set.
+- Loop A: two concurrent stub `create_data` runs → steps/visualizations
+  attributed to the correct blocks (no cross-attribution).
+- Real-env + ui-evidence: 5-source `create_data` prompt; screenshot two tool
+  cards streaming progress simultaneously without clobbering; verify each
+  widget/step lands under its own block. Playwright spec via `capture.mjs`.
+
+### Phase 5 — Emission + rollout
+
+- Extend the parallel-tools override beyond Anthropic (OpenAI/Azure flag or
+  org setting); planner prompt hint that independent per-source reads may be
+  issued as parallel tool calls.
+- Pick the shipped default cap (proposal: 3; hard ceiling well under
+  `_CODE_EXEC_POOL`'s 8 workers), telemetry for concurrency level and lock
+  waits, changelog + docs.
+- Finalize `docs/feedback-loops/concurrent-multi-tool-execution.md` with the
+  full FAIL→PASS evidence (Loop A outputs + real-env timelines).
+
+### Standing rules for every phase
+
+- Default-off: until Phase 5, cap defaults to 1 and every behavior change is
+  env-gated; a cap=1 parity test is part of each phase's exit criteria.
+- Every reproduction test survives as a regression test
+  (`backend/tests/AGENTS.md`: assert the invariant, not the magic scenario).
+- Real-env evidence (timelines, span attrs, screenshots) goes into the
+  feedback-loop doc as each phase lands — the doc stays runnable.
