@@ -444,3 +444,26 @@ def test_derived_frame_close_does_not_close_parent(tmp_path, monkeypatch):
         assert h._source_path.exists()
     finally:
         h.close()
+
+
+# --- connector wiring ---------------------------------------------------
+
+
+def test_mongodb_decimal128_conversion():
+    pytest.importorskip("pymongo")
+    bson = pytest.importorskip("bson")
+    from app.data_sources.clients.mongodb_client import MongodbClient
+
+    client = MongodbClient(host="localhost", database="x")
+    doc = {
+        "price": bson.Decimal128("19.99"),
+        "nested": {"amt": bson.Decimal128("0.001")},
+        "arr": [bson.Decimal128("2.5"), {"inner": bson.Decimal128("3.5")}],
+    }
+    client._convert_bson_types(doc)
+    assert isinstance(doc["price"], float) and doc["price"] == pytest.approx(19.99)
+    assert doc["nested"]["amt"] == pytest.approx(0.001)
+    assert doc["arr"][0] == pytest.approx(2.5)
+    assert doc["arr"][1]["inner"] == pytest.approx(3.5)
+    # the converted doc must survive the columnar spill (raw Decimal128 raises)
+    pa.Table.from_pandas(pd.DataFrame([{"price": doc["price"]}]))

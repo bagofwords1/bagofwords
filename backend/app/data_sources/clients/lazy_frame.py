@@ -13,8 +13,8 @@ path that never materializes the whole result:
      the caller explicitly calls `.to_df()`.
 
 Nothing here changes existing behavior. A client opts in by overriding
-`execute_query_lazy` (wired per connector in a follow-up stage); callers opt
-in by calling it instead of `execute_query`.
+`execute_query_lazy` (see TrinoClient for the reference wiring); callers opt in
+by calling it instead of `execute_query`.
 """
 
 from __future__ import annotations

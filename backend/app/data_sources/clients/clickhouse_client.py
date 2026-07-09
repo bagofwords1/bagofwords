@@ -61,6 +61,19 @@ class ClickhouseClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream ClickHouse results as Arrow blocks
+        straight to Parquet, return a LazyFrame."""
+        from app.data_sources.clients.lazy_frame import consume_arrow_to_lazyframe
+
+        def blocks():
+            with self.connect() as conn:
+                with conn.query_arrow_stream(sql) as stream:
+                    for block in stream:
+                        yield block
+
+        return consume_arrow_to_lazyframe(blocks())
+
     def get_tables(self) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails."""
         try:

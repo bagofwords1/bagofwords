@@ -37,7 +37,7 @@ class VerticaClient(DataSourceClient):
         }
 
     def connect(self):
-        """Establish connection to Vertica using verticapy."""
+        """Establish (and re-activate) this client's Vertica connection."""
         try:
             if not self._connected:
                 # Create new connection in verticapy
@@ -45,9 +45,13 @@ class VerticaClient(DataSourceClient):
                     self.connection_params,
                     name=self._connection_name
                 )
-                # Set this connection as active
-                vp.connect(self._connection_name)
                 self._connected = True
+            # Always re-activate THIS client's named connection as verticapy's
+            # global active connection. verticapy keeps a single active connection
+            # process-wide, so another VerticaClient may have stolen it since our
+            # last call — both the eager (vDataFrame) and lazy (current_cursor)
+            # paths must run against our session, not whichever was last activated.
+            vp.connect(self._connection_name)
             return self._connection_name
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Vertica: {e}")
@@ -67,6 +71,21 @@ class VerticaClient(DataSourceClient):
         except Exception as e:
             print(f"Error executing SQL: {e}")
             raise
+
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream via the underlying vertica_python
+        cursor (verticapy.current_cursor), which fetches rows server-side, and
+        spill to a LazyFrame. Bounds the ingest peak vs vDataFrame.to_pandas()."""
+        from contextlib import contextmanager
+        from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_cursor
+
+        @contextmanager
+        def conn_cm():
+            self.connect()
+            cursor = vp.current_cursor()
+            yield cursor.connection  # DBAPI Connection; .cursor() works for streaming
+
+        return lazy_query_via_dbapi_cursor(conn_cm, sql)
 
     def get_tables(self) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails."""

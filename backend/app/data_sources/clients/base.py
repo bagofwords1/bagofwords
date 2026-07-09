@@ -127,6 +127,29 @@ class DataSourceClient(ABC):
         """Async alias for aexecute_query (mirrors the sync `query` alias)."""
         return await self.aexecute_query(*args, **kwargs)
 
+    # Opt-in out-of-core query path (v2). Additive — existing `execute_query`
+    # behavior is unchanged. Every client gets this via the generic default
+    # below; SQLAlchemy clients override it to stream and bound ingest peak.
+    def execute_query_lazy(self, sql: str):
+        """Return a LazyFrame (out-of-core handle) instead of a DataFrame.
+
+        Generic default: run `execute_query` and spill the result to disk. This
+        gives uniform out-of-core downstream compute and disk-backed reuse, but
+        ingest still materializes the full result once. Clients that can stream
+        (SQLAlchemy-based) override this for a bounded ingest peak. See
+        app.data_sources.clients.lazy_frame.
+        """
+        import pandas as pd
+        from app.data_sources.clients.lazy_frame import lazy_from_dataframe
+
+        result = self.execute_query(sql)
+        if not isinstance(result, pd.DataFrame):
+            result = pd.DataFrame(result)
+        return lazy_from_dataframe(result)
+
+    async def aexecute_query_lazy(self, sql: str):
+        return await asyncio.to_thread(self.execute_query_lazy, sql)
+
     async def awarm_all(
         self,
         progress_callback: Optional[ProgressCallback] = None,

@@ -218,6 +218,21 @@ class SparkConnectClient(DataSourceClient):
         except Exception as e:
             raise RuntimeError(f"Error executing SQL on Spark Connect: {e}")
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream Spark results partition-by-partition
+        via toLocalIterator, return a LazyFrame. Bounds peak to ~one partition
+        rather than the full result."""
+        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+
+        def rows():
+            with self.connect() as spark:
+                self._run_guard(spark, sql)
+                sdf = spark.sql(sql)
+                for row in sdf.toLocalIterator():
+                    yield row.asDict(recursive=True)
+
+        return consume_row_dicts_to_lazyframe(rows())
+
     @property
     def _guard_enabled(self) -> bool:
         return bool(self.require_partition_filter or self.max_scan_bytes)

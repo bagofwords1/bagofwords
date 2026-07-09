@@ -77,6 +77,12 @@ class SybaseClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise
 
+    def execute_query_lazy(self, sql: str):
+        """Out-of-core variant (v2): stream results to disk, return a LazyFrame.
+        Overrides the base default with a bounded ingest peak."""
+        from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_readsql
+        return lazy_query_via_dbapi_readsql(self.connect, sql)
+
     def get_tables(self) -> List[Table]:
         """Get tables from the database using SYS views."""
         try:

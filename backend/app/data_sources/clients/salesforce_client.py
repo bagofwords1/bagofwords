@@ -52,6 +52,29 @@ class SalesforceClient(DataSourceClient):
         except Exception as e:
             raise RuntimeError(f"Error executing Salesforce query: {e}")
 
+    def execute_query_lazy(self, query: str):
+        """Out-of-core variant (v2): stream SOQL result pages via query/query_more
+        to a LazyFrame instead of accumulating all records. Nested relationship
+        fields are JSON-encoded for a robust columnar write."""
+        import json
+        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+
+        def rows():
+            with self.connect() as sf:
+                res = sf.query(query)
+                while True:
+                    for rec in res.get("records", []):
+                        yield {
+                            k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
+                            for k, v in rec.items()
+                            if k != "attributes"
+                        }
+                    if res.get("done", True):
+                        break
+                    res = sf.query_more(res["nextRecordsUrl"], identifier_is_url=True)
+
+        return consume_row_dicts_to_lazyframe(rows())
+
     def prompt_schema(self):
         schemas = self.get_schemas()
         return ServiceFormatter(schemas).table_str
