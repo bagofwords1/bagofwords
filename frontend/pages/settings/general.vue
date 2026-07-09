@@ -259,7 +259,8 @@ const saveAll = async () => {
 
         // 2) Save organization name (if changed)
         if (form.value.organization_name) {
-            await useMyFetch('/api/organization', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.value.organization_name }) })
+            const nameResp = await useMyFetch('/api/organization', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.value.organization_name }) })
+            if (nameResp.status.value !== 'success') throw new Error(nameResp.error?.value?.data?.message || t('settings.failedToUpdate'))
         }
 
         // 3) Save textual and toggle settings

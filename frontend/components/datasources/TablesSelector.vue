@@ -1042,7 +1042,7 @@ async function onSave() {
     }
 
     if (toActivate.length > 0 || toDeactivate.length > 0) {
-      await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
+      await useMyFetchStrict(`/data_sources/${props.dsId}/update_tables_status`, {
         method: 'PUT',
         body: {
           activate: toActivate,

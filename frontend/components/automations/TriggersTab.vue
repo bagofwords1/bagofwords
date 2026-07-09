@@ -221,6 +221,7 @@ import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 const triggers = ref<any[]>([])
 const models = ref<any[]>([])
@@ -355,9 +356,14 @@ async function rotate(trig: any) {
 
 async function removeTrigger(trig: any) {
   if (!confirm(t('triggers.deleteConfirm'))) return
-  await useMyFetch(`/triggers/${trig.id}`, { method: 'DELETE' })
-  triggers.value = triggers.value.filter((x: any) => x.id !== trig.id)
-  toast.add({ title: t('triggers.toastDeleted'), color: 'green' })
+  try {
+    await useMyFetchStrict(`/triggers/${trig.id}`, { method: 'DELETE' })
+    triggers.value = triggers.value.filter((x: any) => x.id !== trig.id)
+    toast.add({ title: t('triggers.toastDeleted'), color: 'green' })
+  } catch (e) {
+    console.error('delete trigger failed', e)
+    toast.add({ title: t('common.error'), description: getErrorMessage(e), color: 'red' })
+  }
 }
 
 async function toggleRuns(trig: any) {

@@ -221,6 +221,9 @@ const emit = defineEmits<{
   (e: 'finished', dsId: string): void
 }>()
 
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
+
 const isOpen = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v),
@@ -399,16 +402,16 @@ async function handleSave() {
 
     if (draftInstructionId.value) {
       if (text) {
-        await useMyFetch(`/instructions/${draftInstructionId.value}`, {
+        await useMyFetchStrict(`/instructions/${draftInstructionId.value}`, {
           method: 'PUT',
           body: { text, status: 'published' },
         })
         primaryInstructionId = draftInstructionId.value
       } else {
-        await useMyFetch(`/instructions/${draftInstructionId.value}`, { method: 'DELETE' })
+        await useMyFetchStrict(`/instructions/${draftInstructionId.value}`, { method: 'DELETE' })
       }
     } else if (text) {
-      const { data } = await useMyFetch('/instructions/global', {
+      const { data } = await useMyFetchStrict('/instructions/global', {
         method: 'POST',
         body: {
           text,
@@ -424,7 +427,7 @@ async function handleSave() {
     }
 
     if (primaryInstructionId) {
-      await useMyFetch(`/data_sources/${dsId.value}`, {
+      await useMyFetchStrict(`/data_sources/${dsId.value}`, {
         method: 'PUT',
         body: { primary_instruction_id: primaryInstructionId },
       })
@@ -433,6 +436,8 @@ async function handleSave() {
     const created = dsId.value
     isOpen.value = false
     emit('finished', created)
+  } catch (e: any) {
+    toast.add({ title: 'Failed to save agent context', description: getErrorMessage(e), color: 'red' })
   } finally {
     saving.value = false
   }

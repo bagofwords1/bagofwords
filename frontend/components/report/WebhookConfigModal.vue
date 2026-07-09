@@ -129,6 +129,8 @@ const sources = ref<any[]>([
 ])
 const creating = ref(false)
 const reveal = ref<any>(null)
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // Token header is the default auth mode (simplest for most senders).
 const defaultForm = () => ({ name: 'Webhook', source: 'github', auth_mode: 'token', classify_enabled: true, classifier_prompt: '' })
@@ -170,18 +172,29 @@ async function create() {
 		form.value = defaultForm()
 		await loadWebhooks()
 		emit('changed')
-	} catch (e) { console.error('create webhook failed', e) } finally { creating.value = false }
+	} catch (e) {
+		console.error('create webhook failed', e)
+		toast.add({ title: 'Failed to create webhook', description: getErrorMessage(e), color: 'red' })
+	} finally { creating.value = false }
 }
 
 async function rotate(w: any) {
-	const { data } = await useMyFetch(`/reports/${props.reportId}/webhooks/${w.id}/rotate`, { method: 'POST' })
-	if (data.value) reveal.value = data.value
+	try {
+		const { data } = await useMyFetchStrict(`/reports/${props.reportId}/webhooks/${w.id}/rotate`, { method: 'POST' })
+		if (data.value) reveal.value = data.value
+	} catch (e) {
+		toast.add({ title: 'Failed to rotate webhook secret', description: getErrorMessage(e), color: 'red' })
+	}
 }
 
 async function remove(w: any) {
-	await useMyFetch(`/reports/${props.reportId}/webhooks/${w.id}`, { method: 'DELETE' })
-	await loadWebhooks()
-	emit('changed')
+	try {
+		await useMyFetchStrict(`/reports/${props.reportId}/webhooks/${w.id}`, { method: 'DELETE' })
+		await loadWebhooks()
+		emit('changed')
+	} catch (e) {
+		toast.add({ title: 'Failed to delete webhook', description: getErrorMessage(e), color: 'red' })
+	}
 }
 
 function copy(text: string) {

@@ -272,6 +272,7 @@ import type { Ref } from 'vue'
 
 const route = useRoute()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const dsId = computed(() => String(route.params.id || ''))
 const canManageConnections = computed(() => useCan('manage_connections'))
 const { data: currentUser } = useAuth()
@@ -490,7 +491,7 @@ async function unlinkConnection(connectionId: string) {
     if (!dsId.value) return
     if (!confirm('Are you sure you want to unlink this connection?')) return
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, {
+        await useMyFetchStrict(`/data_sources/${dsId.value}/connections/${connectionId}`, {
             method: 'DELETE'
         })
         toast.add({ title: 'Connection unlinked', color: 'green' })
@@ -498,7 +499,7 @@ async function unlinkConnection(connectionId: string) {
     } catch (e: any) {
         toast.add({
             title: 'Failed to unlink connection',
-            description: e?.message || 'An error occurred',
+            description: getErrorMessage(e),
             color: 'red'
         })
     }

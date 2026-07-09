@@ -340,6 +340,7 @@ const props = defineProps<{
 
 const organizationId = props.organization.id
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 interface RoleInfo {
     id: string
@@ -551,14 +552,14 @@ async function updateGroupRoles(group: GroupData, selectedRoleIds: string[]) {
         const removed = currentAssignments.filter(a => !selectedRoleIds.includes(a.role_id))
 
         for (const roleId of added) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
+            await useMyFetchStrict(`/organizations/${organizationId}/role-assignments`, {
                 method: 'POST',
                 body: { role_id: roleId, principal_type: 'group', principal_id: group.id },
             })
         }
 
         for (const assignment of removed) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
+            await useMyFetchStrict(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
                 method: 'DELETE',
             })
         }
@@ -566,8 +567,7 @@ async function updateGroupRoles(group: GroupData, selectedRoleIds: string[]) {
         await loadGroupRoleAssignments()
         toast.add({ title: t('groupsManager.toastRolesUpdated'), color: 'green' })
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToUpdateRoles')
-        toast.add({ title: detail, color: 'red' })
+        toast.add({ title: getErrorMessage(e, t('groupsManager.failedToUpdateRoles')), color: 'red' })
     }
 }
 
@@ -695,7 +695,7 @@ async function addMember() {
         // memberToAdd is a composite "user:<id>" / "membership:<id>" value.
         const [kind, id] = memberToAdd.value.split(':')
         const body = kind === 'membership' ? { membership_id: id } : { user_id: id }
-        await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members`, {
+        await useMyFetchStrict(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members`, {
             method: 'POST',
             body,
         })
@@ -707,15 +707,14 @@ async function addMember() {
             loadGroups(),
         ])
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToAddMember')
-        toast.add({ title: detail, color: 'red' })
+        toast.add({ title: getErrorMessage(e, t('groupsManager.failedToAddMember')), color: 'red' })
     }
 }
 
 async function removeMember(userId: string) {
     if (!selectedGroup.value) return
     try {
-        await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members/${userId}`, {
+        await useMyFetchStrict(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members/${userId}`, {
             method: 'DELETE',
         })
         toast.add({ title: t('groupsManager.toastMemberRemoved'), color: 'green' })
@@ -724,8 +723,7 @@ async function removeMember(userId: string) {
             loadGroups(),
         ])
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToRemoveMember')
-        toast.add({ title: detail, color: 'red' })
+        toast.add({ title: getErrorMessage(e, t('groupsManager.failedToRemoveMember')), color: 'red' })
     }
 }
 

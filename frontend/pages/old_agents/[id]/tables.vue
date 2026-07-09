@@ -271,7 +271,7 @@ async function onFileInput(e: Event) {
 
 async function removeFile(file: AgentFile) {
     try {
-        await useMyFetch(`/data_sources/${id.value}/files/${file.id}`, { method: 'DELETE' })
+        await useMyFetchStrict(`/data_sources/${id.value}/files/${file.id}`, { method: 'DELETE' })
         files.value = files.value.filter(f => f.id !== file.id)
     } catch (e) {
         console.error('Failed to remove file', e)

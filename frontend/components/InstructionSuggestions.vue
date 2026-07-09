@@ -155,6 +155,7 @@ const selectedIds = ref<Set<string>>(new Set())
 
 // Composables
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const drafts = computed<InstructionDraft[]>(() => {
   const rj = props.toolExecution?.result_json || {}
@@ -288,7 +289,7 @@ const handlePublishBuild = async () => {
       // Update each selected instruction's status to published within the build
       for (const draft of drafts.value) {
         if (!draft.id || !selectedIds.value.has(draft.id)) continue
-        await useMyFetch(`/instructions/${draft.id}`, {
+        await useMyFetchStrict(`/instructions/${draft.id}`, {
           method: 'PUT',
           body: {
             status: 'published',
@@ -298,24 +299,20 @@ const handlePublishBuild = async () => {
       }
 
       // Publish the build with selected instruction IDs (backend will filter out unselected)
-      const response = await useMyFetch(`/builds/${targetBuildId}/publish`, {
+      await useMyFetchStrict(`/builds/${targetBuildId}/publish`, {
         method: 'POST',
         body: {
           instruction_ids: selectedInstructionIds,
         }
       })
 
-      if (response.status.value === 'success') {
-        localPublishOverride.value = true
-        toast.add({ title: 'Success', description: 'Instructions published', color: 'green' })
-      } else {
-        throw new Error('Failed to publish build')
-      }
+      localPublishOverride.value = true
+      toast.add({ title: 'Success', description: 'Instructions published', color: 'green' })
     } else {
       // Fallback: No build found, just publish selected instructions directly
       for (const draft of drafts.value) {
         if (!draft.id || !selectedIds.value.has(draft.id)) continue
-        await useMyFetch(`/instructions/${draft.id}`, {
+        await useMyFetchStrict(`/instructions/${draft.id}`, {
           method: 'PUT',
           body: { status: 'published' }
         })
@@ -325,7 +322,7 @@ const handlePublishBuild = async () => {
     }
   } catch (error) {
     console.error('Error publishing instructions:', error)
-    toast.add({ title: 'Error', description: 'Failed to publish instructions', color: 'red' })
+    toast.add({ title: 'Error', description: getErrorMessage(error, 'Failed to publish instructions'), color: 'red' })
   } finally {
     isPublishingBuild.value = false
   }

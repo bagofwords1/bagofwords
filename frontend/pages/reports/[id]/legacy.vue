@@ -141,6 +141,8 @@ import DashboardComponent from '~/components/DashboardComponent.vue';
 const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
 const { organization, setOrganization } = useOrganization()
 const { isExcel } = useExcel()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const route = useRoute()
 const config = useRuntimeConfig()
 const wsURL = config.public.wsURL
@@ -585,18 +587,21 @@ function toggleSplitScreen() {
 const selectedWidget = ref(null);
 
 async function removeWidget(widget: any) {
-    await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'draft', id: widget.id })
-    }).then(() => {
+    try {
+        await useMyFetchStrict(`/api/reports/${report_id}/widgets/${widget.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'draft', id: widget.id })
+        });
         widgets.value = widgets.value.map(w => {
             if (w.id === widget.id) {
                 return { ...w, status: 'draft' };
             }
             return w;
         });
-    })
+    } catch (e: any) {
+        toast.add({ title: 'Failed to remove widget', description: getErrorMessage(e), color: 'red' });
+    }
 }
 
 async function handleAddWidget(widget: any) {

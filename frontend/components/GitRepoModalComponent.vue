@@ -1064,7 +1064,7 @@ async function updateSettings() {
     if (!connectedRepo.value?.id || !canEditSettings.value) return
 
     try {
-        await useMyFetch(`/git/repositories/${connectedRepo.value.id}`, {
+        await useMyFetchStrict(`/git/repositories/${connectedRepo.value.id}`, {
             method: 'PUT',
             body: {
                 auto_publish: editSettings.value.autoPublish,

@@ -880,6 +880,8 @@ const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
@@ -3210,10 +3212,10 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         const widget = payload?.widget
         if (viz?.id) {
             const block = { type: 'visualization', visualization_id: viz.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
+            await useMyFetchStrict(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
         } else if (widget?.id) {
             const block = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
+            await useMyFetchStrict(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
         } else {
             return
         }
@@ -3247,6 +3249,7 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         safeScrollToBottom()
     } catch (e) {
         console.error('Failed to add widget from preview:', e)
+        toast.add({ title: 'Failed to add to dashboard', description: getErrorMessage(e), color: 'red' })
     }
 }
 

@@ -168,6 +168,9 @@ const isOpen = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
+
 const connections = ref<any[]>([])
 const loading = ref(false)
 const testingId = ref<string | null>(null)
@@ -273,10 +276,12 @@ async function executeDelete() {
   if (!deletingConnection.value) return
   deleting.value = true
   try {
-    await useMyFetch(`/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
+    await useMyFetchStrict(`/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
     showDeleteConfirm.value = false
     await fetchConnections()
     emit('updated')
+  } catch (e: any) {
+    toast.add({ title: 'Failed to delete connection', description: getErrorMessage(e), color: 'red' })
   } finally {
     deleting.value = false
   }

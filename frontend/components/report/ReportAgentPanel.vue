@@ -545,6 +545,8 @@ import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
 import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
 
 const { t } = useI18n()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const props = defineProps<{
   agents: Array<{ id: string; name: string; type?: string; connections?: any[]; publish_status?: string; reliability_status?: string }>
@@ -692,16 +694,19 @@ async function saveStarters() {
     // Replace-all of this agent's starter Prompts (no legacy JSON write).
     const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
     for (const p of ((existing.value as any)?.prompts || [])) {
-      await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
+      await useMyFetchStrict(`/prompts/${p.id}`, { method: 'DELETE' })
     }
     for (const text of starters) {
-      await useMyFetch(`/prompts`, { method: 'POST', body: {
+      await useMyFetchStrict(`/prompts`, { method: 'POST', body: {
         text, title: (text.split('\n')[0] || '').slice(0, 60),
         scope: 'agent', is_starter: true, data_source_ids: [id],
       } })
     }
     await loadStarterPrompts(id)
     showEditStarters.value = false
+  } catch (error) {
+    // Leave the modal open and the prior starters in place so the user can retry.
+    toast.add({ title: 'Failed to save starter prompts', description: getErrorMessage(error), color: 'red' })
   } finally {
     savingStarters.value = false
   }

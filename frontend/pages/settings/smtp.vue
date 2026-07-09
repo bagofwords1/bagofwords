@@ -150,7 +150,11 @@ async function test() {
   testResult.value = null
   try {
     // Save first so the test probes the stored config.
-    await useMyFetch('/api/organization/smtp', { method: 'PUT', body: payload() })
+    const saveRes = await useMyFetch('/api/organization/smtp', { method: 'PUT', body: payload() })
+    if (saveRes.status.value !== 'success') {
+      toast.add({ title: 'Failed to save SMTP', description: (saveRes.error.value as any)?.data?.detail || 'Error', color: 'red' })
+      return
+    }
     passwordSet.value = passwordSet.value || !!form.password
     form.password = ''
     const res = await useMyFetch('/api/organization/smtp/test', { method: 'POST' })

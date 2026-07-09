@@ -219,6 +219,7 @@ interface OAuthClient {
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 const loading = ref(true)
 const clients = ref<OAuthClient[]>([])
@@ -374,13 +375,13 @@ async function rotate(client: OAuthClient) {
 async function remove(client: OAuthClient) {
   if (!confirm(t('settings.integrations.channels.oauth.confirmDelete', { name: client.name }))) return
   try {
-    await useMyFetch(`/api/oauth/clients/${client.id}`, { method: 'DELETE' })
+    await useMyFetchStrict(`/api/oauth/clients/${client.id}`, { method: 'DELETE' })
     clients.value = clients.value.filter(c => c.id !== client.id)
     delete freshSecretByClientId.value[client.client_id]
     toast.add({ title: t('settings.integrations.channels.oauth.deletedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
     emit('updated')
   } catch (e) {
-    toast.add({ title: t('settings.integrations.channels.oauth.failedDelete'), icon: 'i-heroicons-x-circle', color: 'red' })
+    toast.add({ title: t('settings.integrations.channels.oauth.failedDelete'), description: getErrorMessage(e), icon: 'i-heroicons-x-circle', color: 'red' })
   }
 }
 

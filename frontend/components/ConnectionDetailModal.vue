@@ -909,9 +909,15 @@ async function disconnect() {
   if (!props.connection?.id || disconnecting.value) return
   disconnecting.value = true
   try {
-    await useMyFetch(`/connections/${props.connection.id}/my-credentials`, { method: 'DELETE' })
-    emit('updated')
-    isOpen.value = false
+    const { error } = await useMyFetch(`/connections/${props.connection.id}/my-credentials`, { method: 'DELETE' })
+    if (error.value) {
+      testResult.value = { success: false, message: error.value.message || 'Failed to disconnect' }
+    } else {
+      emit('updated')
+      isOpen.value = false
+    }
+  } catch (e: any) {
+    testResult.value = { success: false, message: e.message || 'Failed to disconnect' }
   } finally {
     disconnecting.value = false
   }

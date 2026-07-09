@@ -221,6 +221,7 @@ import { themes } from '@/components/dashboard/themes'
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
+    const { getErrorMessage } = useErrorMessage();
     const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const filterInstanceId = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'toggleArtifactView', 'editVisualization', 'visualizations-ready']);
@@ -1351,11 +1352,16 @@ import { themes } from '@/components/dashboard/themes'
             }
         } catch (e: any) {
             console.error('Failed to persist full layout', e)
+            throw e
         }
     }
     function schedulePersistFullLayout() {
         if (fullSaveTimer) window.clearTimeout(fullSaveTimer)
-        fullSaveTimer = window.setTimeout(() => { persistFullLayout() }, 180)
+        fullSaveTimer = window.setTimeout(() => {
+            persistFullLayout().catch((e: any) => {
+                toast.add({ title: 'Failed to save layout', description: getErrorMessage(e), color: 'red' });
+            });
+        }, 180)
     }
 
     const handleGridAdded = (event: Event, items: any[]) => {
@@ -1761,8 +1767,12 @@ import { themes } from '@/components/dashboard/themes'
                 delete editSnapshots.value[displayedWidgets.value[idx].id];
             }
             // Persist to layout
-            await persistFullLayout();
-            toast.add({ title: 'Text saved' });
+            try {
+                await persistFullLayout();
+                toast.add({ title: 'Text saved' });
+            } catch (e: any) {
+                toast.add({ title: 'Failed to save text', description: getErrorMessage(e), color: 'red' });
+            }
         } else {
             console.warn('Could not find widget to save:', widget.id);
             toast.add({ title: 'Error', description: 'Could not save text block', color: 'red' });

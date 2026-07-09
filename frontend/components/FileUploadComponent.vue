@@ -95,6 +95,8 @@ const isDragging = ref(false);
   })
 
   const report_id = props.report_id;
+  const toast = useToast();
+  const { getErrorMessage } = useErrorMessage();
 
   const emit = defineEmits(['update:uploadedFiles']);
 
@@ -196,18 +198,23 @@ const isDragging = ref(false);
   }
 
   async function removeFile(file) {
+    const prevFiles = allFiles.value;
     // Remove the file from allFiles array
     allFiles.value = allFiles.value.filter(f => f !== file);
 
     // If the file has an ID and report_id exists, delete it from the server
     if (file.id && report_id) {
       try {
-        await useMyFetch(`/reports/${report_id}/files/${file.id}`, {
+        await useMyFetchStrict(`/reports/${report_id}/files/${file.id}`, {
           method: 'DELETE',
         });
       } catch (error) {
         console.error('Error deleting file from server:', error);
-        // Optionally, you can handle the error (e.g., show a notification to the user)
+        // Revert the optimistic removal so local state matches the server
+        allFiles.value = prevFiles;
+        emit('update:uploadedFiles', [...allFiles.value]);
+        toast.add({ title: 'Failed to delete file', description: getErrorMessage(error), color: 'red' });
+        return;
       }
     }
 

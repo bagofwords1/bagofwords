@@ -156,6 +156,7 @@ const props = defineProps<{ organization: { id: string; name?: string } }>()
 const organizationId = props.organization.id
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const accounts = ref<ServiceAccount[]>([])
 const roles = ref<Role[]>([])
@@ -240,20 +241,32 @@ watch(showKeysModal, (open) => { if (!open) newKey.value = null })
 
 async function revokeKey(keyId: string) {
     if (!activeAccount.value) return
-    await useMyFetch(`/service_accounts/${activeAccount.value.id}/keys/${keyId}`, { method: 'DELETE' })
-    await openKeys(activeAccount.value)
-    await loadAccounts()
+    try {
+        await useMyFetchStrict(`/service_accounts/${activeAccount.value.id}/keys/${keyId}`, { method: 'DELETE' })
+        await openKeys(activeAccount.value)
+        await loadAccounts()
+    } catch (e: any) {
+        toast.add({ title: getErrorMessage(e, 'Could not revoke key'), color: 'red' })
+    }
 }
 
 async function setDisabled(sa: ServiceAccount, disabled: boolean) {
-    await useMyFetch(`/service_accounts/${sa.id}`, { method: 'PATCH', body: { disabled } })
-    await loadAccounts()
+    try {
+        await useMyFetchStrict(`/service_accounts/${sa.id}`, { method: 'PATCH', body: { disabled } })
+        await loadAccounts()
+    } catch (e: any) {
+        toast.add({ title: getErrorMessage(e, disabled ? 'Could not disable service account' : 'Could not enable service account'), color: 'red' })
+    }
 }
 
 async function deleteAccount(sa: ServiceAccount) {
-    await useMyFetch(`/service_accounts/${sa.id}`, { method: 'DELETE' })
-    toast.add({ title: t('serviceAccounts.deleted'), color: 'green' })
-    await loadAccounts()
+    try {
+        await useMyFetchStrict(`/service_accounts/${sa.id}`, { method: 'DELETE' })
+        toast.add({ title: t('serviceAccounts.deleted'), color: 'green' })
+        await loadAccounts()
+    } catch (e: any) {
+        toast.add({ title: getErrorMessage(e, 'Could not delete service account'), color: 'red' })
+    }
 }
 
 function rowActions(sa: ServiceAccount) {

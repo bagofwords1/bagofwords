@@ -681,6 +681,7 @@ const organizationId = props.organization.id
 const members = ref<Member[]>([])
 const searchQuery = ref('')
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const isLoading = ref(true)
 const availableRoles = ref<{ id: string; name: string; label: string }[]>([])
 const groups = ref<GroupData[]>([])
@@ -1068,7 +1069,7 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
         const removed = currentRoleIds.filter((id: string) => !selectedRoleIds.includes(id))
 
         for (const roleId of added) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
+            await useMyFetchStrict(`/organizations/${organizationId}/role-assignments`, {
                 method: 'POST',
                 body: { role_id: roleId, principal_type: principalType, principal_id: principalId },
             })
@@ -1081,16 +1082,9 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
             if (assignments.value) {
                 for (const assignment of assignments.value as any[]) {
                     if (removed.includes(assignment.role_id)) {
-                        const resp = await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
+                        await useMyFetchStrict(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
                             method: 'DELETE',
                         })
-                        if (resp.error?.value) {
-                            const detail = resp.error.value.data?.detail || t('settings.members.failedToRemoveRole')
-                            toast.add({ title: detail, color: 'red' })
-                            const membersResp = await useMyFetch(`/organizations/${organizationId}/members`)
-                            members.value = membersResp.data.value as Member[]
-                            return
-                        }
                     }
                 }
             }
@@ -1104,8 +1098,14 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
 
         toast.add({ title: t('settings.members.rolesUpdated'), color: 'green' })
     } catch (error: any) {
-        const detail = error?.data?.detail || error?.message || t('settings.members.failedToUpdateRoles')
-        toast.add({ title: detail, color: 'red' })
+        toast.add({ title: getErrorMessage(error, t('settings.members.failedToUpdateRoles')), color: 'red' })
+        // A partial failure (e.g. some role assignments succeeded before this
+        // one failed) can leave the server ahead of local state; resync from
+        // the server rather than leaving a stale role list displayed.
+        const membersResp = await useMyFetch(`/organizations/${organizationId}/members`)
+        if (membersResp.data.value) {
+            members.value = membersResp.data.value as Member[]
+        }
     }
 }
 
