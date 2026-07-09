@@ -180,13 +180,25 @@ def main():
         r = client.post(
             f"/api/reports/{report_id}/completions",
             headers=auth(token, org_id),
-            params={"background": False},
+            params={"background": True},
             json={"prompt": {"content": args.prompt, "widget_id": None, "step_id": None, "mentions": [{}]}},
         )
-        wall = time.monotonic() - started
         if r.status_code != 200:
             print(f"[probe] iteration {it}: completion failed {r.status_code}: {r.text[:400]}")
             continue
+        # Background mode: poll until the system completion leaves in_progress.
+        deadline = time.monotonic() + 1800
+        while time.monotonic() < deadline:
+            conn = sqlite3.connect(args.db_path)
+            n_open = conn.execute(
+                "SELECT COUNT(*) FROM completions WHERE status = 'in_progress' AND created_at >= ?",
+                (t0_iso,),
+            ).fetchone()[0]
+            conn.close()
+            if n_open == 0 and time.monotonic() - started > 5:
+                break
+            time.sleep(3)
+        wall = time.monotonic() - started
         rows = timeline(args.db_path, t0_iso)
         stats = analyze(rows)
         stats["completion_wall_s"] = round(wall, 2)

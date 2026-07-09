@@ -189,6 +189,20 @@ def main() -> None:
             # Activate the seeded table — API-created sources index their
             # schema with is_active=False until tables are selected, and
             # create_data only targets active tables. Idempotent on reruns.
+            # Indexing is async: wait until the table row exists first,
+            # otherwise the activation lands before the row and is lost.
+            import time as _time
+            for _ in range(30):
+                fr = client.get(
+                    f"/api/data_sources/{ds_id}/full_schema",
+                    headers=auth(admin_token, org_id),
+                )
+                body = fr.json() if fr.status_code == 200 else {}
+                items = body.get("tables", body) if isinstance(body, dict) else body
+                names = {t.get("name") for t in items} if isinstance(items, list) else set()
+                if f"orders_{i}" in names:
+                    break
+                _time.sleep(1)
             ar = client.put(
                 f"/api/data_sources/{ds_id}/update_tables_status",
                 json={"activate": [f"orders_{i}"], "deactivate": []},
