@@ -169,6 +169,11 @@ class CSVClient(DataSourceClient):
             )
             raise
 
+    # Streaming lazy path (out-of-core, v2) — dispatched by the base class;
+    # see DataSourceClient.execute_query_lazy. connect() yields a DuckDB
+    # connection with views over the CSVs, so the native COPY streamer applies.
+    _lazy_strategy = "duckdb"
+
     def get_tables(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """Schema lookup via DuckDB DESCRIBE over each CSV's read expression —
         the same expression used at query time, so types are ground truth.
