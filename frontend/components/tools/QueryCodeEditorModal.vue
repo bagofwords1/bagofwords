@@ -197,6 +197,7 @@ interface Props {
 const props = defineProps<Props>()
 const route = useRoute()
 const emit = defineEmits(['close', 'stepCreated'])
+const { getErrorMessage } = useErrorMessage()
 
 const editorCode = ref('')
 const running = ref(false)
@@ -485,6 +486,11 @@ async function previewRun() {
       method: 'POST',
       body: { code: editorCode.value, title: props.title, type: 'table', tool_execution_id: props.toolExecutionId || null }
     })
+    if (resp?.error?.value) {
+      errorMsg.value = getErrorMessage(resp.error.value, 'Failed to run')
+      preview.value = null
+      return
+    }
     const payload = resp?.data?.value
     if (payload?.error) {
       errorMsg.value = payload.error
@@ -516,6 +522,11 @@ async function runNewStep() {
         tool_execution_id: props.toolExecutionId || null
       }
     })
+    if (resp?.error?.value) {
+      errorMsg.value = getErrorMessage(resp.error.value, 'Failed to run')
+      preview.value = null
+      return
+    }
     const payload = resp?.data?.value
     // Show backend error message if execution failed
     if (payload?.error) {

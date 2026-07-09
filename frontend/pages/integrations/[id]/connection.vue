@@ -123,6 +123,8 @@ import { useOrganization } from '~/composables/useOrganization'
 import type { Ref } from 'vue'
 
 const route = useRoute()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const dsId = computed(() => String(route.params.id || ''))
 const canManageConnections = computed(() => useCan('manage_connections'))
 const { data: currentUser } = useAuth()
@@ -229,10 +231,10 @@ function openAddCredentials() {
 async function disconnectUserCredentials() {
   if (!dsId.value) return
   try {
-    await useMyFetch(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
+    await useMyFetchStrict(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
     await injectedFetchIntegration()
   } catch (e) {
-    // no-op
+    toast.add({ title: 'Failed to disconnect', description: getErrorMessage(e), color: 'red' })
   }
 }
 

@@ -200,6 +200,7 @@ const props = defineProps<{
 defineEmits(['add-mcp', 'add-custom-api', 'edit-connection', 'delete-connection'])
 
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const loading = ref(false)
 const refreshingConn = ref<string | null>(null)
@@ -248,11 +249,11 @@ async function refreshTools(connectionId: string) {
     // Refresh the underlying ConnectionTool discovery (org-level), then
     // reload the agent-scoped view so the new tools show up with their
     // current effective state.
-    await useMyFetch(`/connections/${connectionId}/refresh-tools`, { method: 'POST' })
+    await useMyFetchStrict(`/connections/${connectionId}/refresh-tools`, { method: 'POST' })
     await loadAllTools()
     toast.add({ title: 'Tools refreshed', color: 'green' })
   } catch (e) {
-    toast.add({ title: 'Failed to refresh tools', color: 'red' })
+    toast.add({ title: 'Failed to refresh tools', description: getErrorMessage(e), color: 'red' })
   } finally {
     refreshingConn.value = null
   }

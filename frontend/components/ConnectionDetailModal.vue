@@ -751,12 +751,16 @@ async function reindex() {
   if (!props.connection?.id || reindexing.value) return
   reindexing.value = true
   try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}/reindex?force=true`, { method: 'POST' })
-    const result = (data as any).value
-    if (result?.indexing) {
-      indexingState.value = result.indexing as ConnectionIndexing
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/reindex?force=true`, { method: 'POST' })
+    if (error.value) {
+      toast.add({ title: 'Failed to restart indexing', description: (error.value as any)?.data?.detail || (error.value as any)?.message, color: 'red' })
+    } else {
+      const result = (data as any).value
+      if (result?.indexing) {
+        indexingState.value = result.indexing as ConnectionIndexing
+      }
+      startPollingIfActive()
     }
-    startPollingIfActive()
   } finally {
     reindexing.value = false
   }

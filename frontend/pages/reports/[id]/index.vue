@@ -3271,7 +3271,7 @@ function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean })
 	}
 }
 
-function abortStream() {
+async function abortStream() {
 	if (currentController) {
 		currentController.abort()
 		currentController = null
@@ -3281,14 +3281,14 @@ function abortStream() {
 					const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
 		const systemId = (sysMsg as any)?.system_completion_id
 		if (systemId) {
-			useMyFetch(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
+			await useMyFetchStrict(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
 			// Mark locally as stopped for immediate UI feedback
 			const msgIndex = messages.value.findIndex(m => m.id === sysMsg?.id)
 			if (msgIndex !== -1) {
 				// Force Vue reactivity by replacing the entire array
 				const newMessages = [...messages.value]
 				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
-				
+
 				// Also update all completion blocks and their tool executions to stopped status
 				if (updatedMessage.completion_blocks) {
 					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
@@ -3298,17 +3298,17 @@ function abortStream() {
 						tool_execution: block.tool_execution?.status === 'running' ? { ...block.tool_execution, status: 'stopped' } : block.tool_execution
 					}))
 				}
-				
+
 				newMessages[msgIndex] = updatedMessage
 				messages.value = newMessages
-				
+
 				// Force a nextTick update
 				nextTick(() => {
 				})
 			}
 		}
 	} catch (e) {
-		console.error('Failed to send sigkill:', e)
+		toast.add({ title: 'Failed to stop generation', description: getErrorMessage(e), color: 'red' })
 	}
 	isStreaming.value = false
 	isCompletionInProgress.value = false

@@ -1084,7 +1084,17 @@ async function onRefresh() {
 
   try {
     if (endpointForSchema() === 'full_schema') {
-      await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
+      const { error } = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
+      if (error.value) {
+        // Bail out before clearing tracking below — a failed refresh must not
+        // wipe the user's unsaved bulk-selection state.
+        toast.add({
+          title: 'Refresh failed',
+          description: (error.value as any)?.data?.detail || (error.value as any)?.message || 'Failed to refresh schema',
+          color: 'red'
+        })
+        return
+      }
     }
 
     // Clear all tracking on refresh
@@ -1095,8 +1105,6 @@ async function onRefresh() {
     page.value = 1
 
     await fetchTables()
-  } catch (e) {
-    // Swallow refresh errors
   } finally {
     refreshing.value = false
   }

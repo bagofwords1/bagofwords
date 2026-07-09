@@ -867,12 +867,16 @@ async function onInstructionSaved(savedInstruction?: any) {
   if (selectedAgentId.value) {
     // If created from the overview "Create" link, pin it as primary instruction
     if (wasPrimary && savedInstruction?.id && !savedInstruction?.deleted) {
-      await useMyFetch(`/data_sources/${selectedAgentId.value}`, {
+      const { error } = await useMyFetch(`/data_sources/${selectedAgentId.value}`, {
         method: 'PUT',
         body: { primary_instruction_id: savedInstruction.id },
       })
-      delete agentDetailsCache.value[selectedAgentId.value]
-      fetchTabData(selectedAgentId.value, 'overview')
+      if (error.value) {
+        toast.add({ title: 'Failed to set primary instruction', description: getErrorMessage(error.value), color: 'red' })
+      } else {
+        delete agentDetailsCache.value[selectedAgentId.value]
+        fetchTabData(selectedAgentId.value, 'overview')
+      }
     }
     delete instructionsCache.value[selectedAgentId.value]
     fetchTabData(selectedAgentId.value, 'instructions')

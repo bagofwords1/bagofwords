@@ -75,6 +75,8 @@ import { onMounted, nextTick } from 'vue';
 
 const router = useRouter()
 const { t } = useI18n()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const previous_reports = ref([])
 const selectedDataSources = ref([])
 
@@ -135,21 +137,21 @@ const getDataSourceOptions = async () => {
 }
 
 const createNewReport = async () => {
-    const response = await useMyFetch('/reports', {
-        method: 'POST',
-        body: JSON.stringify({title: 'untitled report',
-         files: [],
-         data_sources: selectedDataSources.value.map((ds: any) => ds.id)})
-    });
+    try {
+        const response = await useMyFetchStrict('/reports', {
+            method: 'POST',
+            body: JSON.stringify({title: 'untitled report',
+             files: [],
+             data_sources: selectedDataSources.value.map((ds: any) => ds.id)})
+        });
 
-    if (!response.code === 200) {
-        throw new Error('Report creation failed');
+        const data = response.data.value as any;
+        router.push({
+            path: `/excel/reports/${data.id}`
+        })
+    } catch (e) {
+        toast.add({ title: 'Error', description: getErrorMessage(e) || 'Report creation failed', color: 'red' })
     }
-
-    const data = await response.data.value;
-    router.push({
-        path: `/excel/reports/${data.id}`
-    })
 }
 
 async function signOff() {

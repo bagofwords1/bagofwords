@@ -1606,6 +1606,8 @@ import { themes } from '@/components/dashboard/themes'
                     }
 
                     // Also patch active layout with the new text widget position
+                    let layoutSyncFailed = false;
+                    let layoutSyncError: any = null;
                     try {
                         const { error: layoutErr } = await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
                             method: 'PATCH',
@@ -1614,9 +1616,15 @@ import { themes } from '@/components/dashboard/themes'
                         if (layoutErr.value) throw layoutErr.value;
                     } catch (e: any) {
                         console.error('Failed to add new text widget to layout', e);
+                        layoutSyncFailed = true;
+                        layoutSyncError = e;
                     }
 
-                    toast.add({ title: 'Text Widget Added' });
+                    if (layoutSyncFailed) {
+                        toast.add({ title: 'Widget saved, but its position could not be saved', description: getErrorMessage(layoutSyncError), color: 'orange' });
+                    } else {
+                        toast.add({ title: 'Text Widget Added' });
+                    }
                  } else { throw new Error("No data returned for new text widget"); }
             } catch (error: any) {
                 console.error('Failed to save new text widget', error);
@@ -1644,13 +1652,25 @@ import { themes } from '@/components/dashboard/themes'
             });
             if (error.value) throw error.value;
             // Keep layout in sync with latest position
+            let layoutSyncFailed = false;
+            let layoutSyncError: any = null;
             try {
-                await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
+                const { error: layoutErr } = await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
                     method: 'PATCH',
                     body: { blocks: [{ type: 'text_widget', text_widget_id: widget.id, x: widget.x, y: widget.y, width: widget.width, height: widget.height }] }
                 });
-            } catch {}
-            toast.add({ title: 'Text Widget Saved' });
+                if (layoutErr.value) throw layoutErr.value;
+            } catch (e: any) {
+                console.error('Failed to sync text widget position to layout', e);
+                layoutSyncFailed = true;
+                layoutSyncError = e;
+            }
+
+            if (layoutSyncFailed) {
+                toast.add({ title: 'Widget saved, but its position could not be saved', description: getErrorMessage(layoutSyncError), color: 'orange' });
+            } else {
+                toast.add({ title: 'Text Widget Saved' });
+            }
         } catch (e: any) {
             console.error('Failed to update text widget', e);
             toast.add({ title: 'Error', description: `Failed to update text widget. ${e?.message || ''}`, color: 'red' });

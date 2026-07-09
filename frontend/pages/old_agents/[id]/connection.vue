@@ -362,10 +362,10 @@ function connIndexingSummary(conn: any) {
 
 async function reindexConnection(connectionId: string) {
     try {
-        await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
+        await useMyFetchStrict(`/connections/${connectionId}/reindex`, { method: 'POST' })
         await injectedFetchIntegration()
     } catch (e: any) {
-        toast.add({ title: 'Failed to restart indexing', description: e?.message || '', color: 'red' })
+        toast.add({ title: 'Failed to restart indexing', description: getErrorMessage(e), color: 'red' })
     }
 }
 
@@ -469,7 +469,7 @@ async function linkConnection() {
     if (!selectedConnectionId.value || !dsId.value || isLinking.value) return
     isLinking.value = true
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, {
+        await useMyFetchStrict(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, {
             method: 'POST'
         })
         toast.add({ title: 'Connection linked', color: 'green' })
@@ -479,7 +479,7 @@ async function linkConnection() {
     } catch (e: any) {
         toast.add({
             title: 'Failed to link connection',
-            description: e?.message || 'An error occurred',
+            description: getErrorMessage(e),
             color: 'red'
         })
     } finally {

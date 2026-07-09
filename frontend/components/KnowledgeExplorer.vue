@@ -1325,8 +1325,13 @@ const reloadTables = async (id: string) => {
   toast.add({ title: t('agentsPage.toastTablesReloaded'), color: 'green' })
 }
 const reloadTools = async (id: string) => {
-  for (const c of (agents.value.find(a => a.id === id)?.connections || [])) { try { await useMyFetch(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch {} }
-  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: t('agentsPage.toastToolsReloaded'), color: 'green' })
+  let lastError: any = null
+  for (const c of (agents.value.find(a => a.id === id)?.connections || [])) {
+    try { await useMyFetchStrict(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch (e: any) { lastError = e }
+  }
+  agentLoaded.value.delete(id); await loadAgentMeta(id)
+  if (lastError) toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(lastError), color: 'red' })
+  else toast.add({ title: t('agentsPage.toastToolsReloaded'), color: 'green' })
 }
 
 // ── File upload (per agent) ─────────────────────────────
@@ -1343,13 +1348,13 @@ const onUploadInput = async (e: Event) => {
   try {
     for (const file of files) {
       const fd = new FormData(); fd.append('file', file)
-      await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+      await useMyFetchStrict(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
     }
     toast.add({ title: t('agentsPage.toastUploaded', { n: files.length }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)
-  } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: err?.message, color: 'red' }) }
+  } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: getErrorMessage(err), color: 'red' }) }
   finally { uploadingAgent.value = null; if (input) input.value = '' }
 }
 
@@ -1562,8 +1567,10 @@ const customApiExistingConnections = computed(() => connections.value.filter((c:
 const onConnCreated = async (conn?: any) => {
   const aid = connTargetAgentId.value
   if (aid && conn?.id) {
-    try { await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' }) } catch {}
-    try { await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' }) } catch {}
+    try {
+      await useMyFetchStrict(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' })
+      await useMyFetchStrict(`/connections/${conn.id}/refresh-tools`, { method: 'POST' })
+    } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
   }
   showAddMCP.value = false; showAddCustomAPI.value = false; showAddConnection.value = false
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid); if (agentView.value?.agentId === aid) await refreshAgentDetail() }
@@ -1960,13 +1967,13 @@ const approveSuggestion = async (pb: any) => {
   if (!pb?.build_id) return
   approving.value = pb.build_id
   try {
-    await useMyFetch(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
+    await useMyFetchStrict(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
     toast.add({ title: t('agentsPage.toastApprovedPublished'), color: 'green' })
     closeDiff()
     await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { approving.value = null }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) } finally { approving.value = null }
 }
 const discardSuggestion = async (pb: any) => {
   if (!pb?.build_id || discarding.value) return
@@ -2450,7 +2457,7 @@ const loadVersions = async (id: string) => {
 const restore = async (v: any) => {
   if (!detail.value) return
   if (!window.confirm(`Restore version v${v.version_number}? This creates a new version.`)) return
-  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: t('agentsPage.toastRestored', { n: v.version_number }), color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+  try { await useMyFetchStrict(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: t('agentsPage.toastRestored', { n: v.version_number }), color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
 }
 
 // ── Display helpers ─────────────────────────────────────

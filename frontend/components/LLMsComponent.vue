@@ -243,6 +243,11 @@ const toggleModel = async (modelId: string, enabled: boolean) => {
         });
     }
     else {
+        // Revert the optimistic v-model flip on the toggle.
+        const model = models.value.find(m => m.id === modelId);
+        if (model) {
+            model.is_enabled = !enabled;
+        }
         toast.add({
             title: 'Error',
             description: 'Could not update model',

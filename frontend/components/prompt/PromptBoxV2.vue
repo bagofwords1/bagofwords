@@ -586,6 +586,9 @@ const props = defineProps({
 
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
 
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
+
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
 // Resource-scoped to the selected agent(s): an agent admin (per-DS `manage`,
@@ -1039,24 +1042,28 @@ function selectModel(modelId: string) {
     selectedModel.value = modelId
 }
 
-async function persistMode() {
+async function persistMode(previousMode: 'chat' | 'deep' | 'training') {
     // Only persist for reports, not landing page
     if (!props.report_id) return
     try {
-        await useMyFetch(`/reports/${props.report_id}`, {
+        await useMyFetchStrict(`/reports/${props.report_id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mode: mode.value })
         })
     } catch (e) {
-        console.error('Failed to persist mode:', e)
+        // Revert the optimistic mode flip on failure.
+        mode.value = previousMode
+        emit('update:mode', previousMode)
+        toast.add({ title: 'Error', description: getErrorMessage(e) || 'Failed to persist mode', color: 'red' })
     }
 }
 
 function selectMode(m: 'chat' | 'deep' | 'training') {
+    const previousMode = mode.value
     mode.value = m
     emit('update:mode', m)
-    persistMode()
+    persistMode(previousMode)
 }
 
 // Functions to select and close popovers

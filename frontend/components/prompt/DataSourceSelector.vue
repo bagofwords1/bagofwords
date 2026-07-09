@@ -198,6 +198,7 @@ const selectedConnectDs = ref<DataSource | null>(null)
 const signIn = useConnectionSignIn()
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // Mirror the agents page: if the source's pending-sign-in connection has
 // OAuth as its only user auth mode, redirect straight to the provider
@@ -402,16 +403,18 @@ function isServiceAccount(ds: any) {
 }
 
 function toggleAutoMode() {
+    const previousSelection = [...internalSelectedDataSources.value]
     if (isAutoMode.value) {
         internalSelectedDataSources.value = []
     } else {
         internalSelectedDataSources.value = [...visibleDataSources.value]
     }
     handleSelectionChange()
-    persistSelectionIfReport()
+    persistSelectionIfReport(previousSelection)
 }
 
 function toggleDataSource(ds: DataSource) {
+    const previousSelection = [...internalSelectedDataSources.value]
     if (isAutoMode.value) {
         // Exit auto: start fresh with only this source selected
         internalSelectedDataSources.value = [ds]
@@ -425,7 +428,7 @@ function toggleDataSource(ds: DataSource) {
     }
     handleSelectionChange()
     // If we are in a report context, persist selection at report level immediately
-    persistSelectionIfReport()
+    persistSelectionIfReport(previousSelection)
 }
 
 onMounted(() => {
@@ -486,17 +489,22 @@ watch(() => props.selectedDataSources, (newVal: any[]) => {
     internalSelectedDataSources.value = mapped as any
 }, { immediate: true, deep: true })
 
-async function persistSelectionIfReport() {
+async function persistSelectionIfReport(previousSelection?: DataSource[]) {
+    if (!props.reportId) return
     try {
-        if (!props.reportId) return
         const ids = internalSelectedDataSources.value.map((x: any) => x.id)
-        await useMyFetch(`/reports/${props.reportId}`, {
+        await useMyFetchStrict(`/reports/${props.reportId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ data_sources: ids })
         })
     } catch (e) {
-        console.error('Failed to update report data sources:', e)
+        // Revert the optimistic selection + re-emit so the parent stays in sync.
+        if (previousSelection) {
+            internalSelectedDataSources.value = previousSelection
+            handleSelectionChange()
+        }
+        toast.add({ title: 'Error', description: getErrorMessage(e) || 'Failed to update data sources', color: 'red' })
     }
 }
 const dataTooltip = computed<string>(() => {

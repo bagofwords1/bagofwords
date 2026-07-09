@@ -254,7 +254,13 @@ async function testConnection(connectionId: string) {
     testResults.value[connectionId] = null
     try {
         const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
-        testResults.value[connectionId] = (response.data as any)?.value || null
+        if (response.error.value) {
+            // The test request itself failed to run (network/server error) — distinct
+            // from a legitimate negative test result, which is rendered inline below.
+            toast.add({ title: 'Failed to test connection', description: getErrorMessage(response.error.value), color: 'red' })
+        } else {
+            testResults.value[connectionId] = (response.data as any)?.value || null
+        }
         await refresh()
     } finally {
         testingConnectionId.value = null

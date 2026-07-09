@@ -216,6 +216,8 @@ const route = useRoute()
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
 const { t } = useI18n()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const dsId = computed(() => String(route.params.ds_id || ''))
 const saving = ref(false)
@@ -472,15 +474,14 @@ async function handleSave() {
   
   try {
     await updateOnboarding({ current_step: 'instructions_added' as any, completed: true as any, dismissed: false as any })
+    // Don't await navigation: Nuxt route middleware can await network calls and hang.
+    navigateTo({ path: '/', query: { setup: 'done' } })
   } catch (e) {
-    console.warn('Failed to update onboarding:', e)
+    toast.add({ title: 'Error', description: getErrorMessage(e) || 'Failed to update onboarding', color: 'red' })
   } finally {
     // Never keep the UI stuck if navigation/middleware blocks.
     saving.value = false
   }
-
-  // Don't await navigation: Nuxt route middleware can await network calls and hang.
-  navigateTo({ path: '/', query: { setup: 'done' } })
 }
 
 async function skipForNow() { 
