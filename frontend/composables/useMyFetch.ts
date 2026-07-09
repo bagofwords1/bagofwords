@@ -77,3 +77,24 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
       throw error
     });
 };
+
+// Strict variant for MUTATING calls (POST/PUT/PATCH/DELETE handlers).
+//
+// `useMyFetch` follows the `useFetch` contract: it NEVER rejects on an
+// HTTP-level failure — the error lands in the returned `error` ref and the
+// promise resolves. Any `try/catch` around a bare `await useMyFetch(...)`
+// is therefore dead code for 4xx/5xx responses (issue #584: handlers mutated
+// state and showed success toasts on failed backend calls).
+//
+// `useMyFetchStrict` keeps the exact same auth/org/baseURL behavior and the
+// same success-value shape, but THROWS the original fetch error on HTTP
+// failure, so `try { await useMyFetchStrict(...) } catch (e) { ... }` works
+// the way callers expect. Pair it with `useErrorMessage().getErrorMessage(e)`
+// in the catch to render the failure.
+export const useMyFetchStrict: typeof useFetch = async (request, opts?) => {
+  const response: any = await useMyFetch(request, opts as any)
+  if (response?.error?.value) {
+    throw response.error.value
+  }
+  return response
+}
