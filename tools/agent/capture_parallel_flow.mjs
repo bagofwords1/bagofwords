@@ -39,7 +39,12 @@ if (!reportId) {
 
 mkdirSync(outDir, { recursive: true });
 
-const browser = await chromium.launch();
+// Cloud sandboxes pre-provision chromium at /opt/pw-browsers/chromium; use it
+// when present so a @playwright/test version mismatch can't force a download.
+import { existsSync } from 'node:fs';
+const exe = process.env.PW_CHROMIUM_PATH
+  || (existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
+const browser = await chromium.launch(exe ? { executablePath: exe } : {});
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 
@@ -47,31 +52,57 @@ const page = await context.newPage();
 await page.goto(`${base}/users/sign-in`, { waitUntil: 'networkidle' }).catch(() => {});
 await page.fill('#email', email);
 await page.fill('#password', password);
-await Promise.all([
-  page.waitForURL((u) => !String(u).includes('sign-in'), { timeout: 30000 }),
-  page.click('button[type="submit"]'),
-]);
-console.log('logged in');
+await page.click('button[type="submit"]');
+// SPA client-side redirect: poll the URL rather than waiting for a load event.
+for (let i = 0; i < 60; i++) {
+  if (!page.url().includes('sign-in')) break;
+  await page.waitForTimeout(1000);
+}
+if (page.url().includes('sign-in')) {
+  await page.screenshot({ path: `${outDir}/debug-login.png` });
+  throw new Error('login did not redirect — see debug-login.png');
+}
+console.log('logged in ->', page.url());
 
 // 2. Open the report
 await page.goto(`${base}/reports/${reportId}`, { waitUntil: 'networkidle' }).catch(() => {});
 await page.waitForTimeout(1500);
 
-// 3. Submit the prompt through the chat box
-const editor = page.locator('[contenteditable="true"]').first();
-await editor.click();
-await editor.pressSequentially(promptText, { delay: 5 });
-await page.waitForTimeout(300);
-await editor.press('Enter');
-console.log('prompt submitted');
+// 3. Submit the prompt through the chat box (skip with --watch-only to
+//    frame-capture a completion something else started on this report)
+if (!args.includes('--watch-only')) {
+  // Dev-server first compile of the report page can take a while; wait
+  // for the chat editor explicitly and leave a debug shot if it never shows.
+  const editor = page.locator('[contenteditable="true"]').first();
+  await editor.waitFor({ state: 'visible', timeout: 120000 }).catch(async () => {
+    await page.screenshot({ path: `${outDir}/debug-no-editor.png` });
+    throw new Error('chat editor not found — see debug-no-editor.png');
+  });
+  await editor.click();
+  await editor.pressSequentially(promptText, { delay: 5 });
+  await page.waitForTimeout(300);
+  await editor.press('Enter');
+  console.log('prompt submitted');
+} else {
+  console.log('watch-only: capturing existing activity');
+}
 
-// 4. Frame capture while the agent streams
+// 4. Frame capture while the agent streams. Scroll every scrollable pane to
+//    its bottom first — the streaming tool cards append below the fold.
+const scrollToBottom = () => page.evaluate(() => {
+  document.querySelectorAll('div').forEach((d) => {
+    if (d.scrollHeight > d.clientHeight + 80) d.scrollTop = d.scrollHeight;
+  });
+});
 for (let i = 0; i < frames; i++) {
   await page.waitForTimeout(intervalMs);
+  await scrollToBottom();
+  await page.waitForTimeout(250);
   const path = `${outDir}/frame-${String(i).padStart(2, '0')}.png`;
   await page.screenshot({ path });
   console.log(`captured ${path}`);
 }
+await scrollToBottom();
 
 // 5. Final settled state
 await page.waitForTimeout(4000);

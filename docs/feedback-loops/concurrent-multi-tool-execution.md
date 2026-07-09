@@ -59,10 +59,10 @@ Pre-change behavior (validated during development): the dispatch defaulted
 serial everywhere (`max_in_flight == 1` regardless of env) and the two
 0.4s executions took ~2× wall under `_STDOUT_REDIRECT_LOCK`.
 
-Full unit suite: `923 passed, 17 failed` — the 17 failures
-(whatsapp adapter/webhook, permissions registry, …) reproduce identically on
-the pristine base commit with this branch's changes absent (verified in a
-clean worktree), i.e. pre-existing.
+Full unit suite: `923 passed, 17 failed` on this branch vs
+`890 passed, 17 failed` on the pristine base commit in a clean worktree —
+identical failures (whatsapp adapter/webhook, permissions registry, …),
+i.e. all 17 are pre-existing; the +33 passes are this branch's new suite.
 
 ## Loop B — full stack, real HTTP/SSE, deterministic stub LLM
 
@@ -107,7 +107,51 @@ max_overlap=1 (serial), wall ≈ sum
 
 ### Observed — concurrent (BOW_AGENT_TOOL_CONCURRENCY=5)
 
-<!-- PASS-LEG-EVIDENCE -->
+Same stack, same stub, 3 iterations. Each planner decision's 5 tool calls
+started within **~155 ms** of each other (vs 60s apart serially) and ran
+overlapped; both phases (5× inspect_data, then 5× create_data) per iteration:
+
+```
+[agent] dispatching 5 tool calls concurrently (cap=5): inspect_data x5
+inspect_data  start=22:15:09.817  dur=61764ms
+inspect_data  start=22:15:09.859  dur=61858ms
+inspect_data  start=22:15:09.897  dur=61387ms
+inspect_data  start=22:15:09.934  dur=61499ms
+inspect_data  start=22:15:09.971  dur=61114ms
+
+iteration 0: tools=10  max_overlap=5  wall=129.1s  sum=631.9s   (4.9x)
+iteration 1: tools=10  max_overlap=5  wall=134.0s  sum=645.3s   (4.8x)
+iteration 2: tools=10  max_overlap=5  wall=139.9s  sum=664.2s   (4.7x)
+SUMMARY: 3 completions, 3 with overlapping tool executions (max depth 5)
+```
+
+All 15 create_data runs materialized their steps correctly — the Queries
+panel shows one "Orders by region — sqlite_source_N" per source per
+iteration, each attributed to its own tool card (per-invocation state).
+
+UI evidence (`media/pr/concurrent-multi-tool/`, captured live via
+`tools/agent/capture_parallel_flow.mjs` submitting the prompt through the
+real chat box):
+
+- `concurrent-inspect-executing.png` — five "Inspecting orders_N" cards all
+  in Executing simultaneously, each with its own Generated Code step.
+- `concurrent-create-executing.png` — the five completed ~61s inspect cards
+  plus five "Creating Data · Executing" cards spinning at once.
+- `final-state.png` — settled conversation, one summary per source.
+
+Sandbox quirks hit while iterating (documented so the loop stays runnable):
+
+- Licensed installs (this sandbox's root bow-config.yaml carries an
+  enterprise key) keep the ~60s/tool quota+usage stalls: the best-effort
+  usage writes queue their 30s busy_timeout behind the write transaction the
+  agent's single-writer session holds during code execution. Concurrency
+  still overlaps the stalls (hence 4.8x), but per-tool latency stays ~60s on
+  SQLite. Unlicensed installs skip those writes entirely (the
+  has_feature gate added in this branch).
+- BOW_ENCRYPTION_KEY must be pinned across backend restarts or provider
+  credentials become undecryptable (fresh Fernet key per process).
+- seed_org must wait for async schema indexing before activating tables
+  (fixed in this branch), or create_data resolves zero active tables.
 
 ## Loop B' — real Anthropic model (Haiku)
 
