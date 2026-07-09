@@ -68,14 +68,25 @@ class TinyClient(DataSourceClient):
 # QueryCapturingClientWrapper.execute_query_lazy (stage-4 wiring)
 # =============================================================================
 
-def _make_wrapper(client, timeout=30):
+def _make_wrapper(client, timeout=30, lazy_enabled=True):
     from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
 
     queries, timings = [], []
     wrapper = QueryCapturingClientWrapper(
-        client, queries, timings, query_timeout_seconds=timeout
+        client, queries, timings, query_timeout_seconds=timeout,
+        lazy_enabled=lazy_enabled,
     )
     return wrapper, queries, timings
+
+
+class _FakeOrgSettings:
+    """Minimal stand-in for OrganizationSettingsConfig.get_config."""
+
+    def __init__(self, **values):
+        self._values = values
+
+    def get_config(self, key, default=None):
+        return self._values.get(key, default)
 
 
 class TestWrapperLazyPassthrough:
@@ -131,14 +142,53 @@ class TestWrapperLazyPassthrough:
         assert timings[0]["error"].startswith("boom")
         assert timings[0]["lazy"] is True
 
-    def test_wrap_clients_for_capture_exposes_lazy(self):
+    def test_disabled_by_default(self):
+        from app.ai.code_execution.code_execution import LazyQueriesDisabledError
+
+        wrapper, queries, timings = _make_wrapper(TinyClient(), lazy_enabled=False)
+        with pytest.raises(LazyQueriesDisabledError):
+            wrapper.execute_query_lazy("SELECT 1")
+        # rejected before capture — nothing ran, nothing to meter
+        assert queries == []
+        assert timings == []
+
+    def test_wrap_clients_defaults_to_disabled_without_org_settings(self):
+        from app.ai.code_execution.code_execution import (
+            LazyQueriesDisabledError,
+            wrap_clients_for_capture,
+        )
+
+        wrapped = wrap_clients_for_capture({"db": TinyClient()}, [], [])
+        with pytest.raises(LazyQueriesDisabledError):
+            wrapped["db"].execute_query_lazy("SELECT 1")
+
+    def test_wrap_clients_honors_org_opt_in(self):
         from app.ai.code_execution.code_execution import wrap_clients_for_capture
 
+        class _Flag:
+            value = True
+
         queries, timings = [], []
-        wrapped = wrap_clients_for_capture({"db": TinyClient()}, queries, timings)
+        wrapped = wrap_clients_for_capture(
+            {"db": TinyClient()}, queries, timings,
+            organization_settings=_FakeOrgSettings(enable_lazy_queries=_Flag()),
+        )
         with wrapped["db"].execute_query_lazy("SELECT 1") as lf:
             assert lf.row_count() == 3
         assert queries == ["SELECT 1"]
+
+    def test_resolve_lazy_enabled_handles_raw_and_feature_values(self):
+        from app.ai.code_execution.code_execution import resolve_lazy_enabled
+
+        class _Flag:
+            def __init__(self, value):
+                self.value = value
+
+        assert resolve_lazy_enabled(None) is False
+        assert resolve_lazy_enabled(_FakeOrgSettings()) is False
+        assert resolve_lazy_enabled(_FakeOrgSettings(enable_lazy_queries=True)) is True
+        assert resolve_lazy_enabled(_FakeOrgSettings(enable_lazy_queries=_Flag(True))) is True
+        assert resolve_lazy_enabled(_FakeOrgSettings(enable_lazy_queries=_Flag(False))) is False
 
 
 # =============================================================================

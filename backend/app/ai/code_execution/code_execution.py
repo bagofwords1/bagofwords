@@ -137,6 +137,31 @@ def resolve_query_timeout(client, organization_settings) -> int:
     return DEFAULT_QUERY_TIMEOUT_SECONDS
 
 
+class LazyQueriesDisabledError(RuntimeError):
+    """Raised when generated code calls execute_query_lazy but the org has not
+    opted into the lazy (out-of-core) query path."""
+
+    def __init__(self):
+        super().__init__(
+            "Lazy (out-of-core) queries are disabled for this organization. "
+            "Use execute_query instead, or enable 'Lazy (out-of-core) queries' "
+            "in organization settings."
+        )
+
+
+def resolve_lazy_enabled(organization_settings) -> bool:
+    """Opt-in resolution for the lazy query path. Defaults to disabled: only an
+    explicit truthy `enable_lazy_queries` org setting turns it on."""
+    if organization_settings is None:
+        return False
+    try:
+        org_cfg = organization_settings.get_config("enable_lazy_queries")
+        org_value = org_cfg.value if hasattr(org_cfg, "value") else org_cfg
+        return bool(org_value)
+    except Exception:
+        return False
+
+
 # =============================================================================
 # AST-based Python Code Validation
 # =============================================================================
@@ -382,12 +407,14 @@ class QueryCapturingClientWrapper:
         usage_context: Optional[UsageLimitContext] = None,
         client_key: Optional[str] = None,
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
+        lazy_enabled: bool = False,
     ):
         self._original = original_client
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
         self._usage_context = usage_context
         self._client_key = client_key
+        self._lazy_enabled = bool(lazy_enabled)
         self._query_timeout_seconds = (
             int(query_timeout_seconds)
             if isinstance(query_timeout_seconds, (int, float)) and query_timeout_seconds > 0
@@ -460,9 +487,16 @@ class QueryCapturingClientWrapper:
         being recorded in captured_timings. On timeout the abandoned daemon
         thread may still finish the spill; the orphaned file is reclaimed by
         the 24h stale-file sweep.
+
+        Opt-in: gated by the `enable_lazy_queries` org setting. Defining the
+        method unconditionally and raising when disabled (rather than not
+        defining it) keeps the call from falling through __getattr__ to the
+        raw client, which would bypass capture, quotas, and the timeout.
         """
         from app.data_sources.clients.lazy_frame import ResultTooLargeError
 
+        if not self._lazy_enabled:
+            raise LazyQueriesDisabledError()
         if isinstance(query, str):
             self._captured_queries.append(query)
         idx = len(self._captured_timings)
@@ -663,6 +697,7 @@ def wrap_clients_for_capture(
     underlying database.
     """
     wrapped = {}
+    lazy_enabled = resolve_lazy_enabled(organization_settings)
     for key, client in (ds_clients or {}).items():
         if client is not None and hasattr(client, 'execute_query'):
             wrapped[key] = QueryCapturingClientWrapper(
@@ -672,6 +707,7 @@ def wrap_clients_for_capture(
                 usage_context=usage_context,
                 client_key=str(key),
                 query_timeout_seconds=resolve_query_timeout(client, organization_settings),
+                lazy_enabled=lazy_enabled,
             )
         else:
             wrapped[key] = client
