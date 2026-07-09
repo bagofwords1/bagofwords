@@ -203,13 +203,34 @@ def _error_redirect(message: str) -> RedirectResponse:
     return RedirectResponse(f"/users/sign-in?error={msg}", status_code=303)
 
 
-async def handle_callback(provider: str, request: Request, code: Optional[str], state: Optional[str], user_manager) -> RedirectResponse:
+async def handle_callback(
+    provider: str,
+    request: Request,
+    code: Optional[str],
+    state: Optional[str],
+    user_manager,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+) -> RedirectResponse:
     """Public entrypoint: convert any callback failure into a user-visible redirect.
 
     Without this, errors raised during the OAuth/OIDC flow (e.g. a user without an
     invite signing in via EntraID/Okta) would surface as a raw JSON error page
     instead of being shown on the sign-in/sign-up screen.
     """
+    # The provider may redirect back with an OAuth error (e.g. Entra AADSTS500011)
+    # instead of a code. Surface that message rather than the misleading
+    # "Missing code/state" that a bare code/state check would produce.
+    if error:
+        message = error_description or error
+        _auth_logger.warning(f"OAuth callback error for provider={provider}: {message}")
+        await _audit_auth_event(
+            action="auth.login_failed",
+            request=request,
+            details={"provider": provider, "reason": "provider_error", "error": error},
+        )
+        return _error_redirect(message)
+
     try:
         return await _handle_callback(provider, request, code, state, user_manager)
     except HTTPException as e:
