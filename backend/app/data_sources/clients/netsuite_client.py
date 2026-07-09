@@ -155,20 +155,20 @@ class NetsuiteClient(DataSourceClient):
     def execute_query_lazy(self, query: str):
         """Out-of-core variant (v2): stream SuiteQL result pages (offset
         pagination) to a LazyFrame instead of accumulating all rows. Nested fields
-        are JSON-encoded for a robust columnar write."""
-        import json
-        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+        are JSON-encoded for a robust columnar write.
 
-        # Hard caps so pagination can never loop unbounded on large datasets
-        # (mirrors the eager _execute_suiteql max_rows guard).
-        max_rows = 100_000
-        max_pages = 10_000
+        No local row cap: the StreamConfig budget enforced by the consumer
+        raises ResultTooLargeError on over-budget results (which also stops
+        this generator and its pagination), instead of silently truncating and
+        returning wrong aggregates."""
+        import json
+        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe, StreamConfig
+
+        cfg = StreamConfig()
 
         def rows():
             with self.connect() as session:
                 offset, limit = 0, 1000
-                emitted = 0
-                pages = 0
                 while True:
                     resp = session.post(
                         self._base_url,
@@ -180,23 +180,15 @@ class NetsuiteClient(DataSourceClient):
                         raise RuntimeError(f"SuiteQL error ({resp.status_code}): {resp.text}")
                     data = resp.json()
                     for item in data.get("items", []):
-                        if emitted >= max_rows:
-                            break
                         yield {
                             k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
                             for k, v in item.items()
                         }
-                        emitted += 1
-                    pages += 1
-                    if (
-                        not data.get("hasMore", False)
-                        or emitted >= max_rows
-                        or pages >= max_pages
-                    ):
+                    if not data.get("hasMore", False):
                         break
                     offset += limit
 
-        return consume_row_dicts_to_lazyframe(rows())
+        return consume_row_dicts_to_lazyframe(rows(), config=cfg)
 
     def prompt_schema(self) -> str:
         schemas = self.get_schemas()

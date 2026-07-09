@@ -118,11 +118,9 @@ class TeradataClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise
 
-    def execute_query_lazy(self, sql: str):
-        """Out-of-core variant (v2): stream results to disk, return a LazyFrame.
-        Overrides the base default with a bounded ingest peak."""
-        from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_readsql
-        return lazy_query_via_dbapi_readsql(self.connect, sql)
+    # Streaming lazy path (out-of-core, v2) — dispatched by the base class;
+    # see DataSourceClient.execute_query_lazy.
+    _lazy_strategy = "dbapi_readsql"
 
     def _format_dtype(self, code: Optional[str]) -> str:
         if not code:

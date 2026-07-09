@@ -56,13 +56,9 @@ class TrinoClient(DataSourceClient):
             logger.error(f"Error executing SQL query: {e}")
             raise RuntimeError(f"{e}")
 
-    def execute_query_lazy(self, sql: str):
-        """Out-of-core variant (v2): stream results to disk and return a
-        LazyFrame. Reference wiring of the opt-in base hook; existing
-        execute_query above is unchanged."""
-        from app.data_sources.clients.lazy_frame import lazy_query_via_sqlalchemy
-
-        return lazy_query_via_sqlalchemy(self.connect, sql)
+    # Streaming lazy path (out-of-core, v2) — dispatched by the base class;
+    # see DataSourceClient.execute_query_lazy.
+    _lazy_strategy = "sqlalchemy"
 
     def get_tables(self) -> List[Table]:
         try:

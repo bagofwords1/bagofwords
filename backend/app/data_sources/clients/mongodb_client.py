@@ -190,7 +190,7 @@ class MongodbClient(DataSourceClient):
                         cursor = cursor.limit(limit)
                 cursor = cursor.batch_size(cfg.chunksize)
                 for doc in cursor:
-                    self._convert_bson_types(doc)
+                    self._convert_bson_types(doc, coerce_decimal128=True)
                     yield {
                         k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
                         for k, v in doc.items()
@@ -202,8 +202,13 @@ class MongodbClient(DataSourceClient):
         finally:
             gen.close()  # deterministic connection cleanup on error paths
 
-    def _convert_bson_types(self, doc: dict) -> None:
-        """Recursively convert BSON types to JSON-serializable types."""
+    def _convert_bson_types(self, doc: dict, coerce_decimal128: bool = False) -> None:
+        """Recursively convert BSON types to JSON-serializable types.
+
+        `coerce_decimal128` is opted into by the lazy path only: pyarrow can't
+        infer Decimal128 so the Parquet spill needs floats (lossy past ~15
+        significant digits but keeps the column numeric). The eager path keeps
+        exact Decimal128 values, as it always has."""
         for key, value in list(doc.items()):
             if isinstance(value, ObjectId):
                 doc[key] = str(value)
@@ -212,21 +217,19 @@ class MongodbClient(DataSourceClient):
             elif isinstance(value, bytes):
                 doc[key] = value.decode('utf-8', errors='replace')
             elif isinstance(value, Decimal128):
-                # Common for money fields; pyarrow can't infer Decimal128 so the
-                # lazy Parquet spill would fail. Float is lossy past ~15
-                # significant digits but keeps the column numeric.
-                doc[key] = float(value.to_decimal())
+                if coerce_decimal128:
+                    doc[key] = float(value.to_decimal())
             elif isinstance(value, dict):
-                self._convert_bson_types(value)
+                self._convert_bson_types(value, coerce_decimal128=coerce_decimal128)
             elif isinstance(value, list):
                 for i, item in enumerate(value):
                     if isinstance(item, dict):
-                        self._convert_bson_types(item)
+                        self._convert_bson_types(item, coerce_decimal128=coerce_decimal128)
                     elif isinstance(item, ObjectId):
                         value[i] = str(item)
                     elif isinstance(item, datetime):
                         value[i] = item.isoformat()
-                    elif isinstance(item, Decimal128):
+                    elif isinstance(item, Decimal128) and coerce_decimal128:
                         value[i] = float(item.to_decimal())
     
     def _get_all_keys(self, collection, sample_size: int = 100) -> dict:

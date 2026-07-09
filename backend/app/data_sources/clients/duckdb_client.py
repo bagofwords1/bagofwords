@@ -175,11 +175,9 @@ class DuckDBClient(DataSourceClient):
         except Exception as e:
             raise
 
-    def execute_query_lazy(self, sql: str):
-        """Out-of-core variant (v2): COPY results straight to Parquet via DuckDB
-        (zero Python materialization), return a LazyFrame over it."""
-        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
-        return lazy_query_via_duckdb(self.connect, sql)
+    # Streaming lazy path (out-of-core, v2) — dispatched by the base class;
+    # see DataSourceClient.execute_query_lazy.
+    _lazy_strategy = "duckdb"
 
     def _is_direct_db_connection(self) -> bool:
         """Check if we're connecting directly to a database file."""

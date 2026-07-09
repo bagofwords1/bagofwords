@@ -389,7 +389,7 @@ def test_lazy_early_abort_leaves_no_file(tmp_path, sqlite_db, monkeypatch):
 def test_close_removes_owned_temp_file(tmp_path, monkeypatch):
     monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
     h = lazy_from_dataframe(pd.DataFrame({"a": [1, 2, 3]}))
-    src = h._source_path
+    [src] = h._source_paths
     assert src.exists()
     h.close()
     assert not src.exists()
@@ -441,7 +441,7 @@ def test_derived_frame_close_does_not_close_parent(tmp_path, monkeypatch):
             assert derived.row_count() == 2
         # parent still usable after the derived handle was closed
         assert h.row_count() == 3
-        assert h._source_path.exists()
+        assert all(p.exists() for p in h._source_paths)
     finally:
         h.close()
 
@@ -455,15 +455,142 @@ def test_mongodb_decimal128_conversion():
     from app.data_sources.clients.mongodb_client import MongodbClient
 
     client = MongodbClient(host="localhost", database="x")
-    doc = {
-        "price": bson.Decimal128("19.99"),
-        "nested": {"amt": bson.Decimal128("0.001")},
-        "arr": [bson.Decimal128("2.5"), {"inner": bson.Decimal128("3.5")}],
-    }
-    client._convert_bson_types(doc)
+
+    def make_doc():
+        return {
+            "price": bson.Decimal128("19.99"),
+            "nested": {"amt": bson.Decimal128("0.001")},
+            "arr": [bson.Decimal128("2.5"), {"inner": bson.Decimal128("3.5")}],
+        }
+
+    # Lazy path opts into the lossy float coercion (pyarrow can't spill Decimal128)
+    doc = make_doc()
+    client._convert_bson_types(doc, coerce_decimal128=True)
     assert isinstance(doc["price"], float) and doc["price"] == pytest.approx(19.99)
     assert doc["nested"]["amt"] == pytest.approx(0.001)
     assert doc["arr"][0] == pytest.approx(2.5)
     assert doc["arr"][1]["inner"] == pytest.approx(3.5)
     # the converted doc must survive the columnar spill (raw Decimal128 raises)
     pa.Table.from_pandas(pd.DataFrame([{"price": doc["price"]}]))
+
+    # Eager path keeps exact Decimal128 values — its behavior must not change
+    doc = make_doc()
+    client._convert_bson_types(doc)
+    assert isinstance(doc["price"], bson.Decimal128)
+    assert isinstance(doc["nested"]["amt"], bson.Decimal128)
+    assert isinstance(doc["arr"][0], bson.Decimal128)
+
+
+# --- review fixes: empty schemaless results, column drift, budgets ---------
+
+
+def test_empty_row_dicts_no_columns_returns_empty_lazyframe(tmp_path, monkeypatch):
+    # A zero-row result from a schemaless source writes a zero-column Parquet,
+    # which DuckDB cannot read; the handle must still behave as an empty frame.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    lf = consume_row_dicts_to_lazyframe(iter([]))
+    try:
+        assert lf.row_count() == 0
+        assert lf.columns == []
+        assert lf.to_df().empty
+        assert lf.to_arrow().num_rows == 0
+        assert lf.head().empty
+        assert lf.sql("SELECT * FROM data").to_df().empty
+        assert lf.limit(5).to_df().empty
+    finally:
+        lf.close()
+    assert not any(tmp_path.glob("lazy_*.parquet"))  # spill cleaned up
+
+
+def test_empty_arrow_stream_returns_empty_lazyframe(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    lf = consume_arrow_to_lazyframe(iter([]))
+    try:
+        assert lf.row_count() == 0
+        assert lf.to_df().empty
+    finally:
+        lf.close()
+    assert not any(tmp_path.glob("lazy_*.parquet"))
+
+
+def test_column_set_drift_rolls_part_files(tmp_path, monkeypatch):
+    # Schemaless sources (Mongo) can grow columns between chunks. The writer
+    # rolls a new part file and the reader unions parts by name, NULL-filling
+    # missing columns — matching eager pandas behavior instead of aborting.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "2")
+    rows = [
+        {"a": 1, "b": "x"},
+        {"a": 2, "b": "y"},
+        {"a": 3, "b": "z", "c": 30},  # new column appears mid-stream
+        {"a": 4, "b": "w", "c": 40},
+    ]
+    lf = consume_row_dicts_to_lazyframe(iter(rows))
+    try:
+        df = lf.sql("SELECT * FROM data ORDER BY a").to_df()
+        assert list(df["a"]) == [1, 2, 3, 4]
+        assert set(df.columns) == {"a", "b", "c"}
+        assert pd.isna(df["c"].iloc[0]) and df["c"].iloc[3] == 40
+        assert len(lf._source_paths) == 2  # one part per column set
+    finally:
+        lf.close()
+    assert not any(tmp_path.glob("lazy_*.parquet"))  # all parts removed
+
+
+def test_column_order_drift_is_reconciled(tmp_path):
+    # Same column set, different order across chunks: reorder, don't abort.
+    chunks = [
+        pd.DataFrame({"a": [1], "b": ["x"]}),
+        pd.DataFrame({"b": ["y"], "a": [2]}),
+    ]
+    out = tmp_path / "out.parquet"
+    paths = _consume_chunks_to_parquet(iter(chunks), out, StreamConfig())
+    assert paths == [out]
+    df = pq.read_table(out).to_pandas()
+    assert list(df["a"]) == [1, 2]
+
+
+def test_lazy_from_dataframe_enforces_row_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    monkeypatch.setenv("BOW_LAZY_MAX_ROWS", "2")
+    with pytest.raises(ResultTooLargeError) as exc:
+        lazy_from_dataframe(pd.DataFrame({"a": [1, 2, 3]}))
+    assert exc.value.status_code == 413
+    assert not any(tmp_path.glob("lazy_*.parquet"))  # nothing spilled
+
+
+def test_lazy_from_dataframe_jsonifies_nested_cells(tmp_path, monkeypatch):
+    # The generic materialize-then-spill fallback must not die on dict/list
+    # cells (pyarrow ArrowInvalid) — e.g. ADX dynamic columns.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    df = pd.DataFrame({"id": [1, 2], "props": [{"k": "v"}, ["a", "b"]]})
+    lf = lazy_from_dataframe(df)
+    try:
+        out = lf.sql("SELECT * FROM data ORDER BY id").to_df()
+        assert out["props"].tolist() == ['{"k": "v"}', '["a", "b"]']
+        assert df["props"].iloc[0] == {"k": "v"}  # caller's frame untouched
+    finally:
+        lf.close()
+
+
+def test_duckdb_copy_byte_budget_bounds_write(tmp_path, monkeypatch):
+    # Wide rows: the sample-derived row cap must fire on max_bytes, not write
+    # up to max_rows worth of data to disk first.
+    duckdb = pytest.importorskip("duckdb")
+    monkeypatch.setenv("BOW_LAZY_MAX_BYTES", "10000")
+
+    @contextmanager
+    def cm():
+        c = duckdb.connect(":memory:")
+        try:
+            yield c
+        finally:
+            c.close()
+
+    out = tmp_path / "out.parquet"
+    with pytest.raises(ResultTooLargeError):
+        stream_duckdb_to_parquet(
+            cm, "SELECT i, repeat('x', 1000) AS pad FROM range(100000) t(i)",
+            out, StreamConfig(),
+        )
+    assert not out.exists()

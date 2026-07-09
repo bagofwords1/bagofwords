@@ -46,12 +46,22 @@ class VerticaClient(DataSourceClient):
                     name=self._connection_name
                 )
                 self._connected = True
-            # Always re-activate THIS client's named connection as verticapy's
-            # global active connection. verticapy keeps a single active connection
-            # process-wide, so another VerticaClient may have stolen it since our
-            # last call — both the eager (vDataFrame) and lazy (current_cursor)
-            # paths must run against our session, not whichever was last activated.
-            vp.connect(self._connection_name)
+            # Re-activate THIS client's named connection as verticapy's global
+            # active connection — but only when it isn't already active.
+            # vp.connect() is not a no-op: it closes the previous global
+            # connection and dials a new one, so calling it unconditionally
+            # kills any in-flight query on the current connection and pays a
+            # full reconnect per call.
+            from verticapy.connection.global_connection import get_global_connection
+
+            gb_conn = get_global_connection()
+            active = gb_conn.get_connection()
+            if (
+                active is None
+                or active.closed()
+                or gb_conn.get_dsn_section() != self._connection_name
+            ):
+                vp.connect(self._connection_name)
             return self._connection_name
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Vertica: {e}")

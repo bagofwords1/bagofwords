@@ -128,24 +128,38 @@ class DataSourceClient(ABC):
         return await self.aexecute_query(*args, **kwargs)
 
     # Opt-in out-of-core query path (v2). Additive — existing `execute_query`
-    # behavior is unchanged. Every client gets this via the generic default
-    # below; SQLAlchemy clients override it to stream and bound ingest peak.
+    # behavior is unchanged. `_lazy_strategy` names which lazy_frame streaming
+    # helper matches this client's connect() contract; None falls back to the
+    # generic materialize-then-spill default. Clients with a native stream that
+    # doesn't fit any helper (BigQuery Arrow, Mongo cursors, Athena wrangler,
+    # SOQL/SuiteQL pagination, ...) override the method itself.
+    _lazy_strategy: Optional[str] = None  # 'sqlalchemy'|'dbapi_readsql'|'dbapi_cursor'|'duckdb'
+
     def execute_query_lazy(self, sql: str):
         """Return a LazyFrame (out-of-core handle) instead of a DataFrame.
 
-        Generic default: run `execute_query` and spill the result to disk. This
-        gives uniform out-of-core downstream compute and disk-backed reuse, but
-        ingest still materializes the full result once. Clients that can stream
-        (SQLAlchemy-based) override this for a bounded ingest peak. See
-        app.data_sources.clients.lazy_frame.
+        With a `_lazy_strategy`, streams the result to disk with a bounded
+        ingest peak. Otherwise runs `execute_query` and spills the result: still
+        uniform out-of-core downstream compute and disk-backed reuse, but ingest
+        materializes the full result once. See app.data_sources.clients.lazy_frame.
         """
         import pandas as pd
-        from app.data_sources.clients.lazy_frame import lazy_from_dataframe
+        from app.data_sources.clients import lazy_frame as lf
+
+        strategy = self._lazy_strategy
+        if strategy == "sqlalchemy":
+            return lf.lazy_query_via_sqlalchemy(self.connect, sql)
+        if strategy == "dbapi_readsql":
+            return lf.lazy_query_via_dbapi_readsql(self.connect, sql)
+        if strategy == "dbapi_cursor":
+            return lf.lazy_query_via_dbapi_cursor(self.connect, sql)
+        if strategy == "duckdb":
+            return lf.lazy_query_via_duckdb(self.connect, sql)
 
         result = self.execute_query(sql)
         if not isinstance(result, pd.DataFrame):
             result = pd.DataFrame(result)
-        return lazy_from_dataframe(result)
+        return lf.lazy_from_dataframe(result)
 
     async def aexecute_query_lazy(self, sql: str):
         return await asyncio.to_thread(self.execute_query_lazy, sql)

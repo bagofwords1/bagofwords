@@ -325,9 +325,46 @@ class AwsRedshiftClient(DataSourceClient):
 
     def execute_query_lazy(self, sql: str):
         """Out-of-core variant (v2): stream results to disk, return a LazyFrame.
-        Overrides the base default with a bounded ingest peak."""
-        from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_cursor
-        return lazy_query_via_dbapi_cursor(self.connect, sql)
+
+        Uses a *named* (server-side) psycopg2 cursor: an unnamed cursor fetches
+        the entire result set client-side during execute(), which would defeat
+        the bounded-memory point of this path. Named cursors stream rows from
+        the server in fetchmany-sized batches."""
+        import uuid as _uuid
+        from app.data_sources.clients.lazy_frame import consume_chunks_to_lazyframe, StreamConfig
+
+        cfg = StreamConfig()
+
+        def chunks():
+            with self.connect() as conn:
+                cursor = conn.cursor(name=f"bow_lazy_{_uuid.uuid4().hex}")
+                try:
+                    cursor.itersize = cfg.chunksize
+                    cursor.execute(sql)
+                    columns = None
+                    produced = False
+                    while True:
+                        batch = cursor.fetchmany(cfg.chunksize)
+                        if columns is None:
+                            # For named cursors description is only populated
+                            # once the first fetch declares the portal.
+                            columns = (
+                                [d[0] for d in cursor.description]
+                                if cursor.description else []
+                            )
+                        if not batch:
+                            break
+                        produced = True
+                        yield pd.DataFrame.from_records(batch, columns=columns or None)
+                    if not produced and columns:
+                        yield pd.DataFrame(columns=columns)  # keep schema for empty result
+                finally:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
+
+        return consume_chunks_to_lazyframe(chunks(), cfg)
 
     def get_tables(self) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails."""
