@@ -68,9 +68,16 @@ class ClickhouseClient(DataSourceClient):
 
         def blocks():
             with self.connect() as conn:
+                produced = False
                 with conn.query_arrow_stream(sql) as stream:
                     for block in stream:
+                        produced = True
                         yield block
+                if not produced:
+                    # 0-row result with no blocks: re-run as a plain arrow
+                    # query (cheap — the result set is empty) to recover the
+                    # column schema for the spill file.
+                    yield conn.query_arrow(sql)
 
         return consume_arrow_to_lazyframe(blocks())
 

@@ -157,18 +157,26 @@ class NetsuiteClient(DataSourceClient):
         pagination) to a LazyFrame instead of accumulating all rows. Nested fields
         are JSON-encoded for a robust columnar write.
 
-        No local row cap: the StreamConfig budget enforced by the consumer
-        raises ResultTooLargeError on over-budget results (which also stops
-        this generator and its pagination), instead of silently truncating and
-        returning wrong aggregates."""
+        Row cap: SuiteQL pages are 1000 rows per sequential HTTP round-trip, so
+        letting the global StreamConfig budget (default 50M rows) be the only
+        bound would mean tens of thousands of serial requests against a
+        rate-limited endpoint before it fires. Cap at the eager path's 100k
+        ceiling but *raise* ResultTooLargeError at the cap — never silently
+        truncate into wrong aggregates."""
         import json
-        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe, StreamConfig
+        from app.data_sources.clients.lazy_frame import (
+            ResultTooLargeError,
+            StreamConfig,
+            consume_row_dicts_to_lazyframe,
+        )
 
         cfg = StreamConfig()
+        max_rows = min(cfg.max_rows, 100_000)
 
         def rows():
             with self.connect() as session:
                 offset, limit = 0, 1000
+                emitted = 0
                 while True:
                     resp = session.post(
                         self._base_url,
@@ -180,8 +188,17 @@ class NetsuiteClient(DataSourceClient):
                         raise RuntimeError(f"SuiteQL error ({resp.status_code}): {resp.text}")
                     data = resp.json()
                     for item in data.get("items", []):
+                        emitted += 1
+                        if emitted > max_rows:
+                            raise ResultTooLargeError(
+                                rows=emitted,
+                                byte_estimate=0,
+                                limit_desc=f"netsuite max_rows={max_rows}",
+                            )
+                        # default=str: values json can't serialize natively
+                        # must not kill the stream mid-flight.
                         yield {
-                            k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
+                            k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
                             for k, v in item.items()
                         }
                     if not data.get("hasMore", False):

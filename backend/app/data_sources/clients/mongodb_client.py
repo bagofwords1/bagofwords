@@ -191,8 +191,11 @@ class MongodbClient(DataSourceClient):
                 cursor = cursor.batch_size(cfg.chunksize)
                 for doc in cursor:
                     self._convert_bson_types(doc, coerce_decimal128=True)
+                    # default=str: BSON types _convert_bson_types doesn't
+                    # normalize (Timestamp, Regex, Code, ...) must not kill
+                    # the stream mid-flight.
                     yield {
-                        k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
+                        k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
                         for k, v in doc.items()
                     }
 

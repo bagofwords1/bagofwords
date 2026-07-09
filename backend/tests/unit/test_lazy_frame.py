@@ -594,3 +594,108 @@ def test_duckdb_copy_byte_budget_bounds_write(tmp_path, monkeypatch):
             out, StreamConfig(),
         )
     assert not out.exists()
+
+
+# --- review round 2: dup columns, SQL tails, type drift, empty-mode SQL ----
+
+
+def test_duplicate_column_names_are_deduped(tmp_path, monkeypatch):
+    # `SELECT *` over a join can repeat a column name; pyarrow refuses
+    # duplicates, so the writer renames them (id, id_1) like DuckDB would.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    chunk = pd.DataFrame([[1, "a", 2], [3, "b", 4]], columns=["id", "name", "id"])
+    out = tmp_path / "out.parquet"
+    _consume_chunks_to_parquet(iter([chunk]), out, StreamConfig())
+    table = pq.read_table(out)
+    assert table.schema.names == ["id", "name", "id_1"]
+    assert table.num_rows == 2
+
+    df = pd.DataFrame([[1, 2]], columns=["x", "x"])
+    lf = lazy_from_dataframe(df)
+    try:
+        assert lf.columns == ["x", "x_1"]
+    finally:
+        lf.close()
+
+
+def test_duckdb_wrapper_survives_trailing_comments(tmp_path):
+    duckdb = pytest.importorskip("duckdb")
+
+    @contextmanager
+    def cm():
+        c = duckdb.connect(":memory:")
+        try:
+            yield c
+        finally:
+            c.close()
+
+    for sql in [
+        "SELECT 1 AS a -- trailing note",
+        "SELECT 1 AS a;\n-- comment after semicolon",
+        "SELECT 1 AS a\n-- whole-line comment\n;",
+    ]:
+        out = tmp_path / "out.parquet"
+        stream_duckdb_to_parquet(cm, sql, out, StreamConfig())
+        df = pq.read_table(out).to_pandas()
+        assert list(df["a"]) == [1]
+        out.unlink()
+
+
+def test_all_null_leading_string_column_rolls_part(tmp_path, monkeypatch):
+    # A sparse text column all-NULL in the first chunk locks the file schema
+    # to float64; when real strings arrive the writer must roll a part (read
+    # side promotes double+varchar to varchar), not abort the stream.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    chunks = [
+        pd.DataFrame({"a": [1, 2], "s": [None, None]}),
+        pd.DataFrame({"a": [3], "s": ["hello"]}),
+    ]
+    lf = consume_chunks_to_lazyframe(iter(chunks))
+    try:
+        df = lf.sql("SELECT * FROM data ORDER BY a").to_df()
+        assert len(df) == 3
+        assert df["s"].iloc[2] == "hello"
+        assert pd.isna(df["s"].iloc[0])
+    finally:
+        lf.close()
+    assert not any(tmp_path.glob("lazy_*.parquet"))
+
+
+def test_empty_mode_sql_keeps_aggregate_semantics(tmp_path, monkeypatch):
+    # COUNT(*) over an empty unknown-schema result must return one row with 0,
+    # not a zero-row frame (SQL semantics; downstream does df["n"].iloc[0]).
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    lf = consume_row_dicts_to_lazyframe(iter([]))
+    try:
+        agg = lf.sql("SELECT COUNT(*) AS n FROM data").to_df()
+        assert len(agg) == 1
+        assert int(agg["n"].iloc[0]) == 0
+    finally:
+        lf.close()
+
+
+def test_zero_column_chunk_mid_stream_is_skipped(tmp_path, monkeypatch):
+    # Mongo docs projected to {} produce (n, 0) chunks; they must not roll an
+    # unreadable zero-column part file.
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+    monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "2")
+    rows = [{"a": 1}, {"a": 2}, {}, {}, {"a": 5}]
+    lf = consume_row_dicts_to_lazyframe(iter(rows))
+    try:
+        df = lf.sql("SELECT * FROM data ORDER BY a").to_df()
+        assert list(df["a"]) == [1, 2, 5]
+    finally:
+        lf.close()
+    assert not any(tmp_path.glob("lazy_*.parquet"))
+
+
+def test_druid_basic_token_cursor_fetchmany():
+    from app.data_sources.clients.druid_client import _BasicTokenCursor
+
+    cur = _BasicTokenCursor("http://x", "tok", True)
+    cur._rows = [(1,), (2,), (3,)]
+    cur._pos = 0
+    assert cur.fetchmany(2) == [(1,), (2,)]
+    assert cur.fetchmany(2) == [(3,)]
+    assert cur.fetchmany(2) == []
+    assert cur.fetchall() == [(1,), (2,), (3,)]  # fetchall stays non-destructive

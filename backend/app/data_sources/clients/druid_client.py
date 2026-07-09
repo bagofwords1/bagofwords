@@ -25,6 +25,7 @@ class _BasicTokenCursor:
         self._ssl_verify_cert = ssl_verify_cert
         self.description: Optional[List[tuple]] = None
         self._rows: List[tuple] = []
+        self._pos = 0  # fetchmany read offset
 
     def execute(self, sql: str, params: Any = None) -> "_BasicTokenCursor":
         resp = requests.post(
@@ -48,10 +49,21 @@ class _BasicTokenCursor:
         cols = list(data[0].keys()) if data else []
         self.description = [(c, None, None, None, None, None, None) for c in cols]
         self._rows = [tuple(row.get(c) for c in cols) for row in data]
+        self._pos = 0
         return self
 
     def fetchall(self) -> List[tuple]:
         return self._rows
+
+    def fetchmany(self, size: int = 1) -> List[tuple]:
+        """DBAPI fetchmany over the buffered rows — the lazy streaming path
+        (stream_dbapi_cursor_to_parquet) drains cursors with fetchmany. The
+        whole result is already in memory (Druid answers in one HTTP call), so
+        this only chunks the hand-off, but without it lazy queries crash with
+        AttributeError on basic_token sources."""
+        batch = self._rows[self._pos:self._pos + size]
+        self._pos += len(batch)
+        return batch
 
     def close(self) -> None:
         pass

@@ -137,13 +137,18 @@ class LazyFrame:
         import pyarrow.parquet as pq
 
         paths = [Path(p) for p in path] if isinstance(path, (list, tuple)) else [Path(path)]
-        if len(paths) == 1 and not pq.read_schema(paths[0]).names:
-            # Zero-column Parquet (empty result, schema unknown at write time).
+        # DuckDB cannot read a zero-column Parquet ("need at least one non-root
+        # column"), which is what an empty result from a schemaless source
+        # produces. Read only column-bearing files; with none left, fall back
+        # to the schemaless-empty mode (every accessor short-circuits). All
+        # paths stay tracked either way so close() removes every spill file.
+        readable = [p for p in paths if pq.read_schema(p).names]
+        if not readable:
             return cls(None, None, paths, owns_source=owns_source)
         con = duckdb.connect(database=":memory:")  # DuckDB spills to disk on its own
         # union_by_name reconciles part files whose column sets drifted:
         # missing columns become NULL, matching the eager pandas behavior.
-        rel = con.read_parquet([str(p) for p in paths], union_by_name=len(paths) > 1)
+        rel = con.read_parquet([str(p) for p in readable], union_by_name=len(readable) > 1)
         return cls(con, rel, paths, owns_source=owns_source)
 
     # -- lazy transforms (return new handles, no materialization) -----------
@@ -154,7 +159,19 @@ class LazyFrame:
         e.g. lf.sql("SELECT region, SUM(amount) FROM data GROUP BY region")
         """
         if self._rel is None:
-            return LazyFrame(None, None, self._source_paths, owns_source=False)
+            # Schemaless-empty mode: run the SQL against a 0-row relation so
+            # aggregates keep SQL semantics (COUNT(*) returns one row with 0,
+            # not an empty frame). The dummy column is the only way to build a
+            # 0-row relation in DuckDB; a query referencing a real column fails
+            # with a binder error naming it, which is honest — the schema is
+            # unknown. SELECT * exposes `_bow_empty` with zero rows.
+            import duckdb
+
+            if self._con is None:
+                self._con = duckdb.connect(database=":memory:")
+            empty_rel = self._con.sql("SELECT NULL AS _bow_empty WHERE 1=0")
+            new_rel = empty_rel.query(table_name, sql_query)
+            return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False)
         new_rel = self._rel.query(table_name, sql_query)
         return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False)
 
@@ -346,6 +363,44 @@ def stream_sqlalchemy_to_parquet(
         gen.close()
 
 
+def _strip_sql_tail(sql: str) -> str:
+    """Prepare a client query for embedding inside `SELECT * FROM (<sql>)`:
+    drop trailing semicolons and trailing line-comment lines. A terminal `;`
+    is a syntax error inside the wrapper, and an LLM-style `-- note` as the
+    last line would otherwise sit between the query and the closing paren."""
+    s = sql.strip()
+    while True:
+        prev = s
+        lines = s.splitlines()
+        while lines and lines[-1].lstrip().startswith("--"):
+            lines.pop()
+        s = "\n".join(lines).rstrip()
+        while s.endswith(";"):
+            s = s[:-1].rstrip()
+        if s == prev:
+            return s
+
+
+def _dedupe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename duplicate column names (id, id → id, id_1): pyarrow refuses to
+    convert a frame with duplicates, which would kill every streamed lazy query
+    whose SELECT list repeats a name (e.g. `SELECT *` over a join) — the eager
+    path returns those fine. The rename matches DuckDB's own dedup convention.
+    Chunks of one stream share a fixed column list, so renames are stable."""
+    cols = [str(c) for c in df.columns]
+    if len(set(cols)) == len(cols):
+        return df
+    seen: dict = {}
+    renamed = []
+    for c in cols:
+        n = seen.get(c, 0)
+        seen[c] = n + 1
+        renamed.append(c if n == 0 else f"{c}_{n}")
+    df = df.copy(deep=False)
+    df.columns = renamed
+    return df
+
+
 def _jsonify_nested_cells(df: pd.DataFrame) -> pd.DataFrame:
     """JSON-encode dict/list cells so the Parquet write can't fail on nested
     values (pyarrow raises ArrowInvalid on dict cells — e.g. ADX dynamic
@@ -388,7 +443,7 @@ def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None)
         )
     config.root.mkdir(parents=True, exist_ok=True)
     path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
-    _jsonify_nested_cells(df).to_parquet(path, index=False)
+    _jsonify_nested_cells(_dedupe_columns(df)).to_parquet(path, index=False)
     return LazyFrame.from_parquet(path, owns_source=True)
 
 
@@ -435,6 +490,13 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
         writer = pq.ParquetWriter(str(paths[-1]), schema)
         return table
 
+    def roll_part(table):
+        nonlocal writer
+        writer.close()
+        writer = None
+        paths.append(path.with_name(f"{path.stem}_part{len(paths)}.parquet"))
+        return start_writer(table)
+
     try:
         for chunk in chunks:
             rows += len(chunk)
@@ -443,18 +505,29 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
                 raise ResultTooLargeError(
                     rows=rows, byte_estimate=byte_estimate, limit_desc=config.limit_desc()
                 )
+            chunk = _dedupe_columns(chunk)
             table = pa.Table.from_pandas(chunk, preserve_index=False)
+            if table.num_columns == 0:
+                # Rows carrying no fields at all (e.g. Mongo docs projected to
+                # {}): nothing columnar to write, and a zero-column part file
+                # would be unreadable by DuckDB. Budget-count them and move on.
+                continue
             if writer is None:
                 table = start_writer(table)
             elif set(table.schema.names) != set(schema.names):
-                writer.close()
-                writer = None
-                paths.append(path.with_name(f"{path.stem}_part{len(paths)}.parquet"))
-                table = start_writer(table)
+                table = roll_part(table)
             else:
                 if table.schema.names != schema.names:
                     table = table.select(schema.names)  # same columns, drifted order
-                table = _cast_chunk_to_schema(table, schema)
+                try:
+                    table = _cast_chunk_to_schema(table, schema)
+                except ValueError:
+                    # Irreconcilable types — e.g. a sparse text column whose
+                    # first 50k rows were all NULL locked the file schema to
+                    # double, and now real strings arrive. Roll a new part;
+                    # the read side's union_by_name promotes to a common type
+                    # (double + varchar → varchar), matching eager pandas.
+                    table = roll_part(table)
             writer.write_table(table)
         if writer is None:
             # Empty result with no chunk yielded: write a 0-row Parquet that
@@ -556,11 +629,13 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     injection surface beyond what the eager query path already trusts.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    inner = sql.strip().rstrip(";")
+    inner = _strip_sql_tail(sql)
     target = str(path).replace("'", "''")
     try:
         with connect_cm() as con:
-            sample_res = con.execute(f"SELECT * FROM ({inner}) AS _bow_src LIMIT 1024")
+            # The newline before the closing paren guards against a trailing
+            # `-- comment` on the query's last code line swallowing the paren.
+            sample_res = con.execute(f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT 1024")
             # to_arrow_table() replaced fetch_arrow_table() in newer duckdb
             fetch_arrow = getattr(sample_res, "to_arrow_table", None) or sample_res.fetch_arrow_table
             sample = fetch_arrow()
@@ -571,7 +646,7 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
                 row_cap = min(row_cap, max(1, int(config.max_bytes) // bytes_per_row))
             # Cap the result at row_cap + 1 so we can detect (and reject)
             # overflow without ever writing an unbounded file to disk.
-            bounded = f"SELECT * FROM ({inner}) AS _bow_src LIMIT {row_cap + 1}"
+            bounded = f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT {row_cap + 1}"
             con.execute(f"COPY ({bounded}) TO '{target}' (FORMAT PARQUET)")
             rows = con.execute(
                 f"SELECT COUNT(*) FROM read_parquet('{target}')"

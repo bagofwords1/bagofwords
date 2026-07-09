@@ -105,8 +105,17 @@ class BigqueryClient(DataSourceClient):
                 if isinstance(cap, int) and cap > 0:
                     job_config.maximum_bytes_billed = int(cap)
                 query_job = conn.query(sql, job_config=job_config)
-                for batch in query_job.result().to_arrow_iterable():
+                result = query_job.result()
+                produced = False
+                for batch in result.to_arrow_iterable():
+                    produced = True
                     yield batch
+                if not produced:
+                    # 0-row result with no batches: keep the real column
+                    # schema (to_arrow() on the consumed iterator is a cheap
+                    # schema-only table) so downstream `.sql("SELECT col")`
+                    # still works.
+                    yield result.to_arrow()
 
         return consume_arrow_to_lazyframe(batches())
 

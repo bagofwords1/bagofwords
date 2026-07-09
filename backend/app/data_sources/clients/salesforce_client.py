@@ -64,8 +64,11 @@ class SalesforceClient(DataSourceClient):
                 res = sf.query(query)
                 while True:
                     for rec in res.get("records", []):
+                        # default=str: nested values simple-salesforce doesn't
+                        # decode to JSON scalars (dates, Decimals) must not
+                        # kill the stream mid-flight.
                         yield {
-                            k: (json.dumps(v) if isinstance(v, (dict, list)) else v)
+                            k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
                             for k, v in rec.items()
                             if k != "attributes"
                         }

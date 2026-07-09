@@ -221,7 +221,11 @@ class SparkConnectClient(DataSourceClient):
     def execute_query_lazy(self, sql: str):
         """Out-of-core variant (v2): stream Spark results partition-by-partition
         via toLocalIterator, return a LazyFrame. Bounds peak to ~one partition
-        rather than the full result."""
+        rather than the full result. Nested struct/map/array cells are
+        JSON-encoded (like the Mongo/Salesforce overrides): pyarrow infers a
+        struct type per chunk, so structs whose keys drift between chunks
+        would otherwise abort the stream as irreconcilable schemas."""
+        import json
         from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
 
         def rows():
@@ -229,7 +233,11 @@ class SparkConnectClient(DataSourceClient):
                 self._run_guard(spark, sql)
                 sdf = spark.sql(sql)
                 for row in sdf.toLocalIterator():
-                    yield row.asDict(recursive=True)
+                    d = row.asDict(recursive=True)
+                    yield {
+                        k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
+                        for k, v in d.items()
+                    }
 
         return consume_row_dicts_to_lazyframe(rows())
 
