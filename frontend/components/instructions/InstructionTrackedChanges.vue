@@ -59,7 +59,7 @@
         <div class="w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
           <div class="flex items-center gap-1.5 mb-1.5">
             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="hoverCard.seg.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template></span>
+            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template><template v-if="hoverCard.seg.created_at"> · {{ fmtWhen(hoverCard.seg.created_at) }}</template></span>
           </div>
           <!-- Brief evidence stamped by the AI when it proposed this change -->
           <div v-if="hoverCard.seg.evidence" class="mb-1.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-3">{{ hoverCard.seg.evidence }}</div>
@@ -129,6 +129,11 @@ onBeforeUnmount(() => cancelCardHide())
 
 const totalHunks = computed(() => suggestions.value.reduce((n, s) => n + s.hunks.length, 0))
 
+// Suggestion creation time rendered in the ORG timezone (Settings → General),
+// falling back to the viewer's browser timezone when unset — via useFormatDate.
+const _df = useFormatDate()
+const fmtWhen = (s?: string) => { if (!s) return ''; try { return _df.format(s, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
+
 // Split text into plain runs + @mention chips so references render like the
 // normal instruction view. Handles both `@name` / `@"label"` and the TipTap
 // `<span data-type="mention" label="x">` HTML form.
@@ -159,7 +164,7 @@ const segments = computed(() => {
   const all: any[] = []
   for (const s of suggestions.value) {
     for (const h of s.hunks) {
-      all.push({ ...h, build_id: s.build_id, source: s.source, created_by: s.created_by, evidence: s.evidence, rank: s.build_number ?? 0 })
+      all.push({ ...h, build_id: s.build_id, source: s.source, created_by: s.created_by, created_at: s.created_at, evidence: s.evidence, rank: s.build_number ?? 0 })
     }
   }
   const claimed: [number, number][] = []
