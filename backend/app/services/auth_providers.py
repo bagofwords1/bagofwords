@@ -220,7 +220,37 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         return _error_redirect("Sign-in failed due to an unexpected error. Please try again or contact your admin.")
 
 
+def _provider_error_message(request: Request) -> Optional[str]:
+    """Build a user-facing message from an OAuth/OIDC error redirect.
+
+    When the provider rejects the request (e.g. Entra AADSTS errors) it redirects
+    back to the callback with ``error``/``error_description`` query params and no
+    ``code``. Surfacing that description tells the user/admin what actually went
+    wrong instead of a misleading "Missing code/state".
+    """
+    error = request.query_params.get("error")
+    if not error:
+        return None
+    description = request.query_params.get("error_description")
+    if description:
+        return f"{description} (error: {error})"
+    return f"Sign-in failed: {error}"
+
+
 async def _handle_callback(provider: str, request: Request, code: Optional[str], state: Optional[str], user_manager) -> RedirectResponse:
+    provider_error = _provider_error_message(request)
+    if provider_error:
+        await _audit_auth_event(
+            action="auth.login_failed",
+            request=request,
+            details={
+                "provider": provider,
+                "reason": "provider_error",
+                "error": request.query_params.get("error"),
+            },
+        )
+        raise HTTPException(status_code=400, detail=provider_error)
+
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code/state")
 
