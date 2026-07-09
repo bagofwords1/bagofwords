@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.442 (July 9, 2026)
+- **Fix Entra/OIDC SSO login for invited users with mismatched email casing** — an invited member signing in via Entra ID or Okta hit "Sign-up is disabled. Ask your admin for an invite" whenever the email casing the identity provider returned (e.g. `HishamHl@fattal.co.il`) differed from how the invite was stored. The open-invite lookup used case-sensitive equality, so the pending membership was never matched. Invite emails are now normalized to lowercase on write and matched case-insensitively across the login, invite-attach, domain-invite, and duplicate-check paths (account merge for existing password users was already case-insensitive). Also surfaces the identity provider's actual error (e.g. `AADSTS500011`) on the sign-in page instead of a misleading "Missing code/state" when the provider redirects back with an OAuth error.
+
 ## Version 0.0.441 (July 8, 2026)
 - **AI-suggestion evidence in the Knowledge Explorer (#573)** — AI-proposed instruction changes now carry a brief evidence line (why the change was suggested), shown in review hover cards and the instruction detail.
 - **Fix blank instruction editor in dev (#575)** — dedupe `prosemirror-state` so the tiptap editor mounts instead of rendering an empty body; falls back to a raw-markdown textarea if initialization ever fails.
