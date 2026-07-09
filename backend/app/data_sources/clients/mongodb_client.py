@@ -10,6 +10,22 @@ from contextlib import contextmanager
 from datetime import datetime
 
 
+def _arrow_safe_cell(v):
+    """Coerce one document value for the columnar (Parquet) spill.
+
+    dict/list → JSON string (schemaless nesting can't be a stable Arrow type);
+    plain scalars pass through; anything else — BSON scalars _convert_bson_types
+    doesn't normalize (bson.Timestamp, Regex, Code, ...) — becomes str, because
+    pa.Table.from_pandas raises ArrowInvalid on unknown Python types and would
+    kill the whole stream. The eager path is unaffected (pandas keeps raw
+    objects)."""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, default=str)
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    return str(v)
+
+
 class MongodbClient(DataSourceClient):
     """MongoDB client for document-based data access.
     
@@ -191,13 +207,7 @@ class MongodbClient(DataSourceClient):
                 cursor = cursor.batch_size(cfg.chunksize)
                 for doc in cursor:
                     self._convert_bson_types(doc, coerce_decimal128=True)
-                    # default=str: BSON types _convert_bson_types doesn't
-                    # normalize (Timestamp, Regex, Code, ...) must not kill
-                    # the stream mid-flight.
-                    yield {
-                        k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
-                        for k, v in doc.items()
-                    }
+                    yield {k: _arrow_safe_cell(v) for k, v in doc.items()}
 
         gen = docs()
         try:

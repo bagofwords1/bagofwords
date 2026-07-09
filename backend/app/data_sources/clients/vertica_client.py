@@ -1,6 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
+import threading
 from typing import List
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
@@ -10,6 +11,14 @@ try:
     import verticapy as vp
 except ImportError:
     vp = None
+
+# verticapy has exactly ONE process-global active connection, and vp.connect()
+# closes the previous one. Two VerticaClient instances (two data sources)
+# interleaving connect()+query would therefore kill each other's in-flight
+# queries. Query paths hold this lock across activate+execute so a competing
+# client can't switch the global connection mid-query. RLock because
+# execute_query() re-enters via self.connect().
+_VP_GLOBAL_LOCK = threading.RLock()
 
 
 class VerticaClient(DataSourceClient):
@@ -36,48 +45,65 @@ class VerticaClient(DataSourceClient):
             "password": self.password
         }
 
-    def connect(self):
-        """Establish (and re-activate) this client's Vertica connection."""
+    def _needs_activation(self) -> bool:
+        """True when verticapy's global connection isn't ours (or is dead).
+
+        Inspects verticapy private internals — the only way to ask without
+        side effects (vp.connect() closes the previous global connection).
+        Isolated here so a verticapy release moving these internals degrades
+        to unconditional re-activation instead of failing every Vertica
+        operation, eager paths included."""
         try:
-            if not self._connected:
-                # Create new connection in verticapy
-                vp.new_connection(
-                    self.connection_params,
-                    name=self._connection_name
-                )
-                self._connected = True
-            # Re-activate THIS client's named connection as verticapy's global
-            # active connection — but only when it isn't already active.
-            # vp.connect() is not a no-op: it closes the previous global
-            # connection and dials a new one, so calling it unconditionally
-            # kills any in-flight query on the current connection and pays a
-            # full reconnect per call.
             from verticapy.connection.global_connection import get_global_connection
 
             gb_conn = get_global_connection()
             active = gb_conn.get_connection()
-            if (
+            return (
                 active is None
                 or active.closed()
                 or gb_conn.get_dsn_section() != self._connection_name
-            ):
-                vp.connect(self._connection_name)
-            return self._connection_name
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to Vertica: {e}")
+            )
+        except Exception:
+            return True
+
+    def connect(self):
+        """Establish (and re-activate) this client's Vertica connection."""
+        with _VP_GLOBAL_LOCK:
+            try:
+                if not self._connected:
+                    # Create new connection in verticapy
+                    vp.new_connection(
+                        self.connection_params,
+                        name=self._connection_name
+                    )
+                    self._connected = True
+                # Re-activate THIS client's named connection as verticapy's
+                # global active connection — but only when it isn't already
+                # active. vp.connect() is not a no-op: it closes the previous
+                # global connection and dials a new one, so calling it
+                # unconditionally kills any in-flight query on the current
+                # connection and pays a full reconnect per call.
+                if self._needs_activation():
+                    vp.connect(self._connection_name)
+                return self._connection_name
+            except Exception as e:
+                raise RuntimeError(f"Failed to connect to Vertica: {e}")
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
         try:
-            # Connect to Vertica
-            self.connect()
-            
-            # Execute query using verticapy vDataFrame
-            result = vp.vDataFrame(sql)
-            
-            # Convert to pandas DataFrame
-            df = result.to_pandas()
-            return df
+            # Hold the lock across activate+execute: another client's
+            # connect() between the two would close our global connection
+            # mid-query (verticapy has only one).
+            with _VP_GLOBAL_LOCK:
+                self.connect()
+
+                # Execute query using verticapy vDataFrame
+                result = vp.vDataFrame(sql)
+
+                # Convert to pandas DataFrame
+                df = result.to_pandas()
+                return df
         except Exception as e:
             print(f"Error executing SQL: {e}")
             raise
@@ -85,15 +111,20 @@ class VerticaClient(DataSourceClient):
     def execute_query_lazy(self, sql: str):
         """Out-of-core variant (v2): stream via the underlying vertica_python
         cursor (verticapy.current_cursor), which fetches rows server-side, and
-        spill to a LazyFrame. Bounds the ingest peak vs vDataFrame.to_pandas()."""
+        spill to a LazyFrame. Bounds the ingest peak vs vDataFrame.to_pandas().
+
+        The global lock is held for the whole stream (the context manager wraps
+        the full spill): serialized throughput across Vertica clients, but no
+        competing connect() can kill the stream's connection mid-fetch."""
         from contextlib import contextmanager
         from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_cursor
 
         @contextmanager
         def conn_cm():
-            self.connect()
-            cursor = vp.current_cursor()
-            yield cursor.connection  # DBAPI Connection; .cursor() works for streaming
+            with _VP_GLOBAL_LOCK:
+                self.connect()
+                cursor = vp.current_cursor()
+                yield cursor.connection  # DBAPI Connection; .cursor() works for streaming
 
         return lazy_query_via_dbapi_cursor(conn_cm, sql)
 

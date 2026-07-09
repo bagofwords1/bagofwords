@@ -378,11 +378,14 @@ class TestClickhouseLazy:
             def __exit__(self, *exc):
                 return False
 
+        probe_sqls = []
+
         class FakeConn:
             def query_arrow_stream(self, sql):
                 return FakeStream()
 
             def query_arrow(self, sql):
+                probe_sqls.append(sql)
                 return schema_table
 
         @contextmanager
@@ -390,19 +393,23 @@ class TestClickhouseLazy:
             yield FakeConn()
 
         client.connect = fake_connect
-        return client
+        return client, probe_sqls
 
     def test_streams_blocks(self):
         blocks = [pa.table({"v": [1, 2]}), pa.table({"v": [3]})]
-        client = self._client(blocks, pa.table({"v": pa.array([], type=pa.int64())}))
+        client, probes = self._client(blocks, pa.table({"v": pa.array([], type=pa.int64())}))
         with client.execute_query_lazy("SELECT v") as lf:
             assert lf.to_df()["v"].tolist() == [1, 2, 3]
+        assert probes == []  # non-empty stream: no schema probe, no re-execution
 
-    def test_empty_stream_recovers_schema(self):
-        client = self._client([], pa.table({"v": pa.array([], type=pa.int64())}))
+    def test_empty_stream_recovers_schema_via_limit0_probe(self):
+        client, probes = self._client([], pa.table({"v": pa.array([], type=pa.int64())}))
         with client.execute_query_lazy("SELECT v WHERE 0") as lf:
             assert lf.columns == ["v"]
             assert lf.row_count() == 0
+        # the fallback must be a LIMIT 0 schema probe, not a full re-run
+        assert len(probes) == 1
+        assert "LIMIT 0" in probes[0]
 
 
 # =============================================================================
@@ -575,3 +582,250 @@ class TestConcurrency:
 
         with pytest.raises(ResultTooLargeError):
             asyncio.run(main())
+
+
+# =============================================================================
+# Round-3 review fixes
+# =============================================================================
+
+class TestChunkStreamNestedCells:
+    def test_heterogeneous_json_cells_survive_the_stream(self):
+        """SQL JSON/JSONB columns arrive as dict cells; mixed shapes within one
+        chunk used to abort strategy-based streams with ArrowInvalid."""
+        from app.data_sources.clients.lazy_frame import consume_chunks_to_lazyframe
+
+        chunks = [
+            pd.DataFrame({"id": [1, 2], "payload": [{"a": 1}, "plain-string"]}),
+            pd.DataFrame({"id": [3], "payload": [{"a": "x", "b": [1, 2]}]}),
+        ]
+        with consume_chunks_to_lazyframe(iter(chunks)) as lf:
+            df = lf.to_df()
+        assert len(df) == 3
+        assert json.loads(df["payload"].iloc[0]) == {"a": 1}
+        assert df["payload"].iloc[1] == "plain-string"
+        assert json.loads(df["payload"].iloc[2]) == {"a": "x", "b": [1, 2]}
+
+
+class TestSpillLifecycle:
+    def test_finalizer_reclaims_spill_on_gc(self):
+        import gc
+
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1, 2]}))
+        paths = list(lf._source_paths)
+        assert all(p.exists() for p in paths)
+        del lf
+        gc.collect()
+        assert all(not p.exists() for p in paths)
+
+    def test_derived_frame_keeps_parent_alive(self):
+        import gc
+
+        # the owning frame is garbage as soon as .sql() returns; without the
+        # parent pin its finalizer would close the shared DuckDB connection
+        d = lazy_from_dataframe(pd.DataFrame({"x": [1, 2, 3]})).sql(
+            "SELECT SUM(x) AS s FROM data"
+        )
+        gc.collect()
+        assert int(d.to_df()["s"].iloc[0]) == 6
+
+    def test_close_is_idempotent_with_finalizer(self):
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+        lf.close()
+        lf.close()  # finalizer already ran; must not raise
+        assert all(not p.exists() for p in lf._source_paths)
+
+    def test_stale_sweep_reruns_after_interval(self, tmp_path, monkeypatch):
+        import os
+        import app.data_sources.clients.lazy_frame as lf_mod
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+        stale_mtime = time.time() - 25 * 3600
+
+        first = tmp_path / "lazy_first.parquet"
+        first.write_bytes(b"x")
+        os.utime(first, (stale_mtime, stale_mtime))
+        lf_mod.StreamConfig()
+        assert not first.exists()  # initial sweep
+
+        second = tmp_path / "lazy_second.parquet"
+        second.write_bytes(b"x")
+        os.utime(second, (stale_mtime, stale_mtime))
+        lf_mod.StreamConfig()
+        assert second.exists()  # within the sweep interval: skipped
+
+        # age the last-sweep stamp past the interval → swept again
+        lf_mod._last_sweep[tmp_path] = (
+            time.monotonic() - lf_mod._SWEEP_INTERVAL_SECONDS - 1
+        )
+        lf_mod.StreamConfig()
+        assert not second.exists()
+
+
+class TestDuckdbSingleScan:
+    def test_query_executes_exactly_once(self):
+        import duckdb
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
+
+        executed = []
+
+        class CountingCon:
+            def __init__(self, con):
+                self._con = con
+
+            def execute(self, q):
+                executed.append(q)
+                return self._con.execute(q)
+
+        @contextmanager
+        def connect_cm():
+            con = duckdb.connect()
+            try:
+                yield CountingCon(con)
+            finally:
+                con.close()
+
+        with lazy_query_via_duckdb(connect_cm, "SELECT * FROM range(100)") as lf:
+            assert lf.row_count() == 100
+        assert len(executed) == 1  # the COPY — no sampling pre-pass, no COUNT re-read
+        assert executed[0].startswith("COPY")
+
+    def test_row_budget_still_enforced(self, monkeypatch):
+        import duckdb
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
+
+        monkeypatch.setenv("BOW_LAZY_MAX_ROWS", "10")
+
+        @contextmanager
+        def connect_cm():
+            con = duckdb.connect()
+            try:
+                yield con
+            finally:
+                con.close()
+
+        with pytest.raises(ResultTooLargeError):
+            lazy_query_via_duckdb(connect_cm, "SELECT * FROM range(100)")
+
+
+class TestMongoArrowSafeCell:
+    def test_bson_scalars_become_strings(self):
+        from bson.timestamp import Timestamp
+        from bson.regex import Regex
+        from app.data_sources.clients.mongodb_client import _arrow_safe_cell
+
+        assert isinstance(_arrow_safe_cell(Timestamp(1690000000, 1)), str)
+        assert isinstance(_arrow_safe_cell(Regex("^a")), str)
+        # containers JSON-encode even with exotic values inside
+        encoded = _arrow_safe_cell({"ts": Timestamp(1690000000, 1)})
+        assert isinstance(encoded, str) and json.loads(encoded)
+        # plain scalars pass through untouched
+        assert _arrow_safe_cell(5) == 5
+        assert _arrow_safe_cell("s") == "s"
+        assert _arrow_safe_cell(None) is None
+
+
+class TestVerticaActivation:
+    def _client(self):
+        from app.data_sources.clients.vertica_client import VerticaClient
+
+        client = VerticaClient.__new__(VerticaClient)
+        client._connection_name = "vertica_conn_test"
+        client._connected = True
+        return client
+
+    def test_private_api_failure_falls_back_to_activation(self, monkeypatch):
+        """If verticapy relocates its private globals, connect() must degrade
+        to unconditional re-activation, not fail every Vertica operation."""
+        import app.data_sources.clients.vertica_client as vc
+
+        def boom():
+            raise AttributeError("internals moved")
+
+        monkeypatch.setattr(
+            "verticapy.connection.global_connection.get_global_connection", boom
+        )
+        calls = []
+        monkeypatch.setattr(vc.vp, "connect", lambda name: calls.append(name))
+        client = self._client()
+        assert client.connect() == "vertica_conn_test"
+        assert calls == ["vertica_conn_test"]
+
+    def test_no_reactivation_when_already_active(self, monkeypatch):
+        import app.data_sources.clients.vertica_client as vc
+
+        class FakeActive:
+            def closed(self):
+                return False
+
+        class FakeGlobal:
+            def get_connection(self):
+                return FakeActive()
+
+            def get_dsn_section(self):
+                return "vertica_conn_test"
+
+        monkeypatch.setattr(
+            "verticapy.connection.global_connection.get_global_connection",
+            lambda: FakeGlobal(),
+        )
+        calls = []
+        monkeypatch.setattr(vc.vp, "connect", lambda name: calls.append(name))
+        client = self._client()
+        assert client.connect() == "vertica_conn_test"
+        assert calls == []  # already active: no kill-and-redial
+
+
+class TestWrapperMeteringRobustness:
+    def test_metering_falls_back_to_disk_size(self):
+        class HalfBrokenLazy:
+            def row_count(self):
+                raise RuntimeError("metadata unreadable")
+
+            def uncompressed_byte_size(self):
+                raise RuntimeError("metadata unreadable")
+
+            def byte_size(self):
+                return 42
+
+        class Client(TinyClient):
+            def execute_query_lazy(self, sql):
+                return HalfBrokenLazy()
+
+        wrapper, _, timings = _make_wrapper(Client())
+        wrapper.execute_query_lazy("SELECT x")
+        assert timings[0]["result_bytes"] == 42
+        assert timings[0]["rows"] is None
+
+    def test_lazy_quota_uses_uncompressed_size(self):
+        # distinct values: dictionary/RLE encoding can't collapse the column,
+        # so the uncompressed columnar size exceeds the compressed on-disk
+        # size — and metering must charge the former
+        client = TinyClient({"q": pd.DataFrame({"v": list(range(50_000))})})
+        wrapper, _, timings = _make_wrapper(client)
+        with wrapper.execute_query_lazy("q") as lf:
+            assert timings[0]["result_bytes"] == lf.uncompressed_byte_size()
+            assert timings[0]["result_bytes"] > lf.byte_size()
+
+    def test_timed_out_lazy_result_is_reclaimed(self):
+        from app.ai.code_execution.code_execution import QueryTimeoutError
+
+        holder = {}
+
+        class SlowLazyClient(TinyClient):
+            def execute_query_lazy(self, sql):
+                time.sleep(2)
+                holder["lf"] = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+                return holder["lf"]
+
+        wrapper, _, _ = _make_wrapper(SlowLazyClient(), timeout=1)
+        with pytest.raises(QueryTimeoutError):
+            wrapper.execute_query_lazy("SELECT slow")
+        # the abandoned daemon thread finishes ~1s later and must close the
+        # spill instead of leaving it for the stale sweep
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            lf = holder.get("lf")
+            if lf is not None and all(not p.exists() for p in lf._source_paths):
+                break
+            time.sleep(0.1)
+        assert all(not p.exists() for p in holder["lf"]._source_paths)

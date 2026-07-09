@@ -64,7 +64,10 @@ class ClickhouseClient(DataSourceClient):
     def execute_query_lazy(self, sql: str):
         """Out-of-core variant (v2): stream ClickHouse results as Arrow blocks
         straight to Parquet, return a LazyFrame."""
-        from app.data_sources.clients.lazy_frame import consume_arrow_to_lazyframe
+        from app.data_sources.clients.lazy_frame import (
+            _strip_sql_tail,
+            consume_arrow_to_lazyframe,
+        )
 
         def blocks():
             with self.connect() as conn:
@@ -74,10 +77,14 @@ class ClickhouseClient(DataSourceClient):
                         produced = True
                         yield block
                 if not produced:
-                    # 0-row result with no blocks: re-run as a plain arrow
-                    # query (cheap — the result set is empty) to recover the
-                    # column schema for the spill file.
-                    yield conn.query_arrow(sql)
+                    # 0-row result with no blocks: recover the column schema
+                    # with a LIMIT 0 probe. Re-running the bare query here
+                    # would execute the full scan a second time — an empty
+                    # *result* does not mean a cheap *query*.
+                    inner = _strip_sql_tail(sql)
+                    yield conn.query_arrow(
+                        f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT 0"
+                    )
 
         return consume_arrow_to_lazyframe(blocks())
 

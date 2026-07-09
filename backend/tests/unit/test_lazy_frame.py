@@ -22,7 +22,7 @@ from app.data_sources.clients.lazy_frame import (
     StreamConfig,
     _consume_arrow_to_parquet,
     _consume_chunks_to_parquet,
-    _swept_roots,
+    _last_sweep,
     consume_arrow_to_lazyframe,
     consume_chunks_to_lazyframe,
     consume_row_dicts_to_lazyframe,
@@ -270,7 +270,7 @@ def test_stale_lazy_files_swept_on_config_init(tmp_path, monkeypatch):
     other = tmp_path / "keep.txt"  # non-lazy files must never be touched
     other.write_bytes(b"x")
     os.utime(other, (stale, stale))
-    _swept_roots.discard(tmp_path)  # sweep runs once per root per process
+    _last_sweep.pop(tmp_path, None)  # force a sweep regardless of interval
     StreamConfig()
     assert not old.exists()
     assert fresh.exists()

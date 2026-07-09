@@ -423,122 +423,98 @@ class QueryCapturingClientWrapper:
 
     def execute_query(self, query: str, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration."""
-        if isinstance(query, str):
-            self._captured_queries.append(query)
-        idx = len(self._captured_timings)
-        _q_start = _time.monotonic()
-        with _tracer.start_as_current_span("datasource.execute_query") as span:
-            span.set_attribute("datasource.type", type(self._original).__name__)
-            span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
-            try:
-                self._consume_query_quota(query)
-                result = self._call_with_timeout(query, args, kwargs)
-                _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                rows = len(result) if hasattr(result, '__len__') else None
-                result_bytes = estimate_result_size_bytes(result)
-                self._consume_data_bytes_quota(query, result_bytes, rows)
-                if rows is not None:
-                    span.set_attribute("datasource.result_rows", rows)
-                span.set_attribute("datasource.result_bytes", result_bytes)
-                self._captured_timings.append({
-                    "index": idx,
-                    "query_ms": round(_q_ms, 1),
-                    "rows": rows,
-                    "result_bytes": result_bytes,
-                    "sql": query[:500] if isinstance(query, str) else None,
-                })
-                return result
-            except QueryTimeoutError as e:
-                _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                self._captured_timings.append({
-                    "index": idx,
-                    "query_ms": round(_q_ms, 1),
-                    "rows": None,
-                    "sql": query[:500] if isinstance(query, str) else None,
-                    "error": str(e)[:200],
-                    "error_type": "timeout",
-                    "timeout_seconds": self._query_timeout_seconds,
-                })
-                span.set_status(StatusCode.ERROR, str(e))
-                span.record_exception(e)
-                raise
-            except Exception as e:
-                _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                self._captured_timings.append({
-                    "index": idx,
-                    "query_ms": round(_q_ms, 1),
-                    "rows": None,
-                    "sql": query[:500] if isinstance(query, str) else None,
-                    "error": str(e)[:200],
-                })
-                span.set_status(StatusCode.ERROR, str(e))
-                span.record_exception(e)
-                raise
+        return self._run_instrumented(query, args, kwargs, method="execute_query", lazy=False)
 
     def execute_query_lazy(self, query: str, *args, **kwargs):
         """Out-of-core variant: same capture/quota/timeout treatment as
         execute_query, but the underlying call streams the result to a Parquet
         spill and returns a LazyFrame instead of a materialized DataFrame.
 
-        Rows/bytes are metered from the spill file's metadata (row_count() reads
-        Parquet stats, byte_size() stats the file) — never by materializing the
-        frame, which would defeat the point of the lazy path. If the stream
-        exceeds its budget, ResultTooLargeError propagates to the caller after
-        being recorded in captured_timings. On timeout the abandoned daemon
-        thread may still finish the spill; the orphaned file is reclaimed by
-        the 24h stale-file sweep.
+        Rows/bytes are metered from the spill file's Parquet metadata —
+        uncompressed columnar size, so lazy and eager queries draw comparably
+        on the org byte quota — never by materializing the frame, which would
+        defeat the point of the lazy path. If the stream exceeds its budget,
+        ResultTooLargeError propagates to the caller after being recorded in
+        captured_timings.
 
         Opt-in: gated by the `enable_lazy_queries` org setting. Defining the
         method unconditionally and raising when disabled (rather than not
         defining it) keeps the call from falling through __getattr__ to the
         raw client, which would bypass capture, quotas, and the timeout.
         """
-        from app.data_sources.clients.lazy_frame import ResultTooLargeError
-
         if not self._lazy_enabled:
             raise LazyQueriesDisabledError()
+        return self._run_instrumented(query, args, kwargs, method="execute_query_lazy", lazy=True)
+
+    def _meter_result(self, result, lazy: bool):
+        """(rows, result_bytes) for quota + telemetry. Lazy metering must not
+        silently degrade to zero: result_bytes <= 0 skips quota consumption
+        entirely, so a swallowed metering error would let data flow unmetered.
+        Each metric falls back independently and failures are logged loudly."""
+        if not lazy:
+            rows = len(result) if hasattr(result, '__len__') else None
+            return rows, estimate_result_size_bytes(result)
+        rows = None
+        result_bytes = 0
+        try:
+            rows = result.row_count()
+        except Exception:
+            logger.warning("Could not read LazyFrame row count for metering", exc_info=True)
+        try:
+            result_bytes = result.uncompressed_byte_size()
+        except Exception:
+            logger.warning(
+                "Could not read LazyFrame uncompressed size; falling back to on-disk size",
+                exc_info=True,
+            )
+            try:
+                result_bytes = result.byte_size()
+            except Exception:
+                logger.warning("LazyFrame byte metering failed entirely; result is uncharged", exc_info=True)
+        return rows, result_bytes
+
+    def _run_instrumented(self, query, args, kwargs, *, method: str, lazy: bool):
+        """Shared capture/quota/span/timeout/timing core for the eager and lazy
+        paths — one implementation so the two can't drift."""
+        from app.data_sources.clients.lazy_frame import ResultTooLargeError
+
         if isinstance(query, str):
             self._captured_queries.append(query)
         idx = len(self._captured_timings)
+        base = {
+            "index": idx,
+            "rows": None,
+            "sql": query[:500] if isinstance(query, str) else None,
+            **({"lazy": True} if lazy else {}),
+        }
         _q_start = _time.monotonic()
-        with _tracer.start_as_current_span("datasource.execute_query_lazy") as span:
+        with _tracer.start_as_current_span(f"datasource.{method}") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
                 self._consume_query_quota(query)
-                result = self._call_with_timeout(query, args, kwargs, method="execute_query_lazy")
+                result = self._call_with_timeout(query, args, kwargs, method=method)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                rows = None
-                result_bytes = 0
-                try:
-                    rows = result.row_count()
-                    result_bytes = result.byte_size()
-                except Exception:
-                    logger.debug("Could not meter LazyFrame result", exc_info=True)
+                rows, result_bytes = self._meter_result(result, lazy)
                 self._consume_data_bytes_quota(query, result_bytes, rows)
                 if rows is not None:
                     span.set_attribute("datasource.result_rows", rows)
                 span.set_attribute("datasource.result_bytes", result_bytes)
                 self._captured_timings.append({
-                    "index": idx,
+                    **base,
                     "query_ms": round(_q_ms, 1),
                     "rows": rows,
                     "result_bytes": result_bytes,
-                    "sql": query[:500] if isinstance(query, str) else None,
-                    "lazy": True,
                 })
                 return result
             except QueryTimeoutError as e:
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 self._captured_timings.append({
-                    "index": idx,
+                    **base,
                     "query_ms": round(_q_ms, 1),
-                    "rows": None,
-                    "sql": query[:500] if isinstance(query, str) else None,
                     "error": str(e)[:200],
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
-                    "lazy": True,
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
@@ -546,13 +522,11 @@ class QueryCapturingClientWrapper:
             except ResultTooLargeError as e:
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 self._captured_timings.append({
-                    "index": idx,
+                    **base,
                     "query_ms": round(_q_ms, 1),
                     "rows": getattr(e, "rows", None),
-                    "sql": query[:500] if isinstance(query, str) else None,
                     "error": str(e)[:200],
                     "error_type": "result_too_large",
-                    "lazy": True,
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
@@ -560,12 +534,9 @@ class QueryCapturingClientWrapper:
             except Exception as e:
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 self._captured_timings.append({
-                    "index": idx,
+                    **base,
                     "query_ms": round(_q_ms, 1),
-                    "rows": None,
-                    "sql": query[:500] if isinstance(query, str) else None,
                     "error": str(e)[:200],
-                    "lazy": True,
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
@@ -578,14 +549,33 @@ class QueryCapturingClientWrapper:
         inside a sync code-exec worker (user code is run via exec()), so we
         cannot await. ThreadPoolExecutor would risk pool exhaustion when many
         long queries pile up, hence a fresh per-call daemon thread.
+
+        Abandonment is not cancellation: the underlying driver call cannot be
+        interrupted, so a timed-out lazy stream keeps its data source
+        connection until the stream finishes or hits its row/byte budget.
+        What we CAN reclaim is the result: if the abandoned call eventually
+        returns a closeable (a LazyFrame with a multi-GB spill), the runner
+        closes it immediately instead of leaving it for the stale-file sweep.
         """
         holder: Dict[str, Any] = {}
+        abandoned = threading.Event()
 
         def runner():
             try:
-                holder["value"] = getattr(self._original, method)(query, *args, **kwargs)
+                value = getattr(self._original, method)(query, *args, **kwargs)
             except BaseException as exc:
-                holder["exc"] = exc
+                if not abandoned.is_set():
+                    holder["exc"] = exc
+                return
+            if abandoned.is_set():
+                close = getattr(value, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        logger.debug("Failed to close abandoned query result", exc_info=True)
+            else:
+                holder["value"] = value
 
         t = threading.Thread(
             target=runner,
@@ -595,6 +585,7 @@ class QueryCapturingClientWrapper:
         t.start()
         t.join(self._query_timeout_seconds)
         if t.is_alive():
+            abandoned.set()
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,

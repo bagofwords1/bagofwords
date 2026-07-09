@@ -24,6 +24,7 @@ import logging
 import os
 import tempfile
 import uuid
+import weakref
 from pathlib import Path
 from typing import Callable, ContextManager, Optional
 
@@ -67,20 +68,27 @@ def _env_int(name: str, default: int) -> int:
 
 # Spill files older than this are considered orphans (see _sweep_stale_files).
 _STALE_AFTER_SECONDS = 24 * 3600
-_swept_roots: set = set()
+# Re-sweep a root at most this often. Once-per-process is not enough for a
+# long-lived server: files orphaned *after* startup would never be reclaimed
+# until the next restart.
+_SWEEP_INTERVAL_SECONDS = 3600
+_last_sweep: dict = {}
 
 
 def _sweep_stale_files(root: Path) -> None:
-    """Best-effort orphan cleanup for the lazy spill dir, once per root per
-    process. LazyFrame.close() deletes its own file, but a crashed/killed run
-    never gets there and would leak Parquet files forever. Anything older than
-    24h is long past any live query's lifetime, so delete it. Only files
-    matching our own naming pattern are touched, and errors are swallowed —
-    this must never break a query."""
-    if root in _swept_roots:
-        return
-    _swept_roots.add(root)
+    """Best-effort orphan cleanup for the lazy spill dir, at most once per
+    _SWEEP_INTERVAL_SECONDS per root. LazyFrame's finalizer deletes its own
+    file, but a crashed/killed run never gets there and would leak Parquet
+    files forever. Anything older than 24h is long past any live query's
+    lifetime, so delete it. Only files matching our own naming pattern are
+    touched, and errors are swallowed — this must never break a query."""
     import time
+
+    now = time.monotonic()
+    last = _last_sweep.get(root)
+    if last is not None and now - last < _SWEEP_INTERVAL_SECONDS:
+        return
+    _last_sweep[root] = now
 
     cutoff = time.time() - _STALE_AFTER_SECONDS
     try:
@@ -109,6 +117,22 @@ class StreamConfig:
         return f"max_rows={self.max_rows}, max_bytes={self.max_bytes}"
 
 
+def _release_lazy_resources(con, paths) -> None:
+    """Close the DuckDB connection and unlink the spill file(s). Module-level
+    (not a method) so weakref.finalize doesn't hold a reference back to the
+    LazyFrame, which would keep it alive forever."""
+    if con is not None:
+        try:
+            con.close()
+        except Exception:
+            logger.debug("LazyFrame: failed to close duckdb connection", exc_info=True)
+    for p in paths:
+        try:
+            Path(p).unlink(missing_ok=True)
+        except Exception:
+            logger.debug("LazyFrame: failed to unlink %s", p, exc_info=True)
+
+
 class LazyFrame:
     """An out-of-core handle over a Parquet file via a DuckDB relation.
 
@@ -117,7 +141,7 @@ class LazyFrame:
     those for the *reduced* result, not the raw scan.
     """
 
-    def __init__(self, con, relation, source_path, owns_source: bool = True):
+    def __init__(self, con, relation, source_path, owns_source: bool = True, parent: "LazyFrame" = None):
         self._con = con
         # None when the backing file has zero columns (empty result from a
         # schemaless source): valid Parquet, but DuckDB can't read a file with
@@ -130,6 +154,19 @@ class LazyFrame:
         else:
             self._source_paths = [Path(source_path)]
         self._owns_source = owns_source
+        # Derived frames (owns_source=False) pin their parent: without this,
+        # `execute_query_lazy(q).sql(...)` drops the owning frame immediately
+        # and its finalizer would close the shared connection out from under
+        # the derived frame.
+        self._parent = parent
+        # GC safety net: callers (LLM-generated code especially) routinely
+        # never call close(), and the spill can be gigabytes. finalize() is
+        # idempotent, so an explicit close() simply runs it early.
+        self._finalizer = (
+            weakref.finalize(self, _release_lazy_resources, con, list(self._source_paths))
+            if owns_source
+            else None
+        )
 
     @classmethod
     def from_parquet(cls, path, owns_source: bool = True) -> "LazyFrame":
@@ -171,14 +208,14 @@ class LazyFrame:
                 self._con = duckdb.connect(database=":memory:")
             empty_rel = self._con.sql("SELECT NULL AS _bow_empty WHERE 1=0")
             new_rel = empty_rel.query(table_name, sql_query)
-            return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False)
+            return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False, parent=self)
         new_rel = self._rel.query(table_name, sql_query)
-        return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False)
+        return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False, parent=self)
 
     def limit(self, n: int) -> "LazyFrame":
         if self._rel is None:
-            return LazyFrame(None, None, self._source_paths, owns_source=False)
-        return LazyFrame(self._con, self._rel.limit(n), self._source_paths, owns_source=False)
+            return LazyFrame(None, None, self._source_paths, owns_source=False, parent=self)
+        return LazyFrame(self._con, self._rel.limit(n), self._source_paths, owns_source=False, parent=self)
 
     # -- materialization (explicit; this is where memory is spent) ----------
 
@@ -221,6 +258,29 @@ class LazyFrame:
                 pass
         return total
 
+    def uncompressed_byte_size(self) -> int:
+        """Uncompressed columnar size from Parquet row-group metadata — the
+        usage-accounting metric. The compressed on-disk size (byte_size) would
+        under-charge lazy queries 3-10x relative to the eager path's
+        materialized-size metering, silently loosening admin byte quotas.
+        Metadata only; nothing is materialized. Falls back to on-disk size per
+        part when metadata can't be read. Floored at the on-disk size: row-group
+        total_byte_size is post-encoding (RLE/dictionary), which can collapse
+        below the file size for low-cardinality data."""
+        import pyarrow.parquet as pq
+
+        total = 0
+        for p in self._source_paths:
+            try:
+                md = pq.ParquetFile(str(p)).metadata
+                total += sum(md.row_group(i).total_byte_size for i in range(md.num_row_groups))
+            except Exception:
+                try:
+                    total += int(p.stat().st_size)
+                except Exception:
+                    pass
+        return max(total, self.byte_size())
+
     # -- lifecycle ----------------------------------------------------------
 
     def close(self) -> None:
@@ -230,16 +290,8 @@ class LazyFrame:
         # needs and any later parent.to_df() would fail on a closed connection.
         if not self._owns_source:
             return
-        if self._con is not None:
-            try:
-                self._con.close()
-            except Exception:
-                logger.debug("LazyFrame: failed to close duckdb connection", exc_info=True)
-        for p in self._source_paths:
-            try:
-                p.unlink(missing_ok=True)
-            except Exception:
-                logger.debug("LazyFrame: failed to unlink %s", p, exc_info=True)
+        if self._finalizer is not None:
+            self._finalizer()  # runs _release_lazy_resources at most once
 
     def __enter__(self) -> "LazyFrame":
         return self
@@ -505,7 +557,11 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
                 raise ResultTooLargeError(
                     rows=rows, byte_estimate=byte_estimate, limit_desc=config.limit_desc()
                 )
-            chunk = _dedupe_columns(chunk)
+            # _jsonify_nested_cells: SQL JSON/JSONB columns arrive as dict/list
+            # cells (psycopg2, pymysql, ...); heterogeneous values within one
+            # chunk make pa.Table.from_pandas raise ArrowInvalid and kill the
+            # whole stream. Encode them like the eager-spill path does.
+            chunk = _jsonify_nested_cells(_dedupe_columns(chunk))
             table = pa.Table.from_pandas(chunk, preserve_index=False)
             if table.num_columns == 0:
                 # Rows carrying no fields at all (e.g. Mongo docs projected to
@@ -613,49 +669,41 @@ def stream_dbapi_cursor_to_parquet(connect_cm, sql, path, config):
 def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     """Native DuckDB path: COPY the query result straight to Parquet. DuckDB
     streams to disk and never materializes the result in Python — zero ingest
-    memory. Used by DuckDB-backed clients (duckdb, qvd).
+    memory. Used by DuckDB-backed clients (duckdb, qvd, csv).
 
-    Enforces the same StreamConfig caps as the chunked streamers: a small
-    sample estimates bytes/row so the COPY's row LIMIT also respects max_bytes
-    up front — otherwise a wide result could write tens of GB to disk before
-    any check fires — then the actual row count and on-disk byte size are
-    checked. If a cap is exceeded the partial file is deleted and
-    ResultTooLargeError is raised. (The sample re-runs the query with LIMIT;
-    for DuckDB-local sources that cost is small next to the COPY itself.)
+    The query runs exactly once: a LIMIT max_rows+1 bound on the COPY enforces
+    the row cap, then row count (from Parquet footer metadata — no re-scan) and
+    on-disk size are checked post-hoc. An earlier version pre-estimated
+    bytes/row with a LIMIT-1024 sample, but that re-executed the full inner
+    pipeline (aggregations/joins don't short-circuit under LIMIT), doubling
+    the source scan on every lazy query. The trade-off: a result that blows
+    max_bytes is now detected after the write, so disk can transiently hold an
+    oversized file (bounded by the row cap) before it is deleted here.
 
     Note: the SQL below interpolates `inner` (the client-built query, same string
     that all other streamers run) and the single-quote-escaped output path. No
     end-user-supplied value is interpolated unescaped, so this is not an
     injection surface beyond what the eager query path already trusts.
     """
+    import pyarrow.parquet as pq
+
     path.parent.mkdir(parents=True, exist_ok=True)
     inner = _strip_sql_tail(sql)
     target = str(path).replace("'", "''")
+    row_cap = int(config.max_rows)
     try:
         with connect_cm() as con:
             # The newline before the closing paren guards against a trailing
             # `-- comment` on the query's last code line swallowing the paren.
-            sample_res = con.execute(f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT 1024")
-            # to_arrow_table() replaced fetch_arrow_table() in newer duckdb
-            fetch_arrow = getattr(sample_res, "to_arrow_table", None) or sample_res.fetch_arrow_table
-            sample = fetch_arrow()
-            row_cap = int(config.max_rows)
-            bytes_per_row = 0
-            if sample.num_rows:
-                bytes_per_row = max(1, sample.nbytes // sample.num_rows)
-                row_cap = min(row_cap, max(1, int(config.max_bytes) // bytes_per_row))
-            # Cap the result at row_cap + 1 so we can detect (and reject)
-            # overflow without ever writing an unbounded file to disk.
+            # LIMIT row_cap + 1 so overflow is detectable without writing an
+            # unbounded number of rows.
             bounded = f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT {row_cap + 1}"
             con.execute(f"COPY ({bounded}) TO '{target}' (FORMAT PARQUET)")
-            rows = con.execute(
-                f"SELECT COUNT(*) FROM read_parquet('{target}')"
-            ).fetchone()[0]
+        rows = int(pq.ParquetFile(str(path)).metadata.num_rows)
         disk_bytes = path.stat().st_size if path.exists() else 0
-        byte_estimate = max(disk_bytes, int(rows) * bytes_per_row)
         if rows > row_cap or disk_bytes > config.max_bytes:
             raise ResultTooLargeError(
-                rows=int(rows), byte_estimate=int(byte_estimate),
+                rows=rows, byte_estimate=int(disk_bytes),
                 limit_desc=config.limit_desc(),
             )
     except BaseException:
