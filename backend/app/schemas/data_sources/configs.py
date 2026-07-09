@@ -766,6 +766,64 @@ class PostHogConfig(BaseModel):
     )
 
 
+# Prometheus (time-series metrics via the HTTP API + PromQL)
+class PrometheusNoAuthCredentials(BaseModel):
+    # Network-gated Prometheus (VPN / internal :9090) needs no secret.
+    class Config:
+        extra = "allow"
+
+
+class PrometheusBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic auth (typically a reverse proxy in front of Prometheus).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic auth.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class PrometheusBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Sent as 'Authorization: Bearer <token>'. Used by most hosted/managed Prometheus offerings.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class PrometheusConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Prometheus server URL, including scheme and port. Example: http://prometheus:9090",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    org_id: Optional[str] = Field(
+        None,
+        title="Tenant / Org ID",
+        description="Optional 'X-Scope-OrgID' header for multi-tenant back-ends (Thanos, Cortex, Grafana Mimir).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    metric_prefix: Optional[str] = Field(
+        None,
+        title="Metric Name Filter",
+        description="Optional prefix to bound metric discovery on large instances (e.g. 'node_' or 'http_'). Leave blank to index all metrics.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
 # Databricks SQL
 class DatabricksSqlCredentials(BaseModel):
     access_token: str = Field(
