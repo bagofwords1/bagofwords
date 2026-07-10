@@ -296,8 +296,8 @@ watch(() => status.value, (newStatus, oldStatus) => {
 }
 
 @keyframes shimmer {
-	0% { background-position: -100% 0; }
-	100% { background-position: 100% 0; }
+	0% { background-position: 100% 0; }
+	100% { background-position: -100% 0; }
 }
 
 .tool-shimmer {

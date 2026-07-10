@@ -101,7 +101,7 @@ function formatBytes(n: number): string {
   color: transparent;
   animation: shimmer 2s linear infinite;
 }
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

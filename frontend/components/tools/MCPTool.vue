@@ -235,7 +235,7 @@ function toggleExpanded() {
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 .tool-shimmer {
   background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
   background-size: 200% 100%;
