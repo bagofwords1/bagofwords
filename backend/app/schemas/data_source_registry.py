@@ -42,6 +42,11 @@ from app.schemas.data_sources.configs import (
     OpenSearchCredentials,
     OpenSearchNoAuthCredentials,
     PostHogConfig,
+    # Prometheus
+    PrometheusConfig,
+    PrometheusNoAuthCredentials,
+    PrometheusBasicCredentials,
+    PrometheusBearerCredentials,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -619,6 +624,35 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.posthog_client.PostHogClient",
         version="beta",
+    ),
+    "prometheus": DataSourceRegistryEntry(
+        type="prometheus",
+        title="Prometheus",
+        description="Time-series metrics database. Query metrics and alerts with PromQL; each metric is discovered as a table.",
+        config_schema=PrometheusConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth (network-gated)",
+                    schema=PrometheusNoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "basic": AuthVariant(
+                    title="Username / Password (Basic)",
+                    schema=PrometheusBasicCredentials,
+                    scopes=["system", "user"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=PrometheusBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.prometheus_client.PrometheusClient",
+        version="beta",
+        dev_only=True,
     ),
     "databricks_sql": DataSourceRegistryEntry(
         type="databricks_sql",
