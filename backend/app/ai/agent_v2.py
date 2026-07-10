@@ -626,7 +626,7 @@ class AgentV2:
                     })
 
             return {
-                "artifact_id": str(artifact.id),
+                "result_file_id": str(artifact.id),
                 "title": artifact.title,
                 "mode": artifact.mode,
                 "version": artifact.version,
@@ -4983,6 +4983,33 @@ class AgentV2:
                         await self.project_manager.update_step_status(
                             fresh_db, step_obj, "success"
                         )
+
+                        # Result Store: the tool spilled the
+                        # FULL result to durable encrypted storage before this
+                        # hook ran; now that the file is durable AND the step
+                        # is persisted, insert the handle row (atomic-publish
+                        # ordering, D9) with step/query linkage for recall and
+                        # rerun lineage.
+                        try:
+                            spill_payload = tool_output.get("result_spill")
+                            if spill_payload and report_obj is not None:
+                                from app.services.result_store import (
+                                    ResultStore,
+                                    SpillResult,
+                                )
+                                await ResultStore().persist_handle(
+                                    fresh_db,
+                                    SpillResult.from_payload(spill_payload),
+                                    organization_id=str(report_obj.organization_id),
+                                    report_id=str(report_obj.id),
+                                    step_id=str(step_obj.id),
+                                    query_id=str(step_obj.query_id) if getattr(step_obj, "query_id", None) else None,
+                                )
+                        except Exception:
+                            logger.exception(
+                                "artifact handle persistence failed for step %s",
+                                getattr(step_obj, "id", None),
+                            )
 
                         # Emit table usage events based on the step's data model (align with legacy agent)
                         try:
