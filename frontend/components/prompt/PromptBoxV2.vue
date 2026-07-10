@@ -448,7 +448,8 @@
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
                             <button class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
-                                <Icon name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
+                                <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :icon="true" class="w-4 h-4 flex-shrink-0" />
+                                <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                                 <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
                             </button>
                         </UTooltip>
@@ -935,6 +936,10 @@ const selectedModel = ref<string>('')
 const selectedModelLabel = computed(() => {
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.name || t('prompt.selectModel')
+})
+const selectedModelProvider = computed(() => {
+    const model = models.value.find(m => m.id === selectedModel.value)
+    return model?.provider?.provider_type || null
 })
 
 // Legacy popper (for current Nuxt UI stable)
