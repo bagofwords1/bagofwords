@@ -102,6 +102,12 @@
                     <div v-if="isLoading" class="flex-1 flex items-center justify-center"><Spinner class="w-5 h-5 text-gray-400" /></div>
                     <div v-else-if="!visibleLeftItems.length" class="flex-1 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 px-4 text-center">Select a turn</div>
                     <div v-else class="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
+                        <!-- Wall-clock axis for the waterfall bars below -->
+                        <div v-if="waterfallDomain" class="flex justify-between px-1 pb-1 text-[9px] font-mono text-gray-400 dark:text-gray-500 select-none">
+                            <span>0s</span>
+                            <span>{{ formatDuration(waterfallDomain.span / 2) }}</span>
+                            <span>{{ formatDuration(waterfallDomain.span) }}</span>
+                        </div>
                         <template v-for="item in visibleLeftItems" :key="item.id">
                             <div v-if="item.kind === 'section'"
                                  class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none"
@@ -120,7 +126,29 @@
                                     <span class="text-[11px] text-gray-700 dark:text-gray-300 truncate flex-1">{{ item.title }}</span>
                                     <span v-if="getItemDurationMs(item) !== null" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
                                 </div>
-                                <div v-if="getItemDurationMs(item) !== null" class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden flex">
+                                <!-- Waterfall bar: positioned on the turn's wall clock; concurrent
+                                     tool calls show as overlapping bars. Segments: setup (gray) →
+                                     codegen LLM (purple) → execution (amber; queries darker). -->
+                                <div v-if="waterfallBar(item)" class="mt-1 relative h-1.5 rounded bg-gray-100 dark:bg-gray-800" :title="waterfallTitle(item)">
+                                    <div class="absolute inset-y-0 flex rounded-[2px] overflow-hidden"
+                                         :style="{ insetInlineStart: waterfallBar(item)!.left + '%', width: waterfallBar(item)!.width + '%' }">
+                                        <template v-if="waterfallBar(item)!.llmOnly">
+                                            <div class="h-full w-full bg-purple-400"></div>
+                                        </template>
+                                        <template v-else>
+                                            <div class="h-full bg-gray-300 dark:bg-gray-600 flex-shrink-0" :style="{ width: waterfallBar(item)!.setupPct + '%' }"></div>
+                                            <div class="h-full bg-purple-400 flex-shrink-0" :style="{ width: waterfallBar(item)!.codegenPct + '%' }"></div>
+                                            <div class="h-full bg-amber-400 flex-1"></div>
+                                        </template>
+                                    </div>
+                                    <div v-if="!waterfallBar(item)!.llmOnly" class="absolute inset-y-0"
+                                         :style="{ insetInlineStart: waterfallBar(item)!.left + '%', width: waterfallBar(item)!.width + '%' }">
+                                        <div v-for="(q, qi) in waterfallBar(item)!.queries" :key="qi"
+                                             class="absolute inset-y-0 bg-amber-600/80"
+                                             :style="{ insetInlineStart: q.left + '%', width: Math.max(q.width, 0.8) + '%' }"></div>
+                                    </div>
+                                </div>
+                                <div v-else-if="getItemDurationMs(item) !== null" class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden flex">
                                     <div class="h-full bg-purple-400" :style="{ width: barPct(itemLlmMs(item)) + '%' }"></div>
                                     <div class="h-full bg-amber-400" :style="{ width: barPct(itemExecMs(item)) + '%' }"></div>
                                 </div>
@@ -883,6 +911,90 @@ const maxItemMs = computed(() => {
     return ds.length ? Math.max(...ds, 1) : 1
 })
 const barPct = (ms: number) => (ms ? Math.max((ms / maxItemMs.value) * 100, 1) : 0)
+
+// Pane B: waterfall — bars positioned on the turn's wall clock so overlap
+// between concurrently-dispatched tool calls is visible at a glance.
+// Falls back to the relative bar above when an item has no timestamps.
+const parseTs = (v: any): number => {
+    const t = Date.parse(v || '')
+    return Number.isNaN(t) ? NaN : t
+}
+const itemWindow = (item: any): { start: number; end: number } | null => {
+    const ref = item?.ref
+    if (!ref) return null
+    const te = ref.tool_execution
+    let start = parseTs(te?.started_at)
+    if (Number.isNaN(start)) start = parseTs(ref.started_at)
+    if (Number.isNaN(start)) return null
+    let end = parseTs(te?.completed_at)
+    if (Number.isNaN(end)) end = parseTs(ref.completed_at)
+    if (Number.isNaN(end)) {
+        const dur = typeof te?.duration_ms === 'number' ? te.duration_ms
+            : (typeof ref.duration_ms === 'number' ? ref.duration_ms : null)
+        if (dur == null) return null
+        end = start + dur
+    }
+    return end >= start ? { start, end } : null
+}
+const waterfallDomain = computed(() => {
+    const wins = visibleLeftItems.value.map(itemWindow).filter(Boolean) as { start: number; end: number }[]
+    if (!wins.length) return null
+    const t0 = Math.min(...wins.map(w => w.start))
+    const span = Math.max(...wins.map(w => w.end)) - t0
+    return span > 0 ? { t0, span } : null
+})
+const waterfallBar = (item: any) => {
+    const dom = waterfallDomain.value
+    const win = itemWindow(item)
+    if (!dom || !win) return null
+    const dur = win.end - win.start
+    const left = ((win.start - dom.t0) / dom.span) * 100
+    const width = Math.max((dur / dom.span) * 100, 1.2)
+    // Segments within the bar, as % of the item's own duration:
+    // setup (lead) → codegen (purple) → execution (amber, query overlays darker).
+    const st = item?.ref?.tool_execution?.sub_timings_json || null
+    const isTool = !!item?.ref?.tool_execution
+    const codegen = Number(st?.codegen_ms) || 0
+    const exec = Number(st?.execution_ms) || 0
+    const denom = Math.max(dur, codegen + exec, 1)
+    const codegenPct = (codegen / denom) * 100
+    const execPct = (exec / denom) * 100
+    const queries: { left: number; width: number }[] = []
+    if (Array.isArray(st?.queries) && exec > 0) {
+        let cum = 0
+        for (const q of st.queries) {
+            const qm = Number(q?.query_ms) || 0
+            if (qm <= 0 || cum >= exec) continue
+            queries.push({
+                left: ((codegen + cum) / denom) * 100,
+                width: (Math.min(qm, exec - cum) / denom) * 100,
+            })
+            cum += qm
+        }
+    }
+    return {
+        left, width,
+        llmOnly: !isTool,
+        setupPct: isTool ? Math.max(100 - codegenPct - execPct, 0) : 0,
+        codegenPct: isTool ? codegenPct : 0,
+        execPct: isTool ? execPct : 0,
+        queries,
+    }
+}
+const waterfallTitle = (item: any): string => {
+    const dom = waterfallDomain.value
+    const win = itemWindow(item)
+    if (!dom || !win) return ''
+    const st = item?.ref?.tool_execution?.sub_timings_json || null
+    const parts = [
+        `+${formatDuration(win.start - dom.t0)}`,
+        `total ${formatDuration(win.end - win.start)}`,
+    ]
+    if (st?.codegen_ms != null) parts.push(`codegen ${formatDuration(st.codegen_ms)}`)
+    if (st?.execution_ms != null) parts.push(`execution ${formatDuration(st.execution_ms)}`)
+    if (Array.isArray(st?.queries) && st.queries.length) parts.push(`${st.queries.length} query(ies)`)
+    return parts.join(' · ')
+}
 
 const fetchTraceData = async () => {
     if (!props.reportId || !selectedCompletionId.value) return
