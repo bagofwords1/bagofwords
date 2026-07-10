@@ -228,6 +228,46 @@ from `tools/agent/`, which requires the repo-root `node_modules` symlink →
 `frontend/node_modules`; create it with `ln -sfn frontend/node_modules
 node_modules` — it's gitignored.)
 
+## Loop B'' — cross-provider matrix (real keys, one probe run each)
+
+`ai_tool_concurrency=5` via the org setting; backend with
+`BOW_FORCE_PARALLEL_TOOLS=1` (now honored by anthropic + openai + azure +
+responses clients; google/bedrock never send a disable flag).
+
+| Provider | Model | LLM served | Parallel emission | Concurrent dispatch | Tool success |
+|---|---|---|---|---|---|
+| Anthropic | claude-haiku-4-5 | ✓ | ✓ 5-way inspect + 5-way create | ✓ depth 5 | 10/10 (capture run) |
+| OpenAI | gpt-5.4-mini | ✓ | ✓ 5-way (stochastic: 1 of 3 runs) | ✓ depth 5 — 127s wall vs 633s sum | 0/5 — codegen guessed `orders` for `orders_N` |
+| OpenAI | gpt-5.4 | ✓ | ✗ this run (one per turn) | n/a | 6/6 green, serial |
+| Azure Foundry | gpt-5.4-mini | ✓ via Responses `/openai/v1` | ✗ this run | n/a | inspect failed (mini codegen) |
+| Google | gemini-flash-latest | ✓ | ✗ this run | n/a | create_data missing required `title` |
+| Bedrock | claude-3-5-haiku | ✗ — AWS keys rejected (`UnrecognizedClientException`) | — | — | — |
+
+Reading: the dispatch/execution layer is provider-agnostic — wherever a
+batch formed (Anthropic, OpenAI) it ran at depth 5 through the org-setting
+path with per-action blocks and attribution. Whether a batch FORMS is model
+behavior: Anthropic batches reliably under the relaxed prompt, gpt-5.4-mini
+sometimes, gpt-5.4/gemini-flash preferred serial in their single runs.
+Tool success is model codegen quality, orthogonal to concurrency.
+
+The OpenAI mini run also caught a real dispatch-semantics bug in the wild:
+all 5 batch members failing tripped the 3-strike failure breaker meant for
+consecutive failed iterations, ending the turn before the planner could
+correct the table names — fixed by counting one failed round per tool per
+batch (`_batch_failure_rollup`).
+
+Provider-specific gotchas from this leg:
+
+- Google: `gemini-2.5-flash` is retired for new users (404 with the model
+  still listed by ListModels); use `gemini-flash-latest`.
+- Azure Foundry resources have no `/openai/deployments/<name>` routing for
+  catalog models (DeploymentNotFound); they serve models by NAME on
+  `/openai/v1` — set `use_responses_api` on the provider.
+- Switching the org's serving model requires the model-level
+  `/api/llm/models/{id}/set_default`; creating a provider whose model has
+  `is_default: true` does NOT unseat the existing default (first "OpenAI"
+  run silently served on Haiku).
+
 ### Sandbox gotchas (cost us one dead run each)
 
 - **Pin `BOW_ENCRYPTION_KEY`** before the first boot. When unset, the backend
