@@ -178,7 +178,7 @@ history accumulation — a prompt-budget question, not a defect.
   "change detected" every ~30s. Reloads only trigger on `*.py`, so this is log
   noise, not a latency factor.
 
-## Candidate directions (NOT implemented — for discussion)
+## Candidate directions (as diagnosed — direction 3 has since shipped)
 
 1. **Make metering non-blocking for the query path**: fire-and-forget /
    queue the quota writes (they're already best-effort), or check quota from a
@@ -186,12 +186,40 @@ history accumulation — a prompt-budget question, not a defect.
 2. **Short lock budget for bookkeeping writes on SQLite**: a per-connection
    `busy_timeout` override (e.g. 250ms) for best-effort writers, keeping 30s
    only for correctness-critical writes.
-3. **Route metering through the single-writer session** instead of a separate
-   competing session (it exists precisely to serialize writers on SQLite).
+3. **Route metering through the single-writer flush path** instead of a
+   separate competing session — **implemented**, see Outcome below.
 4. **Commit streaming block writes promptly during tool execution** so no WAL
    writer transaction spans the 60s execution window.
 5. Prompt-budget review for post-observation planner calls (~29k tokens) —
    the dominant cost once the stall is gone.
+
+## Outcome — fix 3 implemented and verified (PR #601)
+
+`claude/fix-metering-single-writer-queue` extends the context's existing
+token/cost buffer-and-flush pattern to data-plane metering: enforcement became
+a cached read (`check_data_query`/`check_data_bytes`, same TTL +
+refresh-then-raise discipline as `check_tokens`), recording became a
+thread-safe buffer drained by the same end-of-run `flush()`; `for_source()`
+children now delegate buffers to the root context (previously the coder's
+usage sat in child buffers nothing ever flushed); the LLM usage recorder
+retries on SQLite lock instead of dropping records.
+
+Verified live with the identical prompt/stack/model:
+
+| | before | after |
+|---|---:|---:|
+| SQLite `create_data` | 64.7 s | **4.2 s** |
+| SQLite `executing_code` | 60,196 ms | **95 ms** |
+| SQLite `query_ms` (`up`) | 30,078 ms | **33 ms** |
+| SQLite data metering | dropped | **recorded** (events + counters) |
+| SQLite agent run total | 76.7 s | **15.5 s** |
+| Postgres `executing_code` | ~155 ms | ~180 ms (unchanged) |
+
+UI evidence: `assets/agent-latency/after-fix-sqlite-4.2s.png` — the same
+"Created Data" chip that read 129.6s in the original screenshot reads **4.2s**.
+The regression test (`tests/unit/test_usage_metering_buffer.py`) holds the
+SQLite writer lock and asserts a metered query returns in ms — proven FAIL
+(60s+ stall) on pre-fix code, PASS after.
 
 ## Reproduction
 
