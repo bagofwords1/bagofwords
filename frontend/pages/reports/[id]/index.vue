@@ -1993,13 +1993,32 @@ function settleScrollToBottom(maxFrames = 24) {
     requestAnimationFrame(tick)
 }
 
+// Resolve which completion block a tool.* streaming event targets.
+// Concurrent multi-tool dispatch keys every tool event by block_id, so two
+// tools streaming at once each land on their own card. Legacy events (older
+// backends, kickoff path) carry no block_id and fall back to the last block —
+// the pre-concurrency behavior.
+function resolveToolEventBlock(sysMessage: any, payload: any) {
+	const blocks = sysMessage?.completion_blocks
+	if (!blocks?.length) return undefined
+	if (payload?.block_id) {
+		const match = blocks.find((b: any) => String(b.id) === String(payload.block_id))
+		if (match) return match
+	}
+	if (payload?.tool_execution_id) {
+		const match = blocks.find((b: any) => b.tool_execution?.id === payload.tool_execution_id)
+		if (match) return match
+	}
+	return blocks[blocks.length - 1]
+}
+
 async function handleStreamingEvent(eventType: string | null, payload: any, sysMessageIndex: number) {
 	if (!eventType || sysMessageIndex === -1) return
-	
+
 	if (!messages.value[sysMessageIndex]) return
 
 	const sysMessage = messages.value[sysMessageIndex]
-	
+
 	switch (eventType) {
 		case 'completion.started':
 			// Update system message status
@@ -2149,11 +2168,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Update block to show tool execution started
 			if (payload.tool_name) {
 				// Find the most recent block and update it
-				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				const lastBlock = resolveToolEventBlock(sysMessage, payload)
 				if (lastBlock) {
 					if (!lastBlock.tool_execution) {
 						lastBlock.tool_execution = {
-							id: `temp-${Date.now()}`,
+							id: payload.tool_execution_id || `temp-${Date.now()}`,
 							tool_name: payload.tool_name,
 							status: 'running'
 						}
@@ -2222,11 +2241,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'tool.progress':
 			// Update tool execution progress on the latest block (best-effort) and stream data model deltas
 			if (payload.tool_name) {
-				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				const lastBlock = resolveToolEventBlock(sysMessage, payload)
 				if (lastBlock) {
 					if (!lastBlock.tool_execution) {
 						lastBlock.tool_execution = {
-							id: `temp-${Date.now()}`,
+							id: payload.tool_execution_id || `temp-${Date.now()}`,
 							tool_name: payload.tool_name,
 							status: 'running'
 						}
@@ -2451,7 +2470,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'tool.stdout':
 			// Capture stdout messages (errors, execution logs) for create_data / inspect_data
 			if (payload.tool_name) {
-				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				const lastBlock = resolveToolEventBlock(sysMessage, payload)
 				if (lastBlock?.tool_execution) {
 					const te = lastBlock.tool_execution as any
 					te.progress_stdout = te.progress_stdout || []
@@ -2466,7 +2485,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'tool.confirmation':
 			// Confirmation request from create_artifact / edit_artifact
 			if (payload.tool_name) {
-				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				const lastBlock = resolveToolEventBlock(sysMessage, payload)
 				if (lastBlock?.tool_execution) {
 					;(lastBlock.tool_execution as any).confirmation = payload.payload
 					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
@@ -2477,11 +2496,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'tool.partial':
 			// Streamed partial output for tools
 			if (payload.tool_name) {
-				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				const lastBlock = resolveToolEventBlock(sysMessage, payload)
 				if (lastBlock) {
 					if (!lastBlock.tool_execution) {
 						lastBlock.tool_execution = {
-							id: `temp-${Date.now()}`,
+							id: payload.tool_execution_id || `temp-${Date.now()}`,
 							tool_name: payload.tool_name,
 							status: 'running'
 						}

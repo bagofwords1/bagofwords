@@ -521,14 +521,31 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         Older observations are reduced to tool_name, summary, and referenceable
         IDs (step_id, artifact_id, visualization_ids, query_id, etc.).
         The planner can use read_query to retrieve full details if needed.
+
+        The keep-full window is iteration-aware: a parallel multi-tool
+        decision records one observation per action, all sharing a
+        loop_index. A purely count-based window (last N) would minify part
+        of the just-finished batch before the planner ever saw it — so every
+        observation from the most recent iteration stays full, however large
+        the batch.
         """
         if not past_observations:
             return []
         total = len(past_observations)
         cutoff = max(total - _RECENT_OBS_FULL, 0)
+        last_loop_index = None
+        for obs in reversed(past_observations):
+            if isinstance(obs, dict) and obs.get("loop_index") is not None:
+                last_loop_index = obs.get("loop_index")
+                break
         result = []
         for idx, obs in enumerate(past_observations):
-            if idx < cutoff:
+            keep_full = idx >= cutoff or (
+                last_loop_index is not None
+                and isinstance(obs, dict)
+                and obs.get("loop_index") == last_loop_index
+            )
+            if not keep_full:
                 # Minify: keep tool_name, execution_number, and selected keys from observation
                 minified = {
                     "tool_name": obs.get("tool_name"),

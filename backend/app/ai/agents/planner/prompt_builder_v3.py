@@ -325,17 +325,21 @@ Examples of good behavior:
   - Message: "Building the dashboard from the albums table."
   - Tool: create_artifact (reuses the existing viz_id)
 """
-        # TEMP debug toggle: BOW_FORCE_PARALLEL_TOOLS=true relaxes the
-        # one-tool-per-turn rule so the multi-tool dispatch loop can be
-        # exercised end-to-end. Default behavior unchanged.
+        # Parallel emission: driven by the org's ai_tool_concurrency setting
+        # (planner_input.parallel_tools_enabled). BOW_FORCE_PARALLEL_TOOLS
+        # remains a sandbox/ops override that forces it on regardless.
         import os as _os_for_parallel_dbg
-        if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+        if planner_input.parallel_tools_enabled or _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
             system = system.replace(
                 "HARD RULE: Emit AT MOST ONE tool_use block per response.",
-                "MULTI-TOOL OK: You MAY emit multiple tool_use blocks in one response when the requests are independent.",
+                "MULTI-TOOL: When the next step involves several INDEPENDENT operations "
+                "— e.g. the same inspection or creation repeated across different data "
+                "sources — emit ALL of them as tool_use blocks in ONE response instead "
+                "of spreading them across turns; they will run concurrently. Dependent "
+                "steps still go one per turn.",
             ).replace(
                 "at most one tool call per turn",
-                "you may emit multiple tool calls per turn when independent",
+                "emit independent tool calls together in one turn; dependent ones one per turn",
             )
         return system
 

@@ -975,6 +975,12 @@ class UsagePolicyService:
     ) -> None:
         if not context.session_maker:
             return
+        # Same gate as UsageLimitContext.add_tokens: with the feature off
+        # there is nothing to enforce, and this write is pure overhead —
+        # on SQLite it can burn the whole 30s busy_timeout PER QUERY when
+        # another writer holds the lock during code execution.
+        if not has_feature("usage_limits"):
+            return
         async with context.session_maker() as db:
             await self.consume_data_query(
                 db,
@@ -996,6 +1002,8 @@ class UsagePolicyService:
         metadata: Optional[dict] = None,
     ) -> None:
         if not context.session_maker:
+            return
+        if not has_feature("usage_limits"):
             return
         async with context.session_maker() as db:
             await self.consume_data_bytes(
