@@ -897,6 +897,10 @@ def generate_df(ds_clients, excel_files):
     with pytest.raises(UsageLimitExceeded):
         _run(executor.execute_code_async(code=code, ds_clients={"main": client}, excel_files=[]))
     assert client.calls == 1
+    # Recording is buffered on the context and persisted by flush() (the agent
+    # flushes at end of run); only the query that actually ran is recorded —
+    # the blocked one was rejected before being buffered.
+    _run(usage_ctx.flush())
     assert _run(_counter_used(
         org_id,
         user_id,
@@ -1014,6 +1018,10 @@ def generate_df(ds_clients, excel_files):
         _run(executor.execute_code_async(code=code, ds_clients={"main": client}, excel_files=[]))
     assert exc_info.value.metric == METRIC_DATA_BYTES
     assert client.calls == 2
+    # Recording is buffered on the context and persisted by flush(): both
+    # executed queries are recorded, but only the small result's bytes — the
+    # big result was rejected by the check before being buffered.
+    _run(usage_ctx.flush())
     assert _run(_counter_used(
         org_id,
         user_id,
