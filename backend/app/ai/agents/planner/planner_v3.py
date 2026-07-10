@@ -150,6 +150,7 @@ class PlannerV3:
                 thinking=thinking,
                 web_search=planner_input.web_search_enabled,
                 web_search_domains=planner_input.web_search_domains or None,
+                disable_parallel_tools=not planner_input.parallel_tools_enabled,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,

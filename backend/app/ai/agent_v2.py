@@ -2628,6 +2628,12 @@ class AgentV2:
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
+                        # Org setting drives parallel emission end-to-end: cap > 1
+                        # relaxes the one-tool-per-turn prompt rule and lifts the
+                        # provider parallel_tool_calls restriction. The knowledge
+                        # harness / title paths keep the default (False) — their
+                        # simpler loops dispatch one tool at a time.
+                        parallel_tools_enabled=self._tool_concurrency() > 1,
                     )
                     # Trim context if it exceeds the model's token budget
                     from app.ai.context.context_hub import trim_context_to_budget

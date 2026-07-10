@@ -453,6 +453,30 @@ def test_env_var_overrides_org_setting(monkeypatch):
     assert agent._tool_concurrency() == 4
 
 
+def test_parallel_emission_follows_planner_input_flag(monkeypatch):
+    """The org setting (surfaced as PlannerInput.parallel_tools_enabled)
+    relaxes the one-tool-per-turn prompt rule; no env var required."""
+    from app.schemas.ai.planner import PlannerInput
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+
+    monkeypatch.delenv("BOW_FORCE_PARALLEL_TOOLS", raising=False)
+
+    serial = PromptBuilderV3._build_system(PlannerInput(user_message="x"))
+    assert "HARD RULE: Emit AT MOST ONE tool_use block" in serial
+    assert "MULTI-TOOL" not in serial
+
+    parallel = PromptBuilderV3._build_system(
+        PlannerInput(user_message="x", parallel_tools_enabled=True)
+    )
+    assert "MULTI-TOOL" in parallel
+    assert "HARD RULE: Emit AT MOST ONE tool_use block" not in parallel
+
+    # Env var still force-enables (sandbox override) even when the flag is off.
+    monkeypatch.setenv("BOW_FORCE_PARALLEL_TOOLS", "1")
+    forced = PromptBuilderV3._build_system(PlannerInput(user_message="x"))
+    assert "MULTI-TOOL" in forced
+
+
 def _cb_outcome(tool, failed=False, skipped=False):
     obs = {"summary": "x"}
     if failed:
