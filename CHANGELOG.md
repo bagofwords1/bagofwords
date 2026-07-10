@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.0.443 (July 10, 2026)
+- **Prometheus connector (beta) (#595)** — query metrics with PromQL over the Prometheus HTTP API; each metric becomes a table.
+- **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel, gated by a new `ai_tool_concurrency` org setting (serial by default).
+- **Per-connection request rate limit (#592)** — enterprise admins can cap requests per minute/hour/day on a connection, enforced as a hard block with audit logging.
+- **Model-authored tool-call titles (#593)** — connection/external tool calls show a short human-readable label (e.g. "Searching Notion for churned customers") that streams live.
+- **WhatsApp outbound images (#590)** — charts and image files are now sent to WhatsApp as native images with captions.
+- **RTL email auto-detection (#597)** — free-form emails with Hebrew/Arabic content are automatically rendered right-to-left.
+- **LLM selector shows the model's provider icon (#596)** — the prompt-box model button reflects the selected model's provider instead of a generic icon.
+- **Zabbix connector design (#591)** — design doc for a future Zabbix data source.
+
 ## Version 0.0.442 (July 9, 2026)
 - **Fix SSO login for invited users with mismatched email casing** — invite emails are now matched case-insensitively so members can sign in via Entra/OIDC regardless of the casing the identity provider returns, and the provider's actual error is surfaced on the sign-in page.
 
