@@ -964,12 +964,7 @@ class DataSourceService:
 
         return result
 
-    # TTL for connection test cache (5 minutes)
-    CONNECTION_TEST_TTL_SECONDS = 300
-
     async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
-        from datetime import datetime, timezone
-
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports → widgets/queries/completions/…). The detail schema does
         # surface git_repository and memberships, so keep those eager. We
@@ -994,61 +989,18 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # Check if any connection needs retesting (cache expired or never tested)
-        from app.services.connection_service import ConnectionService
-        conn_service = ConnectionService()
-        stale_connections = []
-        for conn in (data_source.connections or []):
-            needs_retest = True
-            if conn.last_connection_checked_at:
-                last_checked = conn.last_connection_checked_at
-                if last_checked.tzinfo is None:
-                    last_checked = last_checked.replace(tzinfo=timezone.utc)
-                age = (datetime.now(timezone.utc) - last_checked).total_seconds()
-                needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
-            if needs_retest:
-                stale_connections.append(conn)
-
-        # Retest stale connections
-        if stale_connections:
-            try:
-                for conn in stale_connections:
-                    try:
-                        await conn_service.test_connection(
-                            db=db,
-                            connection_id=str(conn.id),
-                            organization=organization,
-                            current_user=current_user or User(),
-                        )
-                    except Exception:
-                        pass
-                # After commits in tests, relationships may be expired; reload with eager options
-                try:
-                    stmt = (
-                        select(DataSource)
-                        .options(
-                            lazyload("*"),
-                            selectinload(DataSource.git_repository),
-                            selectinload(DataSource.data_source_memberships),
-                            selectinload(DataSource.connections).options(lazyload("*")),
-                            selectinload(DataSource.primary_instruction).selectinload(InstructionModel.references),
-                        )
-                        .where(DataSource.id == data_source.id)
-                    )
-                    refreshed_res = await db.execute(stmt)
-                    data_source = refreshed_res.scalar_one()
-                except Exception:
-                    pass
-            except Exception:
-                # Non-fatal: keep serving the resource even if the live check fails
-                pass
-
-        # Build connections list - always use cached status (live_test=False)
-        # since we already tested if needed above. Batch the indexing +
-        # table-count lookups: this endpoint is polled every ~2s while an
-        # indexing run is live, and per-connection COUNTs made each poll issue
-        # 2×N queries for agents with many connections. Events stay included —
-        # the connections modal renders the live indexing log from this payload.
+        # Build connections list from CACHED status only (live_test=False).
+        # This endpoint used to live-test every connection whose cached status
+        # was older than 5 minutes — sequentially, inside the request, with no
+        # connect timeout — so an agent with 50 connections stalled for minutes
+        # (and pinned its pooled DB connection the whole time) every TTL window.
+        # Freshness is now owned by the background sweeper
+        # (connection_status_sweep.sweep_stale_connection_status); reads never
+        # dial a warehouse. Batch the indexing + table-count lookups: this
+        # endpoint is polled every ~2s while an indexing run is live, and
+        # per-connection COUNTs made each poll issue 2×N queries for agents
+        # with many connections. Events stay included — the connections modal
+        # renders the live indexing log from this payload.
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, [data_source])
         )

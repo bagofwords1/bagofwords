@@ -9,8 +9,9 @@ are merged and hold (the *list* endpoints stay fast below); the remaining
 slowness lives on three different paths that all scale with a single agent's
 connection/table volume.
 
-**Status: reproduced, root causes isolated. No fix implemented (investigation
-only).**
+**Status: reproduced, root causes isolated; causes A and B fixed (see "The
+fix" below). Cause C (`/schema` Python-side filtering) is documented but not
+yet fixed.**
 
 ## Root causes (validated)
 
@@ -217,19 +218,73 @@ re-armed every 5 minutes — "takes forever" is literal.
    autocomplete (`MentionInput.vue:1242`), so ordinary chat usage keeps
    re-detonating them.
 
-## Candidate fixes (not implemented — investigation only)
+## The fix (A and B applied)
 
-- **A:** take the live retest out of the read path (background refresher or
-  fire-and-forget task), test connections concurrently with a bounded gather,
-  set explicit connect timeouts on clients (e.g. `connect_args={"connect_timeout": 5}`),
-  dedupe concurrent sweeps per connection, and don't auto-deactivate on a
-  single failed probe.
-- **B:** make `KnowledgeExplorer.loadAgentMeta` use the paginated
-  `full_schema` branch (the tree only renders names/active flags), or add a
-  slim projection endpoint.
+- **A — reads never dial.** The stale-retest block is deleted from
+  `DataSourceService.get_data_source`; the endpoint serves the cached
+  `last_connection_status` unconditionally. Freshness moved to a background
+  sweeper, `backend/app/services/connection_status_sweep.py`
+  (`sweep_stale_connection_status`), registered in `main.py` every 5 minutes.
+  It reuses the `scheduled_reindex` machinery (`claim_scheduled_run`, one
+  worker per fire) but with its **own TTL** (`BOW_CONN_STATUS_TTL`, default
+  300s) decoupled from per-connection reindex schedules — reindex cadence is
+  daily/weekly, status wants minutes, and reactivation of an auto-deactivated
+  connection rides on the next successful test. Tests run concurrently
+  (semaphore, `BOW_CONN_STATUS_SWEEP_CONCURRENCY`, default 8), each on its own
+  short-lived session, bounded per tick (`BOW_CONN_STATUS_SWEEP_BATCH`,
+  default 200), `system_only` connections only (per-user status is resolved
+  per user at read time). Not enterprise-gated — with the read-path retest
+  gone this is what keeps badges honest on every install.
+- **B — the tree fetches one selected-only page.**
+  `KnowledgeExplorer.loadAgentMeta` now calls
+  `full_schema?page=1&page_size=500&selected_state=selected` (the paginated
+  branch pushes `is_active` into SQL) and reads `tables`/`total` from
+  `PaginatedTablesResponse`. A new `agentTableTotals` map backs the tree and
+  overview counts so they don't depend on the capped page length. Note the
+  overview "N tables" badge now counts **active** tables (previously the full
+  catalog including unselected rows).
+
+Deliberately NOT included (agreed scope): client connect timeouts (a dead
+host still costs ~2 min per dial — now only inside the background sweep) and
+the single-failure auto-deactivation guard (a blip still flips
+`is_active=False`, healing on the next successful sweep within one TTL).
+
+### Re-run — observed after the fix (same seed, same stub)
+
+| call | before | after |
+|---|---|---|
+| `GET /data_sources/{hub}`, all 50 connections stale | **60.4s** | **0.09s** |
+| `GET .../full_schema` as KnowledgeExplorer calls it | **36.1s / 199.4 MB** | **0.52s / 89 KB** (100 active tables, `total_tables=150000` intact) |
+| `/api/settings` while the above run | up to **8.7s** | **~0.003s** (flat) |
+| status refresh for 50 stale connections | in-request, sequential | background sweep, all 50 refreshed in one pass (~23s vs 60s in-request), zero requests impacted |
+
+Trigger the sweep manually to verify (the scheduled job does the same thing
+every 5 minutes):
+
+```bash
+uv run python - <<'EOF'
+import asyncio
+import app.models, pkgutil, importlib
+for _, m, _ in pkgutil.iter_modules(app.models.__path__):
+    if m != "application": importlib.import_module(f"app.models.{m}")
+from app.services.connection_status_sweep import sweep_stale_connection_status
+asyncio.run(sweep_stale_connection_status())
+EOF
+# then: SELECT count(*) FROM connections
+#       WHERE last_connection_checked_at <= datetime('now','-300 seconds')  → 0
+```
+
+## Remaining candidate fixes (not implemented)
+
 - **C:** push the `is_active` filter into SQL in `DataSource.get_schemas`
-  (as `SchemaContextBuilder.build` already does) so `/schema` and
+  (as `SchemaContextBuilder.build` already does) so `/schema` (mention
+  autocomplete, agent flyout — still **22.9s** at this shape) and
   `prompt_schema` stop hydrating the inactive catalog.
+- Client connect timeouts (e.g. `connect_args={"connect_timeout": 5}`) so the
+  background sweep isn't bounded by the ~2-minute OS TCP timeout per dead
+  host.
+- Auto-deactivation guard: require consecutive failures before flipping
+  `is_active=False` on `system_only` connections.
 - Detail payload: drop `indexing.events` from `GET /data_sources/{id}` unless
   an indexing run is live (1.5 MB per fetch with 50 connections).
 

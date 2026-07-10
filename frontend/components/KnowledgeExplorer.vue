@@ -159,7 +159,7 @@
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? (activeTables(agent.id).length || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -352,7 +352,7 @@
 
             <!-- Counts (clean) -->
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }) }}</span>
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }) }}</span>
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }) }}</span>
@@ -985,6 +985,9 @@ const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSourc
 
 const expanded = ref<Set<string>>(new Set())
 const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
+// Active-table totals from the paginated response — the fetched rows are
+// capped at one page, so counts must not rely on array length.
+const agentTableTotals = ref<Record<string, number>>({})
 const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
@@ -2188,7 +2191,16 @@ const onGitChanged = () => { fetchGitStatus(); fetchAll() }
 const loadAgentMeta = async (id: string) => {
   if (agentLoaded.value.has(id)) return
   agentLoaded.value.add(id)
-  try { const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema`, { method: 'GET' }); const items = Array.isArray(data.value) ? data.value : (data.value?.items || []); agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false })) } catch { agentTables.value[id] = [] }
+  try {
+    // Paginated + selected-only: the tree renders active tables only, and the
+    // unpaginated legacy branch hydrates the ENTIRE catalog (150k rows / ~200MB
+    // on a 50-connection agent — see docs/feedback-loops/agents-hub-agent-many-connections.md).
+    const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema?page=1&page_size=500&selected_state=selected&sort_by=name&sort_dir=asc`, { method: 'GET' })
+    const v: any = data.value
+    const items = Array.isArray(v) ? v : (v?.tables || v?.items || [])
+    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false }))
+    agentTableTotals.value[id] = typeof v?.total === 'number' ? v.total : agentTables.value[id].length
+  } catch { agentTables.value[id] = []; delete agentTableTotals.value[id] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
   agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }; agentFiles.value = { ...agentFiles.value }
