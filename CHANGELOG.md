@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.444 (July 10, 2026)
+- **Result Store (#594)** — large tool results are no longer truncated to the widget preview: the complete dataset is spilled to an encrypted, immutable, sliceable payload on shared storage. The agent can page, grep, project, time-window, or run bounded SELECT-only SQL over the full result via `read_query`; sandbox `load_step()` loads full-fidelity data for joins; and a new `GET /queries/{id}/default_step/data` endpoint pages the full payload over HTTP. Per-file AES-256 encryption with crypto-shred retention (`expires_at` + `purge_expired()`), rerun lineage via `superseded_by`, and an `enable_result_store` org setting (lab, default on).
+- **Splunk and Elasticsearch connector design plans (#603)** — design docs for two upcoming data source connectors (Splunk: index+sourcetype virtual tables with SPL over the async search-jobs API; Elasticsearch: mapping-as-schema fork of the OpenSearch client), plus a shared docker-compose verification harness with seed scripts under `tools/splunk/` and `tools/elastic/`.
+
 ## Version 0.0.443 (July 10, 2026)
 - **Prometheus connector (#595)** — query metrics with PromQL over the Prometheus HTTP API; each metric becomes a table.
 - **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel (e.g. `create_data` across several sources), controlled by the `ai_tool_concurrency` org setting (defaults to 4; set to 1 for serial).
