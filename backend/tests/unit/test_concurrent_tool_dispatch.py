@@ -453,6 +453,42 @@ def test_env_var_overrides_org_setting(monkeypatch):
     assert agent._tool_concurrency() == 4
 
 
+def _cb_outcome(tool, failed=False, skipped=False):
+    obs = {"summary": "x"}
+    if failed:
+        obs["error"] = {"code": "runtime_error", "message": "boom"}
+    return {"tool_name": tool, "observation": obs, "skipped": skipped}
+
+
+def test_batch_failure_rollup_counts_batches_not_actions():
+    # A 5-action batch of the same tool all failing = ONE failed round,
+    # not five: it must NOT trip the 3-strike breaker on its own.
+    outcomes = [_cb_outcome("inspect_data", failed=True) for _ in range(5)]
+    rollup = AgentV2._batch_failure_rollup(outcomes)
+    assert rollup == {"inspect_data": True}
+
+    failed_tool_count = {}
+    for _ in range(2):  # two consecutive all-failed batches
+        for tn, failed in AgentV2._batch_failure_rollup(outcomes).items():
+            if failed:
+                failed_tool_count[tn] = failed_tool_count.get(tn, 0) + 1
+            else:
+                failed_tool_count.pop(tn, None)
+    assert failed_tool_count == {"inspect_data": 2}  # still below 3
+
+
+def test_batch_failure_rollup_any_success_resets():
+    outcomes = [
+        _cb_outcome("inspect_data", failed=True),
+        _cb_outcome("inspect_data", failed=False),
+        _cb_outcome("create_data", failed=True),
+    ]
+    rollup = AgentV2._batch_failure_rollup(outcomes)
+    assert rollup == {"inspect_data": False, "create_data": True}
+    # skipped outcomes don't count either way
+    assert AgentV2._batch_failure_rollup([_cb_outcome("x", skipped=True)]) == {}
+
+
 @pytest.mark.asyncio
 async def test_dispatch_uses_org_setting_concurrency(monkeypatch):
     """End-to-end through _dispatch_action_batch: the org setting alone

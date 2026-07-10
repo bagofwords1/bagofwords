@@ -2016,6 +2016,24 @@ class AgentV2:
             return []
 
     @staticmethod
+    def _batch_failure_rollup(outcomes: list) -> dict:
+        """Per-tool failure verdict for one dispatched batch.
+
+        Returns {tool_name: all_actions_failed}. Used by the failure circuit
+        breaker so a batch counts as at most ONE failed round per tool — the
+        breaker's threshold means consecutive failed planner iterations, and
+        any success within the batch resets the streak (matching the serial
+        loop, where a later success deleted the counter)."""
+        rollup: dict = {}
+        for _o in outcomes:
+            if not _o or _o.get("skipped"):
+                continue
+            _tn = _o.get("tool_name")
+            _failed = _observation_failed(_o.get("observation"))
+            rollup[_tn] = rollup.get(_tn, True) and _failed
+        return rollup
+
+    @staticmethod
     def _aggregate_batch_observation(outcomes: list, dropped_actions: list) -> Optional[dict]:
         """Build the planner-facing observation for a dispatched batch.
 
@@ -3764,24 +3782,34 @@ class AgentV2:
                         )
 
                         # ---- Aggregate outcomes (in action order, matching serial semantics) ----
+                        # Failure circuit breaker counts PER BATCH, not per action:
+                        # the 3-strike threshold means "consecutive failed planner
+                        # iterations". Counting each batch member would let a single
+                        # 5-action batch (e.g. the model guessed a wrong table name
+                        # in all five) trip the breaker and end the turn before the
+                        # planner ever sees the errors and corrects course. A tool
+                        # counts one failed round only when ALL its actions in the
+                        # batch failed; any success resets it (serial parity: one
+                        # action behaves exactly as before).
+                        for _tn, _fails in self._batch_failure_rollup(outcomes).items():
+                            if _fails:
+                                failed_tool_count[_tn] = failed_tool_count.get(_tn, 0) + 1
+                            else:
+                                failed_tool_count.pop(_tn, None)
                         for _o in outcomes:
                             if _o.get("skipped"):
                                 continue
                             _obs = _o.get("observation")
                             _tn = _o.get("tool_name")
                             _ti_args = _o.get("tool_input")
-                            # Circuit breaker: track repeated tool failures
                             if _observation_failed(_obs):
-                                failed_tool_count[_tn] = failed_tool_count.get(_tn, 0) + 1
-                                if failed_tool_count[_tn] >= max_tool_failures:
+                                if failed_tool_count.get(_tn, 0) >= max_tool_failures:
                                     analysis_done = True
                                     _obs.update({
                                         "analysis_complete": True,
                                         "final_answer": f"Unable to complete the task. The {_tn} tool failed {failed_tool_count[_tn]} times with errors. Please check the tool configuration or try a different approach."
                                     })
                             else:
-                                if _tn in failed_tool_count:
-                                    del failed_tool_count[_tn]
                                 action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                 successful_tool_actions.append(action_signature)
                                 if len(successful_tool_actions) >= max_repeated_successes:
