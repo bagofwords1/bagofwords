@@ -423,7 +423,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
         requires_license="enterprise",
-        version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
         type="MSSQL",
@@ -651,7 +650,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.prometheus_client.PrometheusClient",
-        version="beta",
         dev_only=True,
     ),
     "databricks_sql": DataSourceRegistryEntry(
