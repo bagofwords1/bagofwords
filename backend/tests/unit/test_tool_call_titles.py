@@ -123,3 +123,30 @@ def test_title_is_optional_at_construction(tool_cls):
 
     model = input_model(**base)  # no title
     assert model.model_dump().get("title") is None
+
+
+# --- streaming: the title is surfaced token-by-token from partial tool input ---
+
+from app.ai.agents.planner.planner_v3 import _extract_streaming_title
+
+
+def test_streaming_title_from_complete_input():
+    buf = '{"connection_id":"c","tool_name":"notion_search","title":"Searching Notion"}'
+    assert _extract_streaming_title(buf) == "Searching Notion"
+
+
+def test_streaming_title_from_partial_input():
+    """A mid-stream buffer yields the prefix generated so far."""
+    assert _extract_streaming_title('{"tool_name":"x","title":"Searching No') == "Searching No"
+
+
+def test_streaming_title_absent_until_field_appears():
+    # title not in the buffer yet, or opened but empty
+    assert _extract_streaming_title('{"url":"https://example.com"') is None
+    assert _extract_streaming_title('{"title":"') is None
+
+
+def test_streaming_title_decodes_escapes():
+    assert _extract_streaming_title('{"title":"Reading the \\"Q3\\" sheet"}') == 'Reading the "Q3" sheet'
+    # a dangling escape mid-stream must not crash — it's dropped
+    assert _extract_streaming_title('{"title":"Reading \\') == "Reading "
