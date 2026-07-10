@@ -5,7 +5,7 @@ import os
 import time as _time
 import uuid as _uuid_mod
 from datetime import datetime
-from contextlib import asynccontextmanager, AsyncExitStack
+from contextlib import asynccontextmanager
 from typing import Dict, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
@@ -1997,25 +1997,6 @@ class AgentV2:
         )
 
     @staticmethod
-    def _action_data_source_keys(action) -> list:
-        """Data-source ids an action targets (from tables_by_source), used to
-        serialize same-source invocations: two concurrent calls against the
-        same source share one client object whose thread-safety is
-        client-class dependent. Distinct sources may overlap freely."""
-        try:
-            args = getattr(action, "arguments", None) or {}
-            tbs = args.get("tables_by_source") or []
-            keys = []
-            for entry in tbs:
-                if isinstance(entry, dict):
-                    ds = entry.get("data_source_id") or entry.get("data_source")
-                    if ds:
-                        keys.append(str(ds))
-            return sorted(set(keys))
-        except Exception:
-            return []
-
-    @staticmethod
     def _batch_failure_rollup(outcomes: list) -> dict:
         """Per-tool failure verdict for one dispatched batch.
 
@@ -2121,11 +2102,18 @@ class AgentV2:
         run_one(tool_index, action, block_id, inv) -> outcome dict.
 
         Concurrency policy:
-        - cap comes from BOW_AGENT_TOOL_CONCURRENCY (default 1 = serial);
+        - cap comes from the ai_tool_concurrency org setting (env override);
         - a batch containing any tool outside _PARALLEL_SAFE_TOOLS runs
           serial regardless of the cap (unaudited side-effects);
-        - actions sharing a data source serialize on a per-source lock
-          (shared client objects; thread-safety is driver-dependent);
+        - same-source actions overlap freely. A per-source lock used to
+          serialize them on the assumption that the shared client object
+          might not be thread-safe; a sweep of the connector clients showed
+          execute_query opens a fresh connection (or issues a fresh HTTP
+          request) per call, and same-source queries already run
+          concurrently across completions with no coordination — so the
+          lock guarded nothing and made single-source workspaces (the
+          common case) fully serial. Any genuinely stateful client (e.g.
+          verticapy's module-level connection) must guard internally.
         - a crashed action becomes an error outcome, never a lost one.
         """
         concurrency = 1
@@ -2159,7 +2147,6 @@ class AgentV2:
             ", ".join(a.name for a in actions_list),
         )
         sem = asyncio.Semaphore(concurrency)
-        source_locks: dict = {}
 
         async def _guarded(_ti: int, _act, _bid):
             async with sem:
@@ -2170,16 +2157,9 @@ class AgentV2:
                         "action": _act, "skipped": True, "inv": None,
                         "observation": {"summary": "Stopped before execution", "stopped": True},
                     }
-                async with AsyncExitStack() as stack:
-                    # Same-source invocations serialize. Keys are pre-sorted
-                    # so multi-source actions can't deadlock.
-                    for _k in self._action_data_source_keys(_act):
-                        await stack.enter_async_context(
-                            source_locks.setdefault(_k, asyncio.Lock())
-                        )
-                    return await run_one(
-                        _ti, _act, _bid, self._new_invocation_state(_act.name),
-                    )
+                return await run_one(
+                    _ti, _act, _bid, self._new_invocation_state(_act.name),
+                )
 
         results = await asyncio.gather(
             *(
