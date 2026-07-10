@@ -230,8 +230,15 @@ by reference. Per-invocation `QueryCapturingClientWrapper`s are fresh
    become parameters/returns instead of loop-shared variables.
 2. **Dispatch**: `asyncio.Semaphore(cap)` wrapping each action;
    `results = await asyncio.gather(*coros, return_exceptions=True)`.
-   Cap via env (e.g. `BOW_AGENT_TOOL_CONCURRENCY`, default 1 = today's
-   behavior, so the rollout is a config flip, not a behavior change).
+   Two distinct limits (decided):
+   - **Accept-cap**: at most **10** actions honored per decision (constant).
+     Beyond 10, truncate and tell the planner via the observation
+     ("N more actions were not executed; re-issue them") — never silently.
+   - **In-flight cap**: an **org setting** `ai_tool_concurrency`
+     (`FeatureConfig` in `organization_settings_schema.py`, read via
+     `organization_settings.get_config("ai_tool_concurrency").value` like
+     `limit_row_count`), default **1** = today's behavior, recommended max 4–5
+     (must stay well under `_CODE_EXEC_POOL`'s 8 shared workers).
    Group actions by data source and keep per-source concurrency at 1 (B7).
 3. **DB discipline**: keep one writer. Wrap every DB-touching section inside
    `_run_single_action` with a shared `asyncio.Lock` (or route through the
@@ -245,9 +252,23 @@ by reference. Per-invocation `QueryCapturingClientWrapper`s are fresh
 5. **SSE identity** (B4): add `block_id` + `tool_execution_id` to
    `tool.started/progress/stdout/partial/error`; update the frontend handlers
    to id-routing with lastBlock fallback.
-6. **Observation aggregation** (B6): `last_observation` becomes
-   `{"parallel_actions": [{tool_name, arguments, observation}, ...]}` (or a
-   compact merged summary) when N>1; circuit breakers evaluated post-gather.
+6. **Observation aggregation & context policy** (B6, decided):
+   - `last_observation` becomes a compact aggregate when N>1:
+     `{"parallel_actions": [{tool_name, data_source, summary, step_id/query_id,
+     error}, ...]}` — summaries + referenceable ids, not N full payloads.
+   - Observations are recorded in **tool_index order**, not completion order —
+     deterministic prompts (cache-friendly, reproducible tests).
+   - `_compact_past_observations` keeps the last `_RECENT_OBS_FULL = 5`
+     observations full (`prompt_builder.py:17,518-544`) — a count-based window
+     that would minify half of a 10-action batch before the planner sees it.
+     Make it **iteration-aware**: keep the last iteration's whole batch full,
+     minify prior iterations.
+   - Per-observation size budget for batch members (inspect_data observations
+     with df samples run 1–4k tokens each; 10×/iteration compounds fast);
+     `trim_context_to_budget` stays as the backstop, with a scale test
+     asserting planner input fits the model window with 10 fat observations.
+   - `messages_context` is structurally unaffected (one system completion per
+     turn; planner receives a single synthesized user message).
 7. **Rescope `_STDOUT_REDIRECT_LOCK`** (B1): per-thread stdout proxy installed
    once at import; delete the lock (or shrink it to the proxy install). This
    is independently valuable — it currently serializes code exec across
@@ -369,8 +390,9 @@ Loop B in the feedback-loop doc.
 
 ### Phase 2 — Concurrent dispatch core (opt-in)
 
-- `asyncio.Semaphore` + `gather(return_exceptions=True)`;
-  `BOW_AGENT_TOOL_CONCURRENCY` (default **1**).
+- `asyncio.Semaphore` + `gather(return_exceptions=True)`; in-flight cap from
+  the org setting `ai_tool_concurrency` (default **1**); accept-cap 10
+  actions/decision with truncation surfaced to the planner.
 - Group actions by `data_source_id` from `tables_by_source`; per-source
   concurrency stays 1 (B7).
 - Shared `asyncio.Lock` around DB-touching sections inside
