@@ -32,6 +32,13 @@ from app.schemas.data_sources.configs import (
     ZabbixConfig,
     ZabbixTokenCredentials,
     ZabbixUserPassCredentials,
+    ElasticsearchConfig,
+    ElasticsearchApiKeyCredentials,
+    ElasticsearchCredentials,
+    ElasticsearchNoAuthCredentials,
+    SplunkConfig,
+    SplunkTokenCredentials,
+    SplunkUserPassCredentials,
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
@@ -423,6 +430,45 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
         requires_license="enterprise",
+    ),
+    "elasticsearch": DataSourceRegistryEntry(
+        type="elasticsearch",
+        title="Elasticsearch",
+        description="Search & observability engine. Investigate logs and metrics across indices, patterns, and data streams with the query DSL, aggregations, SQL, or ES|QL.",
+        config_schema=ElasticsearchConfig,
+        credentials_auth=AuthOptions(
+            default="apikey",
+            by_auth={
+                # API key (Bearer-style ApiKey header) — recommended for ES 8.x.
+                "apikey": AuthVariant(title="API Key", schema=ElasticsearchApiKeyCredentials, scopes=["system", "user"]),
+                # HTTP basic — elastic superuser / role user.
+                "userpass": AuthVariant(title="Username / Password", schema=ElasticsearchCredentials, scopes=["system", "user"]),
+                # Security disabled / network-gated dev clusters.
+                "none": AuthVariant(title="No Authentication", schema=ElasticsearchNoAuthCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.elasticsearch_client.ElasticsearchClient",
+        is_document_based=True,
+        data_shape="objects",
+        version="beta",
+    ),
+    "splunk": DataSourceRegistryEntry(
+        type="splunk",
+        title="Splunk",
+        description="Log & observability platform. Investigate events across indexes and sourcetypes with SPL — search, stats, and timechart over machine data.",
+        config_schema=SplunkConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                # Splunk authentication token (Bearer) — recommended, incl. Splunk Cloud.
+                "token": AuthVariant(title="Authentication Token", schema=SplunkTokenCredentials, scopes=["system", "user"]),
+                # Username / password over the management port — older on-prem installs.
+                "userpass": AuthVariant(title="Username / Password", schema=SplunkUserPassCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.splunk_client.SplunkClient",
+        requires_license="enterprise",
+        version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
         type="MSSQL",
