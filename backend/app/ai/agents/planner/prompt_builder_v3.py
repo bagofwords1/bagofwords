@@ -331,10 +331,14 @@ Examples of good behavior:
         if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
             system = system.replace(
                 "HARD RULE: Emit AT MOST ONE tool_use block per response.",
-                "MULTI-TOOL OK: You MAY emit multiple tool_use blocks in one response when the requests are independent.",
+                "MULTI-TOOL: When the next step involves several INDEPENDENT operations "
+                "— e.g. the same inspection or creation repeated across different data "
+                "sources — emit ALL of them as tool_use blocks in ONE response instead "
+                "of spreading them across turns; they will run concurrently. Dependent "
+                "steps still go one per turn.",
             ).replace(
                 "at most one tool call per turn",
-                "you may emit multiple tool calls per turn when independent",
+                "emit independent tool calls together in one turn; dependent ones one per turn",
             )
         return system
 
