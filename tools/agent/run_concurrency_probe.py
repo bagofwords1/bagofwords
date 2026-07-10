@@ -128,12 +128,28 @@ def ensure_llm_provider(client, token, org_id, provider, *, stub_base_url=None):
         if r.status_code != 200:
             sys.exit(f"{provider} provider create failed: {r.status_code} {r.text}")
         existing = r.json()
-    pid = existing.get("id")
-    if pid:
-        r = client.post(f"/api/llm/providers/{pid}/set_default", headers=auth(token, org_id))
-        if r.status_code != 200:
-            print(f"[probe] warning: set_default {provider} -> {r.status_code} {r.text[:200]}")
-    print(f"[probe] provider: {name} (model {spec['model_id']})")
+    # Make this provider's model the org default (model-level endpoint).
+    # Creating a provider with is_default=True does NOT unseat an existing
+    # default, and completions run on the org default model.
+    r = client.get("/api/llm/models", headers=auth(token, org_id))
+    models = r.json() if r.status_code == 200 else []
+    target = next(
+        (m for m in models
+         if m.get("model_id") == spec["model_id"]
+         and (m.get("provider") or {}).get("name") == name),
+        None,
+    ) or next((m for m in models if m.get("model_id") == spec["model_id"]), None)
+    if not target:
+        sys.exit(f"model {spec['model_id']} not found after provider create")
+    r = client.post(f"/api/llm/models/{target['id']}/set_default", headers=auth(token, org_id))
+    if r.status_code != 200:
+        sys.exit(f"set_default model {spec['model_id']} failed: {r.status_code} {r.text}")
+    # Verify: the org default must now be the requested model.
+    models = client.get("/api/llm/models", headers=auth(token, org_id)).json()
+    default = next((m for m in models if m.get("is_default")), None)
+    if not default or default.get("model_id") != spec["model_id"]:
+        sys.exit(f"default model is {default and default.get('model_id')}, expected {spec['model_id']}")
+    print(f"[probe] provider: {name} (default model {spec['model_id']})")
 
 
 def set_org_concurrency(client, token, org_id, value):
