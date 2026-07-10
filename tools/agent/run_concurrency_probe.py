@@ -81,6 +81,21 @@ def ensure_llm_provider(client, token, org_id, *, stub_base_url=None, anthropic=
         sys.exit(f"stub provider create failed: {r.status_code} {r.text}")
 
 
+def set_org_concurrency(client, token, org_id, value):
+    """Set the ai_tool_concurrency org setting through the real API — the
+    production path for choosing the in-flight cap (the env var is only an
+    ops/sandbox override)."""
+    r = client.put(
+        "/api/organization/settings",
+        headers=auth(token, org_id),
+        json={"config": {"ai_tool_concurrency": {"value": int(value)}}},
+    )
+    if r.status_code != 200:
+        sys.exit(f"setting ai_tool_concurrency={value} failed: {r.status_code} {r.text}")
+    cfg = (r.json().get("config") or {}).get("ai_tool_concurrency") or {}
+    print(f"[probe] org setting ai_tool_concurrency={cfg.get('value')}")
+
+
 def timeline(db_path, completion_created_after):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -137,6 +152,8 @@ def main():
     p.add_argument("--stub", action="store_true", help="use the local stub LLM")
     p.add_argument("--stub-base-url", default="http://127.0.0.1:9099/v1")
     p.add_argument("--anthropic", action="store_true", help="use ANTHROPIC_API_KEY + Haiku")
+    p.add_argument("--concurrency", type=int, default=None,
+                   help="set the ai_tool_concurrency org setting via the API before running")
     p.add_argument("--iterations", type=int, default=1, help="completions to run")
     p.add_argument("--prompt", default="Inspect the orders table in every connected data source, then create a per-region summary for each source.")
     p.add_argument("--report-id", default=None, help="reuse an existing report instead of creating one")
@@ -150,6 +167,8 @@ def main():
     org_id = client.get("/api/organizations", headers=auth(token)).json()[0]["id"]
 
     ensure_llm_provider(client, token, org_id, stub_base_url=args.stub_base_url, anthropic=args.anthropic)
+    if args.concurrency is not None:
+        set_org_concurrency(client, token, org_id, args.concurrency)
 
     sources = client.get("/api/data_sources", headers=auth(token, org_id)).json()
     probe_sources = [s for s in sources if s["name"].startswith("sqlite_source_")]
@@ -168,7 +187,7 @@ def main():
         if r.status_code != 200:
             sys.exit(f"report create failed: {r.status_code} {r.text}")
         report_id = r.json()["id"]
-    print(f"[probe] report: {report_id}  (BOW_AGENT_TOOL_CONCURRENCY={os.environ.get('BOW_AGENT_TOOL_CONCURRENCY', 'unset')})")
+    print(f"[probe] report: {report_id}  (env override BOW_AGENT_TOOL_CONCURRENCY={os.environ.get('BOW_AGENT_TOOL_CONCURRENCY', 'unset')})")
 
     results = []
     for it in range(args.iterations):

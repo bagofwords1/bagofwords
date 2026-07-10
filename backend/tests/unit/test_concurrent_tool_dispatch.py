@@ -10,7 +10,8 @@ Covers the concurrency machinery introduced for parallel tool execution:
   propagation, accept-cap `not_executed` reporting.
 - `Agent._adopt_invocation_outcomes` / `_new_invocation_state`: reset-scope
   semantics and last-writer adoption.
-- Env caps: BOW_AGENT_TOOL_CONCURRENCY / BOW_AGENT_MAX_ACTIONS_PER_DECISION.
+- Caps: ai_tool_concurrency org setting (BOW_AGENT_TOOL_CONCURRENCY env
+  override) / BOW_AGENT_MAX_ACTIONS_PER_DECISION.
 - `ToolRunner`: per-tool validation-failure streaks (no cross-tool resets).
 - Observation history: same-iteration observations stay full; the planner
   prompt compaction keeps the whole last batch full regardless of size.
@@ -24,6 +25,7 @@ CI-safe. The real-environment leg lives in the sandbox feedback loop doc.
 import asyncio
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel
@@ -393,23 +395,77 @@ def test_action_data_source_keys_dedupes_and_sorts():
 
 
 # ---------------------------------------------------------------------------
-# Env caps
+# Concurrency caps: org setting + env override
 # ---------------------------------------------------------------------------
+
+class FakeOrgSettings:
+    """Minimal organization_settings stand-in exposing get_config()."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def get_config(self, key, default=None):
+        assert key == "ai_tool_concurrency"
+        return SimpleNamespace(value=self._value)
+
 
 def test_caps_defaults_and_clamps(monkeypatch):
     monkeypatch.delenv("BOW_AGENT_TOOL_CONCURRENCY", raising=False)
     monkeypatch.delenv("BOW_AGENT_MAX_ACTIONS_PER_DECISION", raising=False)
-    assert AgentV2._tool_concurrency() == 1
+    agent = make_agent()
+    assert agent._tool_concurrency() == 1  # no org settings, no env -> serial
     assert AgentV2._max_actions_per_decision() == 10
 
     monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "100")
-    assert AgentV2._tool_concurrency() <= 8  # never above the code-exec pool
+    assert agent._tool_concurrency() <= 8  # never above the code-exec pool
 
     monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "garbage")
-    assert AgentV2._tool_concurrency() == 1
+    assert agent._tool_concurrency() == 1
 
     monkeypatch.setenv("BOW_AGENT_MAX_ACTIONS_PER_DECISION", "0")
     assert AgentV2._max_actions_per_decision() >= 1
+
+
+def test_org_setting_governs_concurrency(monkeypatch):
+    monkeypatch.delenv("BOW_AGENT_TOOL_CONCURRENCY", raising=False)
+    agent = make_agent()
+
+    agent.organization_settings = FakeOrgSettings(4)
+    assert agent._tool_concurrency() == 4
+
+    # Clamped to the code-exec pool ceiling and to >= 1
+    agent.organization_settings = FakeOrgSettings(100)
+    assert agent._tool_concurrency() == 8
+    agent.organization_settings = FakeOrgSettings(0)
+    assert agent._tool_concurrency() == 1
+    agent.organization_settings = FakeOrgSettings(None)
+    assert agent._tool_concurrency() == 1
+    agent.organization_settings = FakeOrgSettings("not-a-number")
+    assert agent._tool_concurrency() == 1
+
+
+def test_env_var_overrides_org_setting(monkeypatch):
+    agent = make_agent()
+    agent.organization_settings = FakeOrgSettings(4)
+    monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "2")
+    assert agent._tool_concurrency() == 2
+    monkeypatch.delenv("BOW_AGENT_TOOL_CONCURRENCY", raising=False)
+    assert agent._tool_concurrency() == 4
+
+
+@pytest.mark.asyncio
+async def test_dispatch_uses_org_setting_concurrency(monkeypatch):
+    """End-to-end through _dispatch_action_batch: the org setting alone
+    (no env var) must produce genuine overlap."""
+    monkeypatch.delenv("BOW_AGENT_TOOL_CONCURRENCY", raising=False)
+    agent = make_agent()
+    agent.organization_settings = FakeOrgSettings(5)
+    tracker = OverlapTracker()
+    actions = actions_for_sources("inspect_data", [f"ds{i}" for i in range(5)])
+    outcomes = await agent._dispatch_action_batch(actions, [None] * 5, tracker.runner(sleep_s=0.1))
+    assert len(outcomes) == 5
+    assert tracker.max_in_flight > 1
+    assert tracker.max_in_flight <= 5
 
 
 # ---------------------------------------------------------------------------

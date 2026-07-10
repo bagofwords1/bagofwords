@@ -1963,12 +1963,21 @@ class AgentV2:
         reported back to the planner as not-executed so it can re-issue them."""
         return _env_int("BOW_AGENT_MAX_ACTIONS_PER_DECISION", 10, 1, 32)
 
-    @staticmethod
-    def _tool_concurrency() -> int:
+    def _tool_concurrency(self) -> int:
         """In-flight cap for concurrent tool invocations within one decision.
-        Default 1 (serial — today's behavior). Kept well below the process-wide
-        code-exec pool (min(8, cpu*2)) which is shared by ALL completions."""
-        return _env_int("BOW_AGENT_TOOL_CONCURRENCY", 1, 1, 8)
+        The org setting `ai_tool_concurrency` governs (default 1 = serial —
+        today's behavior); the BOW_AGENT_TOOL_CONCURRENCY env var, when set,
+        overrides it (sandbox/ops escape hatch). Kept well below the
+        process-wide code-exec pool (min(8, cpu*2)) shared by ALL completions."""
+        if (os.environ.get("BOW_AGENT_TOOL_CONCURRENCY") or "").strip():
+            return _env_int("BOW_AGENT_TOOL_CONCURRENCY", 1, 1, 8)
+        try:
+            settings = getattr(self, "organization_settings", None)
+            cfg = settings.get_config("ai_tool_concurrency") if settings else None
+            val = int(getattr(cfg, "value", 1) or 1)
+        except (TypeError, ValueError):
+            val = 1
+        return max(1, min(8, val))
 
     def _new_invocation_state(self, tool_name: str) -> ToolInvocationState:
         """Fresh per-invocation created-objects scope.
