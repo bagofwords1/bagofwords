@@ -292,8 +292,15 @@
 								/>
 											</div>
 
+											<!-- Parallel batch chip: shown once, above the first tool card of a concurrent batch -->
+											<div v-if="block.tool_execution && parallelBatchChip(m, block)" class="flex items-center gap-1 mt-1.5 mb-0.5 text-[11px] text-gray-500 dark:text-gray-400 select-none">
+												<Icon name="heroicons:bolt" class="w-3 h-3 text-amber-500" />
+												<span v-if="parallelBatchChip(m, block)!.running">{{ $t('reportView.parallelBatchRunning', { count: parallelBatchChip(m, block)!.count, done: parallelBatchChip(m, block)!.done }) }}</span>
+												<span v-else-if="parallelBatchChip(m, block)!.duration">{{ $t('reportView.parallelBatchDone', { count: parallelBatchChip(m, block)!.count, duration: parallelBatchChip(m, block)!.duration }) }}</span>
+												<span v-else>{{ $t('reportView.parallelBatchDoneNoTime', { count: parallelBatchChip(m, block)!.count }) }}</span>
+											</div>
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-											<div v-if="block.tool_execution" class="tool-execution-container" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
+											<div v-if="block.tool_execution" class="tool-execution-container" :class="isParallelBatchMember(m, block) ? 'border-s-2 border-amber-200 dark:border-gray-700 ps-3 ms-0.5' : ''" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
@@ -327,7 +334,7 @@
 											</div>
 											
 											<!-- Tool widget preview -->
-											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+											<div class="mt-1" :class="isParallelBatchMember(m, block) ? 'border-s-2 border-amber-200 dark:border-gray-700 ps-3 ms-0.5' : ''" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
@@ -1569,6 +1576,66 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 
 function hasClarifyBlock(m: ChatMessage): boolean {
 	return (m.completion_blocks || []).some(b => b.tool_execution?.tool_name === 'clarify')
+}
+
+// --- Parallel multi-tool batches ---
+// One planner decision can dispatch several tool calls concurrently. Its
+// sub-blocks all reference the same plan decision (tool_execution.plan_decision_id),
+// ordered by block_index (decision_seq * 100 + tool_index). A batch is 2+
+// tool blocks of one decision; single-tool turns render exactly as before.
+function parallelBatchMembers(m: ChatMessage, block: any): any[] {
+	const decisionId = block?.tool_execution?.plan_decision_id
+	if (!decisionId) return []
+	const members = (m.completion_blocks || []).filter((b: any) =>
+		b.phase !== 'knowledge_harness'
+		&& b.tool_execution?.plan_decision_id === decisionId,
+	)
+	if (members.length < 2) return []
+	return members.slice().sort((a: any, b: any) => (a.block_index ?? 0) - (b.block_index ?? 0))
+}
+
+function isParallelBatchMember(m: ChatMessage, block: any): boolean {
+	return parallelBatchMembers(m, block).length > 0
+}
+
+function formatBatchDuration(ms: number): string {
+	if (ms < 1000) return `${Math.round(ms)} ms`
+	const s = Math.round(ms / 1000)
+	if (s < 60) return `${s}s`
+	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// Chip text for the FIRST member of a batch; null for everything else.
+function parallelBatchChip(m: ChatMessage, block: any): { running: boolean; count: number; done: number; duration: string | null } | null {
+	const members = parallelBatchMembers(m, block)
+	if (!members.length || members[0].id !== block.id) return null
+	const isDone = (b: any) => {
+		const s = b.tool_execution?.status
+		return !!s && s !== 'running' && s !== 'in_progress'
+	}
+	const done = members.filter(isDone).length
+	if (done < members.length) {
+		return { running: true, count: members.length, done, duration: null }
+	}
+	// Batch wall-clock: earliest start → latest end. Fall back to the longest
+	// single duration when timestamps are missing/unparseable.
+	let wall: number | null = null
+	const starts = members.map((b: any) => Date.parse(b.tool_execution?.started_at || '')).filter((v: number) => !Number.isNaN(v))
+	const ends = members.map((b: any) => {
+		const te = b.tool_execution || {}
+		const end = Date.parse(te.completed_at || '')
+		if (!Number.isNaN(end)) return end
+		const start = Date.parse(te.started_at || '')
+		if (!Number.isNaN(start) && typeof te.duration_ms === 'number') return start + te.duration_ms
+		return NaN
+	}).filter((v: number) => !Number.isNaN(v))
+	if (starts.length === members.length && ends.length === members.length) {
+		wall = Math.max(...ends) - Math.min(...starts)
+	} else {
+		const durations = members.map((b: any) => b.tool_execution?.duration_ms).filter((v: any) => typeof v === 'number')
+		if (durations.length) wall = Math.max(...durations)
+	}
+	return { running: false, count: members.length, done, duration: wall != null && wall >= 0 ? formatBatchDuration(wall) : null }
 }
 
 function getToolComponent(toolName: string) {

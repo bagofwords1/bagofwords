@@ -686,7 +686,10 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
-    "followUp": "Follow up"
+    "followUp": "Follow up",
+    "parallelBatchRunning": "{count} tool calls · running in parallel ({done} done)",
+    "parallelBatchDone": "{count} tool calls · ran in parallel · {duration}",
+    "parallelBatchDoneNoTime": "{count} tool calls · ran in parallel"
   },
   "tools": {
     "common": {
