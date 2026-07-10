@@ -29,6 +29,9 @@ from app.schemas.data_sources.configs import (
     TableauConfig,
     SalesforceConfig,
     ServiceNowConfig,
+    ZabbixConfig,
+    ZabbixTokenCredentials,
+    ZabbixUserPassCredentials,
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
@@ -399,6 +402,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "zabbix": DataSourceRegistryEntry(
+        type="zabbix",
+        title="Zabbix",
+        description="Open-source monitoring platform. Query hosts, metrics, triggers, active problems, events, and metric history via the JSON-RPC API.",
+        config_schema=ZabbixConfig,
+        credentials_auth=AuthOptions(default="token", by_auth={
+            # API token (Bearer) — recommended, incl. SSO orgs (SSO users still
+            # mint a personal token). Per-user scope = bring-your-own token.
+            "token": AuthVariant(title="API Token", schema=ZabbixTokenCredentials, scopes=["system", "user"]),
+            # user.login session token — older installs / LDAP-backed logins.
+            "userpass": AuthVariant(title="Username / Password", schema=ZabbixUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
+        requires_license="enterprise",
         version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
