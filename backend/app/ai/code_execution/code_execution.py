@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+from contextlib import AsyncExitStack
 import inspect
 import io
 import os
@@ -687,11 +688,18 @@ class StreamingCodeExecutor:
         logger=None,
         context_hub=None,
         usage_context: Optional[UsageLimitContext] = None,
+        source_locks: Optional[List] = None,
     ):
         self.organization_settings = organization_settings
         self.logger = logger
         self.context_hub = context_hub
         self.usage_context = usage_context
+        # Per-data-source asyncio locks (pre-sorted by the dispatcher) held
+        # ONLY around the execution window: two concurrent invocations against
+        # the same source share one client object whose thread-safety is
+        # driver-dependent, but everything before the client is touched
+        # (codegen LLM call) may overlap freely.
+        self.source_locks: List = list(source_locks or [])
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
                      captured_timings: Optional[List[dict]] = None,
@@ -884,10 +892,19 @@ class StreamingCodeExecutor:
                     loadables=loadables,
                 )
 
-            result = await loop.run_in_executor(
-                _CODE_EXEC_POOL,
-                _run_execute_code,
-            )
+            # Same-source serialization: hold the dispatcher-provided locks
+            # only for the execution window (queries run in here), never for
+            # codegen. Locks arrive pre-sorted, so nested acquisition across
+            # multi-source actions cannot deadlock.
+            async with AsyncExitStack() as _stack:
+                for _lk in self.source_locks:
+                    await _stack.enter_async_context(_lk)
+                    span.set_attribute("code_execution.source_lock_wait_ms",
+                                       round((_time.monotonic() - started) * 1000.0, 3))
+                result = await loop.run_in_executor(
+                    _CODE_EXEC_POOL,
+                    _run_execute_code,
+                )
             span.set_attribute("code_execution.total_ms", round((_time.monotonic() - started) * 1000.0, 3))
             return result
 

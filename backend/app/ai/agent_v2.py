@@ -2118,14 +2118,18 @@ class AgentV2:
         """Dispatch one decision's actions through `run_one`, serially or
         concurrently, returning outcomes in ACTION order.
 
-        run_one(tool_index, action, block_id, inv) -> outcome dict.
+        run_one(tool_index, action, block_id, inv, source_locks) -> outcome dict.
 
         Concurrency policy:
-        - cap comes from BOW_AGENT_TOOL_CONCURRENCY (default 1 = serial);
+        - cap comes from the ai_tool_concurrency org setting (env override);
         - a batch containing any tool outside _PARALLEL_SAFE_TOOLS runs
           serial regardless of the cap (unaudited side-effects);
-        - actions sharing a data source serialize on a per-source lock
-          (shared client objects; thread-safety is driver-dependent);
+        - actions sharing a data source hold a per-source lock ONLY around
+          the code-execution window (shared client objects; thread-safety is
+          driver-dependent). Everything before the client is touched —
+          context build and the codegen LLM call, i.e. most of the wall
+          clock — overlaps freely even for same-source actions. The locks
+          are passed down via runtime_ctx and acquired by the executor.
         - a crashed action becomes an error outcome, never a lost one.
         """
         concurrency = 1
@@ -2143,6 +2147,7 @@ class AgentV2:
                     _ti, _act,
                     block_ids[_ti] if _ti < len(block_ids) else None,
                     self._new_invocation_state(_act.name),
+                    [],  # serial dispatch needs no execution locks
                 )
                 outcomes.append(_outcome)
                 # Serial chaining parity: adopt this action's created
@@ -2170,16 +2175,18 @@ class AgentV2:
                         "action": _act, "skipped": True, "inv": None,
                         "observation": {"summary": "Stopped before execution", "stopped": True},
                     }
-                async with AsyncExitStack() as stack:
-                    # Same-source invocations serialize. Keys are pre-sorted
-                    # so multi-source actions can't deadlock.
-                    for _k in self._action_data_source_keys(_act):
-                        await stack.enter_async_context(
-                            source_locks.setdefault(_k, asyncio.Lock())
-                        )
-                    return await run_one(
-                        _ti, _act, _bid, self._new_invocation_state(_act.name),
-                    )
+                # Per-source locks are NOT held here — that would serialize
+                # the whole action (including the ~60s codegen LLM call) for
+                # same-source batches, i.e. fully serial for single-source
+                # orgs. Keys are pre-sorted so multi-lock acquisition in the
+                # executor can't deadlock.
+                _locks = [
+                    source_locks.setdefault(_k, asyncio.Lock())
+                    for _k in self._action_data_source_keys(_act)
+                ]
+                return await run_one(
+                    _ti, _act, _bid, self._new_invocation_state(_act.name), _locks,
+                )
 
         results = await asyncio.gather(
             *(
@@ -3265,7 +3272,7 @@ class AgentV2:
                             except Exception as _eb_exc:
                                 logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
                                 _action_block_ids.append(None)
-                        async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view):
+                        async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view, _source_locks=()):
                             """Run ONE planner action end-to-end and return its outcome.
 
                             DB work (tool_execution row, context refresh, output handling,
@@ -3396,6 +3403,10 @@ class AgentV2:
                                     "tool_call_id": str(tool_execution.id) if tool_execution else None,
                                     "usage_limit_context": self.usage_limit_context,
                                     "pending_officejs_registry": pending_officejs_registry,
+                                    # Per-source asyncio locks (pre-sorted) that the code
+                                    # executor holds ONLY around the execution window, so
+                                    # same-source batch members overlap during codegen.
+                                    "data_source_locks": list(_source_locks or ()),
                                 }
 
                                 # Emit generic output event for tools that stream results (inspect_data)
@@ -3780,8 +3791,8 @@ class AgentV2:
                             }
 
                         # ---- Dispatch: serial by default, concurrent when enabled ----
-                        async def _run_for_batch(_ti: int, _act, _bid, _inv):
-                            return await _run_one(_ti, _act, _bid, _inv, view)
+                        async def _run_for_batch(_ti: int, _act, _bid, _inv, _locks):
+                            return await _run_one(_ti, _act, _bid, _inv, view, _locks)
 
                         outcomes = await self._dispatch_action_batch(
                             actions_list, _action_block_ids, _run_for_batch,

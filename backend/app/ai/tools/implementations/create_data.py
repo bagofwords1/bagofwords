@@ -1601,6 +1601,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             logger=None,
             context_hub=context_hub,
             usage_context=usage_ctx,
+            source_locks=runtime_ctx.get("data_source_locks"),
         )
 
         # Build typed context via helper (use resolved active tables, not original patterns)

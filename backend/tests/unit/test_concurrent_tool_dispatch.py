@@ -82,7 +82,9 @@ class OverlapTracker:
         self.windows = {}  # key -> (start, end)
 
     def runner(self, sleep_s=0.05, fail_for=(), crash_for=()):
-        async def run_one(idx, action, block_id, inv):
+        async def run_one(idx, action, block_id, inv, source_locks=()):
+            self.locks_seen = getattr(self, "locks_seen", {})
+            self.locks_seen[idx] = list(source_locks or ())
             if idx in crash_for:
                 raise RuntimeError(f"boom-{idx}")
             self.in_flight += 1
@@ -152,7 +154,7 @@ async def test_outcomes_preserve_action_order_under_concurrency(monkeypatch):
     monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "8")
     agent = make_agent()
 
-    async def run_one(idx, action, block_id, inv):
+    async def run_one(idx, action, block_id, inv, source_locks=()):
         # Later actions finish FIRST — order must still be action order.
         await asyncio.sleep((10 - idx) * 0.01)
         return {"index": idx, "tool_name": action.name, "tool_input": action.arguments,
@@ -177,7 +179,12 @@ async def test_unsafe_tool_forces_batch_serial(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_same_source_actions_serialize_distinct_sources_overlap(monkeypatch):
+async def test_same_source_actions_share_lock_but_dispatch_overlaps(monkeypatch):
+    """Same-source actions are NOT serialized at dispatch level — that would
+    serialize the whole action (incl. the ~60s codegen LLM call), making
+    single-source orgs fully serial. Instead the dispatcher hands each action
+    the per-source lock(s); the code executor holds them only around the
+    execution window."""
     monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "8")
     agent = make_agent()
     tracker = OverlapTracker()
@@ -185,11 +192,27 @@ async def test_same_source_actions_serialize_distinct_sources_overlap(monkeypatc
     actions = actions_for_sources("inspect_data", ["shared", "shared", "solo-a", "solo-b"])
     outcomes = await agent._dispatch_action_batch(actions, [None] * 4, tracker.runner(sleep_s=0.08))
     assert len(outcomes) == 4
-    w = tracker.windows
-    # Same source: execution windows must not overlap.
-    assert w[0][1] <= w[1][0] or w[1][1] <= w[0][0]
-    # Distinct sources overlapped with something (batch parallelism worked).
+    # The whole batch overlaps at dispatch level — including same-source pairs.
     assert tracker.max_in_flight > 1
+    w = tracker.windows
+    overlap_01 = not (w[0][1] <= w[1][0] or w[1][1] <= w[0][0])
+    assert overlap_01, "same-source actions must overlap at dispatch level (codegen phase)"
+    # Same-source actions received the SAME lock object; solos got their own.
+    l0, l1 = tracker.locks_seen[0], tracker.locks_seen[1]
+    assert len(l0) == 1 and len(l1) == 1 and l0[0] is l1[0]
+    assert tracker.locks_seen[2][0] is not l0[0]
+    assert tracker.locks_seen[3][0] is not tracker.locks_seen[2][0]
+
+
+@pytest.mark.asyncio
+async def test_serial_dispatch_passes_no_locks(monkeypatch):
+    monkeypatch.delenv("BOW_AGENT_TOOL_CONCURRENCY", raising=False)
+    agent = make_agent()
+    tracker = OverlapTracker()
+    actions = actions_for_sources("inspect_data", ["shared", "shared"])
+    outcomes = await agent._dispatch_action_batch(actions, [None] * 2, tracker.runner())
+    assert len(outcomes) == 2
+    assert tracker.locks_seen[0] == [] and tracker.locks_seen[1] == []
 
 
 @pytest.mark.asyncio
@@ -226,7 +249,7 @@ async def test_sigkill_stops_serial_batch_early(monkeypatch):
     agent = make_agent()
     ran = []
 
-    async def run_one(idx, action, block_id, inv):
+    async def run_one(idx, action, block_id, inv, source_locks=()):
         ran.append(idx)
         agent.sigkill_event.set()  # first action triggers stop
         return {"index": idx, "tool_name": action.name, "tool_input": {}, "action": action,
@@ -243,7 +266,7 @@ async def test_serial_batch_chains_invocation_state():
     agent = make_agent()
     seeded_step_ids = []
 
-    async def run_one(idx, action, block_id, inv):
+    async def run_one(idx, action, block_id, inv, source_locks=()):
         seeded_step_ids.append(inv.current_step_id)
         inv.current_step_id = f"step-{idx}"
         return {"index": idx, "tool_name": action.name, "tool_input": {}, "action": action,
@@ -733,3 +756,40 @@ async def test_code_executions_overlap_without_global_lock():
         assert log.count("query done") == 1
     # Overlap: two 0.4s queries in well under 0.8s
     assert wall < 0.7, f"executions serialized: wall={wall:.2f}s"
+
+
+@pytest.mark.asyncio
+async def test_executor_source_locks_serialize_same_source_only():
+    """The per-source lock lives at the EXECUTION window: executors sharing a
+    lock (same data source) serialize their code runs; executors with
+    distinct locks overlap. Codegen (outside execute_code_async) is never
+    behind this lock — that's the dispatch-level guarantee tested above."""
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    class SleepyClient:
+        def execute_query(self, sql):
+            import pandas as pd
+            time.sleep(0.3)
+            return pd.DataFrame({"a": [1]})
+
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    return ds_clients['src'].execute_query('SELECT 1')\n"
+    )
+
+    async def run_pair(lock_a, lock_b):
+        ex_a = StreamingCodeExecutor(organization_settings=None, source_locks=[lock_a])
+        ex_b = StreamingCodeExecutor(organization_settings=None, source_locks=[lock_b])
+        started = time.monotonic()
+        await asyncio.gather(
+            ex_a.execute_code_async(code=code, ds_clients={"src": SleepyClient()}, excel_files=[]),
+            ex_b.execute_code_async(code=code, ds_clients={"src": SleepyClient()}, excel_files=[]),
+        )
+        return time.monotonic() - started
+
+    shared = asyncio.Lock()
+    wall_same = await run_pair(shared, shared)
+    assert wall_same >= 0.55, f"same-source executions overlapped: wall={wall_same:.2f}s"
+
+    wall_distinct = await run_pair(asyncio.Lock(), asyncio.Lock())
+    assert wall_distinct < 0.55, f"distinct-source executions serialized: wall={wall_distinct:.2f}s"

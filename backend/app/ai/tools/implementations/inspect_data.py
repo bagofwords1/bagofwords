@@ -167,10 +167,11 @@ Queries are subject to a per-connection timeout.
         )
         
         streamer = StreamingCodeExecutor(
-            organization_settings=organization_settings, 
-            logger=None, 
+            organization_settings=organization_settings,
+            logger=None,
             context_hub=context_hub,
             usage_context=usage_ctx,
+            source_locks=runtime_ctx.get("data_source_locks"),
         )
 
         # Wrap generate_inspection_code to match the signature expected by streamer
