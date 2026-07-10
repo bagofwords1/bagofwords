@@ -94,8 +94,27 @@ Anthropic LLM configured, and the connection created through the catalog:
   and `create_data.viz_infer got_raw=True`.
 - Prompt against the SAMPLED web sourcetype (HTTP 5xx over time) → timechart.
 - Prompt against a THIN sourcetype (`app::json_app`) exercises the
-  unknown-schema path: the agent discovers fields via a sample search first,
-  then writes the real `stats` query. Screenshots under `media/es-splunk/`.
+  unknown-schema path and now completes **autonomously**: `describe_tables`
+  samples a thin table's fields on inspection (see below), so the agent sees
+  real columns and goes straight to `Created Data app::json_app` → bar chart,
+  with no clarifying question. Screenshots under `media/es-splunk/`.
+
+### Making thin tables work end-to-end (`describe_tables`)
+
+The thin-tail design only pays off if the on-demand field discovery actually
+reaches the agent. Two gaps surfaced and were fixed in
+`app/ai/tools/implementations/describe_tables.py` (connector-agnostic):
+
+- **Sample-if-empty:** when an inspected table has zero columns (a thin,
+  schema-on-read table), `describe_tables` now calls the client's
+  `get_schema(table)` to sample fields live and folds them into the excerpt —
+  so the agent inspects the table and *sees the fields*, instead of reading
+  "0 columns" as "empty" and asking the user. Best-effort, capped, and a no-op
+  for normal sources (their tables already carry columns).
+- **Separator-tolerant name matching:** a plain query like `security` now
+  matches the collapsed pattern table `security-*` (Elasticsearch) and `web`
+  matches `web::access_combined` (Splunk `index::sourcetype`), where the old
+  `$`-anchored matcher returned nothing.
 
 ## What this proves / regression notes
 
