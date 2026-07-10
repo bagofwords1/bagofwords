@@ -426,6 +426,12 @@ def test_caps_defaults_and_clamps(monkeypatch):
     assert AgentV2._max_actions_per_decision() >= 1
 
 
+def test_schema_default_is_concurrent():
+    """Shipped default: 4 parallel tool calls (1 = opt back into serial)."""
+    from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+    assert OrganizationSettingsConfig().ai_tool_concurrency.value == 4
+
+
 def test_org_setting_governs_concurrency(monkeypatch):
     monkeypatch.delenv("BOW_AGENT_TOOL_CONCURRENCY", raising=False)
     agent = make_agent()
