@@ -43,7 +43,7 @@ TESTING=true uv run pytest tests/unit/test_concurrent_tool_dispatch.py -q
 33 tests covering: serial default; overlap bounded by
 `BOW_AGENT_TOOL_CONCURRENCY` at 2/4/8 with wall-clock < 0.8× serial;
 action-order preservation when later actions finish first; unsafe-tool batch
-forced serial; same-source serialization with distinct-source overlap; crash →
+forced serial; same-source overlap (per-source lock removed, see below); crash →
 error outcome; sigkill (serial + concurrent); serial invocation-state
 chaining; a 20-iterations × 10-actions scale run (200 executions, order +
 block attribution asserted); aggregation parity/partial-failure/final-answer/
@@ -340,3 +340,38 @@ Provider-specific gotchas from this leg:
   `code_execution.py` as "best-effort"); the feature gate removes it for
   unlicensed installs, and licensed installs keep metering (they were already
   paying the contention cost by design).
+
+
+## Correction — the per-source lock is gone (user-reported, root-caused)
+
+Reported from live use: two `create_data` calls against ONE data source (the
+common single-source workspace) ran fully serially — the second card didn't
+start until the first finished. Root cause chain:
+
+1. The dispatcher serialized same-source actions on a per-source
+   `asyncio.Lock`, held around the WHOLE action (context build + codegen LLM
+   call + execution + persistence).
+2. The lock was a v1 precaution from the investigation ("shared client
+   object; thread-safety is driver-dependent") — never derived from an
+   observed failure.
+3. A sweep of all 51 connector clients invalidated the premise: 30 open a
+   fresh connection per `execute_query` (`with self.connect() as conn:`),
+   17 issue fresh HTTP/SDK requests per call (Tableau, PowerBI, Sisense,
+   Qlik, Timbr, OpenSearch, Drive readers, BigQuery/boto3 SDK clients),
+   4 have no `execute_query` at all. The one questionable case (verticapy's
+   module-level connection) is already exposed to cross-completion
+   concurrency, which has never been source-locked.
+4. Same-source queries already run concurrently whenever two users or two
+   reports hit the same source — the batch lock protected a strictly smaller
+   window than what the system already allows everywhere else.
+
+Fix: the lock is deleted outright. Same-source batch members now overlap
+like any other actions. `test_same_source_actions_overlap` pins the new
+behavior. (An earlier attempt narrowed the lock to the execution window —
+reverted in favor of deletion once the sweep showed the lock guarded
+nothing.)
+
+Related but distinct: the ~60s-per-tool latency that made everything FEEL
+serial was the usage-metering writes stalling on the backend SQLite's 30s
+busy_timeout (2×30s per query) — fixed separately by buffered metering
+(#601, in the 0.0.443 umbrella), not by anything in this branch.

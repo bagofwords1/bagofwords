@@ -3,7 +3,7 @@
 Covers the concurrency machinery introduced for parallel tool execution:
 
 - `Agent._dispatch_action_batch`: serial default, cap-bounded overlap,
-  per-data-source serialization, unsafe-tool gate, crash/sigkill handling,
+  same-source overlap (no per-source lock), unsafe-tool gate, crash/sigkill handling,
   action-order preservation, serial state chaining.
 - `Agent._aggregate_batch_observation`: single-action parity, per-action
   entries, partial-vs-total failure, analysis_complete/final_answer/image
@@ -177,7 +177,12 @@ async def test_unsafe_tool_forces_batch_serial(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_same_source_actions_serialize_distinct_sources_overlap(monkeypatch):
+async def test_same_source_actions_overlap(monkeypatch):
+    """Same-source actions run concurrently like any others. The per-source
+    lock that used to serialize them was removed: every connector's
+    execute_query opens a fresh connection (or HTTP request) per call, and
+    same-source queries already run concurrently across completions — the
+    lock only made single-source workspaces (the common case) fully serial."""
     monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "8")
     agent = make_agent()
     tracker = OverlapTracker()
@@ -186,9 +191,9 @@ async def test_same_source_actions_serialize_distinct_sources_overlap(monkeypatc
     outcomes = await agent._dispatch_action_batch(actions, [None] * 4, tracker.runner(sleep_s=0.08))
     assert len(outcomes) == 4
     w = tracker.windows
-    # Same source: execution windows must not overlap.
-    assert w[0][1] <= w[1][0] or w[1][1] <= w[0][0]
-    # Distinct sources overlapped with something (batch parallelism worked).
+    # Same source: execution windows overlap (no serialization).
+    overlap_01 = not (w[0][1] <= w[1][0] or w[1][1] <= w[0][0])
+    assert overlap_01, "same-source actions must overlap"
     assert tracker.max_in_flight > 1
 
 
@@ -384,14 +389,6 @@ def test_agent_state_proxy_reads_and_writes_agent_fields():
     assert proxy.current_step_id == "s0"
     proxy.current_step_id = "s1"
     assert agent.current_step_id == "s1"
-
-
-def test_action_data_source_keys_dedupes_and_sorts():
-    a = FakeAction("inspect_data", {"tables_by_source": [
-        {"data_source_id": "b"}, {"data_source_id": "a"}, {"data_source_id": "b"},
-    ]})
-    assert AgentV2._action_data_source_keys(a) == ["a", "b"]
-    assert AgentV2._action_data_source_keys(FakeAction("x", {})) == []
 
 
 # ---------------------------------------------------------------------------
