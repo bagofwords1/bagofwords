@@ -174,10 +174,19 @@ class PptxCodeExecutor:
         if self.logger:
             self.logger.debug(f"Executing PPTX code:\n{code}")
 
-        with io.StringIO() as stdout_capture:
-            with redirect_stdout(stdout_capture):
-                exec(code, local_namespace)
+        # Capture via the per-thread stdout router (not redirect_stdout,
+        # which swaps the process-global sys.stdout and cross-talks with
+        # any concurrently-running sandboxed code execution).
+        from app.ai.code_execution.code_execution import _stdout_router
+        router = _stdout_router()
+        stdout_capture = io.StringIO()
+        router.bind(stdout_capture)
+        try:
+            exec(code, local_namespace)
             output_log = stdout_capture.getvalue()
+        finally:
+            router.unbind()
+            stdout_capture.close()
 
         # Verify the file was created
         if not output_path.exists():

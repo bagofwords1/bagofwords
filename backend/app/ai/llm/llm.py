@@ -731,28 +731,45 @@ class LLM:
         attribution = get_usage_attribution()
 
         async def _record_usage():
-            try:
-                async with session_maker() as session:
-                    recorder = LLMUsageRecorderService(session)
-                    await recorder.record(
-                        scope=scope,
-                        scope_ref_id=scope_ref_id,
-                        llm_model=self.model,
-                        prompt_tokens=prompt_tokens or 0,
-                        completion_tokens=completion_tokens or 0,
-                        cache_read_tokens=cache_read_tokens or 0,
-                        cache_creation_tokens=cache_creation_tokens or 0,
-                        organization_id=attribution.get("organization_id"),
-                        user_id=attribution.get("user_id"),
-                        report_id=attribution.get("report_id"),
-                        data_source_id=attribution.get("data_source_id"),
-                    )
-                    await session.commit()
-            except Exception as exc:
-                if self._is_sqlite_lock_error(exc):
-                    logger.debug("Skipping LLM usage record because SQLite is locked: scope=%s", scope)
+            # SQLite: the agent's writer transaction can hold the lock while a
+            # tool/code execution is in flight, so the first attempt may lose.
+            # This is a background task — a few spaced retries recover nearly
+            # every record instead of silently dropping it (these rows back
+            # /monitoring and cost accounting; the drop was measurable — see
+            # docs/feedback-loops/agent-latency-deep-dive.md).
+            delays = (0.0, 0.5, 2.0, 5.0)
+            for attempt, delay in enumerate(delays, start=1):
+                if delay:
+                    await asyncio.sleep(delay)
+                try:
+                    async with session_maker() as session:
+                        recorder = LLMUsageRecorderService(session)
+                        await recorder.record(
+                            scope=scope,
+                            scope_ref_id=scope_ref_id,
+                            llm_model=self.model,
+                            prompt_tokens=prompt_tokens or 0,
+                            completion_tokens=completion_tokens or 0,
+                            cache_read_tokens=cache_read_tokens or 0,
+                            cache_creation_tokens=cache_creation_tokens or 0,
+                            organization_id=attribution.get("organization_id"),
+                            user_id=attribution.get("user_id"),
+                            report_id=attribution.get("report_id"),
+                            data_source_id=attribution.get("data_source_id"),
+                        )
+                        await session.commit()
                     return
-                logger.warning("Skipping LLM usage record after unexpected failure: %s", exc)
+                except Exception as exc:
+                    if self._is_sqlite_lock_error(exc):
+                        if attempt < len(delays):
+                            continue
+                        logger.warning(
+                            "Dropping LLM usage record after %d lock retries: scope=%s",
+                            attempt, scope,
+                        )
+                        return
+                    logger.warning("Skipping LLM usage record after unexpected failure: %s", exc)
+                    return
 
         global _MAIN_LOOP
         try:

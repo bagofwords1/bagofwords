@@ -1,4 +1,5 @@
 import json
+import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 import httpx
@@ -263,6 +264,10 @@ class OpenAi(LLMClient):
             # never has to silently drop extras. Setting also passes through
             # LiteLLM unchanged (LiteLLM honors parallel_tool_calls=False
             # for OpenAI/Anthropic/Azure backends).
+            # BOW_FORCE_PARALLEL_TOOLS relaxes this (mirrors anthropic_client)
+            # so the concurrent multi-tool dispatch can be exercised end-to-end.
+            if os.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+                disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
         if model_id.startswith(("o1", "o3")) or model_id in {"o1", "o3"}:

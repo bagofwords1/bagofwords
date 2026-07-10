@@ -16,6 +16,14 @@ class SearchMCPsInput(BaseModel):
         default=None,
         description="Optional list of connection IDs to scope the search to specific MCP/API connections."
     )
+    title: Optional[str] = Field(
+        default=None,
+        description=(
+            "A short, human-readable label for this action in the active voice — "
+            "3-6 words, e.g. 'Finding available Notion tools'. Shown to the user "
+            "as the live title while the tool runs, instead of the raw tool name."
+        ),
+    )
 
 
 class ToolPreview(BaseModel):

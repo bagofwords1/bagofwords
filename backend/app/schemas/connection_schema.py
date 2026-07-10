@@ -34,6 +34,18 @@ class ConnectionUpdate(BaseModel):
     reindex_schedule_mode: Optional[str] = None  # "interval" | "time"
     reindex_interval_minutes: Optional[int] = None
     reindex_at_time: Optional[str] = None
+    # Per-connection request rate limit (enterprise `connection_rate_limit`).
+    # A per-window value of 0 (or null) means "no limit for that window".
+    rate_limit_enabled: Optional[bool] = None
+    rate_limit_per_minute: Optional[int] = None
+    rate_limit_per_hour: Optional[int] = None
+    rate_limit_per_day: Optional[int] = None
+
+    @validator("rate_limit_per_minute", "rate_limit_per_hour", "rate_limit_per_day")
+    def _validate_rate_limit(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("rate limit must be >= 0 (0 means no limit)")
+        return v
 
     @validator("reindex_schedule_mode")
     def _validate_mode(cls, v):
@@ -110,6 +122,11 @@ class ConnectionDetailSchema(BaseModel):
     reindex_at_time: Optional[str] = None  # "HH:MM" when mode == "time"
     next_retry_at: Optional[str] = None
     last_reindex_error: Optional[str] = None
+    # Per-connection request rate limit (enterprise `connection_rate_limit`).
+    rate_limit_enabled: bool = False
+    rate_limit_per_minute: Optional[int] = None
+    rate_limit_per_hour: Optional[int] = None
+    rate_limit_per_day: Optional[int] = None
 
     class Config:
         from_attributes = True

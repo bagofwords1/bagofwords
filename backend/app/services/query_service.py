@@ -289,6 +289,13 @@ class QueryService:
             db.add(step)
             await db.commit()
             await db.refresh(step)
+            # Persist buffered data-plane metering (queries/bytes are enqueued
+            # by the execute_query wrapper, not written synchronously).
+            if usage_context is not None:
+                try:
+                    await usage_context.flush()
+                except Exception:
+                    pass
 
         # If this save originated from a tool execution, update it to point to the latest step
         try:
@@ -425,6 +432,14 @@ class QueryService:
         except Exception as e:
             # Surface error to client for preview display
             return {"preview": None, "error": str(e)}
+        finally:
+            # Persist buffered data-plane metering (queries/bytes are enqueued
+            # by the execute_query wrapper, not written synchronously).
+            if usage_context is not None:
+                try:
+                    await usage_context.flush()
+                except Exception:
+                    pass
 
     def _usage_context(
         self,

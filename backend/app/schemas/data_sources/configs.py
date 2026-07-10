@@ -261,6 +261,49 @@ class ServiceNowConfig(BaseModel):
     )
 
 
+# Zabbix
+class ZabbixTokenCredentials(BaseModel):
+    api_token: str = Field(
+        ...,
+        title="API Token",
+        description="A Zabbix API token (Users → API tokens). Recommended for Zabbix 5.4+, and the way to connect in SSO environments.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class ZabbixUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A Zabbix user with read access to the monitored hosts. Used for older installs without API tokens.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class ZabbixConfig(BaseModel):
+    url: str = Field(
+        ...,
+        title="Zabbix URL",
+        description="Your Zabbix frontend URL, e.g. https://zabbix.acme.com (the /api_jsonrpc.php endpoint is appended automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server's TLS certificate. Disable only for self-signed certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    history_window_days: int = Field(
+        7,
+        ge=1,
+        le=365,
+        title="History Window (days)",
+        description="Default lookback window applied when querying metric history/trends without an explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Service Demo
 class ServiceDemoCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="", json_schema_extra={"ui:type": "string"})
@@ -763,6 +806,64 @@ class PostHogConfig(BaseModel):
         title="Project ID",
         description="PostHog Project ID (found in project settings)",
         json_schema_extra={"ui:type": "string"}
+    )
+
+
+# Prometheus (time-series metrics via the HTTP API + PromQL)
+class PrometheusNoAuthCredentials(BaseModel):
+    # Network-gated Prometheus (VPN / internal :9090) needs no secret.
+    class Config:
+        extra = "allow"
+
+
+class PrometheusBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic auth (typically a reverse proxy in front of Prometheus).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic auth.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class PrometheusBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Sent as 'Authorization: Bearer <token>'. Used by most hosted/managed Prometheus offerings.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class PrometheusConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Prometheus server URL, including scheme and port. Example: http://prometheus:9090",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    org_id: Optional[str] = Field(
+        None,
+        title="Tenant / Org ID",
+        description="Optional 'X-Scope-OrgID' header for multi-tenant back-ends (Thanos, Cortex, Grafana Mimir).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    metric_prefix: Optional[str] = Field(
+        None,
+        title="Metric Name Filter",
+        description="Optional prefix to bound metric discovery on large instances (e.g. 'node_' or 'http_'). Leave blank to index all metrics.",
+        json_schema_extra={"ui:type": "string"},
     )
 
 
