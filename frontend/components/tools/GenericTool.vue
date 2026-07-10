@@ -8,9 +8,11 @@
       <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
 
       <!-- Tool title with shimmer effect for running status -->
-      <span v-if="status === 'running'" class="tool-shimmer">{{ toolTitle }}
-      </span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ toolTitle }}</span>
       <span v-else class="text-gray-700 dark:text-gray-300">{{ toolTitle }}</span>
+
+      <!-- Spinner on the right while running -->
+      <Spinner v-if="status === 'running'" class="w-3 h-3 ms-1.5 shrink-0 text-gray-400" />
 
       <!-- Execution time if > 2 seconds -->
       <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
@@ -175,6 +177,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, reactive } from 'vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface Props {
   toolExecution: {

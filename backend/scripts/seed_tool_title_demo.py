@@ -147,15 +147,25 @@ async def seed_blocks(ctx: dict) -> None:
         # its old mechanical label (connection name / raw tool). Used to capture
         # the before/after comparison.
         no_titles = os.environ.get("SEED_NO_TITLES") == "1"
+        # RUNNING mode: leave the last call in a running state so the shimmer +
+        # right-side spinner can be captured.
+        running = os.environ.get("SEED_RUNNING") == "1"
 
         for i, (tool_name, args, result, summary) in enumerate(DEMO_CALLS):
             if no_titles:
                 args = {k: v for k, v in args.items() if k != "title"}
+            is_last = i == len(DEMO_CALLS) - 1
+            te_running = running and is_last
             te = ToolExecution(
                 agent_execution_id=ae.id, tool_name=tool_name, tool_action=None,
-                arguments_json=args, status="success", success=True,
-                started_at=now + timedelta(seconds=i), completed_at=now + timedelta(seconds=i + 1),
-                duration_ms=850.0, result_summary=summary, result_json=result,
+                arguments_json=args,
+                status="running" if te_running else "success",
+                success=not te_running,
+                started_at=now + timedelta(seconds=i),
+                completed_at=None if te_running else now + timedelta(seconds=i + 1),
+                duration_ms=None if te_running else 850.0,
+                result_summary=None if te_running else summary,
+                result_json=None if te_running else result,
             )
             db.add(te)
             await db.flush()
@@ -163,9 +173,11 @@ async def seed_blocks(ctx: dict) -> None:
             block = CompletionBlock(
                 completion_id=sys_c.id, agent_execution_id=ae.id, source_type="tool",
                 tool_execution_id=te.id, block_index=(i + 1) * 100, loop_index=i,
-                title=args.get("title") or tool_name, status="completed", icon="🔧",
-                content=None, started_at=te.started_at, completed_at=te.completed_at,
-                duration_ms=850.0,
+                title=args.get("title") or tool_name,
+                status="in_progress" if te_running else "completed", icon="🔧",
+                content=None, started_at=te.started_at,
+                completed_at=None if te_running else te.completed_at,
+                duration_ms=None if te_running else 850.0,
             )
             db.add(block)
 

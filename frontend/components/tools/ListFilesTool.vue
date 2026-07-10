@@ -2,9 +2,10 @@
   <div class="mt-1">
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
+        <span v-if="status === 'running'" class="flex items-center">
           <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
-          <span>{{ modelTitle ? modelTitle + '…' : 'Listing files…' }}</span>
+          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Listing files…' }}</span>
+          <Spinner class="w-3 h-3 ms-1.5 shrink-0 text-gray-400" />
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
@@ -50,6 +51,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string
@@ -92,12 +94,14 @@ function formatBytes(n: number): string {
 
 <style scoped>
 .tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
+  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
   background-clip: text;
+  color: transparent;
+  animation: shimmer 2s linear infinite;
 }
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>
