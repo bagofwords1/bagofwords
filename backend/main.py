@@ -44,6 +44,7 @@ from app.services.maintenance_service import purge_step_payloads_keep_latest_per
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.data_sources.clients.powerbi_report_server_client import warm_all_pbirs_caches
 from app.services.scheduled_reindex import sweep_due_reindexes
+from app.services.connection_status_sweep import sweep_stale_connection_status
 from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
@@ -475,6 +476,26 @@ async def startup_event():
             logger.info("Scheduled job: schema_reindex_sweep every 10 minutes")
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
+
+    # Background connection-status refresher: re-tests system_only connections
+    # whose cached status is stale past the TTL (~5 min). Read endpoints serve
+    # the cached status and never live-test — this job is what keeps the
+    # badges honest, so it runs on every install (not enterprise-gated).
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                sweep_stale_connection_status,
+                trigger="interval",
+                minutes=5,
+                id="connection_status_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            logger.info("Scheduled job: connection_status_sweep every 5 minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule connection status sweep job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
