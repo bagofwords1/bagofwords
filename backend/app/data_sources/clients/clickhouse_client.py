@@ -80,11 +80,19 @@ class ClickhouseClient(DataSourceClient):
                     # 0-row result with no blocks: recover the column schema
                     # with a LIMIT 0 probe. Re-running the bare query here
                     # would execute the full scan a second time — an empty
-                    # *result* does not mean a cheap *query*.
+                    # *result* does not mean a cheap *query*. Statements that
+                    # aren't valid as a subquery (SHOW TABLES, trailing
+                    # SETTINGS/INTO OUTFILE clauses) make the probe a syntax
+                    # error — fall back to a schemaless empty spill, matching
+                    # the eager path's empty DataFrame, instead of failing the
+                    # legitimately-empty result.
                     inner = _strip_sql_tail(sql)
-                    yield conn.query_arrow(
-                        f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT 0"
-                    )
+                    try:
+                        yield conn.query_arrow(
+                            f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT 0"
+                        )
+                    except Exception:
+                        return
 
         return consume_arrow_to_lazyframe(blocks())
 

@@ -10,22 +10,6 @@ from contextlib import contextmanager
 from datetime import datetime
 
 
-def _arrow_safe_cell(v):
-    """Coerce one document value for the columnar (Parquet) spill.
-
-    dict/list → JSON string (schemaless nesting can't be a stable Arrow type);
-    plain scalars pass through; anything else — BSON scalars _convert_bson_types
-    doesn't normalize (bson.Timestamp, Regex, Code, ...) — becomes str, because
-    pa.Table.from_pandas raises ArrowInvalid on unknown Python types and would
-    kill the whole stream. The eager path is unaffected (pandas keeps raw
-    objects)."""
-    if isinstance(v, (dict, list)):
-        return json.dumps(v, default=str)
-    if v is None or isinstance(v, (str, int, float, bool)):
-        return v
-    return str(v)
-
-
 class MongodbClient(DataSourceClient):
     """MongoDB client for document-based data access.
     
@@ -124,41 +108,12 @@ class MongodbClient(DataSourceClient):
             "sort": {"created_at": -1}
         }
         """
-        try:
-            query_dict = json.loads(query)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON query: {e}")
-        
-        collection_name = query_dict.get("collection")
-        if not collection_name:
-            raise ValueError("Query must specify 'collection'")
-        
-        # Query execution time limit (in milliseconds) - prevents runaway queries
-        max_time_ms = query_dict.get("maxTimeMS", 60000)  # Default 60 seconds per query
-        
+        collection_name, query_dict, max_time_ms = self._parse_query(query)
+
         with self.connect() as db:
-            collection = db[collection_name]
-            
-            if "aggregate" in query_dict:
-                # Aggregation pipeline
-                pipeline = query_dict["aggregate"]
-                cursor = collection.aggregate(pipeline, maxTimeMS=max_time_ms)
-                results = list(cursor)
-            else:
-                # Find query
-                filter_query = query_dict.get("find", {})
-                projection = query_dict.get("projection")
-                limit = query_dict.get("limit", 100)
-                sort = query_dict.get("sort")
-                
-                cursor = collection.find(filter_query, projection).max_time_ms(max_time_ms)
-                if sort:
-                    cursor = cursor.sort(list(sort.items()))
-                if limit:
-                    cursor = cursor.limit(limit)
-                
-                results = list(cursor)
-        
+            cursor = self._open_cursor(db[collection_name], query_dict, max_time_ms)
+            results = list(cursor)
+
         # Convert BSON types to JSON-serializable
         for doc in results:
             self._convert_bson_types(doc)
@@ -173,13 +128,10 @@ class MongodbClient(DataSourceClient):
         
         return df
     
-    def execute_query_lazy(self, query: str):
-        """Out-of-core variant (v2): stream Mongo documents in cursor batches to
-        Parquet, return a LazyFrame. Nested fields are JSON-encoded so the columnar
-        write stays robust (differs from execute_query, which keeps dict/list cells)."""
-        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe, StreamConfig
-
-        cfg = StreamConfig()
+    @staticmethod
+    def _parse_query(query: str) -> tuple:
+        """Validate the JSON query document; returns (collection_name,
+        query_dict, max_time_ms). Shared by the eager and lazy paths."""
         try:
             query_dict = json.loads(query)
         except json.JSONDecodeError as e:
@@ -187,27 +139,50 @@ class MongodbClient(DataSourceClient):
         collection_name = query_dict.get("collection")
         if not collection_name:
             raise ValueError("Query must specify 'collection'")
-        max_time_ms = query_dict.get("maxTimeMS", 60000)
+        # Query execution time limit (in milliseconds) - prevents runaway queries
+        max_time_ms = query_dict.get("maxTimeMS", 60000)  # Default 60 seconds per query
+        return collection_name, query_dict, max_time_ms
+
+    @staticmethod
+    def _open_cursor(collection, query_dict: dict, max_time_ms: int):
+        """Build the find/aggregate cursor from the parsed query document.
+        Shared by the eager and lazy paths."""
+        if "aggregate" in query_dict:
+            return collection.aggregate(query_dict["aggregate"], maxTimeMS=max_time_ms)
+        filter_query = query_dict.get("find", {})
+        projection = query_dict.get("projection")
+        limit = query_dict.get("limit", 100)
+        sort = query_dict.get("sort")
+        cursor = collection.find(filter_query, projection).max_time_ms(max_time_ms)
+        if sort:
+            cursor = cursor.sort(list(sort.items()))
+        if limit:
+            cursor = cursor.limit(limit)
+        return cursor
+
+    def execute_query_lazy(self, query: str):
+        """Out-of-core variant (v2): stream Mongo documents in cursor batches to
+        Parquet, return a LazyFrame. Nested fields are JSON-encoded so the columnar
+        write stays robust (differs from execute_query, which keeps dict/list cells)."""
+        from app.data_sources.clients.lazy_frame import (
+            StreamConfig,
+            arrow_safe_cell,
+            consume_row_dicts_to_lazyframe,
+        )
+
+        cfg = StreamConfig()
+        collection_name, query_dict, max_time_ms = self._parse_query(query)
 
         def docs():
             with self.connect() as db:
-                collection = db[collection_name]
-                if "aggregate" in query_dict:
-                    cursor = collection.aggregate(query_dict["aggregate"], maxTimeMS=max_time_ms)
-                else:
-                    filter_query = query_dict.get("find", {})
-                    projection = query_dict.get("projection")
-                    limit = query_dict.get("limit", 100)
-                    sort = query_dict.get("sort")
-                    cursor = collection.find(filter_query, projection).max_time_ms(max_time_ms)
-                    if sort:
-                        cursor = cursor.sort(list(sort.items()))
-                    if limit:
-                        cursor = cursor.limit(limit)
+                cursor = self._open_cursor(db[collection_name], query_dict, max_time_ms)
                 cursor = cursor.batch_size(cfg.chunksize)
                 for doc in cursor:
                     self._convert_bson_types(doc, coerce_decimal128=True)
-                    yield {k: _arrow_safe_cell(v) for k, v in doc.items()}
+                    # arrow_safe_cell: BSON scalars _convert_bson_types doesn't
+                    # normalize (Timestamp, Regex, Code, ...) must not kill the
+                    # stream mid-flight.
+                    yield {k: arrow_safe_cell(v) for k, v in doc.items()}
 
         gen = docs()
         try:

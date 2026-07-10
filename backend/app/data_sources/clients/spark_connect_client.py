@@ -225,8 +225,10 @@ class SparkConnectClient(DataSourceClient):
         JSON-encoded (like the Mongo/Salesforce overrides): pyarrow infers a
         struct type per chunk, so structs whose keys drift between chunks
         would otherwise abort the stream as irreconcilable schemas."""
-        import json
-        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+        from app.data_sources.clients.lazy_frame import (
+            arrow_safe_cell,
+            consume_row_dicts_to_lazyframe,
+        )
 
         def rows():
             with self.connect() as spark:
@@ -234,10 +236,7 @@ class SparkConnectClient(DataSourceClient):
                 sdf = spark.sql(sql)
                 for row in sdf.toLocalIterator():
                     d = row.asDict(recursive=True)
-                    yield {
-                        k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
-                        for k, v in d.items()
-                    }
+                    yield {k: arrow_safe_cell(v) for k, v in d.items()}
 
         return consume_row_dicts_to_lazyframe(rows())
 

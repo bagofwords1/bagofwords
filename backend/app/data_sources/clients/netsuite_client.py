@@ -163,10 +163,10 @@ class NetsuiteClient(DataSourceClient):
         rate-limited endpoint before it fires. Cap at the eager path's 100k
         ceiling but *raise* ResultTooLargeError at the cap — never silently
         truncate into wrong aggregates."""
-        import json
         from app.data_sources.clients.lazy_frame import (
             ResultTooLargeError,
             StreamConfig,
+            arrow_safe_cell,
             consume_row_dicts_to_lazyframe,
         )
 
@@ -195,12 +195,7 @@ class NetsuiteClient(DataSourceClient):
                                 byte_estimate=0,
                                 limit_desc=f"netsuite max_rows={max_rows}",
                             )
-                        # default=str: values json can't serialize natively
-                        # must not kill the stream mid-flight.
-                        yield {
-                            k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
-                            for k, v in item.items()
-                        }
+                        yield {k: arrow_safe_cell(v) for k, v in item.items()}
                     if not data.get("hasMore", False):
                         break
                     offset += limit

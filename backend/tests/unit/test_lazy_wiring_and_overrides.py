@@ -177,6 +177,31 @@ class TestWrapperLazyPassthrough:
             assert lf.row_count() == 3
         assert queries == ["SELECT 1"]
 
+    def test_async_lazy_respects_gate_and_instrumentation(self):
+        from app.ai.code_execution.code_execution import LazyQueriesDisabledError
+
+        # disabled: the wrapper's async method must raise, not fall through
+        # __getattr__ to the raw client's ungated aexecute_query_lazy
+        wrapper, _, _ = _make_wrapper(TinyClient(), lazy_enabled=False)
+        with pytest.raises(LazyQueriesDisabledError):
+            asyncio.run(wrapper.aexecute_query_lazy("SELECT 1"))
+
+        # enabled: runs and is captured/metered like the sync path
+        wrapper, queries, timings = _make_wrapper(
+            TinyClient({"q": pd.DataFrame({"v": [1, 2]})})
+        )
+
+        async def main():
+            lf = await wrapper.aexecute_query_lazy("q")
+            try:
+                return lf.row_count()
+            finally:
+                lf.close()
+
+        assert asyncio.run(main()) == 2
+        assert queries == ["q"]
+        assert timings[0]["lazy"] is True
+
     def test_resolve_lazy_enabled_handles_raw_and_feature_values(self):
         from app.ai.code_execution.code_execution import resolve_lazy_enabled
 
@@ -365,7 +390,7 @@ class TestBigqueryLazy:
 
 
 class TestClickhouseLazy:
-    def _client(self, blocks, schema_table):
+    def _client(self, blocks, schema_table, probe_raises=False):
         from app.data_sources.clients.clickhouse_client import ClickhouseClient
 
         # __init__ opens a real HTTP connection; bypass it.
@@ -386,6 +411,8 @@ class TestClickhouseLazy:
 
             def query_arrow(self, sql):
                 probe_sqls.append(sql)
+                if probe_raises:
+                    raise RuntimeError("Syntax error: cannot be used as a subquery")
                 return schema_table
 
         @contextmanager
@@ -410,6 +437,15 @@ class TestClickhouseLazy:
         # the fallback must be a LIMIT 0 schema probe, not a full re-run
         assert len(probes) == 1
         assert "LIMIT 0" in probes[0]
+
+    def test_unwrappable_statement_falls_back_to_empty_result(self):
+        """SHOW TABLES etc. aren't valid as a subquery; a failing probe must
+        yield an empty result (eager parity), not a query failure."""
+        client, probes = self._client([], None, probe_raises=True)
+        with client.execute_query_lazy("SHOW TABLES") as lf:
+            assert lf.to_df().empty
+            assert lf.columns == []
+        assert len(probes) == 1
 
 
 # =============================================================================
@@ -634,6 +670,18 @@ class TestSpillLifecycle:
         lf.close()  # finalizer already ran; must not raise
         assert all(not p.exists() for p in lf._source_paths)
 
+    def test_schemaless_empty_frame_closes_lazily_created_connection(self):
+        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+
+        lf = consume_row_dicts_to_lazyframe(iter([]))  # zero-column spill, rel=None
+        derived = lf.sql("SELECT COUNT(*) AS n FROM data")
+        assert int(derived.to_df()["n"].iloc[0]) == 0
+        con = lf._con
+        assert con is not None  # sql() created it lazily
+        lf.close()
+        with pytest.raises(Exception):
+            con.execute("SELECT 1")  # close() must also cover the lazy connection
+
     def test_stale_sweep_reruns_after_interval(self, tmp_path, monkeypatch):
         import os
         import app.data_sources.clients.lazy_frame as lf_mod
@@ -686,8 +734,8 @@ class TestDuckdbSingleScan:
 
         with lazy_query_via_duckdb(connect_cm, "SELECT * FROM range(100)") as lf:
             assert lf.row_count() == 100
-        assert len(executed) == 1  # the COPY — no sampling pre-pass, no COUNT re-read
-        assert executed[0].startswith("COPY")
+        assert len(executed) == 1  # no sampling pre-pass, no COUNT re-read
+        assert executed[0].lstrip().startswith("SELECT")
 
     def test_row_budget_still_enforced(self, monkeypatch):
         import duckdb
@@ -706,22 +754,63 @@ class TestDuckdbSingleScan:
         with pytest.raises(ResultTooLargeError):
             lazy_query_via_duckdb(connect_cm, "SELECT * FROM range(100)")
 
+    def test_byte_budget_enforced_mid_stream(self, monkeypatch):
+        """max_bytes must abort during ingest, not after the full result is on
+        disk — a wide 50M-row result must not be able to fill the disk first."""
+        import duckdb
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
 
-class TestMongoArrowSafeCell:
+        monkeypatch.setenv("BOW_LAZY_MAX_BYTES", "10000")
+        monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "1000")
+
+        @contextmanager
+        def connect_cm():
+            con = duckdb.connect()
+            try:
+                yield con
+            finally:
+                con.close()
+
+        with pytest.raises(ResultTooLargeError):
+            lazy_query_via_duckdb(
+                connect_cm,
+                "SELECT range AS i, repeat('x', 100) AS pad FROM range(100000)",
+            )
+
+    def test_empty_result_keeps_schema(self):
+        import duckdb
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
+
+        @contextmanager
+        def connect_cm():
+            con = duckdb.connect()
+            try:
+                yield con
+            finally:
+                con.close()
+
+        with lazy_query_via_duckdb(
+            connect_cm, "SELECT range AS i FROM range(10) WHERE range < 0"
+        ) as lf:
+            assert lf.columns == ["i"]
+            assert lf.row_count() == 0
+
+
+class TestArrowSafeCell:
     def test_bson_scalars_become_strings(self):
         from bson.timestamp import Timestamp
         from bson.regex import Regex
-        from app.data_sources.clients.mongodb_client import _arrow_safe_cell
+        from app.data_sources.clients.lazy_frame import arrow_safe_cell
 
-        assert isinstance(_arrow_safe_cell(Timestamp(1690000000, 1)), str)
-        assert isinstance(_arrow_safe_cell(Regex("^a")), str)
+        assert isinstance(arrow_safe_cell(Timestamp(1690000000, 1)), str)
+        assert isinstance(arrow_safe_cell(Regex("^a")), str)
         # containers JSON-encode even with exotic values inside
-        encoded = _arrow_safe_cell({"ts": Timestamp(1690000000, 1)})
+        encoded = arrow_safe_cell({"ts": Timestamp(1690000000, 1)})
         assert isinstance(encoded, str) and json.loads(encoded)
         # plain scalars pass through untouched
-        assert _arrow_safe_cell(5) == 5
-        assert _arrow_safe_cell("s") == "s"
-        assert _arrow_safe_cell(None) is None
+        assert arrow_safe_cell(5) == 5
+        assert arrow_safe_cell("s") == "s"
+        assert arrow_safe_cell(None) is None
 
 
 class TestVerticaActivation:
@@ -773,6 +862,29 @@ class TestVerticaActivation:
         client = self._client()
         assert client.connect() == "vertica_conn_test"
         assert calls == []  # already active: no kill-and-redial
+
+    def test_lock_acquisition_times_out_instead_of_hanging_forever(self, monkeypatch):
+        """A hung (abandoned) query holding the global lock must fail later
+        queries with a clear error, not block them indefinitely."""
+        import app.data_sources.clients.vertica_client as vc
+
+        monkeypatch.setattr(vc, "_VP_LOCK_TIMEOUT_SECONDS", 0.2)
+        release = threading.Event()
+
+        def hog():
+            with vc._VP_GLOBAL_LOCK:
+                release.wait(5)
+
+        t = threading.Thread(target=hog, daemon=True)
+        t.start()
+        time.sleep(0.1)  # let the hog acquire
+        try:
+            client = self._client()
+            with pytest.raises(RuntimeError, match="Vertica connection lock"):
+                client.connect()
+        finally:
+            release.set()
+            t.join(2)
 
 
 class TestWrapperMeteringRobustness:

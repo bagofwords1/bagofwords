@@ -2,6 +2,7 @@ from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
 import threading
+from contextlib import contextmanager
 from typing import List
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
@@ -19,6 +20,28 @@ except ImportError:
 # client can't switch the global connection mid-query. RLock because
 # execute_query() re-enters via self.connect().
 _VP_GLOBAL_LOCK = threading.RLock()
+
+# Acquisition is bounded: the code-exec wrapper abandons timed-out queries on
+# daemon threads that may sit inside a hung driver call *while holding this
+# lock*. Blocking forever behind one would turn a single hung query into a
+# process-wide Vertica outage; failing with a clear error keeps later queries
+# diagnosable and lets the pile-up clear when the hung call finally returns.
+_VP_LOCK_TIMEOUT_SECONDS = 600
+
+
+@contextmanager
+def _vp_serialized():
+    acquired = _VP_GLOBAL_LOCK.acquire(timeout=_VP_LOCK_TIMEOUT_SECONDS)
+    if not acquired:
+        raise RuntimeError(
+            "Timed out waiting for the process-wide Vertica connection lock — "
+            "another (possibly hung or abandoned) Vertica query is still "
+            "holding verticapy's single global connection."
+        )
+    try:
+        yield
+    finally:
+        _VP_GLOBAL_LOCK.release()
 
 
 class VerticaClient(DataSourceClient):
@@ -68,7 +91,7 @@ class VerticaClient(DataSourceClient):
 
     def connect(self):
         """Establish (and re-activate) this client's Vertica connection."""
-        with _VP_GLOBAL_LOCK:
+        with _vp_serialized():
             try:
                 if not self._connected:
                     # Create new connection in verticapy
@@ -95,7 +118,7 @@ class VerticaClient(DataSourceClient):
             # Hold the lock across activate+execute: another client's
             # connect() between the two would close our global connection
             # mid-query (verticapy has only one).
-            with _VP_GLOBAL_LOCK:
+            with _vp_serialized():
                 self.connect()
 
                 # Execute query using verticapy vDataFrame
@@ -121,7 +144,7 @@ class VerticaClient(DataSourceClient):
 
         @contextmanager
         def conn_cm():
-            with _VP_GLOBAL_LOCK:
+            with _vp_serialized():
                 self.connect()
                 cursor = vp.current_cursor()
                 yield cursor.connection  # DBAPI Connection; .cursor() works for streaming

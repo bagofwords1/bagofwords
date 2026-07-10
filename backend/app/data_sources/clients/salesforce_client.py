@@ -56,19 +56,18 @@ class SalesforceClient(DataSourceClient):
         """Out-of-core variant (v2): stream SOQL result pages via query/query_more
         to a LazyFrame instead of accumulating all records. Nested relationship
         fields are JSON-encoded for a robust columnar write."""
-        import json
-        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+        from app.data_sources.clients.lazy_frame import (
+            arrow_safe_cell,
+            consume_row_dicts_to_lazyframe,
+        )
 
         def rows():
             with self.connect() as sf:
                 res = sf.query(query)
                 while True:
                     for rec in res.get("records", []):
-                        # default=str: nested values simple-salesforce doesn't
-                        # decode to JSON scalars (dates, Decimals) must not
-                        # kill the stream mid-flight.
                         yield {
-                            k: (json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)
+                            k: arrow_safe_cell(v)
                             for k, v in rec.items()
                             if k != "attributes"
                         }

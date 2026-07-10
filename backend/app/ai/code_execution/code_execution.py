@@ -126,14 +126,9 @@ def resolve_query_timeout(client, organization_settings) -> int:
     conn_value = getattr(client, "_bow_connection_query_timeout", None)
     if isinstance(conn_value, (int, float)) and conn_value > 0:
         return int(conn_value)
-    if organization_settings is not None:
-        try:
-            org_cfg = organization_settings.get_config("query_timeout_seconds")
-            org_value = org_cfg.value if hasattr(org_cfg, "value") else org_cfg
-            if isinstance(org_value, (int, float)) and org_value > 0:
-                return int(org_value)
-        except Exception:
-            pass
+    org_value = _org_setting_value(organization_settings, "query_timeout_seconds")
+    if isinstance(org_value, (int, float)) and org_value > 0:
+        return int(org_value)
     return DEFAULT_QUERY_TIMEOUT_SECONDS
 
 
@@ -149,17 +144,22 @@ class LazyQueriesDisabledError(RuntimeError):
         )
 
 
+def _org_setting_value(organization_settings, key: str, default=None):
+    """Read one org setting, unwrapping FeatureConfig. Any failure yields the
+    default — settings lookups must never break query execution."""
+    if organization_settings is None:
+        return default
+    try:
+        org_cfg = organization_settings.get_config(key)
+        return org_cfg.value if hasattr(org_cfg, "value") else org_cfg
+    except Exception:
+        return default
+
+
 def resolve_lazy_enabled(organization_settings) -> bool:
     """Opt-in resolution for the lazy query path. Defaults to disabled: only an
     explicit truthy `enable_lazy_queries` org setting turns it on."""
-    if organization_settings is None:
-        return False
-    try:
-        org_cfg = organization_settings.get_config("enable_lazy_queries")
-        org_value = org_cfg.value if hasattr(org_cfg, "value") else org_cfg
-        return bool(org_value)
-    except Exception:
-        return False
+    return bool(_org_setting_value(organization_settings, "enable_lazy_queries", False))
 
 
 # =============================================================================
@@ -446,14 +446,29 @@ class QueryCapturingClientWrapper:
             raise LazyQueriesDisabledError()
         return self._run_instrumented(query, args, kwargs, method="execute_query_lazy", lazy=True)
 
+    async def aexecute_query_lazy(self, query: str, *args, **kwargs):
+        """Async variant. Must be defined here for the same reason as
+        execute_query_lazy: the raw client grew aexecute_query_lazy too, and
+        letting the call fall through __getattr__ would bypass the opt-in
+        gate, capture, quotas, and the timeout."""
+        return await asyncio.to_thread(self.execute_query_lazy, query, *args, **kwargs)
+
     def _meter_result(self, result, lazy: bool):
         """(rows, result_bytes) for quota + telemetry. Lazy metering must not
         silently degrade to zero: result_bytes <= 0 skips quota consumption
         entirely, so a swallowed metering error would let data flow unmetered.
-        Each metric falls back independently and failures are logged loudly."""
+        spill_stats reads rows+bytes in one Parquet-metadata pass; fallbacks
+        degrade independently and failures are logged loudly."""
         if not lazy:
             rows = len(result) if hasattr(result, '__len__') else None
             return rows, estimate_result_size_bytes(result)
+        try:
+            rows, result_bytes, _ = result.spill_stats()
+            return rows, result_bytes
+        except Exception:
+            logger.warning(
+                "Could not read LazyFrame spill stats; metering piecewise", exc_info=True
+            )
         rows = None
         result_bytes = 0
         try:
@@ -461,16 +476,9 @@ class QueryCapturingClientWrapper:
         except Exception:
             logger.warning("Could not read LazyFrame row count for metering", exc_info=True)
         try:
-            result_bytes = result.uncompressed_byte_size()
+            result_bytes = result.byte_size()
         except Exception:
-            logger.warning(
-                "Could not read LazyFrame uncompressed size; falling back to on-disk size",
-                exc_info=True,
-            )
-            try:
-                result_bytes = result.byte_size()
-            except Exception:
-                logger.warning("LazyFrame byte metering failed entirely; result is uncharged", exc_info=True)
+            logger.warning("LazyFrame byte metering failed entirely; result is uncharged", exc_info=True)
         return rows, result_bytes
 
     def _run_instrumented(self, query, args, kwargs, *, method: str, lazy: bool):

@@ -117,6 +117,24 @@ class StreamConfig:
         return f"max_rows={self.max_rows}, max_bytes={self.max_bytes}"
 
 
+def arrow_safe_cell(v):
+    """Coerce one row-dict value for the columnar (Parquet) spill. Shared by
+    every row-dict lazy override (Salesforce, NetSuite, Spark, Mongo).
+
+    dict/list → JSON string (schemaless nesting can't be a stable Arrow type);
+    plain scalars pass through; anything else — driver-specific scalars like
+    bson.Timestamp/Regex/Code — becomes str, because pa.Table.from_pandas
+    raises ArrowInvalid on unknown Python types and would kill the whole
+    stream. Eager paths are unaffected (pandas keeps raw objects)."""
+    import json
+
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, default=str)
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    return str(v)
+
+
 def _release_lazy_resources(con, paths) -> None:
     """Close the DuckDB connection and unlink the spill file(s). Module-level
     (not a method) so weakref.finalize doesn't hold a reference back to the
@@ -206,6 +224,13 @@ class LazyFrame:
 
             if self._con is None:
                 self._con = duckdb.connect(database=":memory:")
+                # The finalizer snapshotted con=None at construction; re-register
+                # so close()/GC also closes this lazily-created connection.
+                if self._owns_source and self._finalizer is not None:
+                    self._finalizer.detach()
+                    self._finalizer = weakref.finalize(
+                        self, _release_lazy_resources, self._con, list(self._source_paths)
+                    )
             empty_rel = self._con.sql("SELECT NULL AS _bow_empty WHERE 1=0")
             new_rel = empty_rel.query(table_name, sql_query)
             return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False, parent=self)
@@ -258,28 +283,41 @@ class LazyFrame:
                 pass
         return total
 
-    def uncompressed_byte_size(self) -> int:
-        """Uncompressed columnar size from Parquet row-group metadata — the
-        usage-accounting metric. The compressed on-disk size (byte_size) would
-        under-charge lazy queries 3-10x relative to the eager path's
-        materialized-size metering, silently loosening admin byte quotas.
+    def spill_stats(self) -> tuple:
+        """(rows, uncompressed_bytes, on_disk_bytes) in ONE metadata pass per
+        part file — the usage-accounting read. Rows come from the Parquet
+        footer (no DuckDB count(*) query), uncompressed bytes from row-group
+        metadata. The compressed on-disk size alone would under-charge lazy
+        queries 3-10x relative to the eager path's materialized-size metering,
+        silently loosening admin byte quotas; but row-group total_byte_size is
+        post-encoding (RLE/dictionary) and can collapse below the file size for
+        low-cardinality data, so the charge is floored at the on-disk size.
         Metadata only; nothing is materialized. Falls back to on-disk size per
-        part when metadata can't be read. Floored at the on-disk size: row-group
-        total_byte_size is post-encoding (RLE/dictionary), which can collapse
-        below the file size for low-cardinality data."""
+        part when metadata can't be read."""
         import pyarrow.parquet as pq
 
-        total = 0
+        rows = 0
+        uncompressed = 0
+        disk = 0
         for p in self._source_paths:
             try:
-                md = pq.ParquetFile(str(p)).metadata
-                total += sum(md.row_group(i).total_byte_size for i in range(md.num_row_groups))
+                part_disk = int(p.stat().st_size)
             except Exception:
-                try:
-                    total += int(p.stat().st_size)
-                except Exception:
-                    pass
-        return max(total, self.byte_size())
+                part_disk = 0
+            disk += part_disk
+            try:
+                md = pq.ParquetFile(str(p)).metadata
+                rows += int(md.num_rows)
+                uncompressed += sum(
+                    md.row_group(i).total_byte_size for i in range(md.num_row_groups)
+                )
+            except Exception:
+                uncompressed += part_disk
+        return rows, max(uncompressed, disk), disk
+
+    def uncompressed_byte_size(self) -> int:
+        """Usage-accounting byte size; see spill_stats."""
+        return self.spill_stats()[1]
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -640,18 +678,25 @@ def stream_dbapi_readsql_to_parquet(connect_cm, sql, path, config):
     return _consume_chunks_to_parquet(chunks(), path, config)
 
 
-def stream_dbapi_cursor_to_parquet(connect_cm, sql, path, config):
+def stream_dbapi_cursor_to_parquet(connect_cm, sql, path, config, cursor_factory=None):
     """Stream via an explicit DBAPI cursor + fetchmany, for clients that drive a
-    cursor directly (psycopg2, databricks-sql, pyodbc)."""
+    cursor directly (psycopg2, databricks-sql, pyodbc).
+
+    `cursor_factory(conn, config)`, when given, replaces the default
+    `conn.cursor()` — e.g. Redshift's named server-side cursor, whose
+    description is only populated after the first fetch declares the portal
+    (hence columns being read lazily inside the loop)."""
     def chunks():
         with connect_cm() as conn:
-            cursor = conn.cursor()
+            cursor = cursor_factory(conn, config) if cursor_factory else conn.cursor()
             try:
                 cursor.execute(sql)
-                columns = [d[0] for d in cursor.description] if cursor.description else []
+                columns = None
                 produced = False
                 while True:
                     batch = cursor.fetchmany(config.chunksize)
+                    if columns is None:
+                        columns = [d[0] for d in cursor.description] if cursor.description else []
                     if not batch:
                         break
                     produced = True
@@ -667,51 +712,47 @@ def stream_dbapi_cursor_to_parquet(connect_cm, sql, path, config):
 
 
 def stream_duckdb_to_parquet(connect_cm, sql, path, config):
-    """Native DuckDB path: COPY the query result straight to Parquet. DuckDB
-    streams to disk and never materializes the result in Python — zero ingest
-    memory. Used by DuckDB-backed clients (duckdb, qvd, csv).
+    """Native DuckDB path: execute once, stream Arrow record batches through
+    the shared Arrow consumer. Used by DuckDB-backed clients (duckdb, qvd, csv).
 
-    The query runs exactly once: a LIMIT max_rows+1 bound on the COPY enforces
-    the row cap, then row count (from Parquet footer metadata — no re-scan) and
-    on-disk size are checked post-hoc. An earlier version pre-estimated
-    bytes/row with a LIMIT-1024 sample, but that re-executed the full inner
-    pipeline (aggregations/joins don't short-circuit under LIMIT), doubling
-    the source scan on every lazy query. The trade-off: a result that blows
-    max_bytes is now detected after the write, so disk can transiently hold an
-    oversized file (bounded by the row cap) before it is deleted here.
+    The query runs exactly once (an earlier version pre-sampled with LIMIT 1024
+    to derive a byte cap, doubling the source scan; a later one used a single
+    COPY, but that enforced max_bytes only after the full file was written — a
+    wide 50M-row result could fill the shared disk before the check fired).
+    Streaming batches through _consume_arrow_to_parquet enforces both budgets
+    incrementally: an oversized result is rejected at ~max_bytes written, like
+    every other streamer. Peak memory is one record batch.
 
     Note: the SQL below interpolates `inner` (the client-built query, same string
-    that all other streamers run) and the single-quote-escaped output path. No
-    end-user-supplied value is interpolated unescaped, so this is not an
-    injection surface beyond what the eager query path already trusts.
+    that all other streamers run). No end-user-supplied value is interpolated
+    unescaped, so this is not an injection surface beyond what the eager query
+    path already trusts.
     """
-    import pyarrow.parquet as pq
+    import pyarrow as pa
 
-    path.parent.mkdir(parents=True, exist_ok=True)
     inner = _strip_sql_tail(sql)
-    target = str(path).replace("'", "''")
     row_cap = int(config.max_rows)
-    try:
-        with connect_cm() as con:
-            # The newline before the closing paren guards against a trailing
-            # `-- comment` on the query's last code line swallowing the paren.
-            # LIMIT row_cap + 1 so overflow is detectable without writing an
-            # unbounded number of rows.
-            bounded = f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT {row_cap + 1}"
-            con.execute(f"COPY ({bounded}) TO '{target}' (FORMAT PARQUET)")
-        rows = int(pq.ParquetFile(str(path)).metadata.num_rows)
-        disk_bytes = path.stat().st_size if path.exists() else 0
-        if rows > row_cap or disk_bytes > config.max_bytes:
-            raise ResultTooLargeError(
-                rows=rows, byte_estimate=int(disk_bytes),
-                limit_desc=config.limit_desc(),
-            )
-    except BaseException:
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        raise
+    with connect_cm() as con:
+        # The newline before the closing paren guards against a trailing
+        # `-- comment` on the query's last code line swallowing the paren.
+        # LIMIT row_cap + 1 so overflow is detectable without streaming an
+        # unbounded number of rows.
+        bounded = f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT {row_cap + 1}"
+        res = con.execute(bounded)
+        # to_arrow_reader() replaced fetch_record_batch() in newer duckdb
+        make_reader = getattr(res, "to_arrow_reader", None) or res.fetch_record_batch
+        reader = make_reader(config.chunksize)
+
+        def batches():
+            produced = False
+            for batch in reader:
+                produced = True
+                yield batch
+            if not produced:
+                # 0-row result: keep the real column schema in the spill.
+                yield pa.Table.from_batches([], schema=reader.schema)
+
+        _consume_arrow_to_parquet(batches(), path, config)
     return path
 
 
@@ -726,8 +767,11 @@ def lazy_query_via_dbapi_readsql(connect_cm, sql, config=None) -> LazyFrame:
     return _lazy_via(stream_dbapi_readsql_to_parquet, connect_cm, sql, config)
 
 
-def lazy_query_via_dbapi_cursor(connect_cm, sql, config=None) -> LazyFrame:
-    return _lazy_via(stream_dbapi_cursor_to_parquet, connect_cm, sql, config)
+def lazy_query_via_dbapi_cursor(connect_cm, sql, config=None, cursor_factory=None) -> LazyFrame:
+    def stream(cm, s, p, cfg):
+        return stream_dbapi_cursor_to_parquet(cm, s, p, cfg, cursor_factory=cursor_factory)
+
+    return _lazy_via(stream, connect_cm, sql, config)
 
 
 def lazy_query_via_duckdb(connect_cm, sql, config=None) -> LazyFrame:
