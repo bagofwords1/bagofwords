@@ -8,7 +8,7 @@
 - **WhatsApp outbound images (#590)** — charts and image files are now sent to WhatsApp as native images with captions.
 - **RTL email auto-detection (#597)** — free-form emails with Hebrew/Arabic content are automatically rendered right-to-left.
 - **LLM selector shows the model's provider icon (#596)** — the prompt-box model button reflects the selected model's provider instead of a generic icon.
-- **Zabbix connector design (#591)** — design doc for a future Zabbix data source.
+- **Zabbix connector (beta, enterprise) (#591)** — query hosts, metrics, triggers, active problems, events, and metric history via the JSON-RPC API.
 
 ## Version 0.0.442 (July 9, 2026)
 - **Fix SSO login for invited users with mismatched email casing** — invite emails are now matched case-insensitively so members can sign in via Entra/OIDC regardless of the casing the identity provider returns, and the provider's actual error is surfaced on the sign-in page.
