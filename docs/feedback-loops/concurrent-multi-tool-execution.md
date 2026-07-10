@@ -228,30 +228,6 @@ from `tools/agent/`, which requires the repo-root `node_modules` symlink →
 `frontend/node_modules`; create it with `ln -sfn frontend/node_modules
 node_modules` — it's gitignored.)
 
-## Loop B'''' — SAME-source batch overlaps during codegen — PASS
-
-Reported from live use: two `create_data` calls against one data source ran
-fully serially — the per-source lock wrapped the whole action, including the
-~60s codegen LLM call that never touches the client, so single-source orgs
-(the common case) got zero overlap. Fixed by handing the pre-sorted source
-locks down via `runtime_ctx["data_source_locks"]` and acquiring them only
-inside `StreamingCodeExecutor.execute_code_async`'s execution window.
-
-Repro prompt: "Using ONLY sqlite_source_1: create a per-region revenue
-summary, and ALSO create a full list of all orders. Run both in parallel."
-
-```
-BEFORE (user report): 2nd create_data starts only after the 1st completes.
-AFTER:
-iteration 0: {"tools": 2, "max_overlap": 2, "wall_s": 67.47, "sum_s": 133.99}
-  create_data start=12:46:44.790 dur=66594ms success=1  ┐ same source,
-  create_data start=12:46:44.865 dur=67397ms success=1  ┘ starts 75ms apart
-```
-
-Wall ≈ half of serial-sum; both green. The lock still serializes the actual
-query execution per source (driver thread-safety) — that window is sub-second
-on these sources, so the ~66s codegen dominates and now fully overlaps.
-
 ## Loop B''' — org setting alone (no env flag) — PASS
 
 Final proof that `ai_tool_concurrency` controls the whole feature: backend
