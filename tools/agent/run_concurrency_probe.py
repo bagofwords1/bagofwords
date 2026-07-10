@@ -91,8 +91,11 @@ def provider_spec(provider, stub_base_url=None):
             "credentials": {
                 "api_key": _env("AZURE_API_KEY"),
                 "endpoint_url": _env("AZURE_ENDPOINT"),
+                # Foundry resources serve models by NAME on /openai/v1 (no
+                # per-deployment routing); the Responses path uses that URL.
+                "use_responses_api": True,
             },
-            "model_id": os.environ.get("AZURE_MODEL_ID", "gpt-5.4"),
+            "model_id": os.environ.get("AZURE_MODEL_ID", "gpt-5.4-mini"),
             "model_name": "Azure GPT",
         }
     if provider == "stub":
