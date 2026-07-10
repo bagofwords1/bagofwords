@@ -2,7 +2,7 @@
 
 ## Version 0.0.443 (July 10, 2026)
 - **Prometheus connector (beta) (#595)** — query metrics with PromQL over the Prometheus HTTP API; each metric becomes a table.
-- **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel, gated by a new `ai_tool_concurrency` org setting (serial by default).
+- **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel (e.g. `create_data` across several sources), controlled by the `ai_tool_concurrency` org setting (defaults to 4; set to 1 for serial).
 - **Per-connection request rate limit (#592)** — enterprise admins can cap requests per minute/hour/day on a connection, enforced as a hard block with audit logging.
 - **Model-authored tool-call titles (#593)** — connection/external tool calls show a short human-readable label (e.g. "Searching Notion for churned customers") that streams live.
 - **WhatsApp outbound images (#590)** — charts and image files are now sent to WhatsApp as native images with captions.
