@@ -135,7 +135,91 @@ async def get_default_step(
     )
     if not step:
         return {"step": None}
-    return {"step": step.model_dump() if hasattr(step, 'model_dump') else step.dict()}
+    payload = step.model_dump() if hasattr(step, 'model_dump') else step.dict()
+
+    # Advertise the stored full result (when the step's data was truncated to
+    # the preview cap) so clients can page beyond the preview via
+    # /default_step/data instead of assuming the preview is everything.
+    try:
+        from app.services.result_store import ResultStore
+        step_id = payload.get("id")
+        if step_id:
+            rf = await ResultStore().latest_for_step(
+                db, str(organization.id), step_id=str(step_id)
+            )
+            if rf is not None and rf.wrapped_key:
+                payload["full_result"] = {
+                    "available": True,
+                    "result_file_id": str(rf.id),
+                    "row_count": int(rf.row_count),
+                }
+    except Exception:
+        # Availability metadata must never break step loading.
+        pass
+    return {"step": payload}
+
+
+@router.get("/{query_id}/default_step/data", response_model=dict)
+@requires_permission('view_reports', model=Query)
+async def get_default_step_data(
+    query_id: str,
+    limit: int = 500,
+    offset: int = 0,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Page the step's FULL stored result (falls back to the preview rows when
+    no full payload exists). Serves artifact/table views that need more than
+    the bounded preview embedded in Step.data — the response stays bounded by
+    the server-side slice cap, so client payloads can never balloon."""
+    from app.services.result_store import ResultStore
+
+    step = await service.get_default_step_for_query(
+        db,
+        query_id,
+        organization_id=str(organization.id) if organization else None,
+    )
+    if not step:
+        raise HTTPException(status_code=404, detail="No default step for query")
+    payload = step.model_dump() if hasattr(step, 'model_dump') else step.dict()
+    step_id = payload.get("id")
+
+    svc = ResultStore()
+    rf = None
+    if step_id:
+        rf = await svc.latest_for_step(db, str(organization.id), step_id=str(step_id))
+
+    if rf is not None and rf.wrapped_key:
+        try:
+            s = await svc.slice(rf, limit=limit, offset=offset)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        cols = s.get("columns") or []
+        # Frontend-friendly dict rows (slice returns positional rows).
+        rows = [dict(zip(cols, r)) for r in (s.get("rows") or [])]
+        return {
+            "rows": rows,
+            "columns": cols,
+            "row_count": len(rows),
+            "total_rows": int(rf.row_count),
+            "truncated": bool(s.get("truncated")),
+            "next_offset": s.get("next_offset"),
+            "source": "full_result",
+        }
+
+    data = payload.get("data") or {}
+    rows = (data.get("rows") or [])
+    page = rows[offset: offset + max(1, min(limit, 5000))]
+    return {
+        "rows": page,
+        "columns": [c.get("field") for c in (data.get("columns") or []) if isinstance(c, dict)],
+        "row_count": len(page),
+        "total_rows": len(rows),
+        "truncated": offset + len(page) < len(rows),
+        "next_offset": (offset + len(page)) if offset + len(page) < len(rows) else None,
+        "source": "preview_rows",
+    }
 
 
 @router.post("/{query_id}/preview", response_model=dict)

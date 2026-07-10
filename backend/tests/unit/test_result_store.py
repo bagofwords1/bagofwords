@@ -1,5 +1,5 @@
-# Loop A — Investigation Artifact Store invariants.
-# See sandbox-feedback-loop-investigation-artifact-store.md.
+# Loop A — Result Store invariants.
+# See sandbox-feedback-loop-result-store.md.
 import os
 import re
 import uuid
@@ -12,9 +12,9 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.models.base import Base
-from app.models.investigation_artifact import InvestigationArtifact
-from app.services.artifact_store import (
-    ArtifactStoreService,
+from app.models.result_file import ResultFile
+from app.services.result_store import (
+    ResultStore,
     LocalDirStorage,
     SpillResult,
     SLICE_MAX_ROWS,
@@ -30,7 +30,7 @@ async def adb(tmp_path):
     async with eng.begin() as conn:
         await conn.run_sync(
             lambda sync_conn: Base.metadata.create_all(
-                sync_conn, tables=[InvestigationArtifact.__table__]
+                sync_conn, tables=[ResultFile.__table__]
             )
         )
     Session = async_sessionmaker(eng, expire_on_commit=False)
@@ -41,7 +41,7 @@ async def adb(tmp_path):
 
 @pytest.fixture
 def svc(tmp_path):
-    return ArtifactStoreService(storage=LocalDirStorage(root=str(tmp_path / "store")))
+    return ResultStore(storage=LocalDirStorage(root=str(tmp_path / "store")))
 
 
 def _df(n=5000, needle_at=4242):
@@ -68,15 +68,15 @@ async def _spill_and_persist(svc, adb, df=None, *, step_id=None, query_id=None, 
 # --- invariant 1: floor behavior --------------------------------------------
 
 def test_floor_small_result_no_spill():
-    assert ArtifactStoreService.should_spill(total_rows=500, stored_rows=500, approx_bytes=10_000) is False
+    assert ResultStore.should_spill(total_rows=500, stored_rows=500, approx_bytes=10_000) is False
 
 
 def test_floor_truncated_result_spills():
-    assert ArtifactStoreService.should_spill(total_rows=5000, stored_rows=1000, approx_bytes=10_000) is True
+    assert ResultStore.should_spill(total_rows=5000, stored_rows=1000, approx_bytes=10_000) is True
 
 
 def test_floor_large_bytes_spills_even_untruncated():
-    assert ArtifactStoreService.should_spill(total_rows=100, stored_rows=100, approx_bytes=10_000_000) is True
+    assert ResultStore.should_spill(total_rows=100, stored_rows=100, approx_bytes=10_000_000) is True
 
 
 # --- invariants 2/3: publish + encryption ------------------------------------
@@ -105,13 +105,13 @@ async def test_spill_failure_is_loud_no_handle_possible(tmp_path, adb):
     # (loud contract). chmod-based denial doesn't apply when running as root.
     root = tmp_path / "rofile"
     root.write_text("not a directory")
-    bad = ArtifactStoreService(storage=LocalDirStorage(root=str(root)))
+    bad = ResultStore(storage=LocalDirStorage(root=str(root)))
     with pytest.raises(Exception):
         await bad.spill_dataframe(_df(100), organization_id=ORG)
 
 
 def test_shredded_artifact_fails_closed(svc):
-    a = InvestigationArtifact(
+    a = ResultFile(
         id=str(uuid.uuid4()), organization_id=ORG, storage_ref="artifacts/x.duckdb",
         wrapped_key=None, status="published", row_count=1, byte_size=1,
     )
@@ -285,3 +285,18 @@ def test_storage_ref_traversal_rejected(svc):
         svc.storage.abs_path("../../etc/passwd")
     with pytest.raises(ValueError):
         svc.storage.abs_path("/etc/passwd")
+
+
+# --- read_full: complete payload for sandbox load_step ----------------------------
+
+@pytest.mark.asyncio
+async def test_read_full_returns_complete_payload(svc, adb):
+    """load_step depends on read_full returning EVERY row — not a slice-capped
+    page — so cross-source joins in the sandbox run on full fidelity."""
+    df = _df(7000, needle_at=6999)
+    artifact, _ = await _spill_and_persist(svc, adb, df=df)
+    out = svc.read_full_sync(artifact)
+    assert len(out) == len(df)
+    assert list(out.columns) == list(df.columns)
+    # the tail row (beyond any slice page cap) is present and intact
+    assert "NEEDLE" in str(out.iloc[-1].to_dict())

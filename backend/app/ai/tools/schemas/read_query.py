@@ -8,10 +8,10 @@ class ReadQueryInput(BaseModel):
     Looks up previously created queries/visualizations from the current report.
     Accepts one or more query_ids and/or visualization_ids.
 
-    SLICE MODE (Investigation Artifact Store): when a previous create_data
-    result was large, its observation includes an `artifact` block with an
-    `artifact_id` — the FULL result was retained as a sliceable artifact.
-    Pass `artifact_id` (or a query_id whose step has an artifact) together
+    SLICE MODE (Result Store): when a previous create_data
+    result was large, its observation includes a `result_file` block with an
+    `result_file_id` — the FULL result was retained as a sliceable stored result.
+    Pass `result_file_id` (or a query_id whose step has a stored full result) together
     with any of offset/limit (page), match (regex grep), columns (projection),
     time_from/time_to (time window), or sql (SELECT-only over table `data`)
     to explore the full result beyond the stored preview. Results are always
@@ -34,16 +34,16 @@ class ReadQueryInput(BaseModel):
     )
 
     # --- slice mode (artifact store) ---
-    artifact_id: Optional[str] = Field(
+    result_file_id: Optional[str] = Field(
         default=None,
-        description="Artifact ID from a previous create_data observation's 'artifact' block. Enables slice mode over the FULL retained result.",
+        description="result_file_id from a previous create_data observation's 'result_file' block. Enables slice mode over the FULL retained result.",
     )
     offset: Optional[int] = Field(default=None, description="Slice mode: row offset for paging (default 0).")
     limit: Optional[int] = Field(default=None, description="Slice mode: max rows per page (bounded server-side).")
     match: Optional[str] = Field(default=None, description="Slice mode: regex to grep rows (RE2-style syntax; matched against all columns unless match_column is set).")
     match_column: Optional[str] = Field(default=None, description="Slice mode: restrict the regex match to one column.")
     columns: Optional[List[str]] = Field(default=None, description="Slice mode: project only these columns.")
-    time_from: Optional[str] = Field(default=None, description="Slice mode: ISO timestamp lower bound (requires the artifact to have a timestamp column).")
+    time_from: Optional[str] = Field(default=None, description="Slice mode: ISO timestamp lower bound (requires the stored result to have a timestamp column).")
     time_to: Optional[str] = Field(default=None, description="Slice mode: ISO timestamp upper bound.")
     sql: Optional[str] = Field(
         default=None,
@@ -70,7 +70,7 @@ class ReadQueryOutput(BaseModel):
     """Output from read_query tool.
 
     Returns results for each requested query/visualization, or a slice of an
-    artifact when slice mode is used.
+    stored result when slice mode is used.
     """
 
     success: bool = Field(..., description="Whether all lookups succeeded")

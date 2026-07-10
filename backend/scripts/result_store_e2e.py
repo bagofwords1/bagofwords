@@ -119,14 +119,14 @@ async def data_plane(org_id, ds_id, report_id):
     from app.models.organization import Organization
     from app.models.report import Report
     from app.models.data_source import DataSource
-    from app.models.investigation_artifact import InvestigationArtifact
+    from app.models.result_file import ResultFile
     from app.project_manager import ProjectManager
     from app.services.data_source_service import DataSourceService
-    from app.services.artifact_store import ArtifactStoreService
+    from app.services.result_store import ResultStore
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 
     Session = create_async_session_factory()
-    svc = ArtifactStoreService()
+    svc = ResultStore()
     async with Session() as db:
         org = await db.get(Organization, str(org_id))
         report = (await db.execute(
@@ -172,7 +172,7 @@ async def data_plane(org_id, ds_id, report_id):
         await pm.update_step_status(db, step, "success")
 
         # 4) spill + persist handle (the create_data + persistence hook path)
-        assert ArtifactStoreService.enabled(org_settings)
+        assert ResultStore.enabled(org_settings)
         assert svc.should_spill(total_rows, stored_rows, int(formatted["info"].get("memory_usage", 0)))
         t0 = time.time()
         spill = await svc.spill_dataframe(
@@ -195,14 +195,14 @@ async def data_plane(org_id, ds_id, report_id):
         return str(step.id), str(artifact.id), total_rows
 
 
-async def verify_slices(org_id, report_id, artifact_id, total_rows):
+async def verify_slices(org_id, report_id, result_file_id, total_rows):
     from app.settings.database import create_async_session_factory
-    from app.services.artifact_store import ArtifactStoreService, SLICE_MAX_ROWS
+    from app.services.result_store import ResultStore, SLICE_MAX_ROWS
 
     Session = create_async_session_factory()
-    svc = ArtifactStoreService()
+    svc = ResultStore()
     async with Session() as db:
-        artifact = await svc.get_artifact(db, str(org_id), artifact_id)
+        artifact = await svc.get_result_file(db, str(org_id), result_file_id)
 
         t0 = time.time()
         page = svc.slice_sync(artifact, offset=2_000_000, limit=5)
@@ -248,7 +248,7 @@ async def verify_slices(org_id, report_id, artifact_id, total_rows):
         check("privacy mode returns counts only (no raw rows)", res.get("rows_hidden") and "rows" not in res and res["total_matches"] == 1)
 
 
-async def verify_read_query_tool(org_id, report_id, artifact_id):
+async def verify_read_query_tool(org_id, report_id, result_file_id):
     """Drive the REAL read_query tool (slice mode) as the agent would."""
     from sqlalchemy import select
     from app.settings.database import create_async_session_factory
@@ -263,7 +263,7 @@ async def verify_read_query_tool(org_id, report_id, artifact_id):
         tool = ReadQueryTool()
         events = []
         async for evt in tool.run_stream(
-            {"artifact_id": artifact_id, "match": "ZZZ-NEEDLE-TRACK-\\d+"},
+            {"result_file_id": result_file_id, "match": "ZZZ-NEEDLE-TRACK-\\d+"},
             {"db": db, "organization": org, "report": report, "settings": None},
         ):
             events.append(evt)
@@ -275,28 +275,28 @@ async def verify_read_query_tool(org_id, report_id, artifact_id):
         check("read_query slice observation summarizes for the LLM", "Sliced artifact" in summary, summary)
 
 
-async def verify_rerun(HO, org_id, report_id, step_id, first_artifact_id):
+async def verify_rerun(HO, org_id, report_id, step_id, first_result_file_id):
     """HTTP rerun -> step_service.rerun_step -> new artifact + lineage."""
     r = requests.post(f"{BASE}/api/reports/{report_id}/rerun", headers=HO, timeout=600)
     check("HTTP POST /reports/{id}/rerun (real endpoint)", r.status_code == 200, r.text[:300])
 
     from sqlalchemy import select
     from app.settings.database import create_async_session_factory
-    from app.models.investigation_artifact import InvestigationArtifact
-    from app.services.artifact_store import ArtifactStoreService
+    from app.models.result_file import ResultFile
+    from app.services.result_store import ResultStore
 
     Session = create_async_session_factory()
-    svc = ArtifactStoreService()
+    svc = ResultStore()
     async with Session() as db:
         rows = (await db.execute(
-            select(InvestigationArtifact).where(InvestigationArtifact.step_id == str(step_id))
-            .order_by(InvestigationArtifact.created_at)
+            select(ResultFile).where(ResultFile.step_id == str(step_id))
+            .order_by(ResultFile.created_at)
         )).scalars().all()
         check("rerun produced a second artifact for the step", len(rows) == 2, f"count={len(rows)}")
         if len(rows) == 2:
             old, new = rows
             check("old artifact superseded by new (write-once lineage)",
-                  old.id == first_artifact_id and old.superseded_by == new.id and new.superseded_by is None)
+                  old.id == first_result_file_id and old.superseded_by == new.id and new.superseded_by is None)
             check("rerun artifact produced by the rerun path", new.producer == "rerun", new.producer)
             # old payload still frozen + readable
             page = svc.slice_sync(old, offset=0, limit=3)
@@ -307,17 +307,17 @@ async def verify_rerun(HO, org_id, report_id, step_id, first_artifact_id):
 
 async def main():
     token, org_id, ds_id, report_id, HO = http_setup()
-    step_id, artifact_id, total_rows = await data_plane(org_id, ds_id, report_id)
-    await verify_slices(org_id, report_id, artifact_id, total_rows)
-    await verify_read_query_tool(org_id, report_id, artifact_id)
-    await verify_rerun(HO, org_id, report_id, step_id, artifact_id)
+    step_id, result_file_id, total_rows = await data_plane(org_id, ds_id, report_id)
+    await verify_slices(org_id, report_id, result_file_id, total_rows)
+    await verify_read_query_tool(org_id, report_id, result_file_id)
+    await verify_rerun(HO, org_id, report_id, step_id, result_file_id)
 
     print("\n==== SUMMARY ====")
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     print(f"{passed}/{len(RESULTS)} passed")
     if passed == len(RESULTS):
         print("ALL PASSED")
-        print(json.dumps({"report_id": report_id, "step_id": step_id, "artifact_id": artifact_id,
+        print(json.dumps({"report_id": report_id, "step_id": step_id, "result_file_id": result_file_id,
                           "email": EMAIL, "password": PASSWORD, "org_id": org_id}))
         return 0
     for name, ok, detail in RESULTS:

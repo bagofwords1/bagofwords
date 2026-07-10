@@ -38,7 +38,7 @@ class ReadQueryTool(Tool):
                 "Accepts multiple query_ids and/or visualization_ids from the conversation history. "
                 "Use cases: unsure with what viz or query to generate the dashboard, want to look at previously written code, and else. "
                 "SLICE MODE: when a create_data observation included an 'artifact' block (large result retained in full), "
-                "pass artifact_id (or the query_id) with offset/limit to page, match (regex) to grep, columns to project, "
+                "pass result_file_id (or the query_id) with offset/limit to page, match (regex) to grep, columns to project, "
                 "time_from/time_to for a time window, or sql (single SELECT over table `data`) to aggregate — the FULL "
                 "result is explorable in bounded pages even when the preview was truncated. "
                 "IMPORTANT: Extract the query_id or viz_id from previous tool results in the conversation — do NOT ask the user for IDs."
@@ -69,7 +69,7 @@ class ReadQueryTool(Tool):
         self, data: "ReadQueryInput", runtime_ctx: Dict[str, Any]
     ) -> AsyncIterator[ToolEvent]:
         """Slice an artifact (full retained result) — page/grep/project/window/SQL."""
-        from app.services.artifact_store import ArtifactStoreService
+        from app.services.result_store import ResultStore
 
         context_hub = runtime_ctx.get("context_hub")
         db = context_hub.db if context_hub else runtime_ctx.get("db")
@@ -99,12 +99,12 @@ class ReadQueryTool(Tool):
 
         yield ToolStartEvent(type="tool.start", payload={"mode": "slice"})
 
-        svc = ArtifactStoreService()
+        svc = ResultStore()
         artifact = None
-        if data.artifact_id:
-            artifact = await svc.get_artifact(db, str(organization.id), data.artifact_id)
+        if data.result_file_id:
+            artifact = await svc.get_result_file(db, str(organization.id), data.result_file_id)
             if artifact is None:
-                yield _end_error(f"Artifact not found: {data.artifact_id}")
+                yield _end_error(f"Stored result not found: {data.result_file_id}")
                 return
         else:
             # Resolve via query/viz -> step -> latest artifact for that step.
@@ -127,14 +127,14 @@ class ReadQueryTool(Tool):
             )
             if artifact is None:
                 yield _end_error(
-                    "No artifact found for the given query — the result was small enough to be "
-                    "fully stored; read it without slice parameters, or check the artifact_id."
+                    "No stored full result for the given query — the result was small enough to be "
+                    "fully stored; read it without slice parameters, or check the result_file_id."
                 )
                 return
 
         # Report scoping: an artifact bound to another report is not readable here.
         if report is not None and artifact.report_id and str(artifact.report_id) != str(report.id):
-            yield _end_error("Artifact belongs to a different report")
+            yield _end_error("Stored result belongs to a different report")
             return
 
         try:
@@ -156,9 +156,9 @@ class ReadQueryTool(Tool):
 
         shown = len(result.get("rows", []) or []) if allow_llm_see_data else result.get("returned_rows", 0)
         total = result.get("total_matches")
-        summary_bits = [f"Sliced artifact {str(artifact.id)[:8]}: {shown} rows returned"]
+        summary_bits = [f"Sliced stored result {str(artifact.id)[:8]}: {shown} rows returned"]
         if total is not None:
-            summary_bits.append(f"of {total} matching (artifact holds {artifact.row_count} rows total)")
+            summary_bits.append(f"of {total} matching (stored result holds {artifact.row_count} rows total)")
         if result.get("next_offset") is not None:
             summary_bits.append(f"more available at offset {result['next_offset']}")
         summary = "; ".join(summary_bits) + "."
@@ -276,13 +276,13 @@ class ReadQueryTool(Tool):
         all_query_ids = data.query_ids or []
         all_viz_ids = data.visualization_ids or []
 
-        # --- Slice mode (Investigation Artifact Store) ---
+        # --- Slice mode (Result Store) ---
         slice_params_given = any(
             v is not None
             for v in (data.offset, data.limit, data.match, data.match_column,
                       data.columns, data.time_from, data.time_to, data.sql)
         )
-        if data.artifact_id or slice_params_given:
+        if data.result_file_id or slice_params_given:
             async for evt in self._run_slice(data, runtime_ctx):
                 yield evt
             return

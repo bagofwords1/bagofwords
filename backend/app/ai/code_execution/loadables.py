@@ -193,6 +193,29 @@ class LoadablesResolver:
                         f"Available steps: {sorted({s.title for s in steps if s.title})}"
                     )
                     continue
+                # Full fidelity when the step spilled its complete payload to
+                # the result store; Step.data only holds the bounded preview.
+                # A step WITH a stored payload that cannot be read is a hard
+                # error — computing over the truncated preview as if it were
+                # complete would produce silently wrong results.
+                try:
+                    from app.services.result_store import ResultStore
+                    svc = ResultStore()
+                    rf = await svc.latest_for_step(
+                        self.db, str(self.organization.id), step_id=str(step.id)
+                    )
+                except Exception:
+                    rf = None
+                if rf is not None:
+                    try:
+                        result["steps"][key] = await svc.read_full(rf)
+                        continue
+                    except Exception as e:
+                        result["errors"].append(
+                            f"load_step({key!r}): this step has a stored full result "
+                            f"({rf.row_count} rows) but it could not be read: {e}"
+                        )
+                        continue
                 result["steps"][key] = grid_to_df(step.data)
 
         for ref in entity_refs or []:

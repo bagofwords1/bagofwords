@@ -1,16 +1,16 @@
-# Path: backend/app/models/investigation_artifact.py
+# Path: backend/app/models/result_file.py
 #
-# Handle row (control plane) for the Investigation Artifact Store.
+# Handle row (control plane) for the Result Store.
 # The payload is an encrypted DuckDB file on shared storage; this row is the
 # source of truth for its existence, key, scope, and retention. See
-# sandbox-feedback-loop-investigation-artifact-store.md for the full design.
+# sandbox-feedback-loop-result-store.md for the full design.
 
 from sqlalchemy import Column, String, BigInteger, Boolean, DateTime, JSON, ForeignKey
 from .base import BaseSchema
 
 
-class InvestigationArtifact(BaseSchema):
-    __tablename__ = 'investigation_artifacts'
+class ResultFile(BaseSchema):
+    __tablename__ = 'result_files'
 
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)

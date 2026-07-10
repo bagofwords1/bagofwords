@@ -1,10 +1,10 @@
-"""add investigation_artifacts (artifact store handle rows)
+"""add result_files (result store handle rows)
 
 Revision ID: art1f4c70001
 Revises: m1e2r3g4e5f6
 Create Date: 2026-07-09 00:00:00.000000
 
-Handle rows for the Investigation Artifact Store: large tool results are
+Handle rows for the Result Store: large tool results are
 persisted as encrypted DuckDB files on shared storage; this table is the
 control plane (key, scope, retention, rerun lineage). Payload files live
 outside the DB; a row with status='published' guarantees an attachable file.
@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_table(
-        'investigation_artifacts',
+        'result_files',
         sa.Column('id', sa.String(36), primary_key=True, nullable=False),
         sa.Column('organization_id', sa.String(36), sa.ForeignKey('organizations.id'), nullable=False),
         sa.Column('report_id', sa.String(36), sa.ForeignKey('reports.id'), nullable=True),
@@ -48,15 +48,15 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(), nullable=True),
         sa.Column('deleted_at', sa.DateTime(), nullable=True),
     )
-    op.create_index('ix_investigation_artifacts_organization_id', 'investigation_artifacts', ['organization_id'])
-    op.create_index('ix_investigation_artifacts_report_id', 'investigation_artifacts', ['report_id'])
-    op.create_index('ix_investigation_artifacts_step_id', 'investigation_artifacts', ['step_id'])
-    op.create_index('ix_investigation_artifacts_query_id', 'investigation_artifacts', ['query_id'])
+    op.create_index('ix_result_files_organization_id', 'result_files', ['organization_id'])
+    op.create_index('ix_result_files_report_id', 'result_files', ['report_id'])
+    op.create_index('ix_result_files_step_id', 'result_files', ['step_id'])
+    op.create_index('ix_result_files_query_id', 'result_files', ['query_id'])
 
 
 def downgrade() -> None:
-    op.drop_index('ix_investigation_artifacts_query_id', table_name='investigation_artifacts')
-    op.drop_index('ix_investigation_artifacts_step_id', table_name='investigation_artifacts')
-    op.drop_index('ix_investigation_artifacts_report_id', table_name='investigation_artifacts')
-    op.drop_index('ix_investigation_artifacts_organization_id', table_name='investigation_artifacts')
-    op.drop_table('investigation_artifacts')
+    op.drop_index('ix_result_files_query_id', table_name='result_files')
+    op.drop_index('ix_result_files_step_id', table_name='result_files')
+    op.drop_index('ix_result_files_report_id', table_name='result_files')
+    op.drop_index('ix_result_files_organization_id', table_name='result_files')
+    op.drop_table('result_files')

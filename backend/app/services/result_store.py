@@ -1,12 +1,12 @@
-# Path: backend/app/services/artifact_store.py
-"""Investigation Artifact Store — spill / slice / retention.
+# Path: backend/app/services/result_store.py
+"""Result Store — spill / slice / retention.
 
 Large tool results (create_data, step reruns; later execute_mcp/custom_api)
 are persisted as ONE ENCRYPTED DUCKDB FILE PER ARTIFACT on shared storage
 (an NFS mount in production, any directory in dev), with a handle row
-(`InvestigationArtifact`) in the backend DB as the control plane.
+(`ResultFile`) in the backend DB as the control plane.
 
-Key properties (see sandbox-feedback-loop-investigation-artifact-store.md):
+Key properties (see sandbox-feedback-loop-result-store.md):
 - Atomic publish: tmp write -> fsync file -> rename within the mount ->
   fsync dir. The handle row is inserted only after the file is durable, so a
   `published` handle always points at a complete, attachable file.
@@ -36,7 +36,7 @@ import pandas as pd
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
-from app.models.investigation_artifact import InvestigationArtifact
+from app.models.result_file import ResultFile
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -47,10 +47,10 @@ logger = logging.getLogger(__name__)
 
 # Spill when the serialized full result exceeds this many bytes, even if the
 # row cap did not truncate it.
-ARTIFACT_FLOOR_BYTES = int(os.environ.get("BOW_ARTIFACT_FLOOR_BYTES", 512_000))
+RESULT_STORE_FLOOR_BYTES = int(os.environ.get("BOW_RESULT_STORE_FLOOR_BYTES", 512_000))
 
 # Hard cap on rows returned by any single slice call (bounded page, D12).
-SLICE_MAX_ROWS = int(os.environ.get("BOW_ARTIFACT_SLICE_MAX_ROWS", 500))
+SLICE_MAX_ROWS = int(os.environ.get("BOW_RESULT_STORE_SLICE_MAX_ROWS", 500))
 
 # Default page size when the caller does not specify a limit.
 SLICE_DEFAULT_ROWS = 100
@@ -60,14 +60,14 @@ DEFAULT_RETENTION_DAYS = 14
 
 # Grace period before an on-disk file with no handle row is swept (a crashed
 # publish leaves either a .tmp or, at worst, a renamed file with no handle).
-ORPHAN_GRACE_SECONDS = int(os.environ.get("BOW_ARTIFACT_ORPHAN_GRACE_S", 3600))
+ORPHAN_GRACE_SECONDS = int(os.environ.get("BOW_RESULT_STORE_ORPHAN_GRACE_S", 3600))
 
 
-def artifact_store_root() -> str:
+def result_store_root() -> str:
     """Root directory of the artifact store (NFS mount in production)."""
     return os.environ.get(
-        "BOW_ARTIFACT_STORE_PATH",
-        os.path.join(os.getcwd(), "uploads", "artifacts"),
+        "BOW_RESULT_STORE_PATH",
+        os.path.join(os.getcwd(), "uploads", "results"),
     )
 
 
@@ -111,24 +111,24 @@ class LocalDirStorage:
 
     Works identically on a local dir and an NFS mount: tmp files live under
     `<root>/.tmp`, published payloads under
-    `<root>/artifacts/{org}/{yyyy}/{mm}/{artifact_id}.duckdb`, and publish is
+    `<root>/artifacts/{org}/{yyyy}/{mm}/{result_file_id}.duckdb`, and publish is
     a same-filesystem rename (atomic on one mount). No locking anywhere —
     artifacts are write-once, read-only-many.
     """
 
     def __init__(self, root: Optional[str] = None):
-        self.root = root or artifact_store_root()
+        self.root = root or result_store_root()
 
     # -- paths ------------------------------------------------------------
-    def tmp_path(self, artifact_id: str) -> str:
+    def tmp_path(self, result_file_id: str) -> str:
         d = os.path.join(self.root, ".tmp")
         os.makedirs(d, exist_ok=True)
-        return os.path.join(d, f"{artifact_id}.duckdb.tmp")
+        return os.path.join(d, f"{result_file_id}.duckdb.tmp")
 
-    def ref_for(self, organization_id: str, artifact_id: str, when: Optional[datetime] = None) -> str:
+    def ref_for(self, organization_id: str, result_file_id: str, when: Optional[datetime] = None) -> str:
         when = when or datetime.utcnow()
         return os.path.join(
-            "artifacts", str(organization_id), f"{when:%Y}", f"{when:%m}", f"{artifact_id}.duckdb"
+            "results", str(organization_id), f"{when:%Y}", f"{when:%m}", f"{result_file_id}.duckdb"
         )
 
     def abs_path(self, storage_ref: str) -> str:
@@ -190,7 +190,7 @@ class LocalDirStorage:
 @dataclass
 class SpillResult:
     """Everything needed to insert the handle row after the file is durable."""
-    artifact_id: str
+    result_file_id: str
     storage_ref: str
     wrapped_key: str
     content_sha256: str
@@ -204,7 +204,7 @@ class SpillResult:
 
     def to_payload(self) -> Dict[str, Any]:
         return {
-            "artifact_id": self.artifact_id,
+            "result_file_id": self.result_file_id,
             "storage_ref": self.storage_ref,
             "wrapped_key": self.wrapped_key,
             "content_sha256": self.content_sha256,
@@ -220,7 +220,7 @@ class SpillResult:
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "SpillResult":
         return cls(**{k: payload.get(k) for k in (
-            "artifact_id", "storage_ref", "wrapped_key", "content_sha256",
+            "result_file_id", "storage_ref", "wrapped_key", "content_sha256",
             "row_count", "byte_size", "schema_json", "ts_column",
             "producer", "content_type", "source_meta",
         )})
@@ -230,7 +230,7 @@ class SpillResult:
 # The service
 # ---------------------------------------------------------------------------
 
-class ArtifactStoreService:
+class ResultStore:
     def __init__(self, storage: Optional[LocalDirStorage] = None):
         self.storage = storage or LocalDirStorage()
 
@@ -240,7 +240,7 @@ class ArtifactStoreService:
         if organization_settings is None:
             return True
         try:
-            return bool(organization_settings.get_config("enable_artifact_store").value)
+            return bool(organization_settings.get_config("enable_result_store").value)
         except Exception:
             return True
 
@@ -250,7 +250,7 @@ class ArtifactStoreService:
         the full result is large even under the row cap."""
         if total_rows > stored_rows:
             return True
-        return approx_bytes > ARTIFACT_FLOOR_BYTES
+        return approx_bytes > RESULT_STORE_FLOOR_BYTES
 
     # -- key management ------------------------------------------------------
     @staticmethod
@@ -267,7 +267,7 @@ class ArtifactStoreService:
     def unwrap_key(cls, wrapped_key: str) -> str:
         raw = cls._fernet().decrypt(wrapped_key.encode()).decode()
         if not re.fullmatch(r"[0-9a-f]{64}", raw):
-            raise ValueError("unwrapped artifact key has unexpected format")
+            raise ValueError("unwrapped result-file key has unexpected format")
         return raw
 
     # -- write path ----------------------------------------------------------
@@ -291,12 +291,12 @@ class ArtifactStoreService:
         `spill_dataframe` (thread) from async code.
 
         Raises on any failure — the caller MUST surface a loud
-        `artifact_spill_failed` (never a silent drop).
+        `result_spill_failed` (never a silent drop).
         """
-        artifact_id = str(uuid.uuid4())
+        result_file_id = str(uuid.uuid4())
         raw_key, wrapped = self._mint_key()
         ts_column = self.detect_ts_column(df)
-        tmp = self.storage.tmp_path(artifact_id)
+        tmp = self.storage.tmp_path(result_file_id)
         meta = dict(source_meta or {})
 
         con = duckdb.connect()
@@ -321,7 +321,7 @@ class ArtifactStoreService:
             except Exception:
                 pass
 
-        storage_ref = self.storage.ref_for(organization_id, artifact_id)
+        storage_ref = self.storage.ref_for(organization_id, result_file_id)
         self.storage.publish(tmp, storage_ref)
 
         final = self.storage.abs_path(storage_ref)
@@ -331,7 +331,7 @@ class ArtifactStoreService:
                 sha.update(chunk)
 
         return SpillResult(
-            artifact_id=artifact_id,
+            result_file_id=result_file_id,
             storage_ref=storage_ref,
             wrapped_key=wrapped,
             content_sha256=sha.hexdigest(),
@@ -360,12 +360,12 @@ class ArtifactStoreService:
         tool_execution_id: Optional[str] = None,
         retention_days: Optional[int] = None,
         commit: bool = True,
-    ) -> InvestigationArtifact:
+    ) -> ResultFile:
         """Insert the handle row (file is already durable) and chain rerun
         lineage: the previous published artifact for the same step/query gets
         `superseded_by` = new id. Write-once — nothing is ever overwritten."""
-        artifact = InvestigationArtifact(
-            id=spill.artifact_id,
+        artifact = ResultFile(
+            id=spill.result_file_id,
             organization_id=str(organization_id),
             report_id=str(report_id) if report_id else None,
             step_id=str(step_id) if step_id else None,
@@ -391,25 +391,25 @@ class ArtifactStoreService:
         if step_id or query_id:
             conds = []
             if step_id:
-                conds.append(InvestigationArtifact.step_id == str(step_id))
+                conds.append(ResultFile.step_id == str(step_id))
             if query_id:
-                conds.append(InvestigationArtifact.query_id == str(query_id))
+                conds.append(ResultFile.query_id == str(query_id))
             from sqlalchemy import or_
             res = await db.execute(
-                select(InvestigationArtifact)
+                select(ResultFile)
                 .where(
-                    InvestigationArtifact.organization_id == str(organization_id),
-                    InvestigationArtifact.status == "published",
-                    InvestigationArtifact.superseded_by.is_(None),
-                    InvestigationArtifact.id != spill.artifact_id,
+                    ResultFile.organization_id == str(organization_id),
+                    ResultFile.status == "published",
+                    ResultFile.superseded_by.is_(None),
+                    ResultFile.id != spill.result_file_id,
                     or_(*conds),
                 )
-                .order_by(InvestigationArtifact.created_at.desc())
+                .order_by(ResultFile.created_at.desc())
                 .limit(1)
             )
             prev = res.scalar_one_or_none()
         if prev is not None:
-            prev.superseded_by = spill.artifact_id
+            prev.superseded_by = spill.result_file_id
             db.add(prev)
 
         db.add(artifact)
@@ -419,53 +419,53 @@ class ArtifactStoreService:
         return artifact
 
     # -- read path ------------------------------------------------------------
-    async def get_artifact(
-        self, db, organization_id: str, artifact_id: str
-    ) -> Optional[InvestigationArtifact]:
+    async def get_result_file(
+        self, db, organization_id: str, result_file_id: str
+    ) -> Optional[ResultFile]:
         res = await db.execute(
-            select(InvestigationArtifact).where(
-                InvestigationArtifact.id == str(artifact_id),
-                InvestigationArtifact.organization_id == str(organization_id),
-                InvestigationArtifact.deleted_at.is_(None),
+            select(ResultFile).where(
+                ResultFile.id == str(result_file_id),
+                ResultFile.organization_id == str(organization_id),
+                ResultFile.deleted_at.is_(None),
             )
         )
         return res.scalar_one_or_none()
 
     async def latest_for_step(
         self, db, organization_id: str, *, step_id: Optional[str] = None, query_id: Optional[str] = None
-    ) -> Optional[InvestigationArtifact]:
+    ) -> Optional[ResultFile]:
         conds = []
         if step_id:
-            conds.append(InvestigationArtifact.step_id == str(step_id))
+            conds.append(ResultFile.step_id == str(step_id))
         if query_id:
-            conds.append(InvestigationArtifact.query_id == str(query_id))
+            conds.append(ResultFile.query_id == str(query_id))
         if not conds:
             return None
         from sqlalchemy import or_
         res = await db.execute(
-            select(InvestigationArtifact)
+            select(ResultFile)
             .where(
-                InvestigationArtifact.organization_id == str(organization_id),
-                InvestigationArtifact.status == "published",
+                ResultFile.organization_id == str(organization_id),
+                ResultFile.status == "published",
                 or_(*conds),
             )
-            .order_by(InvestigationArtifact.created_at.desc())
+            .order_by(ResultFile.created_at.desc())
             .limit(1)
         )
         return res.scalar_one_or_none()
 
-    def _attach_readonly(self, artifact: InvestigationArtifact) -> duckdb.DuckDBPyConnection:
+    def _attach_readonly(self, artifact: ResultFile) -> duckdb.DuckDBPyConnection:
         if artifact.status != "published":
-            raise ValueError(f"artifact {artifact.id} is {artifact.status} (payload unavailable)")
+            raise ValueError(f"stored result {artifact.id} is {artifact.status} (payload unavailable)")
         if not artifact.wrapped_key:
             raise ValueError(
-                f"artifact {artifact.id} has been shredded per retention policy — payload is unrecoverable"
+                f"stored result {artifact.id} has been shredded per retention policy — payload is unrecoverable"
             )
         key = self.unwrap_key(artifact.wrapped_key)
         path = self.storage.abs_path(artifact.storage_ref)
         if not os.path.exists(path):
             raise FileNotFoundError(
-                f"artifact payload missing for {artifact.id} (published handle without file — this is a bug)"
+                f"result payload missing for {artifact.id} (published handle without file — this is a bug)"
             )
         con = duckdb.connect()
         con.execute(f"ATTACH '{path}' AS art (ENCRYPTION_KEY '{key}', READ_ONLY)")
@@ -486,7 +486,7 @@ class ArtifactStoreService:
 
     def slice_sync(
         self,
-        artifact: InvestigationArtifact,
+        artifact: ResultFile,
         *,
         offset: int = 0,
         limit: Optional[int] = None,
@@ -583,7 +583,7 @@ class ArtifactStoreService:
             fetched = fetched[:page_limit]
 
             result: Dict[str, Any] = {
-                "artifact_id": str(artifact.id),
+                "result_file_id": str(artifact.id),
                 "columns": out_cols,
                 "total_matches": int(total) if total is not None else None,
                 "offset": offset,
@@ -620,8 +620,23 @@ class ArtifactStoreService:
             except Exception:
                 pass
 
-    async def slice(self, artifact: InvestigationArtifact, **kwargs) -> Dict[str, Any]:
+    async def slice(self, artifact: ResultFile, **kwargs) -> Dict[str, Any]:
         return await asyncio.to_thread(self.slice_sync, artifact, **kwargs)
+
+    def read_full_sync(self, artifact: ResultFile) -> pd.DataFrame:
+        """Load the COMPLETE payload as a DataFrame (sandbox `load_step` path,
+        full-fidelity joins). Bounded readers should use slice() instead."""
+        con = self._attach_readonly(artifact)
+        try:
+            return con.execute("SELECT * FROM art.data").fetchdf()
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+    async def read_full(self, artifact: ResultFile) -> pd.DataFrame:
+        return await asyncio.to_thread(self.read_full_sync, artifact)
 
     # -- retention -------------------------------------------------------------
     async def purge_expired(self, db, *, now: Optional[datetime] = None, commit: bool = True) -> int:
@@ -629,12 +644,12 @@ class ArtifactStoreService:
         artifacts. Walks HANDLES, never the filesystem first. Returns count."""
         now = now or datetime.utcnow()
         res = await db.execute(
-            select(InvestigationArtifact).where(
-                InvestigationArtifact.status == "published",
-                InvestigationArtifact.expires_at.isnot(None),
-                InvestigationArtifact.expires_at < now,
-                InvestigationArtifact.legal_hold.is_(False),
-                InvestigationArtifact.cited.is_(False),
+            select(ResultFile).where(
+                ResultFile.status == "published",
+                ResultFile.expires_at.isnot(None),
+                ResultFile.expires_at < now,
+                ResultFile.legal_hold.is_(False),
+                ResultFile.cited.is_(False),
             )
         )
         n = 0

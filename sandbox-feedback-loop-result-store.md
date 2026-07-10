@@ -1,6 +1,6 @@
-# Design + Sandbox Feedback Loop — Investigation Artifact Store (spill / slice / cite)
+# Design + Sandbox Feedback Loop — Result Store (spill / slice / cite)
 
-Designs and validates the **Investigation Artifact Store**: any large tool
+Designs and validates the **Result Store**: any large tool
 result — `create_data`, `execute_mcp`, `custom_api` — becomes a **durable,
 encrypted, sliceable artifact** on a shared NFS mount, with a **handle row in
 the backend DB**, so the agent can page / grep / aggregate over log-scale
@@ -91,7 +91,7 @@ write failure**. Every choice below exists to avoid those failure modes.
 
 ---
 
-## Data model — `investigation_artifact` (the handle)
+## Data model — `result_file` (the handle)
 
 | column | type | notes |
 |---|---|---|
@@ -120,7 +120,7 @@ time-sorted when `ts_column` exists) + table **`_meta`** (producer, source
 query/params, created_at, content hash) so a file is self-describing even if
 found on disk alone.
 
-NFS layout: `<mount>/artifacts/{org_id}/{yyyy}/{mm}/{artifact_id}.duckdb`,
+NFS layout: `<mount>/artifacts/{org_id}/{yyyy}/{mm}/{result_file_id}.duckdb`,
 tmp writes under `<mount>/.tmp/`. Rename happens **within the same mount**
 (atomic on a single NFS filesystem). No reliance on NFS locking anywhere —
 write-once + read-only multi-attach never needs it.
@@ -138,7 +138,7 @@ tool result (df / rows / json)
       ├─ 3. fsync file → rename into artifacts/… → fsync directory
       ├─ 4. INSERT handle row (single transaction; wrapped_key, sha, counts)
       ├─ 5. DB also stores the existing ≤1000-row preview (widgets + first LLM look unchanged)
-      └─ 6. observation carries preview + { artifact_id, row_count, "sliceable via read_query" }
+      └─ 6. observation carries preview + { result_file_id, row_count, "sliceable via read_query" }
 ```
 
 **Failure contract (D9):** any failure in 1–4 → the observation says loudly
@@ -148,7 +148,7 @@ never a handle pointing at a missing/partial file.
 
 Floor: org settings `artifact_floor_rows` (default = `limit_row_count`, 1000)
 and `artifact_floor_bytes` (default 512 KB) — spill when either is exceeded.
-Feature-gated by org setting `enable_artifact_store` (beta, default off).
+Feature-gated by org setting `enable_result_store` (beta, default off).
 
 Producer normalization (D7):
 - `create_data` → df → `data` as-is.
@@ -163,7 +163,7 @@ behavior exactly):
 
 ```
 read_query(
-  query_ids | artifact_id,
+  query_ids | result_file_id,
   page:       { offset, limit },
   match:      { regex, column? },          # regexp_matches pushdown
   columns:    [ … ],                        # projection
@@ -188,7 +188,7 @@ Guards, in order, on every slice:
 4. **Bounded page (D12)** — ≤ `limit_row_count` rows and ≤ preview byte
    budget, plus `total_matches` and a `next_offset` cursor.
 
-Sandbox composition: `load_step(artifact_id_or_step)` in
+Sandbox composition: `load_step(result_file_id_or_step)` in
 `code_execution.py:733-763` gains artifact resolution with the same optional
 filter args — cross-source joins (Prometheus × Splunk) load *slices*, not
 everything.
@@ -369,7 +369,7 @@ preview or the model guessed.
 
 ## Rollout
 
-1. Land behind `enable_artifact_store` (org setting, default off) with
+1. Land behind `enable_result_store` (org setting, default off) with
    `artifact_floor_rows/bytes`; `ArtifactStorage` interface with `NfsStorage`
    as the only impl.
 2. Loops A–C green in CI (A on SQLite + Postgres, C behind a compose profile).

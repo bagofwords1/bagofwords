@@ -190,14 +190,14 @@ class StepService:
         await db.commit()
         await db.refresh(step)
 
-        # Investigation Artifact Store: a rerun of a large step re-spills the
+        # Result Store: a rerun of a large step re-spills the
         # FULL fresh result as a NEW artifact (write-once); the previous
         # artifact for this step is superseded, never overwritten — past
         # citations keep resolving to the frozen original.
         try:
-            from app.services.artifact_store import ArtifactStoreService
-            if org is not None and raw_df is not None and ArtifactStoreService.enabled(org_settings):
-                svc = ArtifactStoreService()
+            from app.services.result_store import ResultStore
+            if org is not None and raw_df is not None and ResultStore.enabled(org_settings):
+                svc = ResultStore()
                 _info = (df or {}).get("info", {}) or {}
                 _stored = len((df or {}).get("rows", []) or [])
                 _total = int(_info.get("total_rows", _stored) or 0)
