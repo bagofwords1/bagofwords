@@ -31,6 +31,7 @@ TIER_FEATURES = {
         "scheduled_reindex",
         "cost_dashboard",
         "llm_access_control",
+        "connection_rate_limit",
     ],
 }
 

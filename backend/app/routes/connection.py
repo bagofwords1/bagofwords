@@ -408,6 +408,10 @@ async def get_connection(
         reindex_at_time=connection.reindex_at_time,
         next_retry_at=connection.next_retry_at.isoformat() if connection.next_retry_at else None,
         last_reindex_error=connection.last_reindex_error,
+        rate_limit_enabled=bool(connection.rate_limit_enabled),
+        rate_limit_per_minute=connection.rate_limit_per_minute,
+        rate_limit_per_hour=connection.rate_limit_per_hour,
+        rate_limit_per_day=connection.rate_limit_per_day,
     )
 
 

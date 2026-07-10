@@ -1016,6 +1016,7 @@ class AgentV2:
                     "context_view": view,
                     "context_hub": self.context_hub,
                     "ds_clients": self.clients,
+                    "usage_limit_context": self.usage_limit_context,
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                     "mode": "knowledge",
