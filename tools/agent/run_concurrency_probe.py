@@ -39,46 +39,101 @@ def auth(token, org_id=None):
     return h
 
 
-def ensure_llm_provider(client, token, org_id, *, stub_base_url=None, anthropic=False):
+def _env(name, *fallbacks, required=True):
+    for n in (name, *fallbacks):
+        v = os.environ.get(n, "")
+        if v:
+            return v
+    if required:
+        sys.exit(f"{name} is not set")
+    return ""
+
+
+def provider_spec(provider, stub_base_url=None):
+    """Provider create-payload from env keys. Model ids overridable via env."""
+    if provider == "anthropic":
+        return {
+            "provider_type": "anthropic",
+            "credentials": {"api_key": _env("ANTHROPIC_API_KEY")},
+            "model_id": os.environ.get("ANTHROPIC_MODEL_ID", "claude-haiku-4-5-20251001"),
+            "model_name": "Claude Haiku 4.5",
+        }
+    if provider == "openai":
+        return {
+            "provider_type": "openai",
+            "credentials": {"api_key": _env("OPENAI_API_KEY")},
+            "model_id": os.environ.get("OPENAI_MODEL_ID", "gpt-5.4-mini"),
+            "model_name": "GPT-5.4 Mini",
+        }
+    if provider == "google":
+        return {
+            "provider_type": "google",
+            "credentials": {"api_key": _env("GEMINI_API_KEY", "GOOGLE_API_KEY")},
+            "model_id": os.environ.get("GEMINI_MODEL_ID", "gemini-2.5-flash"),
+            "model_name": "Gemini 2.5 Flash",
+        }
+    if provider == "bedrock":
+        return {
+            "provider_type": "bedrock",
+            "credentials": {
+                "region": os.environ.get("AWS_BEDROCK_REGION", "us-east-1"),
+                "auth_mode": "access_keys",
+                "aws_access_key_id": _env("AWS_ACCESS_KEY_ID"),
+                "aws_secret_access_key": _env("AWS_SECRET_ACCESS_KEY"),
+            },
+            "model_id": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-3-5-haiku-20241022-v1:0"),
+            "model_name": "Claude 3.5 Haiku (Bedrock)",
+            "is_custom": True,
+        }
+    if provider == "azure":
+        return {
+            "provider_type": "azure",
+            "credentials": {
+                "api_key": _env("AZURE_API_KEY"),
+                "endpoint_url": _env("AZURE_ENDPOINT"),
+            },
+            "model_id": os.environ.get("AZURE_MODEL_ID", "gpt-5.4"),
+            "model_name": "Azure GPT",
+        }
+    if provider == "stub":
+        return {
+            "provider_type": "openai",
+            "credentials": {"api_key": "stub-key", "base_url": stub_base_url},
+            "model_id": "gpt-5.4",
+            "model_name": "Stub GPT",
+        }
+    sys.exit(f"unknown provider: {provider}")
+
+
+def ensure_llm_provider(client, token, org_id, provider, *, stub_base_url=None):
+    """Create (if missing) the probe provider for `provider` and make it the
+    org default so the completion runs on it."""
+    spec = provider_spec(provider, stub_base_url=stub_base_url)
+    name = f"{provider} probe provider"
     r = client.get("/api/llm/providers", headers=auth(token, org_id))
     providers = r.json() if r.status_code == 200 else []
-    if anthropic:
-        key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not key:
-            sys.exit("ANTHROPIC_API_KEY is not set")
-        name = "anthropic probe provider"
-        if any(p.get("name") == name for p in providers):
-            return
+    existing = next((p for p in providers if p.get("name") == name), None)
+    if existing is None:
         r = client.post("/api/llm/providers", headers=auth(token, org_id), json={
             "name": name,
-            "provider_type": "anthropic",
-            "credentials": {"api_key": key},
+            "provider_type": spec["provider_type"],
+            "credentials": spec["credentials"],
             "models": [{
-                "model_id": "claude-haiku-4-5-20251001",
-                "name": "Claude Haiku 4.5",
-                "is_custom": False,
+                "model_id": spec["model_id"],
+                "name": spec["model_name"],
+                "is_custom": spec.get("is_custom", False),
                 "is_default": True,
             }],
         })
         if r.status_code != 200:
-            sys.exit(f"anthropic provider create failed: {r.status_code} {r.text}")
-        return
-    name = "stub probe provider"
-    if any(p.get("name") == name for p in providers):
-        return
-    r = client.post("/api/llm/providers", headers=auth(token, org_id), json={
-        "name": name,
-        "provider_type": "openai",
-        "credentials": {"api_key": "stub-key", "base_url": stub_base_url},
-        "models": [{
-            "model_id": "gpt-5.4",
-            "name": "Stub GPT",
-            "is_custom": False,
-            "is_default": True,
-        }],
-    })
-    if r.status_code != 200:
-        sys.exit(f"stub provider create failed: {r.status_code} {r.text}")
+            sys.exit(f"{provider} provider create failed: {r.status_code} {r.text}")
+        existing = r.json()
+    pid = existing.get("id")
+    if pid:
+        r = client.post(f"/api/llm/providers/{pid}/set_default", headers=auth(token, org_id))
+        if r.status_code != 200:
+            print(f"[probe] warning: set_default {provider} -> {r.status_code} {r.text[:200]}")
+    print(f"[probe] provider: {name} (model {spec['model_id']})")
 
 
 def set_org_concurrency(client, token, org_id, value):
@@ -149,9 +204,11 @@ def main():
     p.add_argument("--email", default="admin@example.com")
     p.add_argument("--password", default="Password123!")
     p.add_argument("--db-path", default=str(DEFAULT_DB))
-    p.add_argument("--stub", action="store_true", help="use the local stub LLM")
+    p.add_argument("--provider", choices=["stub", "anthropic", "openai", "google", "bedrock", "azure"],
+                   default=None, help="LLM provider to create/use (credentials from env)")
+    p.add_argument("--stub", action="store_true", help="alias for --provider stub")
     p.add_argument("--stub-base-url", default="http://127.0.0.1:9099/v1")
-    p.add_argument("--anthropic", action="store_true", help="use ANTHROPIC_API_KEY + Haiku")
+    p.add_argument("--anthropic", action="store_true", help="alias for --provider anthropic")
     p.add_argument("--concurrency", type=int, default=None,
                    help="set the ai_tool_concurrency org setting via the API before running")
     p.add_argument("--iterations", type=int, default=1, help="completions to run")
@@ -166,7 +223,8 @@ def main():
     token = r.json()["access_token"]
     org_id = client.get("/api/organizations", headers=auth(token)).json()[0]["id"]
 
-    ensure_llm_provider(client, token, org_id, stub_base_url=args.stub_base_url, anthropic=args.anthropic)
+    provider = args.provider or ("anthropic" if args.anthropic else "stub")
+    ensure_llm_provider(client, token, org_id, provider, stub_base_url=args.stub_base_url)
     if args.concurrency is not None:
         set_org_concurrency(client, token, org_id, args.concurrency)
 
