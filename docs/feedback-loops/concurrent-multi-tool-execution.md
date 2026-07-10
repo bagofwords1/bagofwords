@@ -153,26 +153,76 @@ Sandbox quirks hit while iterating (documented so the loop stays runnable):
 - seed_org must wait for async schema indexing before activating tables
   (fixed in this branch), or create_data resolves zero active tables.
 
-## Loop B' — real Anthropic model (Haiku)
+## Loop B' — real Anthropic model (Haiku) — PASS, via the org setting
 
-Same probe against a real provider once `ANTHROPIC_API_KEY` is present
-(secrets via env only — the sandbox used for this branch had none):
+Same probe against a real provider (secrets via env only). The in-flight cap
+here comes from the **`ai_tool_concurrency` org setting** set through the
+real settings API (`--concurrency N`); `BOW_AGENT_TOOL_CONCURRENCY` stays
+unset so the production config path is what's exercised.
 
 ```bash
-ANTHROPIC_API_KEY=... uv run python ../tools/agent/run_concurrency_probe.py --anthropic --iterations 5
+# backend booted with BOW_FORCE_PARALLEL_TOOLS=1 (lets Anthropic emit
+# parallel tool_use) and a PINNED BOW_ENCRYPTION_KEY (see gotchas below)
+ANTHROPIC_API_KEY=... uv run python ../tools/agent/run_concurrency_probe.py --anthropic --concurrency 1 --iterations 1   # serial control
+ANTHROPIC_API_KEY=... uv run python ../tools/agent/run_concurrency_probe.py --anthropic --concurrency 5 --iterations 3   # concurrent
 ```
 
-Creates an Anthropic provider (Haiku 4.5, default) through the API. Pair with
-`BOW_FORCE_PARALLEL_TOOLS=1` on the backend so Anthropic may emit parallel
-tool calls; assertions tolerate variable batch sizes (assert *overlap
-happened*, not exact N).
+### Observed — serial control (`ai_tool_concurrency=1`)
+
+```
+iteration 0: {"tools": 5, "max_overlap": 1, "wall_s": 421.73, "sum_s": 421.53}
+  inspect_data start=05:33:04.335 dur=123878ms
+  inspect_data start=05:35:08.266 dur=96004ms
+  inspect_data start=05:36:44.319 dur=67106ms
+  inspect_data start=05:37:51.472 dur=65683ms
+  inspect_data start=05:38:57.202 dur=68860ms
+```
+
+Strictly one-at-a-time: wall ≈ sum, each start follows the previous finish.
+
+### Observed — concurrent (`ai_tool_concurrency=5`, env override unset)
+
+```
+iteration 0: {"tools": 6, "max_overlap": 5, "wall_s": 451.59, "sum_s": 711.39}
+  inspect_data start=05:40:14.857 dur=67692ms   ┐
+  inspect_data start=05:40:14.939 dur=66846ms   │ five starts within
+  inspect_data start=05:40:15.024 dur=66932ms   │ ~300ms — 5-way overlap
+  inspect_data start=05:40:15.093 dur=67297ms   │
+  inspect_data start=05:40:15.161 dur=67000ms   ┘
+  create_data  start=05:41:30.826 dur=375620ms
+iteration 1: {"tools": 6, "max_overlap": 3, "wall_s": 335.49, "sum_s": 446.39}
+  ... three create_data starts within ~270ms (05:52:22.373/.511/.641), all success
+iteration 2: single search_instructions, no fan-out (real-model variability)
+```
+
+The inspect phase that took ~420s serial completed in ~67s wall — ~5–6× on
+the phase. Haiku emitted variable batch shapes across iterations (5-way
+inspect, 3-way create, no fan-out), as expected of a real model; the
+assertion is *overlap happened at depth > 1*, which held (max depth 5).
+A few individual tool executions failed (Haiku codegen fumbles) and were
+retried/recovered by the normal error paths — iteration 1 was fully green.
+
+### Sandbox gotchas (cost us one dead run each)
+
+- **Pin `BOW_ENCRYPTION_KEY`** before the first boot. When unset, the backend
+  generates a fresh key per process (`app/settings/config.py:73-76`), so any
+  backend restart makes previously stored LLM-provider credentials
+  undecryptable (`InvalidToken` at `llm_provider.py:95`) and every completion
+  dies at planner init in ~6s with zero tools executed.
+- Providers whose models are org defaults can't be deleted via the API
+  (400 "Cannot delete models that are set as default"); in a sandbox, clear
+  `llm_models` + `llm_providers` rows directly and let the probe recreate.
+- The backend must run with `BOW_FORCE_PARALLEL_TOOLS=1` or the Anthropic
+  client sends `disable_parallel_tool_use=true` and no batch ever forms.
 
 ## The fix
 
 - `agent_v2.py`: per-action body extracted into a closure with three locked
   DB sections (start/persist) around an unlocked tool run;
   `_dispatch_action_batch` runs the batch serial (default) or gathered under
-  `asyncio.Semaphore(BOW_AGENT_TOOL_CONCURRENCY)` with per-data-source locks
+  an `asyncio.Semaphore` sized by the **`ai_tool_concurrency` org setting**
+  (default 1; `BOW_AGENT_TOOL_CONCURRENCY` env var is an ops/sandbox
+  override) with per-data-source locks
   and a `_PARALLEL_SAFE_TOOLS` gate; accept-cap
   `BOW_AGENT_MAX_ACTIONS_PER_DECISION` (default 10) reports the dropped tail
   to the planner as `not_executed`; post-batch aggregation applies circuit
