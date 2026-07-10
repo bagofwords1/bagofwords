@@ -6,11 +6,9 @@
         class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center gap-1">
-          <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <McpIcon v-else-if="isExecuteMcp" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
-          <span>{{ runningLabel }}</span>
+        <span v-if="status === 'running'" class="flex items-center gap-1">
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <span class="tool-shimmer">{{ runningLabel }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
           <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
@@ -76,6 +74,7 @@
 import { computed, ref } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
+import Spinner from '~/components/Spinner.vue'
 const { t } = useI18n()
 
 interface ToolExecution {
@@ -134,7 +133,16 @@ const duration = computed(() => {
   return `${(ms / 1000).toFixed(1)}s`
 })
 
+// Model-authored, human-readable label for this call (e.g. "Searching Notion
+// for churned customers"). When present it replaces the mechanical
+// connection/tool-name label in the header — the brand icon still renders.
+const modelTitle = computed<string>(() => {
+  const tt = args.value?.title
+  return typeof tt === 'string' && tt.trim() ? tt.trim() : ''
+})
+
 const runningLabel = computed(() => {
+  if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
     const connName = resultJson.value.connection_name
@@ -147,15 +155,26 @@ const runningLabel = computed(() => {
 
 const doneLabel = computed(() => {
   if (toolName.value === 'search_mcps') {
+    // Prefer the model's label but keep the useful result count suffix.
+    if (modelTitle.value) {
+      const count = resultJson.value.total_count ?? resultJson.value.tools?.length
+      return count != null ? `${modelTitle.value} (${count})` : modelTitle.value
+    }
     const count = resultJson.value.total_count ?? resultJson.value.tools?.length ?? 0
     return t('tools.mcp.foundTools', { count })
   }
   if (toolName.value === 'execute_mcp') {
+    // On failure always surface the failed state; otherwise prefer the label.
+    if (resultJson.value.success === false) {
+      const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
+      return t('tools.mcp.failed', { name: connName })
+    }
+    if (modelTitle.value) return modelTitle.value
     const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
     if (resultJson.value.file_id) return t('tools.mcp.csvSuccess', { name: connName })
-    if (resultJson.value.success === false) return t('tools.mcp.failed', { name: connName })
     return `${connName}`
   }
+  if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'write_csv') {
     const rows = resultJson.value.row_count
     return rows ? t('tools.common.rows', { n: rows }) : 'CSV'
@@ -213,16 +232,16 @@ function toggleExpanded() {
 </script>
 
 <style scoped>
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
+  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
   background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
+  color: transparent;
+  animation: shimmer 2s linear infinite;
+  font-weight: 400;
+  opacity: 1;
 }
 
 .fade-enter-active, .fade-leave-active {

@@ -8,6 +8,25 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+def _title_field() -> "Field":
+    """A short, model-authored label rendered as the tool's live title in the UI.
+
+    Shared across every file-source (connection) tool so the agent labels each
+    action in plain language (e.g. "Reading the Q3 contract") instead of the
+    raw tool name showing.
+    """
+    return Field(
+        default=None,
+        description=(
+            "A short, human-readable label for this action in the active voice — "
+            "3-6 words naming what you're doing, e.g. 'Searching files for signed "
+            "contracts' or 'Reading the Q3 revenue sheet'. Shown to the user as the "
+            "live title while the tool runs, instead of the raw tool name. Do NOT "
+            "include ids; write it for a non-technical reader."
+        ),
+    )
+
+
 class FileEntry(BaseModel):
     id: str = Field(..., description="Opaque file identifier — pass to read_file.")
     name: str
@@ -48,6 +67,7 @@ class ListFilesInput(BaseModel):
             "roundtrip vs listing everything and filtering client-side."
         ),
     )
+    title: Optional[str] = _title_field()
 
 
 class ListFilesOutput(BaseModel):
@@ -97,6 +117,7 @@ class ReadFileInput(BaseModel):
         le=500000,
         description="For text files: max characters to return.",
     )
+    title: Optional[str] = _title_field()
 
 
 class ReadFileOutput(BaseModel):
@@ -147,6 +168,7 @@ class SearchFilesInput(BaseModel):
             "misses a term you're sure is inside a file."
         ),
     )
+    title: Optional[str] = _title_field()
 
 
 class SearchFilesOutput(BaseModel):
@@ -202,6 +224,7 @@ class WriteFileInput(BaseModel):
         False,
         description="Overwrite the target if it already exists. Off by default to avoid clobbering.",
     )
+    title: Optional[str] = _title_field()
 
 
 class WriteFileOutput(BaseModel):
@@ -231,6 +254,7 @@ class AttachFileInput(BaseModel):
             "to attach a whole set at once."
         ),
     )
+    title: Optional[str] = _title_field()
 
 
 class AttachedFile(BaseModel):
