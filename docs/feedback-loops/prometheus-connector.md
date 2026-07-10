@@ -138,9 +138,22 @@ inhibition, an ops-management surface that maps poorly onto the analytics agent.
 If wanted later it should be its **own** registry entry, not an auth variant or
 toggle on Prometheus.
 
-## Pending
+## Live LLM conversations (Claude 4.5 Haiku) — PASS
 
-- **Live LLM conversation/report** over the Prometheus source needs an
-  `ANTHROPIC_API_KEY` for the Haiku model. Setup is scripted and ready:
-  `tools/agent/setup_haiku_llm.py` (provider + Haiku default) then a Playwright
-  conversation drive. Not runnable in a sandbox without the key.
+An Anthropic provider + `claude-haiku-4-5-20251001` default was configured
+(`tools/agent/setup_haiku_llm.py`) and two real conversations were driven end to
+end over the Prometheus source (Playwright, `tools/agent/prom_convo.mjs`). The
+agent plans → writes PromQL → executes it against the live stack → answers, over
+multiple Haiku iterations per turn (17 Anthropic calls across the two runs).
+
+- `10-conversation-targets.png` — *"Which scrape targets are currently down?"* →
+  Haiku queries the `up` table and returns exactly the 3 down targets
+  (`api` @ .1:9000, `api` @ .2:9000, `worker` @ .3:9000) as a table + summary.
+- `11-conversation-alerts.png` — *"How many alerts are firing, by severity?"* →
+  Haiku queries the `ALERTS` table and groups all **9 firing alerts**: Critical 3
+  (InstanceDown), Warning 5 (FilesystemFillingUp ×3, HighRequestLatencyDemo,
+  HighMemoryUsage), Info 1 (DemoHeartbeat) — matching the alert rules exactly.
+
+This confirms the full path: connector schema → agent planner → PromQL over the
+HTTP API → result table → natural-language answer, with alerts reached via the
+`ALERTS` series (no Alertmanager integration needed, per the scope note above).
