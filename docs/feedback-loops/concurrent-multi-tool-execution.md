@@ -228,6 +228,24 @@ from `tools/agent/`, which requires the repo-root `node_modules` symlink →
 `frontend/node_modules`; create it with `ln -sfn frontend/node_modules
 node_modules` — it's gitignored.)
 
+## Loop B''' — org setting alone (no env flag) — PASS
+
+Final proof that `ai_tool_concurrency` controls the whole feature: backend
+restarted with **no `BOW_FORCE_PARALLEL_TOOLS`** (verified absent from the
+process env), org setting = 5 via the API, Haiku, fresh report:
+
+```
+iteration 0: {"tools": 12, "max_overlap": 5, "wall_s": 212.22, "sum_s": 777.12}
+  wave 1  07:41:03.376–.667  5× inspect_data within ~290ms (3 ok, 2 failed)
+  wave 2  07:42:17.357–.664  3× create_data + 2× inspect_data RETRIES within ~310ms
+  wave 3  07:43:30.202–.339  2× create_data
+```
+
+Wave 2 is the batch semantics working end-to-end: the failed inspects from
+wave 1 did NOT trip the circuit breaker (batch counts one round), and the
+planner retried them concurrently alongside the creates it was already
+ready to issue. 10/12 tools green, ~3.7× wall-clock vs serial-sum.
+
 ## Loop B'' — cross-provider matrix (real keys, one probe run each)
 
 `ai_tool_concurrency=5` via the org setting; backend with
