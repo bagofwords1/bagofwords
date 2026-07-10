@@ -1584,12 +1584,23 @@ function hasClarifyBlock(m: ChatMessage): boolean {
 // ordered by block_index (decision_seq * 100 + tool_index). A batch is 2+
 // tool blocks of one decision; single-tool turns render exactly as before.
 function parallelBatchMembers(m: ChatMessage, block: any): any[] {
-	const decisionId = block?.tool_execution?.plan_decision_id
-	if (!decisionId) return []
-	const members = (m.completion_blocks || []).filter((b: any) =>
-		b.phase !== 'knowledge_harness'
-		&& b.tool_execution?.plan_decision_id === decisionId,
-	)
+	if (!block?.tool_execution) return []
+	// Prefer the decision id (exact batch identity); fall back to the
+	// block_index bucket (decision_seq = floor(block_index / 100)) while
+	// streaming — tool.started attaches a stub tool_execution without
+	// plan_decision_id, but pre-created batch blocks already carry
+	// block_index. Web-search blocks use an offset bucket; exclude them.
+	const decisionId = block.tool_execution.plan_decision_id
+	const bucket = typeof block.block_index === 'number' ? Math.floor(block.block_index / 100) : null
+	if (!decisionId && bucket === null) return []
+	const members = (m.completion_blocks || []).filter((b: any) => {
+		if (b.phase === 'knowledge_harness' || !b.tool_execution) return false
+		if (b.tool_execution.tool_name === 'web_search') return false
+		if (decisionId && b.tool_execution.plan_decision_id) {
+			return b.tool_execution.plan_decision_id === decisionId
+		}
+		return typeof b.block_index === 'number' && bucket !== null && Math.floor(b.block_index / 100) === bucket
+	})
 	if (members.length < 2) return []
 	return members.slice().sort((a: any, b: any) => (a.block_index ?? 0) - (b.block_index ?? 0))
 }
