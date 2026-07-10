@@ -29,6 +29,9 @@ from app.schemas.data_sources.configs import (
     TableauConfig,
     SalesforceConfig,
     ServiceNowConfig,
+    ZabbixConfig,
+    ZabbixTokenCredentials,
+    ZabbixUserPassCredentials,
     ClickhouseConfig,
     PinotConfig,
     DruidConfig,
@@ -39,6 +42,11 @@ from app.schemas.data_sources.configs import (
     OpenSearchCredentials,
     OpenSearchNoAuthCredentials,
     PostHogConfig,
+    # Prometheus
+    PrometheusConfig,
+    PrometheusNoAuthCredentials,
+    PrometheusBasicCredentials,
+    PrometheusBearerCredentials,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -401,6 +409,21 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
         version="beta",
     ),
+    "zabbix": DataSourceRegistryEntry(
+        type="zabbix",
+        title="Zabbix",
+        description="Open-source monitoring platform. Query hosts, metrics, triggers, active problems, events, and metric history via the JSON-RPC API.",
+        config_schema=ZabbixConfig,
+        credentials_auth=AuthOptions(default="token", by_auth={
+            # API token (Bearer) — recommended, incl. SSO orgs (SSO users still
+            # mint a personal token). Per-user scope = bring-your-own token.
+            "token": AuthVariant(title="API Token", schema=ZabbixTokenCredentials, scopes=["system", "user"]),
+            # user.login session token — older installs / LDAP-backed logins.
+            "userpass": AuthVariant(title="Username / Password", schema=ZabbixUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
+        requires_license="enterprise",
+    ),
     "MSSQL": DataSourceRegistryEntry(
         type="MSSQL",
         title="Microsoft SQL Server",
@@ -600,6 +623,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.posthog_client.PostHogClient",
         version="beta",
+    ),
+    "prometheus": DataSourceRegistryEntry(
+        type="prometheus",
+        title="Prometheus",
+        description="Time-series metrics database. Query metrics and alerts with PromQL; each metric is discovered as a table.",
+        config_schema=PrometheusConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth (network-gated)",
+                    schema=PrometheusNoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "basic": AuthVariant(
+                    title="Username / Password (Basic)",
+                    schema=PrometheusBasicCredentials,
+                    scopes=["system", "user"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=PrometheusBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.prometheus_client.PrometheusClient",
+        dev_only=True,
     ),
     "databricks_sql": DataSourceRegistryEntry(
         type="databricks_sql",

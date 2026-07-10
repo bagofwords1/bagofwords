@@ -1,4 +1,5 @@
 import json
+import os
 from openai import AzureOpenAI, AsyncAzureOpenAI
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
@@ -206,6 +207,10 @@ class AzureClient(LLMClient):
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
             request_kwargs["tool_choice"] = "auto"
+            # BOW_FORCE_PARALLEL_TOOLS relaxes single-tool mode (mirrors
+            # anthropic_client) so concurrent multi-tool dispatch can run.
+            if os.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+                disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
         _reasoning_model_prefixes = ("o1", "o3", "o4", "gpt-5")

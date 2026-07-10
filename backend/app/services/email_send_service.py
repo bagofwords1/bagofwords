@@ -27,6 +27,63 @@ from app.ai.tools.schemas.send_email import (
 logger = logging.getLogger(__name__)
 
 
+# Strong right-to-left Unicode blocks: Hebrew, Arabic, Arabic Supplement,
+# Syriac, Thaana, NKo, Samaritan, Mandaic, plus the Hebrew/Arabic presentation
+# forms. A character in any of these ranges is "strong RTL" per the Unicode
+# bidi algorithm.
+_RTL_CHARS = re.compile(
+    "[֐-׿؀-ۿ܀-ݏݐ-ݿހ-޿"
+    "߀-߿ࠀ-࠿ࡀ-࡟ࢠ-ࣿ"
+    "יִ-ﭏﭐ-﷿ﹰ-﻿]"
+)
+# Strong left-to-right letters: Latin (incl. accented), plus Greek and Cyrillic
+# so a body in one of those isn't misread as neutral. Digits, whitespace, and
+# punctuation are bidi-neutral and deliberately excluded from the count.
+_LTR_CHARS = re.compile(
+    "[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]"
+)
+# For HTML bodies we score the visible text only — tags, attribute values, and
+# entities are English-looking markup and would otherwise dilute the RTL ratio.
+_HTML_TAG = re.compile(r"<[^>]+>")
+_HTML_ENTITY = re.compile(r"&[#0-9A-Za-z]+;")
+
+# Any strong-RTL letters at or above this share of strong letters flips the body
+# to RTL. Kept low because pure/mostly-English bodies have *zero* RTL letters, so
+# the margin is wide; a Hebrew report peppered with English identifiers still
+# clears it comfortably.
+_RTL_THRESHOLD = 0.30
+
+# RIGHT-TO-LEFT MARK — an invisible strong-RTL character. Prefixed to a
+# plain-text body so clients that honour it anchor the base direction; harmless
+# in clients that ignore it.
+_RLM = "‏"
+
+
+def detect_text_direction(
+    text: str, *, is_html: bool = False, threshold: float = _RTL_THRESHOLD
+) -> str:
+    """Return ``"rtl"`` or ``"ltr"`` for ``text`` by scoring strong letters.
+
+    The body of a free-form email is written by the agent and carries no
+    direction hint, so we infer one: count strong-RTL vs strong-LTR letters and
+    call it RTL when RTL letters are at least ``threshold`` of the total. Bodies
+    with no RTL letters are always LTR. For ``is_html`` bodies the markup is
+    stripped first so tag/attribute text can't tip the balance.
+    """
+    if not text:
+        return "ltr"
+    if is_html:
+        text = _HTML_ENTITY.sub(" ", _HTML_TAG.sub(" ", text))
+    rtl = len(_RTL_CHARS.findall(text))
+    if rtl == 0:
+        return "ltr"
+    ltr = len(_LTR_CHARS.findall(text))
+    total = rtl + ltr
+    if total == 0:
+        return "ltr"
+    return "rtl" if (rtl / total) >= threshold else "ltr"
+
+
 # Default export format per ref_type when the caller doesn't specify one.
 _DEFAULT_FORMAT = {
     "visualization": "csv",
@@ -166,6 +223,11 @@ class EmailSendService:
                     new_root = make_message_id()
                     message_id = new_root
 
+            # Auto-detect the body's language direction and wrap RTL content so
+            # Hebrew/Arabic emails don't render left-to-right. Done before the
+            # report link is appended so the (LTR) URL stays outside the wrapper.
+            body = self._apply_direction(body, subtype)
+
             body = self._append_report_link(
                 body, subtype, report, can_reply=bool(integration and integration.get("inbound"))
             )
@@ -235,6 +297,26 @@ class EmailSendService:
             return {"inbound": bool(cfg.get("inbound_enabled"))}
         except Exception:  # noqa: BLE001
             return None
+
+    def _apply_direction(self, body: str, subtype: str) -> str:
+        """Wrap an RTL body so email clients render it right-to-left.
+
+        Detects direction from the body itself (see ``detect_text_direction``).
+        For HTML, an RTL body is wrapped in a ``dir="rtl"`` container — this sets
+        the base paragraph direction *and* flips table column / list-marker order
+        that clients otherwise lay out LTR. Runs of embedded English inside still
+        get their correct per-run direction from the client's bidi algorithm.
+        For plain text there is no markup to set, so we prefix a RIGHT-TO-LEFT
+        MARK. LTR bodies are returned unchanged. Called before the report-link
+        footer is appended, so the (LTR) deep-link URL stays outside the wrapper.
+        """
+        if not body:
+            return body
+        if detect_text_direction(body, is_html=(subtype == "html")) != "rtl":
+            return body
+        if subtype == "html":
+            return f'<div dir="rtl" style="text-align:right">{body}</div>'
+        return f"{_RLM}{body}"
 
     def _append_report_link(self, body: str, subtype: str, report: Any, can_reply: bool) -> str:
         """Append a report deep link (and reply hint) to the email body."""

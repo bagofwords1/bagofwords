@@ -34,6 +34,11 @@ DATA_SOURCES = [
     "qvd",
     "teradata",
     "opensearch",
+    # Remote mode: Zabbix is a multi-container stack (server + web + db), so it
+    # doesn't fit the single-`container_cls` testcontainer pattern. Point
+    # integrations.json at a live instance — `tools/zabbix/docker-compose.yaml`
+    # + `seed_zabbix.py` stand one up locally with an API token.
+    "zabbix",
 ]
 
 

@@ -1,0 +1,45 @@
+# Massive-ish Prometheus demo config for the BOW Prometheus connector.
+# Scrapes itself + node-exporter + alertmanager, loads alert + recording rules.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    monitor: bow-demo
+    env: sandbox
+
+rule_files:
+  - /etc/prometheus/alert.rules.yml
+  - /etc/prometheus/recording.rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels: { app: prometheus, tier: monitoring }
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels: { app: node-exporter, tier: infra }
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels: { app: alertmanager, tier: monitoring }
+
+  # A few synthetic "service" targets that don't exist, so `up == 0` alerts
+  # fire and there are down instances to talk about.
+  - job_name: api
+    static_configs:
+      - targets: ["10.255.255.1:9000", "10.255.255.2:9000"]
+        labels: { app: checkout-api, tier: backend, team: payments }
+
+  - job_name: worker
+    static_configs:
+      - targets: ["10.255.255.3:9000"]
+        labels: { app: email-worker, tier: backend, team: growth }

@@ -4,6 +4,7 @@
       ref="inputRef"
       contenteditable="true"
       :dir="inputDir"
+      class="mention-input-field"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 dark:text-white placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
@@ -1590,6 +1591,17 @@ function scrollSelectedIntoView() {
 
 [contenteditable]:focus {
   outline: none;
+}
+
+/* Mobile Safari auto-zooms the page when a focused editable element has a
+ * font-size below 16px. The prompt field is `text-sm` (14px), so tapping it
+ * on iOS zooms the report in. Pin it to 16px on small screens to suppress the
+ * focus-zoom; desktop keeps the 14px design. The `[contenteditable]` prefix
+ * raises specificity above Tailwind's `.text-sm` so this wins. */
+@media (max-width: 640px) {
+  [contenteditable].mention-input-field {
+    font-size: 16px;
+  }
 }
 
 /* Style mentions - Cursor-style minimal design */

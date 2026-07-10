@@ -31,7 +31,7 @@ class ObservationContextBuilder:
         # Other useful outputs (files created, data processed, etc.)
         self.artifacts: Dict[str, Any] = {}
     
-    def add_tool_observation(self, tool_name: str, tool_input: Dict[str, Any], observation: Dict[str, Any]):
+    def add_tool_observation(self, tool_name: str, tool_input: Dict[str, Any], observation: Dict[str, Any], loop_index: int = None):
         """
         Add an observation from a tool execution.
 
@@ -39,13 +39,22 @@ class ObservationContextBuilder:
             tool_name: Name of the tool that was executed
             tool_input: Input parameters passed to the tool
             observation: Tool execution result with summary and artifacts
+            loop_index: Planner loop iteration this observation belongs to.
+                A multi-tool decision produces several observations sharing
+                one loop_index; they are recorded in action order.
         """
         self.execution_count += 1
 
         # Compact previous observations after 1 iteration.
         # Any new tool observation triggers stripping of heavy fields
         # from all prior observations, keeping only lightweight metadata.
+        # Observations from the SAME iteration are exempt: a parallel
+        # multi-tool batch is recorded one entry at a time, and the planner
+        # must see the full detail of the whole just-finished batch — not
+        # just whichever action happened to be recorded last.
         for prev_obs in self.tool_observations:
+            if loop_index is not None and prev_obs.get("loop_index") == loop_index:
+                continue
             prev_observation = prev_obs.get("observation", {})
             if prev_obs["tool_name"] in ("create_artifact", "read_artifact", "edit_artifact"):
                 if "code" in prev_observation:
@@ -113,6 +122,8 @@ class ObservationContextBuilder:
             "timestamp": datetime.utcnow().isoformat(),
             "observation": observation
         }
+        if loop_index is not None:
+            tool_observation["loop_index"] = loop_index
 
         self.tool_observations.append(tool_observation)
         

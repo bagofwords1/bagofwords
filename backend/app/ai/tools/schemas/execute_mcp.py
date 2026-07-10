@@ -15,6 +15,17 @@ class ExecuteMCPInput(BaseModel):
         default={},
         description="Arguments to pass to the tool, matching the tool's input schema."
     )
+    title: Optional[str] = Field(
+        default=None,
+        description=(
+            "A short, human-readable label for this action in the active voice — "
+            "3-6 words naming the connection/service and what you're doing, e.g. "
+            "'Searching Notion for churned customers' or 'Fetching open Jira "
+            "tickets'. Shown to the user as the live title while the tool runs, "
+            "instead of the raw tool name. Do NOT include ids or the underlying "
+            "tool_name; write it for a non-technical reader."
+        ),
+    )
 
 
 class ExecuteMCPOutput(BaseModel):

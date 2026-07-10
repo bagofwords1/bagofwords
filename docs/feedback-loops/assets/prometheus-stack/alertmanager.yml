@@ -1,0 +1,14 @@
+route:
+  receiver: "devnull"
+  group_by: ["alertname", "severity"]
+  group_wait: 5s
+  group_interval: 10s
+  repeat_interval: 1h
+
+receivers:
+  - name: "devnull"
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: ["instance"]

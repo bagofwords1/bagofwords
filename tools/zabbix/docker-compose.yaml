@@ -1,0 +1,42 @@
+services:
+  zabbix-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      POSTGRES_DB: zabbix
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zabbix"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      POSTGRES_DB: zabbix
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+    ports:
+      - "10051:10051"
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix_pwd
+      POSTGRES_DB: zabbix
+      ZBX_SERVER_HOST: zabbix-server
+      PHP_TZ: UTC
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
