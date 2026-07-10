@@ -95,7 +95,7 @@ def _stdout_router() -> _ThreadLocalStdoutRouter:
         sys.stdout = router
         return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
-from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
+from app.services.usage_policy_service import UsageLimitContext
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -580,6 +580,16 @@ class QueryCapturingClientWrapper:
             logger.debug("Skipping rate-limit check; SQLite is locked")
 
     def _consume_query_quota(self, query: str) -> None:
+        """Enforce, then buffer — never write to the DB from the sandbox thread.
+
+        The old shape ran the counter+event WRITE synchronously here; on SQLite
+        it queued behind the agent's writer lock, waited out busy_timeout (30s)
+        and got skipped — +30s per query with the metering lost anyway (see
+        docs/feedback-loops/agent-latency-deep-dive.md). Enforcement is now a
+        cached READ (`check_data_query`, WAL-safe, in-memory after first load);
+        the usage event is buffered on the context and persisted by the same
+        end-of-run flush() the token/cost buffers use.
+        """
         context = self._usage_context
         if context is None or context.session_maker is None:
             return
@@ -588,22 +598,16 @@ class QueryCapturingClientWrapper:
             return
         metadata = self._usage_metadata(query)
         try:
-            context.run_blocking(
-                usage_policy_service.consume_data_query_with_context(
-                    context,
-                    connection_id=str(connection_id),
-                    metadata=metadata,
-                )
-            )
+            # Raises UsageLimitExceeded when over quota — propagates, same as before.
+            context.run_blocking(context.check_data_query(str(connection_id)))
         except OperationalError as e:
-            # SQLite-only: the agent's long-lived session can hold the single
-            # write lock while model code runs, making this bookkeeping write
-            # time out. Metering is best-effort there (same policy as the LLM
-            # usage recorder); enforcement raises UsageLimitExceeded, which is
-            # not an OperationalError and still propagates.
+            # SQLite-only: the rare cache-refresh READ can still lose to a
+            # locked DB in exotic states. Enforcement is best-effort there;
+            # UsageLimitExceeded is not an OperationalError and still propagates.
             if not _is_sqlite_lock_error(e):
                 raise
-            logger.debug("Skipping data-query quota write; SQLite is locked")
+            logger.debug("Skipping data-query quota check; SQLite is locked")
+        context.add_data_query(str(connection_id), metadata)
 
     def _consume_data_bytes_quota(self, query: str, result_bytes: int, rows: Optional[int]) -> None:
         context = self._usage_context
@@ -618,18 +622,12 @@ class QueryCapturingClientWrapper:
             "result_bytes": result_bytes,
         }
         try:
-            context.run_blocking(
-                usage_policy_service.consume_data_bytes_with_context(
-                    context,
-                    connection_id=str(connection_id),
-                    amount=result_bytes,
-                    metadata=metadata,
-                )
-            )
+            context.run_blocking(context.check_data_bytes(str(connection_id), result_bytes))
         except OperationalError as e:
             if not _is_sqlite_lock_error(e):
                 raise
-            logger.debug("Skipping data-bytes quota write; SQLite is locked")
+            logger.debug("Skipping data-bytes quota check; SQLite is locked")
+        context.add_data_bytes(str(connection_id), result_bytes, metadata)
 
     def _connection_id(self) -> Optional[str]:
         connection_id = getattr(self._original, "_bow_connection_id", None)
