@@ -112,8 +112,34 @@ The script drives `claude-haiku-4-5` through search_mcps → execute_mcp
 fakes, and asserts each connection call carries a non-empty title that is a
 phrase (≥2 words) and never echoes the raw tool name. Prints `LIVE E2E: PASS`.
 
+**Observed (PASS):** Haiku titled all 4 connection calls —
+`Discovering Notion tools`, `Searching Notion for customer churn page`,
+`Fetching pricing page`, `Reading customer churn Notion page`.
+
 > Requires `ANTHROPIC_API_KEY`. It is intentionally not set in the base sandbox;
 > the script exits 2 with a clear message when the key is absent.
+
+## Loop B' — full BOW pipeline (Haiku through agent_v2 → planner_v3)
+
+Loop B exercises the schemas via the SDK directly. Loop B' proves the same
+through BOW's real server pipeline. `scripts/run_haiku_title_completion.py`
+configures an Anthropic Haiku model + enables web_fetch via the real API, then
+posts a completion; the model calls `web_fetch` and the persisted
+`arguments_json.title` is `"Reading example.com"` — a live title flowing through
+`agent_v2` → `planner_v3` → tool dispatch → `arguments_json` with no extra
+plumbing. (In this sandbox the egress proxy resets `web_fetch`'s curl_cffi TLS,
+so the block renders its error state — the title mechanism still round-tripped.)
+
+For a fully local, no-egress run, `scripts/seed_network_dir_report.py` attaches a
+`network_dir` file source and a real Haiku completion drives `search_files` /
+`list_files` / `read_file` across many iterations. Observed rendered titles
+(success state) include `Searching Contracts for contract files`,
+`Listing contract files to get file IDs`, and `Finding first contract file` —
+captured in `media/pr/tool-titles-live-haiku.png`.
+
+> Both scripts read `ANTHROPIC_API_KEY` from the env and encrypt connection
+> credentials with `BOW_ENCRYPTION_KEY`; pin the same key for the server and any
+> seed process or the connection won't decrypt.
 
 ## What this proves / regression notes
 
