@@ -1458,11 +1458,18 @@ class ProjectManager:
         # Project content rules:
         # - If analysis is complete: prefer final_answer, fall back to assistant
         # - If analysis is not complete: surface assistant text so the UI isn't stuck on "Thinking"
+        # - Multi-tool sub-blocks (tool_index >= 1) carry NO content/reasoning:
+        #   the decision has ONE assistant message and it belongs to the primary
+        #   block — copying it onto every sub-block renders the same sentence
+        #   above each tool card and duplicates it in the rebuilt transcript.
         if plan_decision.analysis_complete:
             content = plan_decision.final_answer or plan_decision.assistant or None
         else:
             content = plan_decision.assistant or None
         reasoning = plan_decision.reasoning or None
+        if tool_index and tool_index > 0:
+            content = None
+            reasoning = None
 
         # Try to find an existing block for this loop iteration. Skip the
         # lookup when force_insert is True so multi-tool sub-decisions get

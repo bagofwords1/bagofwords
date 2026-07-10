@@ -237,7 +237,7 @@ by reference. Per-invocation `QueryCapturingClientWrapper`s are fresh
    - **In-flight cap**: an **org setting** `ai_tool_concurrency`
      (`FeatureConfig` in `organization_settings_schema.py`, read via
      `organization_settings.get_config("ai_tool_concurrency").value` like
-     `limit_row_count`), default **1** = today's behavior, recommended max 4–5
+     `limit_row_count`), default **4** (set 1 for serial), recommended max 4–5
      (must stay well under `_CODE_EXEC_POOL`'s 8 shared workers).
    Group actions by data source and keep per-source concurrency at 1 (B7).
 3. **DB discipline**: keep one writer. Wrap every DB-touching section inside
@@ -391,7 +391,7 @@ Loop B in the feedback-loop doc.
 ### Phase 2 — Concurrent dispatch core (opt-in)
 
 - `asyncio.Semaphore` + `gather(return_exceptions=True)`; in-flight cap from
-  the org setting `ai_tool_concurrency` (default **1**); accept-cap 10
+  the org setting `ai_tool_concurrency` (default **4**; 1 = serial); accept-cap 10
   actions/decision with truncation surfaced to the planner.
 - Group actions by `data_source_id` from `tables_by_source`; per-source
   concurrency stays 1 (B7).

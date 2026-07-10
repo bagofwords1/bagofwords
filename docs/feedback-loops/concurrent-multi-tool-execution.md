@@ -305,7 +305,7 @@ Provider-specific gotchas from this leg:
   DB sections (start/persist) around an unlocked tool run;
   `_dispatch_action_batch` runs the batch serial (default) or gathered under
   an `asyncio.Semaphore` sized by the **`ai_tool_concurrency` org setting**
-  (default 1; `BOW_AGENT_TOOL_CONCURRENCY` env var is an ops/sandbox
+  (default 4, set 1 for serial; `BOW_AGENT_TOOL_CONCURRENCY` env var is an ops/sandbox
   override) with per-data-source locks
   and a `_PARALLEL_SAFE_TOOLS` gate; accept-cap
   `BOW_AGENT_MAX_ACTIONS_PER_DECISION` (default 10) reports the dropped tail

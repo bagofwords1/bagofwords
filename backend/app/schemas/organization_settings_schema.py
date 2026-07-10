@@ -154,7 +154,7 @@ class OrganizationSettingsConfig(BaseModel):
         if v.value is not None and isinstance(v.value, (int, float)) and v.value <= 0:
             v.state = FeatureState.DISABLED
         return v
-    ai_tool_concurrency: FeatureConfig = FeatureConfig(value=1, name="Parallel tool calls", description="How many tool calls from one AI plan step may run at the same time (e.g. create_data / inspect_data across different agents). 1 runs them one after another; up to 8. Calls against the same agent always run one at a time.", is_lab=True, editable=True)
+    ai_tool_concurrency: FeatureConfig = FeatureConfig(value=4, name="Parallel tool calls", description="How many tool calls from one AI plan step may run at the same time (e.g. create_data / inspect_data across different agents). Set to 1 to run them one after another; up to 8. Calls against the same agent always run one at a time.", is_lab=True, editable=True)
     limit_analysis_steps: FeatureConfig = FeatureConfig(value=6, name="Limit analysis steps", description="Limit the number of analysis steps that can be used in the analysis", is_lab=False, editable=False) # Assuming value is int here
     limit_code_retries: FeatureConfig = FeatureConfig(value=3, name="Limit code retries", description="Limit the number of times the LLM can retry code generation", is_lab=False, editable=False) # Assuming value is int here
     query_timeout_seconds: FeatureConfig = FeatureConfig(value=180, name="Query timeout (seconds)", description="Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value.", is_lab=False, editable=True)
