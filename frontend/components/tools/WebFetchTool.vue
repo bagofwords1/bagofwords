@@ -3,12 +3,11 @@
     <Transition name="fade" appear>
       <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
-          <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}</template>
             <template v-else>{{ $t('tools.webFetch.fetching') }}<span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template>
           </span>
-          <Spinner class="w-3 h-3 ms-1.5 shrink-0 text-gray-400" />
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
@@ -88,7 +87,7 @@ const errorMessage = computed<string>(() => {
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .tool-shimmer {
   background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
   background-size: 200% 100%;

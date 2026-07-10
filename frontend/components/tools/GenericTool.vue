@@ -3,16 +3,14 @@
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
-      <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <!-- Status icon (spinner while running, on the left like create_data) -->
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
 
       <!-- Tool title with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer">{{ toolTitle }}</span>
       <span v-else class="text-gray-700 dark:text-gray-300">{{ toolTitle }}</span>
-
-      <!-- Spinner on the right while running -->
-      <Spinner v-if="status === 'running'" class="w-3 h-3 ms-1.5 shrink-0 text-gray-400" />
 
       <!-- Execution time if > 2 seconds -->
       <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
@@ -296,8 +294,8 @@ watch(() => status.value, (newStatus, oldStatus) => {
 }
 
 @keyframes shimmer {
-	0% { background-position: 100% 0; }
-	100% { background-position: -100% 0; }
+	0% { background-position: -100% 0; }
+	100% { background-position: 100% 0; }
 }
 
 .tool-shimmer {

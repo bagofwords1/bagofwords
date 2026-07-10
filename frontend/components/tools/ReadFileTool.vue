@@ -3,9 +3,8 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
-          <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
           <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Reading ' + fileLabel + '…' }}</span>
-          <Spinner class="w-3 h-3 ms-1.5 shrink-0 text-gray-400" />
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
@@ -98,7 +97,7 @@ const expanded = ref(false)
   color: transparent;
   animation: shimmer 2s linear infinite;
 }
-@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

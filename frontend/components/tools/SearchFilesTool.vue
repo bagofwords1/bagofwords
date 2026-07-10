@@ -3,12 +3,11 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
         <span v-if="status === 'running'" class="flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}…</template>
             <template v-else>Searching files for {{ queryLabel }}…</template>
           </span>
-          <Spinner class="w-3 h-3 ms-1.5 shrink-0 text-gray-400" />
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
@@ -114,7 +113,7 @@ function formatBytes(n: number): string {
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .tool-shimmer {
   background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
   background-size: 200% 100%;
