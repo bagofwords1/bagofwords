@@ -202,6 +202,32 @@ assertion is *overlap happened at depth > 1*, which held (max depth 5).
 A few individual tool executions failed (Haiku codegen fumbles) and were
 retried/recovered by the normal error paths — iteration 1 was fully green.
 
+### Live UI capture (real Haiku, fresh report)
+
+A fully green 10/10 run on a fresh report (fresh context forces the fan-out;
+a report that already contains the summaries gets answered from context with
+zero tools — real-model behavior worth knowing when reproducing):
+
+```
+inspect_data ×5  starts 06:03:29.530 → 06:03:30.055 (~525ms spread), all success, ~124s each
+create_data  ×5  starts 06:05:44.043 → 06:05:44.599 (~556ms spread), all success, ~66s each
+```
+
+Captured through the real chat box via
+`tools/agent/capture_parallel_flow.mjs` (`media/pr/concurrent-multi-tool/live-haiku/`):
+
+- `five-inspect-executing-live-haiku.png` — five "Inspecting orders_N" cards
+  streaming in Executing state simultaneously, Haiku model badge visible.
+- `five-create-executing-live-haiku.png` — five "Creating Data · Executing"
+  cards simultaneously.
+- `final-state-live-haiku.png` — completed turn: per-source region summaries,
+  5 queries, knowledge suggestion, follow-ups.
+
+(Note for reruns: `capture_parallel_flow.mjs` resolves `@playwright/test`
+from `tools/agent/`, which requires the repo-root `node_modules` symlink →
+`frontend/node_modules`; create it with `ln -sfn frontend/node_modules
+node_modules` — it's gitignored.)
+
 ### Sandbox gotchas (cost us one dead run each)
 
 - **Pin `BOW_ENCRYPTION_KEY`** before the first boot. When unset, the backend
