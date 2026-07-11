@@ -64,6 +64,16 @@ const iconPath = computed(() => {
     }
     const t = normalizeType(props.type);
 
+    // Explicit brand icons for data-source types whose asset is an SVG (the
+    // default resolver below only tries `<type>.png`).
+    const TYPE_ICON_FILE: Record<string, string> = {
+        csv: 'csv.svg',
+        outlook_mail: 'outlook_mail.svg',
+    };
+    if (TYPE_ICON_FILE[t]) {
+        return `/data_sources_icons/${TYPE_ICON_FILE[t]}`;
+    }
+
     // Prefer tool/resource icons when available (stored under /icons)
     const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau', 'dataform', 'mcp', 'custom_api']);
     if (toolIconTypes.has(t)) {

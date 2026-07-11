@@ -24,8 +24,9 @@
           <p v-if="presetDescription" class="text-sm text-gray-500 dark:text-gray-400">{{ presetDescription }}</p>
           <div v-if="sampleTools.length">
             <div class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Example tools</div>
-            <div class="flex flex-wrap gap-1">
-              <span v-for="tool in sampleTools" :key="tool" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">{{ tool }}</span>
+            <div class="flex flex-wrap gap-1 items-center">
+              <span v-for="tool in sampleTools.slice(0, 8)" :key="tool" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">{{ tool }}</span>
+              <span v-if="sampleTools.length > 8" class="text-[11px] text-gray-400">+{{ sampleTools.length - 8 }} more</span>
             </div>
             <p class="mt-1 text-[11px] text-gray-400">The full tool set is discovered automatically after connecting.</p>
           </div>
@@ -64,9 +65,9 @@
         </div>
 
         <div v-if="form.auth_type === 'dcr'" class="text-xs text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
-          No admin setup — this connector auto-registers (DCR, RFC 9728/8414/7591). You're adding a
-          connection for your org; <strong>each user signs in with their own account</strong> when they
-          first use it.
+          This connector registers itself automatically (DCR, RFC 9728/8414/7591) — no client
+          credentials to enter. <strong>Each user signs in with their own account</strong> the first
+          time they use it.
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
@@ -114,7 +115,7 @@
           <template v-if="!isPreset">
             <div>
               <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
-              <input v-model="form.scopes" type="text" placeholder="openid profile offline_access" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              <input v-model="form.scopes" type="text" placeholder="openid, profile, offline_access" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
@@ -378,6 +379,9 @@ const allowedUserAuthModes = computed(() => isPerUser.value ? ['oauth'] : undefi
 const createAgent = ref(true)
 const agentName = ref('')
 const toast = useToast()
+// Prefill the agent name from the connection name so the field shows real text
+// (not just a placeholder); still editable, and won't clobber a manual edit.
+watch(() => form.name, (n) => { if (n && !agentName.value) agentName.value = n }, { immediate: true })
 
 // For per-user OAuth the admin isn't authenticating here — they're saving config
 // and verifying reachability. Reflect that in the button copy.

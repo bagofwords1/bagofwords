@@ -124,15 +124,6 @@
           </button>
         </div>
 
-        <!-- DCR catalog connector: no admin setup required. -->
-        <div
-          v-if="selectedDataSource?.is_dcr"
-          class="mb-4 flex items-start gap-2 text-xs text-green-800 dark:text-green-300 border border-green-200 dark:border-green-500/30 rounded-md p-3 bg-green-50 dark:bg-green-950/40"
-        >
-          <UIcon name="i-heroicons-sparkles" class="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{{ $t('data.connectorDcrNote') }}</span>
-        </div>
-
         <MCPConnectionForm
           v-if="selectedDataSource?.type === 'mcp'"
           :prefill="mcpPrefill"
