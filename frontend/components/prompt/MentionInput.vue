@@ -128,7 +128,7 @@
             <button @click="closeItemCard" class="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded p-1">
               <Icon name="heroicons-chevron-left" class="w-4 h-4" />
             </button>
-            <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" class="h-3.5 flex-shrink-0" />
+            <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" :icon="expandedItem?.icon" class="h-3.5 flex-shrink-0" />
             <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <div class="text-[13px] font-medium truncate">{{ expandedItem?.name }}</div>
@@ -245,6 +245,7 @@ interface MentionItem {
   name: string
   subtitle?: string
   icon_type?: string
+  icon?: string | null
   entity_type?: string
   description?: string
   columns?: string[]
@@ -1432,6 +1433,7 @@ async function fetchAvailableMentions() {
             description: ds.description,
             subtitle: ds.description || ds.type,
             icon_type: ds.type,
+            icon: ds.icon,
             // Per-agent connect state — mirrors DataSourceSelector's needs-connect logic.
             needs_connect: needsUserConnection(ds),
             raw: ds,

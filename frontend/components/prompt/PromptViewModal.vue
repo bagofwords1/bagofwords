@@ -57,7 +57,7 @@
               :key="a.id"
               class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
             >
-              <DataSourceIcon :type="a.type" class="h-3 w-auto" />
+              <DataSourceIcon :type="a.type" :icon="a.icon" class="h-3 w-auto" />
               {{ a.name }}
             </span>
           </div>
@@ -124,7 +124,7 @@ const props = defineProps<{
   modelValue: boolean
   prompt: Prompt | null
   // id → { name, type } for the agent chips' DataSourceIcon.
-  agentMap?: Record<string, { name: string; type?: string }>
+  agentMap?: Record<string, { name: string; type?: string; icon?: string | null }>
   authorNames?: Record<string, string>
   running?: boolean
 }>()
@@ -157,7 +157,7 @@ const agentChips = computed(() => {
   const ids = props.prompt?.data_source_ids || []
   // Fall back to the generic "Agent" label (matching PromptCard) when an agent
   // id can't be resolved to a name — never leak a bare UUID into the UI.
-  return ids.map(id => ({ id, name: props.agentMap?.[id]?.name || t('prompts.scopeAgent'), type: props.agentMap?.[id]?.type }))
+  return ids.map(id => ({ id, name: props.agentMap?.[id]?.name || t('prompts.scopeAgent'), type: props.agentMap?.[id]?.type, icon: props.agentMap?.[id]?.icon }))
 })
 
 const authorName = computed(() => {

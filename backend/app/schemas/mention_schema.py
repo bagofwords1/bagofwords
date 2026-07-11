@@ -12,7 +12,9 @@ class DataSourceMention(BaseModel):
     type: Literal['data_source'] = 'data_source'
     name: str
     data_source_type: str  # From DataSource.type (postgres, snowflake, etc.)
-    
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    icon: Optional[str] = None
+
     # Real fields from DataSource model
     description: Optional[str] = None  # DataSource.description
     is_active: bool

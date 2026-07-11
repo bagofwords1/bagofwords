@@ -53,7 +53,7 @@
                                     <button
                                     class="text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs rounded-md p-1.5"
                                     @click="handleExampleClick(data_source.conversation_starters?.[0])">  
-                                        <DataSourceIcon :type="data_source.type" class="h-3 inline me-2" />
+                                        <DataSourceIcon :type="data_source.type" :icon="data_source.icon" class="h-3 inline me-2" />
                                         {{ data_source.conversation_starters?.[0].split('\n')[0]  }}
                                     </button>
                                 </li>

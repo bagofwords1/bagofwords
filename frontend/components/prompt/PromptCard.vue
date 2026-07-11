@@ -12,7 +12,7 @@
           :key="a.id"
           class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border text-violet-700 border-violet-200 bg-violet-50 dark:text-violet-300 dark:border-violet-900 dark:bg-violet-900/20"
         >
-          <DataSourceIcon :type="a.type" class="h-3 w-auto" />
+          <DataSourceIcon :type="a.type" :icon="a.icon" class="h-3 w-auto" />
           {{ a.name }}
         </span>
       </div>
@@ -102,8 +102,8 @@ import { usePromptFill } from '~/composables/usePromptFill'
 
 const props = defineProps<{
   prompt: Prompt
-  // id → { name, type } for agent-scoped prompts (type drives DataSourceIcon).
-  agentMap?: Record<string, { name: string; type?: string }>
+  // id → { name, type, icon } for agent-scoped prompts (drives DataSourceIcon).
+  agentMap?: Record<string, { name: string; type?: string; icon?: string | null }>
   running?: boolean
 }>()
 
@@ -126,6 +126,7 @@ const agentChips = computed(() =>
     id,
     name: props.agentMap?.[id]?.name || t('prompts.scopeAgent'),
     type: props.agentMap?.[id]?.type,
+    icon: props.agentMap?.[id]?.icon,
   })),
 )
 

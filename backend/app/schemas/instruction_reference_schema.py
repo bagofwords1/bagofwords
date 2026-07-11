@@ -36,6 +36,9 @@ class InstructionReferenceSchema(InstructionReferenceBase):
     data_source_id: Optional[str] = None
     data_source_name: Optional[str] = None
     data_source_type: Optional[str] = None
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    # None = use the default type/connector icon.
+    data_source_icon: Optional[str] = None
 
     class Config:
         from_attributes = True

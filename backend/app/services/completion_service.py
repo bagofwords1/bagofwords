@@ -1247,8 +1247,10 @@ class CompletionService:
                     for li in raw_li:
                         inst = instruction_map.get(li.get("id", ""))
                         ds_type = None
+                        ds_icon = None
                         if inst and inst.data_sources:
                             ds = inst.data_sources[0]
+                            ds_icon = getattr(ds, "icon", None)
                             if ds.connections:
                                 ds_type = ds.connections[0].type
                         enriched.append({
@@ -1259,6 +1261,7 @@ class CompletionService:
                             "load_reason": li.get("load_reason"),
                             "source_type": inst.source_type if inst else li.get("source_type"),
                             "data_source_type": ds_type,
+                            "data_source_icon": ds_icon,
                         })
                     loaded_instructions_list = enriched
 
@@ -1618,8 +1621,10 @@ class CompletionService:
                     for li in raw_li:
                         inst = instruction_map.get(li.get("id", ""))
                         ds_type = None
+                        ds_icon = None
                         if inst and inst.data_sources:
                             ds = inst.data_sources[0]
+                            ds_icon = getattr(ds, "icon", None)
                             if ds.connections:
                                 ds_type = ds.connections[0].type
                         enriched.append({
@@ -1630,6 +1635,7 @@ class CompletionService:
                             "load_reason": li.get("load_reason"),
                             "source_type": inst.source_type if inst else li.get("source_type"),
                             "data_source_type": ds_type,
+                            "data_source_icon": ds_icon,
                         })
                     loaded_instructions_list = enriched
 
