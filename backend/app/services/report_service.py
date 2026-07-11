@@ -1340,6 +1340,7 @@ class ReportService:
         mode: str | None = None,
         has_artifacts: str | None = None,
         view: str | None = None,
+        artifact_mode: str | None = None,
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
@@ -1462,6 +1463,18 @@ class ReportService:
                 base_conditions.append(
                     ~Report.id.in_(
                         select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                    )
+                )
+
+            # Optional filter by artifact mode ('page' / 'slides' / 'doc')
+            if artifact_mode in ("page", "slides", "doc"):
+                from app.models.artifact import Artifact
+                base_conditions.append(
+                    Report.id.in_(
+                        select(Artifact.report_id).where(
+                            Artifact.mode == artifact_mode,
+                            Artifact.deleted_at.is_(None),
+                        )
                     )
                 )
 

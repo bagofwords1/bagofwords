@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Skriv dokument",
+      "writing": "Skriver dokument...",
+      "created": "Dokument skapat",
+      "failed": "Dokumentet misslyckades",
+      "untitled": "Namnlöst dokument",
+      "openDocument": "Öppna dokument",
+      "chartsCount": "{n} diagram"
+    },
+    "editDoc": {
+      "label": "Redigera dokument",
+      "editing": "Redigerar dokument...",
+      "edited": "Dokument redigerat",
+      "failed": "Redigeringen misslyckades",
+      "diff": "diff",
+      "rewrite": "omskrivning",
+      "editsCount": "{n} riktade ändringar"
     }
   },
   "entityCreate": {
@@ -1972,7 +1990,10 @@
     "empty": "Inga instrumentpaneler hittades",
     "emptyDescription": "Försök att justera söktermen, eller skapa en rapport med en instrumentpanel.",
     "showingRange": "Visar {start} till {end} av {total} instrumentpaneler",
-    "fetchFailed": "Det gick inte att hämta instrumentpanelerna"
+    "fetchFailed": "Det gick inte att hämta instrumentpanelerna",
+    "typeAll": "Alla",
+    "typeDashboards": "Instrumentpaneler",
+    "typeDocs": "Dokument"
   },
   "excel": {
     "greeting": "Hej, {name} 👋",
@@ -2964,5 +2985,20 @@
     "toastSaved": "Utlösare sparad",
     "toastDeleted": "Utlösare borttagen",
     "saveFailed": "Det gick inte att spara utlösaren"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualisering saknas",
+    "vizRenderFailed": "Diagrammet kunde inte renderas",
+    "diagramFailed": "Diagrammet kunde inte renderas",
+    "exportMarkdown": "Ladda ner som Markdown",
+    "printPdf": "Skriv ut / Spara som PDF"
+  },
+  "docEditor": {
+    "edit": "Redigera",
+    "editDocument": "Redigera dokument",
+    "save": "Spara",
+    "cancel": "Avbryt",
+    "saved": "Dokument sparat",
+    "saveFailed": "Det gick inte att spara dokumentet"
   }
 }

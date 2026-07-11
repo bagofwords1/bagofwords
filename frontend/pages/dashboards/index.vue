@@ -49,6 +49,21 @@
                         >
                             <span>{{ $t('dashboards.sharedWithMe') }}</span>
                         </button>
+
+                        <!-- Type filter (All / Dashboards / Docs) -->
+                        <div class="ms-auto flex items-center gap-1 py-1.5">
+                            <button
+                                v-for="tf in typeFilters"
+                                :key="tf.value"
+                                class="px-2.5 py-1 text-xs rounded-full border transition-colors"
+                                :class="typeFilter === tf.value
+                                    ? 'border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:border-blue-900 dark:text-blue-300'
+                                    : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
+                                @click="setTypeFilter(tf.value)"
+                            >
+                                {{ tf.label }}
+                            </button>
+                        </div>
                     </nav>
                 </div>
 
@@ -226,6 +241,20 @@ const setActiveFilter = async (filter: 'my' | 'shared') => {
     await fetchDashboards(1, filter, searchTerm.value)
 }
 
+// Type filter: All / Dashboards / Docs (server-side via artifact_mode)
+const typeFilter = ref<'all' | 'page' | 'doc'>('all')
+const typeFilters = computed(() => [
+    { value: 'all' as const, label: t('dashboards.typeAll') },
+    { value: 'page' as const, label: t('dashboards.typeDashboards') },
+    { value: 'doc' as const, label: t('dashboards.typeDocs') },
+])
+const setTypeFilter = async (tf: 'all' | 'page' | 'doc') => {
+    if (typeFilter.value === tf) return
+    typeFilter.value = tf
+    currentPage.value = 1
+    await fetchDashboards(1, activeFilter.value, searchTerm.value)
+}
+
 const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my', search: string = '') => {
     isLoading.value = true
     try {
@@ -237,6 +266,7 @@ const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my',
                 filter,
                 search: search?.trim() || undefined,
                 has_artifacts: 'yes',
+                artifact_mode: typeFilter.value === 'all' ? undefined : typeFilter.value,
             },
         })
 

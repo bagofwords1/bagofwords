@@ -1066,6 +1066,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Write document",
+      "writing": "Writing document...",
+      "created": "Document created",
+      "failed": "Document failed",
+      "untitled": "Untitled document",
+      "openDocument": "Open document",
+      "chartsCount": "{n} charts"
+    },
+    "editDoc": {
+      "label": "Edit document",
+      "editing": "Editing document...",
+      "edited": "Document edited",
+      "failed": "Edit failed",
+      "diff": "diff",
+      "rewrite": "rewrite",
+      "editsCount": "{n} surgical edits"
     }
   },
   "entityCreate": {
@@ -2233,7 +2251,10 @@
     "empty": "No dashboards found",
     "emptyDescription": "Try adjusting your search term, or create a report with a dashboard.",
     "showingRange": "Showing {start} to {end} of {total} dashboards",
-    "fetchFailed": "Failed to fetch dashboards"
+    "fetchFailed": "Failed to fetch dashboards",
+    "typeAll": "All",
+    "typeDashboards": "Dashboards",
+    "typeDocs": "Docs"
   },
   "excel": {
     "greeting": "Hi, {name} 👋",
@@ -3276,5 +3297,20 @@
     "toastSaved": "Trigger saved",
     "toastDeleted": "Trigger deleted",
     "saveFailed": "Could not save the trigger"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualization unavailable",
+    "vizRenderFailed": "Chart failed to render",
+    "diagramFailed": "Diagram failed to render",
+    "exportMarkdown": "Download as Markdown",
+    "printPdf": "Print / Save as PDF"
+  },
+  "docEditor": {
+    "edit": "Edit",
+    "editDocument": "Edit document",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Document saved",
+    "saveFailed": "Failed to save document"
   }
 }

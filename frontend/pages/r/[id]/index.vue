@@ -126,9 +126,17 @@
                     class="absolute inset-0"
                 />
 
+                <!-- Shared Document - read-only DocViewer -->
+                <DocViewer
+                    v-else-if="isDocMode && artifact"
+                    :markdown="artifact.content?.markdown || ''"
+                    :visualizations="visualizationsData"
+                    class="absolute inset-0"
+                />
+
                 <!-- Artifact Content - Full screen (modern reports with artifacts) -->
                 <iframe
-                    v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews"
+                    v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews && !isDocMode"
                     :srcdoc="iframeSrcdoc"
                     sandbox="allow-scripts allow-same-origin"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
@@ -182,6 +190,7 @@
 import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
+import DocViewer from '~/components/dashboard/DocViewer.vue';
 import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
 
 const route = useRoute();
@@ -289,6 +298,9 @@ const hasSlidesWithPreviews = computed(() => {
     const previewImages = artifact.value.content?.preview_images;
     return Array.isArray(previewImages) && previewImages.length > 0;
 });
+
+// Shared document (mode='doc') — rendered read-only in DocViewer, never an iframe
+const isDocMode = computed(() => artifact.value?.mode === 'doc');
 
 definePageMeta({
     layout: false,

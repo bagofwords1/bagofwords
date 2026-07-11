@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "كتابة مستند",
+      "writing": "جارٍ كتابة المستند...",
+      "created": "تم إنشاء المستند",
+      "failed": "فشل إنشاء المستند",
+      "untitled": "مستند بلا عنوان",
+      "openDocument": "فتح المستند",
+      "chartsCount": "{n} رسوم بيانية"
+    },
+    "editDoc": {
+      "label": "تحرير المستند",
+      "editing": "جارٍ تحرير المستند...",
+      "edited": "تم تحرير المستند",
+      "failed": "فشل التحرير",
+      "diff": "diff",
+      "rewrite": "إعادة كتابة",
+      "editsCount": "{n} تعديلات دقيقة"
     }
   },
   "entityCreate": {
@@ -1972,7 +1990,10 @@
     "empty": "لا توجد لوحات تحكم",
     "emptyDescription": "حاول تعديل مصطلح البحث، أو أنشئ تقريرًا بلوحة تحكم.",
     "showingRange": "عرض {start} إلى {end} من إجمالي {total} لوحة تحكم",
-    "fetchFailed": "تعذّر جلب لوحات التحكم"
+    "fetchFailed": "تعذّر جلب لوحات التحكم",
+    "typeAll": "الكل",
+    "typeDashboards": "لوحات المعلومات",
+    "typeDocs": "المستندات"
   },
   "excel": {
     "greeting": "مرحبًا، {name} 👋",
@@ -2964,5 +2985,20 @@
     "toastSaved": "تم حفظ المشغّل",
     "toastDeleted": "تم حذف المشغّل",
     "saveFailed": "تعذّر حفظ المشغّل"
+  },
+  "docViewer": {
+    "vizUnavailable": "التصور غير متاح",
+    "vizRenderFailed": "تعذر عرض الرسم البياني",
+    "diagramFailed": "تعذر عرض المخطط",
+    "exportMarkdown": "تنزيل بصيغة Markdown",
+    "printPdf": "طباعة / حفظ كـ PDF"
+  },
+  "docEditor": {
+    "edit": "تحرير",
+    "editDocument": "تحرير المستند",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "saved": "تم حفظ المستند",
+    "saveFailed": "فشل حفظ المستند"
   }
 }

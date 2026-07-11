@@ -233,6 +233,11 @@ export default defineNuxtConfig({
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
+        '@tiptap/extension-table',
+        '@tiptap/extension-table-row',
+        '@tiptap/extension-table-cell',
+        '@tiptap/extension-table-header',
+        'tiptap-markdown',
         '@tiptap/pm',
         'prosemirror-changeset',
         'prosemirror-collab',

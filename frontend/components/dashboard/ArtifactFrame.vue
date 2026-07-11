@@ -28,7 +28,13 @@
             <template #option="{ option }">
               <div class="flex flex-col gap-0.5 w-full">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-medium text-gray-900 dark:text-white truncate">{{ option.artifact.title || 'Untitled' }}</span>
+                  <span class="flex items-center gap-1 min-w-0 text-xs font-medium text-gray-900 dark:text-white truncate">
+                    <Icon
+                      :name="option.artifact.mode === 'doc' ? 'heroicons:document-text' : (option.artifact.mode === 'slides' ? 'heroicons:presentation-chart-bar' : 'heroicons:squares-2x2')"
+                      class="w-3 h-3 flex-shrink-0 text-gray-400"
+                    />
+                    <span class="truncate">{{ option.artifact.title || 'Untitled' }}</span>
+                  </span>
                   <span class="text-[10px] text-gray-400 ms-2">v{{ option.artifact.version }}</span>
                 </div>
                 <div class="flex items-center justify-between text-[10px] text-gray-400">
@@ -78,6 +84,38 @@
 
         <!-- Schedule -->
         <CronModal v-if="report" :report="report" />
+
+        <!-- Edit document (doc mode, report owner only) -->
+        <UTooltip v-if="isDocMode && isReportOwner && !isEditingDoc" :text="t('docEditor.editDocument')">
+          <button
+            @click="isEditingDoc = true"
+            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
+          >
+            <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+            <span class="text-xs text-gray-500 dark:text-gray-400 font-medium">{{ t('docEditor.edit') }}</span>
+          </button>
+        </UTooltip>
+
+        <!-- Export Markdown (doc mode only) -->
+        <UTooltip v-if="isDocMode" :text="t('docViewer.exportMarkdown')">
+          <button
+            @click="exportDocMarkdown"
+            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
+          >
+            <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-blue-600" />
+            <span class="text-xs text-blue-600 font-medium">.md</span>
+          </button>
+        </UTooltip>
+
+        <!-- Print / Save as PDF (doc mode only) -->
+        <UTooltip v-if="isDocMode" :text="t('docViewer.printPdf')">
+          <button
+            @click="printDoc"
+            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
+          >
+            <Icon name="heroicons:printer" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+          </button>
+        </UTooltip>
 
         <!-- Export PPTX (slides mode only) -->
         <UTooltip v-if="selectedArtifact?.mode === 'slides'" text="Export as PowerPoint">
@@ -161,6 +199,25 @@
         class="absolute inset-0"
       />
 
+      <!-- Doc Mode - owner editing (TipTap) -->
+      <DocEditor
+        v-else-if="isDocMode && selectedArtifact && isEditingDoc"
+        ref="docEditorRef"
+        :markdown="docMarkdown"
+        :visualizations="visualizationsData"
+        class="absolute inset-0"
+        @save="saveDocEdit"
+        @cancel="isEditingDoc = false"
+      />
+
+      <!-- Doc Mode - markdown document with live visualizations -->
+      <DocViewer
+        v-else-if="isDocMode && selectedArtifact"
+        :markdown="docMarkdown"
+        :visualizations="visualizationsData"
+        class="absolute inset-0"
+      />
+
       <!-- Iframe Render Error State -->
       <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
@@ -181,7 +238,7 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !iframeError && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !iframeError && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -189,9 +246,9 @@
         @load="onIframeLoad"
       />
 
-      <!-- Polish Mode Button -->
+      <!-- Polish Mode Button (dashboards only — docs have no JSX to polish) -->
       <div
-        v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
+        v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError && !isDocMode"
         class="absolute bottom-4 left-4 z-20"
       >
         <button
@@ -265,6 +322,13 @@
               :artifact-id="selectedArtifact.id"
               class="absolute inset-0"
             />
+            <!-- Docs render the DocViewer -->
+            <DocViewer
+              v-else-if="isFullscreenOpen && isDocMode && selectedArtifact"
+              :markdown="docMarkdown"
+              :visualizations="visualizationsData"
+              class="absolute inset-0"
+            />
             <!-- Other artifacts use iframe -->
             <iframe
               v-else-if="isFullscreenOpen && iframeSrcdoc"
@@ -286,6 +350,8 @@ import CronModal from '../CronModal.vue';
 import ShareModal from '../ShareModal.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
+import DocViewer from './DocViewer.vue';
+import DocEditor from './DocEditor.vue';
 import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
 
 const { t } = useI18n();
@@ -583,6 +649,78 @@ const hasSlidesWithPreviews = computed(() => {
   const previewImages = selectedArtifact.value.content?.preview_images;
   return Array.isArray(previewImages) && previewImages.length > 0;
 });
+
+// Doc mode: markdown document rendered by DocViewer (no iframe, no JSX)
+const isDocMode = computed(() => selectedArtifact.value?.mode === 'doc');
+const docMarkdown = computed(() => selectedArtifact.value?.content?.markdown || '');
+
+// Owner-only TipTap editing (the API enforces ownership independently)
+const { data: sessionUser } = useAuth();
+const isReportOwner = computed(() => {
+  const uid = (sessionUser.value as any)?.user?.id || (sessionUser.value as any)?.id;
+  const ownerId = props.report?.user?.id || props.report?.user_id;
+  return !!uid && !!ownerId && String(uid) === String(ownerId);
+});
+const isEditingDoc = ref(false);
+const docEditorRef = ref<any>(null);
+
+// Leave edit mode when switching artifacts
+watch(selectedArtifactId, () => { isEditingDoc.value = false; });
+
+async function saveDocEdit(markdown: string) {
+  if (!selectedArtifactId.value) return;
+  docEditorRef.value?.setSaving(true);
+  try {
+    const { data, error } = await useMyFetch(`/api/artifacts/${selectedArtifactId.value}/doc_edit`, {
+      method: 'POST',
+      body: { markdown },
+    });
+    if (error.value) {
+      const detail = (error.value as any)?.data?.detail || t('docEditor.saveFailed');
+      docEditorRef.value?.setError(String(detail));
+      return;
+    }
+    const newArtifact: any = data.value;
+    isEditingDoc.value = false;
+    await fetchArtifactsList();
+    if (newArtifact?.id) {
+      selectedArtifactId.value = newArtifact.id;
+    }
+    toast.add({ title: t('docEditor.saved'), color: 'green' });
+  } catch (e: any) {
+    docEditorRef.value?.setError(e?.message || t('docEditor.saveFailed'));
+  } finally {
+    docEditorRef.value?.setSaving(false);
+  }
+}
+
+// Print the doc (browser print dialog → full-fidelity PDF with live charts).
+// A temporary root class isolates the DocViewer via the print stylesheet.
+function printDoc() {
+  document.documentElement.classList.add('printing-doc');
+  const cleanup = () => {
+    document.documentElement.classList.remove('printing-doc');
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  // Fallback cleanup for browsers that don't fire afterprint reliably
+  setTimeout(cleanup, 2000);
+  window.print();
+}
+
+// Download the doc's markdown source
+function exportDocMarkdown() {
+  const title = selectedArtifact.value?.title || 'document';
+  const blob = new Blob([docMarkdown.value], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${title.replace(/[^\w\d֐-׿؀-ۿ -]+/g, '').trim() || 'document'}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // Generate dashboard prompt - dispatches event to update and submit prompt box
 function generateDashboardPrompt() {
@@ -1150,6 +1288,9 @@ ${SC}
 // Build the full iframe srcdoc with embedded data
 // Guard: only compute once ALL data is ready to prevent iframe loading with empty data
 const iframeSrcdoc = computed(() => {
+  // Docs render in DocViewer, never in the sandbox iframe
+  if (isDocMode.value) return undefined;
+
   // Wait for visualization data to be loaded
   if (!dataReady.value) return undefined;
 

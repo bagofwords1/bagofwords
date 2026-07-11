@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Escrever documento",
+      "writing": "Escrevendo documento...",
+      "created": "Documento criado",
+      "failed": "Falha no documento",
+      "untitled": "Documento sem título",
+      "openDocument": "Abrir documento",
+      "chartsCount": "{n} gráficos"
+    },
+    "editDoc": {
+      "label": "Editar documento",
+      "editing": "Editando documento...",
+      "edited": "Documento editado",
+      "failed": "Falha na edição",
+      "diff": "diff",
+      "rewrite": "reescrita",
+      "editsCount": "{n} edições cirúrgicas"
     }
   },
   "entityCreate": {
@@ -1972,7 +1990,10 @@
     "empty": "Nenhum painel encontrado",
     "emptyDescription": "Tente ajustar seu termo de busca ou criar um relatório com um painel.",
     "showingRange": "Mostrando de {start} a {end} de {total} painéis",
-    "fetchFailed": "Falha ao carregar painéis"
+    "fetchFailed": "Falha ao carregar painéis",
+    "typeAll": "Todos",
+    "typeDashboards": "Painéis",
+    "typeDocs": "Documentos"
   },
   "excel": {
     "greeting": "Olá, {name} 👋",
@@ -2964,5 +2985,20 @@
     "toastSaved": "Gatilho salvo",
     "toastDeleted": "Gatilho excluído",
     "saveFailed": "Não foi possível salvar o gatilho"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualização indisponível",
+    "vizRenderFailed": "Falha ao renderizar o gráfico",
+    "diagramFailed": "Falha ao renderizar o diagrama",
+    "exportMarkdown": "Baixar como Markdown",
+    "printPdf": "Imprimir / Salvar como PDF"
+  },
+  "docEditor": {
+    "edit": "Editar",
+    "editDocument": "Editar documento",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "saved": "Documento salvo",
+    "saveFailed": "Falha ao salvar o documento"
   }
 }

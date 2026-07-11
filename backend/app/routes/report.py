@@ -85,12 +85,13 @@ async def get_reports(
     data_source_id: str | None = Query(None, description="Filter by data source ID"),
     mode: str | None = Query(None, description="Filter by mode: 'chat', 'deep', or 'training'"),
     has_artifacts: str | None = Query(None, description="Filter by artifacts: 'yes' or 'no'"),
+    artifact_mode: str | None = Query(None, description="Filter by artifact mode: 'page', 'slides' or 'doc'"),
     view: str | None = Query(None, description="'minimal' for a lightweight list (sidebar): basic fields only, no widgets/queries/completions"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    result = await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view)
+    result = await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status, data_source_id, mode, has_artifacts, view, artifact_mode)
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
 
