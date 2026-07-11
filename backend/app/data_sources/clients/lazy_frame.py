@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
 import uuid
 import weakref
 from pathlib import Path
@@ -109,12 +110,120 @@ class StreamConfig:
         self.chunksize = _env_int("BOW_LAZY_CHUNKSIZE", 50_000)
         self.max_rows = _env_int("BOW_LAZY_MAX_ROWS", 50_000_000)
         self.max_bytes = _env_int("BOW_LAZY_MAX_BYTES", 8 * 1024 * 1024 * 1024)
+        # Aggregate guards: per-query budgets don't bound N concurrent
+        # queries. dir_max_bytes caps the whole spill root; min_free_bytes
+        # keeps a floor of free disk so one tenant's spill can't ENOSPC the
+        # box for everyone.
+        self.dir_max_bytes = _env_int("BOW_LAZY_DIR_MAX_BYTES", 32 * 1024 * 1024 * 1024)
+        self.min_free_bytes = _env_int("BOW_LAZY_MIN_FREE_BYTES", 1024 * 1024 * 1024)
         root = os.environ.get("BOW_LAZY_DIR")
         self.root = Path(root) if root else Path(tempfile.gettempdir()) / "bow_lazy"
         _sweep_stale_files(self.root)
 
     def limit_desc(self) -> str:
         return f"max_rows={self.max_rows}, max_bytes={self.max_bytes}"
+
+    def check_capacity(self, full: bool = False) -> None:
+        """Aggregate spill-root guard, called at stream start (full=True: also
+        sum existing spill files) and per chunk (free-space only — one statvfs
+        syscall). Raises ResultTooLargeError so the caller's cleanup and the
+        413 handling apply unchanged."""
+        import shutil
+
+        try:
+            free = shutil.disk_usage(self.root.parent if not self.root.exists() else self.root).free
+        except Exception:
+            return  # never let the guard itself break a query
+        if free < self.min_free_bytes:
+            raise ResultTooLargeError(
+                rows=0, byte_estimate=0,
+                limit_desc=f"spill disk free space below floor ({free} < {self.min_free_bytes})",
+            )
+        if not full:
+            return
+        try:
+            total = sum(f.stat().st_size for f in self.root.glob("lazy_*.parquet"))
+        except Exception:
+            return
+        if total > self.dir_max_bytes:
+            raise ResultTooLargeError(
+                rows=0, byte_estimate=int(total),
+                limit_desc=f"aggregate spill dir over budget (dir_max_bytes={self.dir_max_bytes})",
+            )
+
+
+# --- cooperative cancellation ------------------------------------------------
+# The code-exec wrapper runs each query on an abandonable daemon thread; when
+# it times out, nothing used to stop the underlying stream from running to its
+# full row/byte budget against the source. The wrapper registers its
+# abandonment Event for the thread; the chunk consumers poll it between chunks
+# and abort (with the normal partial-file cleanup) once it fires.
+_thread_cancel = threading.local()
+
+
+def set_cancel_event(event) -> None:
+    """Register a threading.Event for the CURRENT thread's lazy streams."""
+    _thread_cancel.event = event
+
+
+def _cancelled() -> bool:
+    e = getattr(_thread_cancel, "event", None)
+    return bool(e is not None and e.is_set())
+
+
+class QueryAbandonedError(RuntimeError):
+    """The caller timed out and abandoned this stream; stop consuming."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Lazy stream aborted: the caller timed out and abandoned this query."
+        )
+
+
+def _open_duckdb(allowed_dirs):
+    """Hardened DuckDB connection for LazyFrame compute.
+
+    The relation is exposed to sandboxed LLM-generated code via .sql(), so an
+    unrestricted connection would be a filesystem read/write escape hatch
+    (read_csv('/etc/passwd'), COPY TO ...) around the Python sandbox's
+    open/os bans — and each connection defaults to ~80% of system RAM.
+    Confinement: file access limited to the spill dir(s), explicit memory
+    budget (BOW_LAZY_DUCKDB_MEM, default 2GB), DuckDB's own out-of-core temp
+    state under the spill root, and the configuration locked so generated SQL
+    can't SET any of it back."""
+    import duckdb
+
+    con = duckdb.connect(database=":memory:")
+
+    def _q(s) -> str:
+        return str(s).replace("'", "''")
+
+    dirs = sorted({str(Path(d)) for d in allowed_dirs})
+    hardened = True
+    try:
+        quoted = ", ".join(f"'{_q(d)}'" for d in dirs)
+        con.execute(f"SET allowed_directories=[{quoted}]")
+    except Exception:
+        # Older duckdb without allowed_directories: blanket-disabling external
+        # access would also block the spill scan itself, so skip that knob and
+        # keep the rest of the hardening.
+        hardened = False
+        logger.warning(
+            "duckdb lacks allowed_directories; LazyFrame connection is NOT "
+            "filesystem-confined", exc_info=True,
+        )
+    con.execute(f"SET memory_limit='{_q(os.environ.get('BOW_LAZY_DUCKDB_MEM') or '2GB')}'")
+    if dirs:
+        tmp_dir = Path(dirs[0]) / "duckdb_tmp"
+        try:
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            con.execute(f"SET temp_directory='{_q(tmp_dir)}'")
+        except Exception:
+            logger.debug("Could not set duckdb temp_directory", exc_info=True)
+    if hardened:
+        con.execute("SET enable_external_access=false")
+    con.execute("SET lock_configuration=true")
+    return con
 
 
 def arrow_safe_cell(v):
@@ -188,7 +297,6 @@ class LazyFrame:
 
     @classmethod
     def from_parquet(cls, path, owns_source: bool = True) -> "LazyFrame":
-        import duckdb
         import pyarrow.parquet as pq
 
         paths = [Path(p) for p in path] if isinstance(path, (list, tuple)) else [Path(path)]
@@ -200,7 +308,10 @@ class LazyFrame:
         readable = [p for p in paths if pq.read_schema(p).names]
         if not readable:
             return cls(None, None, paths, owns_source=owns_source)
-        con = duckdb.connect(database=":memory:")  # DuckDB spills to disk on its own
+        # Hardened connection: file access confined to the spill dir(s),
+        # bounded memory, config locked (see _open_duckdb). DuckDB spills its
+        # own compute state to disk under the same root.
+        con = _open_duckdb({p.parent for p in readable})
         # union_by_name reconciles part files whose column sets drifted:
         # missing columns become NULL, matching the eager pandas behavior.
         rel = con.read_parquet([str(p) for p in readable], union_by_name=len(readable) > 1)
@@ -220,10 +331,8 @@ class LazyFrame:
             # 0-row relation in DuckDB; a query referencing a real column fails
             # with a binder error naming it, which is honest — the schema is
             # unknown. SELECT * exposes `_bow_empty` with zero rows.
-            import duckdb
-
             if self._con is None:
-                self._con = duckdb.connect(database=":memory:")
+                self._con = _open_duckdb({p.parent for p in self._source_paths})
                 # The finalizer snapshotted con=None at construction; re-register
                 # so close()/GC also closes this lazily-created connection.
                 if self._owns_source and self._finalizer is not None:
@@ -372,17 +481,16 @@ def _cast_chunk_to_schema(table, schema):
     """Reconcile a later chunk's inferred schema with the writer's. Chunks are
     typed independently, so a nullable numeric column that happens to be
     all-NULL (or all-int) in one 50k-row chunk infers a different Arrow dtype
-    and pq.ParquetWriter.write_table would abort the whole stream. Try a safe
-    cast first, fall back to a lossy one, and if even that fails raise a clear
-    error naming the offending column instead of pyarrow's opaque failure."""
+    and pq.ParquetWriter.write_table would abort the whole stream. SAFE casts
+    only: a lossy fallback (cast(safe=False)) would silently floor a float
+    chunk into an int64-locked file schema (3.7 → 3) — different numbers than
+    the eager path. On failure raise a clear error naming the offending
+    column; the chunk consumer rolls a new part file and the read side's
+    union_by_name promotes to the common type (int64 + double → double)."""
     if table.schema.equals(schema, check_metadata=False):
         return table
     try:
         return table.cast(schema)
-    except Exception:
-        pass  # e.g. float chunk into an int column; retry lossy below
-    try:
-        return table.cast(schema, safe=False)
     except Exception as exc:
         if table.schema.names != schema.names:
             detail = (
@@ -394,7 +502,7 @@ def _cast_chunk_to_schema(table, schema):
             for field in schema:
                 col = table.column(field.name)
                 try:
-                    col.cast(field.type, safe=False)
+                    col.cast(field.type)
                 except Exception:
                     detail = (
                         f"column '{field.name}' is {col.type} in this chunk "
@@ -531,6 +639,7 @@ def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None)
         raise ResultTooLargeError(
             rows=rows, byte_estimate=byte_estimate, limit_desc=config.limit_desc()
         )
+    config.check_capacity(full=True)
     config.root.mkdir(parents=True, exist_ok=True)
     path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
     _jsonify_nested_cells(_dedupe_columns(df)).to_parquet(path, index=False)
@@ -588,7 +697,11 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
         return start_writer(table)
 
     try:
+        config.check_capacity(full=True)
         for chunk in chunks:
+            if _cancelled():
+                raise QueryAbandonedError()
+            config.check_capacity()
             rows += len(chunk)
             byte_estimate += int(chunk.memory_usage(deep=True).sum())
             if rows > config.max_rows or byte_estimate > config.max_bytes:
@@ -793,7 +906,11 @@ def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> P
     rows = 0
     byte_estimate = 0
     try:
+        config.check_capacity(full=True)
         for obj in arrow_iter:
+            if _cancelled():
+                raise QueryAbandonedError()
+            config.check_capacity()
             table = pa.Table.from_batches([obj]) if isinstance(obj, pa.RecordBatch) else obj
             if table.num_rows == 0 and writer is not None:
                 continue

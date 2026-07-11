@@ -796,6 +796,144 @@ class TestDuckdbSingleScan:
             assert lf.row_count() == 0
 
 
+class TestDesignReviewFixes:
+    """Round-5 design-panel verified defects."""
+
+    def test_duckdb_connection_is_filesystem_confined(self):
+        """LLM code reaching .sql() must not get a filesystem escape hatch:
+        read_csv outside the spill dir, COPY TO, and un-SET-ing the config
+        must all fail; the spill scan itself must still work."""
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1, 2, 3]}))
+        try:
+            assert lf.sql("SELECT SUM(x) AS s FROM data").to_df()["s"].iloc[0] == 6
+            with pytest.raises(Exception, match="[Pp]ermission|disabled"):
+                lf.sql("SELECT * FROM read_csv('/etc/hosts')").to_df()
+            with pytest.raises(Exception):
+                lf._con.execute("SET enable_external_access=true")
+            with pytest.raises(Exception, match="[Pp]ermission|disabled"):
+                lf._con.execute("COPY (SELECT 1) TO '/tmp/bow_escape_test.csv'")
+        finally:
+            lf.close()
+
+    def test_no_silent_numeric_truncation_across_chunks(self):
+        """int64-locked first chunk + 3.7 in a later chunk must roll a part
+        and preserve 3.7 — never floor it to 3 (lossy safe=False cast)."""
+        from app.data_sources.clients.lazy_frame import consume_chunks_to_lazyframe
+
+        chunks = [
+            pd.DataFrame({"v": [1, 2]}),          # infers int64
+            pd.DataFrame({"v": [3.7]}),           # float chunk arrives later
+        ]
+        with consume_chunks_to_lazyframe(iter(chunks)) as lf:
+            vals = sorted(lf.to_df()["v"].tolist())
+        assert vals == [1.0, 2.0, 3.7]
+
+    def test_aggregate_free_space_floor(self, monkeypatch):
+        monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", str(10**18))  # impossible floor
+        with pytest.raises(ResultTooLargeError, match="free space"):
+            lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+
+    def test_aggregate_dir_budget(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+        monkeypatch.setenv("BOW_LAZY_DIR_MAX_BYTES", "10")
+        (tmp_path / "lazy_existing.parquet").write_bytes(b"x" * 100)
+        from app.data_sources.clients.lazy_frame import consume_chunks_to_lazyframe
+
+        with pytest.raises(ResultTooLargeError, match="aggregate spill dir"):
+            consume_chunks_to_lazyframe(iter([pd.DataFrame({"x": [1]})]))
+
+    def test_abandonment_event_stops_stream(self, monkeypatch):
+        import app.data_sources.clients.lazy_frame as lf_mod
+
+        monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "1")
+        evt = threading.Event()
+        lf_mod.set_cancel_event(evt)
+        try:
+            consumed = []
+
+            def chunks():
+                for i in range(100):
+                    consumed.append(i)
+                    if i == 2:
+                        evt.set()  # caller "times out" mid-stream
+                    yield pd.DataFrame({"x": [i]})
+
+            with pytest.raises(lf_mod.QueryAbandonedError):
+                lf_mod.consume_chunks_to_lazyframe(chunks())
+            assert len(consumed) < 10  # stopped promptly, not run to budget
+        finally:
+            lf_mod.set_cancel_event(None)
+
+    def test_exec_result_boundary_materializes_small_lazyframe(self):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1, 2]}))
+        out = StreamingCodeExecutor._coerce_exec_result(lf)
+        assert isinstance(out, pd.DataFrame)
+        assert out["x"].tolist() == [1, 2]
+        assert all(not p.exists() for p in lf._source_paths)  # spill reclaimed
+
+    def test_exec_result_boundary_rejects_large_lazyframe(self, monkeypatch):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_CAP", "2")
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1, 2, 3]}))
+        with pytest.raises(ValueError, match="lf.limit"):
+            StreamingCodeExecutor._coerce_exec_result(lf)
+        assert all(not p.exists() for p in lf._source_paths)
+
+    def test_exec_result_boundary_passes_dataframes_through(self):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        df = pd.DataFrame({"x": [1]})
+        assert StreamingCodeExecutor._coerce_exec_result(df) is df
+        assert StreamingCodeExecutor._coerce_exec_result(None) is None
+
+    def test_unknown_lazy_strategy_raises(self):
+        class TypoClient(TinyClient):
+            _lazy_strategy = "sqlalchmey"  # typo'd on purpose
+
+        with pytest.raises(ValueError, match="Unknown _lazy_strategy"):
+            TypoClient().execute_query_lazy("SELECT 1")
+
+    def test_eager_lazy_parity_via_sqlalchemy(self, tmp_path):
+        """Same query, both paths, value-by-value: NULLs, unicode, floats."""
+        import sqlalchemy as sa
+        from contextlib import contextmanager
+
+        engine = sa.create_engine(f"sqlite:///{tmp_path}/parity.db")
+        with engine.begin() as conn:
+            conn.execute(sa.text(
+                "CREATE TABLE t (id INTEGER, name TEXT, score REAL, note TEXT)"
+            ))
+            conn.execute(sa.text(
+                "INSERT INTO t VALUES (1, 'alice', 3.7, NULL), "
+                "(2, 'böb — 日本語', -0.5, 'x'), (3, NULL, NULL, '')"
+            ))
+
+        class SqliteClient(TinyClient):
+            _lazy_strategy = "sqlalchemy"
+
+            @contextmanager
+            def connect(self):
+                with engine.connect() as conn:
+                    yield conn
+
+            def execute_query(self, sql):
+                with self.connect() as conn:
+                    return pd.read_sql(sa.text(sql), conn)
+
+        client = SqliteClient()
+        sql = "SELECT * FROM t ORDER BY id"
+        eager = client.execute_query(sql)
+        with client.execute_query_lazy(sql) as lf:
+            lazy = lf.to_df()
+        pd.testing.assert_frame_equal(
+            eager.reset_index(drop=True), lazy.reset_index(drop=True),
+            check_dtype=False,
+        )
+
+
 class TestArrowSafeCell:
     def test_bson_scalars_become_strings(self):
         from bson.timestamp import Timestamp

@@ -570,6 +570,15 @@ class QueryCapturingClientWrapper:
 
         def runner():
             try:
+                # Register the abandonment Event for this thread: lazy chunk
+                # consumers poll it between chunks, so a timed-out stream stops
+                # consuming the source and disk instead of running to budget.
+                from app.data_sources.clients.lazy_frame import set_cancel_event
+
+                set_cancel_event(abandoned)
+            except Exception:
+                pass
+            try:
                 value = getattr(self._original, method)(query, *args, **kwargs)
             except BaseException as exc:
                 if not abandoned.is_set():
@@ -831,6 +840,7 @@ class StreamingCodeExecutor:
                                 generate_df, wrapped_clients, excel_files, http_client,
                                 load_step=load_step, load_entity=load_entity,
                             )
+                            df = self._coerce_exec_result(df)
                         output_log = stdout_capture.getvalue()
                     lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
             finally:
@@ -838,6 +848,31 @@ class StreamingCodeExecutor:
             span.set_attribute("code_execution.query_count", len(executed_queries))
             span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
             return df, output_log, executed_queries
+
+    @staticmethod
+    def _coerce_exec_result(df):
+        """generate_df must hand back an in-memory DataFrame. A LazyFrame
+        would pass the downstream hasattr(df, 'columns') checks and then break
+        far away in widget formatting with a non-proximate error the retry
+        loop can't act on — so handle it here: materialize small results,
+        raise an actionable, retryable error for large ones."""
+        from app.data_sources.clients.lazy_frame import LazyFrame
+
+        if not isinstance(df, LazyFrame):
+            return df
+        cap = int(os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_CAP") or 1_000_000)
+        try:
+            rows = df.row_count()
+            if rows <= cap:
+                return df.to_df()
+            raise ValueError(
+                f"generate_df returned a LazyFrame with {rows} rows — too large to "
+                "materialize into the result DataFrame. Reduce it before returning, "
+                "e.g. lf.sql('SELECT <aggregation> FROM data GROUP BY ...').to_df() "
+                f"or lf.limit(n).to_df() with n <= {cap}."
+            )
+        finally:
+            df.close()
 
     def _build_http_client(self) -> Optional[SafeHttpClient]:
         """Return a SafeHttpClient when `enable_web_fetch` is on, else None."""

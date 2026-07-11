@@ -142,6 +142,16 @@ class DataSourceClient(ABC):
         ingest peak. Otherwise runs `execute_query` and spills the result: still
         uniform out-of-core downstream compute and disk-backed reuse, but ingest
         materializes the full result once. See app.data_sources.clients.lazy_frame.
+
+        Documented divergences from execute_query (the columnar spill cannot
+        hold arbitrary Python objects):
+          - nested dict/list cells become JSON strings;
+          - exotic driver scalars are coerced (Decimal128 -> float,
+            BSON Timestamp/Regex/Code -> str);
+          - duplicate column names are renamed (id, id_1);
+          - dtypes can differ when a column's inferred type drifts between
+            chunks (part files are united by name and promoted to a common
+            type — values are preserved, never silently truncated).
         """
         import pandas as pd
         from app.data_sources.clients import lazy_frame as lf
@@ -155,6 +165,15 @@ class DataSourceClient(ABC):
             return lf.lazy_query_via_dbapi_cursor(self.connect, sql)
         if strategy == "duckdb":
             return lf.lazy_query_via_duckdb(self.connect, sql)
+        if strategy is not None:
+            # A typo'd strategy must not silently fall back to materialize-
+            # then-spill — that discards the out-of-core property with no
+            # error and no test failure.
+            raise ValueError(
+                f"Unknown _lazy_strategy {strategy!r} on {type(self).__name__}; "
+                "expected 'sqlalchemy', 'dbapi_readsql', 'dbapi_cursor', "
+                "'duckdb', or None for the generic spill fallback."
+            )
 
         result = self.execute_query(sql)
         if not isinstance(result, pd.DataFrame):
