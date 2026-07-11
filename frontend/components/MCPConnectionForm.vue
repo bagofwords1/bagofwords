@@ -19,6 +19,19 @@
 
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <template v-if="!selectedExistingId">
+        <!-- Connector overview: description + sample of tools (illustrative). -->
+        <div v-if="presetDescription || sampleTools.length" class="rounded-md border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-900">
+          <p v-if="presetDescription" class="text-xs text-gray-600 dark:text-gray-300">{{ presetDescription }}</p>
+          <div v-if="sampleTools.length" class="mt-2">
+            <div class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Example tools</div>
+            <div class="flex flex-wrap gap-1">
+              <span v-for="tool in sampleTools" :key="tool" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">{{ tool }}</span>
+            </div>
+            <p class="mt-1 text-[11px] text-gray-400">The full tool set is discovered automatically after connecting.</p>
+          </div>
+          <p v-else-if="presetDescription" class="mt-2 text-[11px] text-gray-400">Tools are discovered automatically after connecting.</p>
+        </div>
+
         <div>
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
           <input v-model="form.name" type="text" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -29,7 +42,7 @@
           <input v-model="form.server_url" type="text" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
-        <div>
+        <div v-if="showTransport">
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
           <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
             <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
@@ -143,6 +156,8 @@ const props = defineProps<{
     name?: string; server_url?: string; transport?: string; auth_type?: string
     allowed_auth?: string[] | null
     oauth_defaults?: { authorize_url?: string; token_url?: string; scopes?: string; audience?: string } | null
+    description?: string
+    sample_tools?: string[] | null
   } | null
 }>()
 const emit = defineEmits<{
@@ -226,13 +241,36 @@ watch(() => props.prefill, (p) => {
   }
 }, { immediate: true })
 
+// Resolve the catalog preset by server_url so EDIT mode (which has no prefill)
+// shows the same description / tool preview / auth gating / known transport as
+// the create-from-catalog flow. Create passes the full entry via `prefill`.
+const catalog = ref<any[]>([])
+onMounted(async () => {
+  try {
+    const r = await useMyFetch('/connectors/catalog', { method: 'GET' })
+    if (r.data.value) catalog.value = r.data.value as any[]
+  } catch {}
+})
+const matchedPreset = computed<any>(() =>
+  (catalog.value || []).find((p: any) => p.server_url && p.server_url === form.server_url) || null
+)
+const presetSpec = computed<any>(() => props.prefill || matchedPreset.value)
+const isPreset = computed(() => !!presetSpec.value)
+
+const presetDescription = computed<string>(() => presetSpec.value?.description || '')
+const sampleTools = computed<string[]>(() => presetSpec.value?.sample_tools || [])
+
 // Which auth modes this tile offers (null → offer all, e.g. arbitrary URL).
-const allowedAuth = computed<string[] | null>(() => props.prefill?.allowed_auth || null)
+const allowedAuth = computed<string[] | null>(() => presetSpec.value?.allowed_auth || null)
 function authAllowed(mode: string): boolean {
   const a = allowedAuth.value
   return !a || a.includes(mode)
 }
-const hasOauthDefaults = computed(() => !!props.prefill?.oauth_defaults)
+const hasOauthDefaults = computed(() => !!presetSpec.value?.oauth_defaults)
+
+// Transport is a property of a known server — hide the picker for presets and
+// only surface it for a hand-entered (custom) MCP URL.
+const showTransport = computed(() => !isPreset.value)
 
 const testing = ref(false)
 const submitting = ref(false)

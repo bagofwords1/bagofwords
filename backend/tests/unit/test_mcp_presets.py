@@ -90,8 +90,16 @@ def test_preset_allowed_auth_gating():
 def test_catalog_exposes_preset_form_spec():
     # The new fields must serialize through mcp_presets() → GET /connectors/catalog.
     x = next(p for p in mcp_presets() if p["key"] == "x")
-    assert "allowed_auth" in x and "oauth_defaults" in x
+    assert "allowed_auth" in x and "oauth_defaults" in x and "sample_tools" in x
     assert x["oauth_defaults"]["authorize_url"] == "https://twitter.com/i/oauth2/authorize"
+
+
+def test_sample_tools_present_for_x():
+    # Illustrative tool preview shown before live discovery.
+    tools = mcp_preset("x").sample_tools
+    assert tools and "get_users_by_username" in tools
+    # DCR presets don't ship a static sample (discovered per-user after sign-in).
+    assert mcp_preset("monday").sample_tools is None
 
 
 # ── Test-connection reinterpretation for per-user OAuth MCP ─────────────────

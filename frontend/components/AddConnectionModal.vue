@@ -411,9 +411,12 @@ function selectCatalogEntry(entry: any) {
     server_url: entry.server_url,
     transport: entry.transport === 'sse' ? 'sse' : 'streamable_http',
     auth_type: authType,
-    // Preset form spec: gate the auth dropdown + pre-fill provider OAuth constants.
+    // Preset form spec: gate the auth dropdown, pre-fill provider OAuth constants,
+    // and show the connector overview (description + sample tools).
     allowed_auth: entry.allowed_auth || null,
     oauth_defaults: entry.oauth_defaults || null,
+    description: entry.description || '',
+    sample_tools: entry.sample_tools || null,
   }
   step.value = 'form'
 }

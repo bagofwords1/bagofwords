@@ -71,25 +71,31 @@ Re-run Loop A with the fix in place:
 
 ## Loop C — UI evidence (Playwright)
 
-`cd frontend && node ../tools/agent/shoot_mcp_forms.mjs` (stack booted via
-`tools/agent/boot_stack.sh --dev` + `seed_org.py`) drives the real connect form
-on `/agents/new` and captures three states:
+`cd frontend && node ../tools/agent/shoot_mcp_forms.mjs` and
+`shoot_mcp_edit.mjs` (stack booted via `tools/agent/boot_stack.sh --dev` +
+`seed_org.py`) drive the real connect form and capture four states:
 
-| X — OAuth (admin app) | X — Bearer | Jira/Atlassian — DCR |
-|---|---|---|
-| ![x-oauth](assets/mcp-x-oauth-app-prefilled.png) | ![x-bearer](assets/mcp-x-bearer.png) | ![atlassian-dcr](assets/mcp-atlassian-dcr.png) |
+| X — OAuth (admin app) | X — Bearer | Jira/Atlassian — DCR | X — Edit (filled) |
+|---|---|---|---|
+| ![x-oauth](assets/mcp-x-oauth-app-prefilled.png) | ![x-bearer](assets/mcp-x-bearer.png) | ![atlassian-dcr](assets/mcp-atlassian-dcr.png) | ![x-edit](assets/mcp-x-edit-filled.png) |
 
-- **X / OAuth**: Authorize URL, Token URL and Scopes (`tweet.read tweet.write
-  users.read offline_access`) are **pre-filled**; only Client ID/Secret are
-  blank. Admin-voiced copy ("registering an OAuth app for your whole org … each
-  user signs in individually"). Buttons read **Verify** / **Add connection**.
-- **X / Bearer**: auth dropdown is gated (no DCR option, since X's server has no
-  DCR); shared-token note shown; system-mode buttons (Test Connection / Connect).
+- **X / OAuth (create)**: connector **description** + **example tools**
+  (`get_users_by_username`, …) shown at the top; **no transport picker** (known
+  for a preset); Authorize/Token URL + Scopes (`tweet.read tweet.write users.read
+  offline_access`) **pre-filled**, only Client ID/Secret blank; admin-voiced
+  copy; **Verify** / **Add connection** buttons.
+- **X / Bearer**: auth dropdown gated (no DCR — X's server has none); shared-token
+  note; system-mode buttons (Test Connection / Connect).
 - **Atlassian / DCR**: dropdown gated to sign-in only; admin-voiced banners.
+- **X / Edit**: re-opening the saved connection shows the **same fields, filled**
+  — Server URL, Authorize/Token URL, Client ID (`DEMO_CLIENT_ID_123`), Scopes,
+  description + tools — with Client Secret masked as `(unchanged)`. This required
+  a backend fix: `GET /connections/{id}` now returns `credentials_meta` (the
+  non-secret OAuth fields — `connection_schema.py` + `connection.py`), which the
+  edit form was already written to consume but the backend never emitted.
 
-Before this change the OAuth fields opened blank and Test Connection returned
-`Failed to connect … 401` (see the connect-form screenshots earlier in the
-investigation).
+Before this change the OAuth fields opened blank on both create and edit, and
+Test Connection returned `Failed to connect … 401`.
 
 ## What this proves / regression notes
 

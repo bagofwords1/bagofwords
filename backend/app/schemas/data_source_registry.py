@@ -280,6 +280,11 @@ class McpPreset(BaseModel):
     # Provider OAuth constants to pre-fill when `oauth_app` is chosen. None for
     # DCR/bearer presets (DCR discovers endpoints; bearer needs none).
     oauth_defaults: Optional[McpAuthDefaults] = None
+    # A few representative tool names for the connect form to preview before the
+    # live catalog is discovered. Illustrative only — the real, callable tool set
+    # (with schemas) is discovered per-connection via refresh_tools. None → the
+    # form shows a "discovered after connecting" placeholder instead.
+    sample_tools: Optional[List[str]] = None
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -1295,6 +1300,7 @@ MCP_PRESETS: List[McpPreset] = [
                   token_url="https://api.x.com/2/oauth2/token",
                   scopes="tweet.read tweet.write users.read offline_access",
               ),
+              sample_tools=["get_users_by_username", "get_users_timeline", "search_posts", "get_trends"],
               description="Posts, users, search and trends from X (needs an X API bearer token)."),
 ]
 

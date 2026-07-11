@@ -381,6 +381,7 @@ async def get_connection(
             config = {}
 
     # Strip sensitive fields for non-admins
+    credentials_meta = None
     if not is_admin:
         config = {}
         allowed_user_auth_modes = []
@@ -388,6 +389,17 @@ async def get_connection(
     else:
         allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = bool(connection.credentials)
+        # Expose only the NON-secret credential fields so the edit form can
+        # pre-fill them (OAuth endpoints/client_id/scopes). Secrets are excluded
+        # by allowlist — client_secret / token / api_key never leave the server.
+        if connection.credentials:
+            try:
+                _creds = connection.decrypt_credentials()
+                _NON_SECRET = ("authorize_url", "token_url", "client_id", "scopes", "audience", "api_key_header")
+                _meta = {k: _creds[k] for k in _NON_SECRET if _creds.get(k) not in (None, "")}
+                credentials_meta = _meta or None
+            except Exception:
+                credentials_meta = None
 
     from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
     return ConnectionDetailSchema(
@@ -405,6 +417,7 @@ async def get_connection(
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
+        credentials_meta=credentials_meta,
         auto_reindex_enabled=bool(connection.auto_reindex_enabled),
         reindex_interval_hours=connection.reindex_interval_hours,
         reindex_schedule_mode=connection.reindex_schedule_mode or "interval",

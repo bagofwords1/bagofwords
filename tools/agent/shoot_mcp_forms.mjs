@@ -25,8 +25,14 @@ if (page.url().includes('/onboarding')) {
 
 async function openCatalog() {
   await page.goto(`${BASE}/agents/new`, { waitUntil: 'domcontentloaded' });
-  await page.getByPlaceholder(/search data sources/i).first().waitFor();
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500);
+  const search = page.getByPlaceholder(/search data sources/i).first();
+  if (!(await search.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: /create new connection/i }).first().click().catch(() => {});
+    await page.waitForTimeout(1200);
+  }
+  await search.waitFor({ timeout: 20000 });
+  await page.waitForTimeout(1000);
 }
 async function pick(term, tileName) {
   const s = page.getByPlaceholder(/search data sources/i).first();
