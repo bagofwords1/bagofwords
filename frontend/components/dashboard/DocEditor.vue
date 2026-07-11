@@ -320,3 +320,4 @@ const toolbarButtons = computed(() => {
   html.printing-doc-editor .bow-doc-editor .ProseMirror { caret-color: transparent !important; }
   html.printing-doc-editor .bow-doc-editor .ProseMirror-selectednode { outline: none !important; }
 }
+</style>
