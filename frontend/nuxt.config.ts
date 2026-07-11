@@ -230,6 +230,8 @@ export default defineNuxtConfig({
       // every instruction editor blank in dev. Exclude the whole
       // tiptap/prosemirror family so dev resolves exactly one copy of each
       // module. Production builds are unaffected (single Rollup graph).
+      // CJS deps of excluded packages still need prebundling for ESM interop
+      include: ['tiptap-markdown > markdown-it-task-lists'],
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',

@@ -1,6 +1,6 @@
 # Doc Artifacts — markdown documents as a first-class artifact type
 
-Status: proposed
+Status: implemented (phases 1–3; see `docs/feedback-loops/doc-artifacts.md` for the verification loops)
 Scope: `create_doc` / `edit_doc` tools, backend persistence, and frontend viewing/editing.
 Out of scope (deliberately): the agent scratchpad (separate design), block-based storage,
 real-time collaboration, per-paragraph comments, a doc-writer sub-agent.

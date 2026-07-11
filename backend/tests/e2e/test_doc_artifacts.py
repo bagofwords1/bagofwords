@@ -443,3 +443,100 @@ def test_edit_artifact_refuses_docs_and_read_artifact_returns_markdown(
     events = _run(_run_tool(ReadArtifactTool(), {"artifact_id": doc_id}, report["id"]))
     payload = _end_payload(events)
     assert "Exact text to quote." in payload["output"]["code"]
+
+
+# ---------------------------------------------------------------------------
+# User-facing doc_edit route (TipTap save path)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_doc_edit_route_saves_new_version_owner_only(
+    create_report, create_user, login_user, whoami, test_client
+):
+    report, user_token, org_id = _make_report(create_report, create_user, login_user, whoami, "Doc edit route")
+    doc_id = _create_doc(report["id"], markdown="# Doc\n\nOriginal text.\n")
+    headers = {"Authorization": f"Bearer {user_token}", "X-Organization-Id": str(org_id)}
+
+    r = test_client.post(f"/api/artifacts/{doc_id}/doc_edit", headers=headers,
+                         json={"markdown": "# Doc\n\nEdited by owner.\n"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["version"] == 2
+    assert body["mode"] == "doc"
+    assert body["content"]["markdown"] == "# Doc\n\nEdited by owner.\n"
+
+    # Empty markdown rejected
+    r = test_client.post(f"/api/artifacts/{doc_id}/doc_edit", headers=headers, json={"markdown": "  "})
+    assert r.status_code == 400
+
+    # Invalid placeholder rejected
+    r = test_client.post(f"/api/artifacts/{doc_id}/doc_edit", headers=headers,
+                         json={"markdown": f"# Doc\n{{{{viz:{uuid.uuid4()}}}}}\n"})
+    assert r.status_code == 400
+    assert "placeholder" in r.json()["detail"].lower() or "not found" in r.json()["detail"].lower()
+
+
+@pytest.mark.e2e
+def test_doc_edit_route_rejects_non_docs_and_locks_during_runs(
+    create_report, create_user, login_user, whoami, test_client
+):
+    from app.models.completion import Completion
+
+    report, user_token, org_id = _make_report(create_report, create_user, login_user, whoami, "Doc run lock")
+    doc_id = _create_doc(report["id"], markdown="# Doc\n\nText.\n")
+    headers = {"Authorization": f"Bearer {user_token}", "X-Organization-Id": str(org_id)}
+
+    # Non-doc artifact rejected
+    async def _seed_dashboard():
+        async with async_session_maker() as db:
+            r = await db.get(Report, report["id"])
+            a = Artifact(
+                report_id=report["id"], user_id=r.user_id, organization_id=r.organization_id,
+                title="Dash", mode="page", version=1, status="completed",
+                content={"code": "function App() {}", "visualization_ids": []},
+            )
+            db.add(a)
+            await db.commit()
+            await db.refresh(a)
+            return str(a.id)
+
+    dash_id = _run(_seed_dashboard())
+    r = test_client.post(f"/api/artifacts/{dash_id}/doc_edit", headers=headers, json={"markdown": "# X"})
+    assert r.status_code == 400
+    assert "not a document" in r.json()["detail"]
+
+    # Run-lock: an in_progress completion on the report blocks the save with 409
+    async def _seed_running_completion():
+        async with async_session_maker() as db:
+            rep = await db.get(Report, report["id"])
+            comp = Completion(
+                report_id=report["id"],
+                user_id=rep.user_id,
+                status="in_progress",
+                role="system",
+                prompt={"content": ""},
+                completion={"content": ""},
+                model="test",
+            )
+            db.add(comp)
+            await db.commit()
+            await db.refresh(comp)
+            return str(comp.id)
+
+    comp_id = _run(_seed_running_completion())
+    r = test_client.post(f"/api/artifacts/{doc_id}/doc_edit", headers=headers,
+                         json={"markdown": "# Doc\n\nBlocked edit.\n"})
+    assert r.status_code == 409
+
+    # Once the run finishes, the save goes through
+    async def _finish_completion():
+        async with async_session_maker() as db:
+            comp = await db.get(Completion, comp_id)
+            comp.status = "success"
+            await db.commit()
+
+    _run(_finish_completion())
+    r = test_client.post(f"/api/artifacts/{doc_id}/doc_edit", headers=headers,
+                         json={"markdown": "# Doc\n\nUnblocked edit.\n"})
+    assert r.status_code == 200
+    assert r.json()["version"] == 2

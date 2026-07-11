@@ -89,6 +89,7 @@
         <UTooltip v-if="isDocMode && isReportOwner && !isEditingDoc" :text="t('docEditor.editDocument')">
           <button
             @click="isEditingDoc = true"
+            data-testid="doc-edit-btn"
             class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
           >
             <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
