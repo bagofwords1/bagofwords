@@ -1,19 +1,21 @@
 <template>
-  <div class="flex flex-col text-sm" :style="{ height: showTopBanner ? `calc(100vh - ${bannerHeight})` : '100vh' }">
+  <div class="flex flex-col text-sm ke-viewport" :style="{ '--ke-banner': showTopBanner ? bannerHeight : '0px' }">
     <!-- Header -->
-    <div class="flex items-center justify-between ps-3 pe-4 py-3 shrink-0">
-      <div>
+    <!-- flex-wrap + basis-60: on narrow (mobile) widths the actions drop to
+         their own row instead of crushing the title/subtitle column. -->
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 ps-3 pe-4 py-3 shrink-0">
+      <div class="min-w-0 grow basis-60">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('agentsPage.title') }}</h1>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
-      <div class="flex items-center gap-2.5">
-        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
+      <div class="flex flex-wrap items-center gap-2.5 ms-auto">
+        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
-          <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors">
+          <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
           </button>
@@ -34,7 +36,7 @@
     </div>
 
     <!-- Body: tree → detail → versions -->
-    <div class="flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
+    <div class="relative flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
       <!-- Desktop: fixed-width resizable pane. Mobile: full-width, and hidden
            once a detail is open (single-column master → detail). -->
@@ -281,10 +283,12 @@
         </div>
         <!-- Agent overview -->
         <template v-else-if="agentView">
-          <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100 dark:border-gray-800">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 min-w-0">
+          <div class="shrink-0 px-4 sm:px-6 pt-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+            <!-- flex-wrap + basis-64: on phones the actions cluster wraps below
+                 the title block instead of squeezing it into a sliver. -->
+            <div class="flex flex-wrap items-start justify-between gap-3 gap-y-2">
+              <div class="min-w-0 grow basis-64">
+                <div class="flex flex-wrap items-center gap-2 gap-y-1.5 min-w-0">
                   <AgentIconPicker
                     v-if="agentDetail && agentCanUpdate"
                     :model-value="agentDetail.icon"
@@ -329,7 +333,7 @@
                   </div>
                 </div>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex flex-wrap items-center gap-2 ms-auto">
                 <!-- Per-agent activity sparkline + task total -->
                 <div v-if="activitySeries.length" class="flex items-center gap-2.5 pe-1" :title="$t('agentsPage.tasksTip')">
                   <span class="flex flex-col items-center leading-none">
@@ -341,13 +345,13 @@
                     <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.tasks') }}</span>
                   </span>
                 </div>
-                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
-                <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
+                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
+                <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
           </div>
-          <div class="flex-1 overflow-y-auto px-6 py-5 max-w-3xl">
+          <div class="flex-1 overflow-y-auto px-4 sm:px-6 py-5 max-w-3xl">
             <div v-if="agentDetailLoading" class="flex items-center justify-center py-16 text-gray-400 dark:text-gray-500">
               <Spinner class="w-5 h-5 animate-spin" />
             </div>
@@ -604,7 +608,7 @@
               </div>
             </div>
 
-            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-4 sm:px-8 py-6 max-w-3xl">
               <!-- Inline per-hunk review for suggestions. Clean tracked changes;
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
@@ -646,13 +650,13 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
               <span class="text-[12px] text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? $t('agentsPage.pendingOne') : $t('agentsPage.pendingMany', { n: pendingViews.length }) }}</span>
               <span class="ms-auto text-[11px] font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">{{ $t('agentsPage.review') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3 rtl:rotate-180" /></span>
             </button>
             <!-- Scrollable content: title + body -->
-            <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
+            <div class="flex-1 overflow-y-auto px-4 sm:px-8 py-6 w-full">
               <div class="max-w-3xl">
                 <input v-if="editing" v-model="draft.title" dir="auto" :placeholder="$t('agentsPage.untitledInstruction')" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
                 <h2 v-else dir="auto" class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ displayTitle(detail) }}</h2>
@@ -668,13 +672,13 @@
 
             <!-- Frozen bottom panel: Details (compact, horizontal) / Analyze tabs -->
             <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40">
-              <div class="px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
+              <div class="px-4 sm:px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
                 <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />{{ $t('agentsPage.details') }}</button>
                 <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ms-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />{{ $t('agentsPage.analyze') }}</button>
               </div>
 
               <!-- Details: compact horizontal pills (inline-editable for admins) -->
-              <div v-if="bottomTab === 'details'" class="px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
+              <div v-if="bottomTab === 'details'" class="px-4 sm:px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
                 <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
                   <!-- Status -->
                   <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
@@ -787,7 +791,8 @@
       </section>
 
       <!-- ── Pane 3: version history only (hidden by default; toggle via clock) ── -->
-      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-s border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+      <!-- Mobile: no room for a third column — overlay the detail pane instead. -->
+      <aside v-if="detail && !creating && !reviewView && showHistory" class="flex flex-col bg-white dark:bg-gray-900" :class="isMobile ? 'absolute inset-0 z-20' : 'w-72 shrink-0 border-s border-gray-200 dark:border-gray-800'">
         <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
           <span class="text-[12px] font-medium text-gray-700 dark:text-gray-300">{{ $t('agentsPage.history') }}</span>
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipClose')" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
@@ -2686,6 +2691,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* Full-height shell minus the optional top banner. 100dvh (where supported)
+   tracks the *visible* viewport on mobile, so the connections footer isn't
+   hidden behind the browser chrome; 100vh stays as the fallback. */
+.ke-viewport {
+  height: calc(100vh - var(--ke-banner, 0px));
+  height: calc(100dvh - var(--ke-banner, 0px));
+}
 .prose-instruction :deep(.tiptap-prose) { min-height: 80px; }
 /* Instruction body text size. */
 .prose-instruction :deep(.tiptap-prose),
