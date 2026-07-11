@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.447 (July 11, 2026)
+- **Reliable completion streaming (#612)** — SSE now survives page refreshes, network drops, and backgrounded mobile tabs: the client reconnects and resumes live (running tool cards and the stop button included) instead of degrading to polling or showing a false error.
+
 ## Version 0.0.446 (July 11, 2026)
 - **OpenAI model presets** — add GPT-5.6 Sol, Terra, and Luna; keep GPT-5.5 available, make Terra the default model, and retire older GPT-5.4/5.2 presets.
 
