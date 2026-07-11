@@ -43,13 +43,21 @@ async function pick(term, tileName) {
   await page.waitForTimeout(1500);
 }
 
-// === X — OAuth (admin app): provider endpoints pre-filled ===
+// === X — OAuth (admin app): clean form, endpoints collapsed under Advanced ===
 await openCatalog();
 await pick('x', 'X');
 await page.locator('select:has(option[value="oauth_app"])').selectOption('oauth_app');
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${OUT}/mcp-x-oauth-app-prefilled.png` });
 console.log('shot: mcp-x-oauth-app-prefilled.png');
+
+// Advanced expanded — prefilled provider endpoints (server URL, authorize/token, scopes).
+await page.getByRole('button', { name: /advanced/i }).first().click();
+await page.waitForTimeout(600);
+await page.screenshot({ path: `${OUT}/mcp-x-oauth-advanced.png` });
+console.log('shot: mcp-x-oauth-advanced.png');
+await page.getByRole('button', { name: /advanced/i }).first().click();
+await page.waitForTimeout(300);
 
 // === X — bearer mode: gated dropdown (no DCR) + shared-token note ===
 await page.locator('select:has(option[value="oauth_app"])').selectOption('bearer');

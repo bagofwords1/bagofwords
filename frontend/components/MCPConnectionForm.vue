@@ -19,17 +19,16 @@
 
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <template v-if="!selectedExistingId">
-        <!-- Connector overview: description + sample of tools (illustrative). -->
-        <div v-if="presetDescription || sampleTools.length" class="rounded-md border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-900">
-          <p v-if="presetDescription" class="text-xs text-gray-600 dark:text-gray-300">{{ presetDescription }}</p>
-          <div v-if="sampleTools.length" class="mt-2">
+        <!-- Connector header: description + example tools, as clean text (no box). -->
+        <div v-if="presetDescription || sampleTools.length" class="-mt-2 space-y-2">
+          <p v-if="presetDescription" class="text-sm text-gray-500 dark:text-gray-400">{{ presetDescription }}</p>
+          <div v-if="sampleTools.length">
             <div class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Example tools</div>
             <div class="flex flex-wrap gap-1">
-              <span v-for="tool in sampleTools" :key="tool" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">{{ tool }}</span>
+              <span v-for="tool in sampleTools" :key="tool" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">{{ tool }}</span>
             </div>
             <p class="mt-1 text-[11px] text-gray-400">The full tool set is discovered automatically after connecting.</p>
           </div>
-          <p v-else-if="presetDescription" class="mt-2 text-[11px] text-gray-400">Tools are discovered automatically after connecting.</p>
         </div>
 
         <div>
@@ -37,18 +36,21 @@
           <input v-model="form.name" type="text" :placeholder="$t('settings.mcpModal.namePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
 
-        <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
-          <input v-model="form.server_url" type="text" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-        </div>
-
-        <div v-if="showTransport">
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
-          <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
-            <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
-            <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
-          </select>
-        </div>
+        <!-- Server URL + Transport are shown inline only for a custom (non-preset)
+             MCP URL. For a known preset they live under Advanced (below). -->
+        <template v-if="!isPreset">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
+            <input v-model="form.server_url" type="text" :placeholder="$t('settings.mcpModal.urlPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
+            <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+              <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
+              <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
+            </select>
+          </div>
+        </template>
 
         <div>
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.authLabel') }}</label>
@@ -64,7 +66,7 @@
         <div v-if="form.auth_type === 'dcr'" class="text-xs text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
           No admin setup — this connector auto-registers (DCR, RFC 9728/8414/7591). You're adding a
           connection for your org; <strong>each user signs in with their own account</strong> when they
-          first use it. Only the server URL above is required.
+          first use it.
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
@@ -84,20 +86,23 @@
           </div>
         </div>
 
-        <div v-if="form.auth_type === 'oauth_app'" class="space-y-3 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
-          <div class="text-xs text-gray-600 dark:text-gray-400">
+        <div v-if="form.auth_type === 'oauth_app'" class="space-y-3">
+          <p class="text-xs text-gray-600 dark:text-gray-400">
             You're registering an OAuth app for your whole org. After you save, <strong>each user signs in
             individually</strong> — their tokens are stored encrypted and sent on every tool call.
-            <span v-if="hasOauthDefaults">The endpoints below are pre-filled for this provider; you only need the Client ID and Secret.</span>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authorize URL</label>
-            <input v-model="form.authorize_url" type="text" placeholder="https://idp.example.com/oauth/authorize" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Token URL</label>
-            <input v-model="form.token_url" type="text" placeholder="https://idp.example.com/oauth/token" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          </div>
+            <template v-if="isPreset && hasOauthDefaults">The provider endpoints are pre-filled (see Advanced) — you only need the Client ID and Secret.</template>
+          </p>
+          <!-- Endpoints inline for a custom URL; presets keep them under Advanced. -->
+          <template v-if="!isPreset">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authorize URL</label>
+              <input v-model="form.authorize_url" type="text" placeholder="https://idp.example.com/oauth/authorize" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Token URL</label>
+              <input v-model="form.token_url" type="text" placeholder="https://idp.example.com/oauth/token" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+          </template>
           <div>
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID</label>
             <input v-model="form.client_id" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -106,13 +111,56 @@
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client Secret</label>
             <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
-            <input v-model="form.scopes" type="text" placeholder="openid profile offline_access" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
-            <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          <template v-if="!isPreset">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
+              <input v-model="form.scopes" type="text" placeholder="openid profile offline_access" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
+              <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+          </template>
+        </div>
+
+        <!-- Advanced: known/prefilled fields for a preset (server URL, transport,
+             OAuth endpoints). Collapsed by default; override for proxy/edge cases. -->
+        <div v-if="isPreset">
+          <button type="button" @click="advancedOpen = !advancedOpen" class="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+            <UIcon :name="advancedOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+            Advanced
+          </button>
+          <div v-if="advancedOpen" class="mt-2 space-y-3 border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-900">
+            <p class="text-[11px] text-gray-400">Known for this connector — change only for a proxy or self-hosted endpoint.</p>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
+              <input v-model="form.server_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
+              <select v-model="form.transport" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+                <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
+                <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
+              </select>
+            </div>
+            <template v-if="form.auth_type === 'oauth_app'">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Authorize URL</label>
+                <input v-model="form.authorize_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Token URL</label>
+                <input v-model="form.token_url" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Scopes</label>
+                <input v-model="form.scopes" type="text" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Resource (audience, optional)</label>
+                <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+            </template>
           </div>
         </div>
 
@@ -268,9 +316,10 @@ function authAllowed(mode: string): boolean {
 }
 const hasOauthDefaults = computed(() => !!presetSpec.value?.oauth_defaults)
 
-// Transport is a property of a known server — hide the picker for presets and
-// only surface it for a hand-entered (custom) MCP URL.
-const showTransport = computed(() => !isPreset.value)
+// For a known preset, the server URL / transport / OAuth endpoints are constants
+// — collapse them under an "Advanced" disclosure (prefilled, still overridable
+// for a proxy or self-hosted endpoint). Custom URLs show them inline.
+const advancedOpen = ref(false)
 
 const testing = ref(false)
 const submitting = ref(false)

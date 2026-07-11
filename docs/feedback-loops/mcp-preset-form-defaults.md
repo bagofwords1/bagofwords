@@ -75,15 +75,19 @@ Re-run Loop A with the fix in place:
 `shoot_mcp_edit.mjs` (stack booted via `tools/agent/boot_stack.sh --dev` +
 `seed_org.py`) drive the real connect form and capture four states:
 
-| X — OAuth (admin app) | X — Bearer | Jira/Atlassian — DCR | X — Edit (filled) |
+| X — OAuth (create) | X — OAuth (Advanced open) | Jira/Atlassian — DCR | X — Edit (filled) |
 |---|---|---|---|
-| ![x-oauth](assets/mcp-x-oauth-app-prefilled.png) | ![x-bearer](assets/mcp-x-bearer.png) | ![atlassian-dcr](assets/mcp-atlassian-dcr.png) | ![x-edit](assets/mcp-x-edit-filled.png) |
+| ![x-oauth](assets/mcp-x-oauth-app-prefilled.png) | ![x-advanced](assets/mcp-x-oauth-advanced.png) | ![atlassian-dcr](assets/mcp-atlassian-dcr.png) | ![x-edit](assets/mcp-x-edit-filled.png) |
 
-- **X / OAuth (create)**: connector **description** + **example tools**
-  (`get_users_by_username`, …) shown at the top; **no transport picker** (known
-  for a preset); Authorize/Token URL + Scopes (`tweet.read tweet.write users.read
-  offline_access`) **pre-filled**, only Client ID/Secret blank; admin-voiced
-  copy; **Verify** / **Add connection** buttons.
+- **X / OAuth (create)**: clean header — connector **description** as a subtitle
+  with **example tools** chips right below it; the form asks only for **Name +
+  Authentication + Client ID/Secret**. All the fixed/known fields (Server URL,
+  transport, Authorize/Token URL, Scopes) collapse under **Advanced**.
+- **X / OAuth (Advanced open)**: the Advanced disclosure reveals the pre-filled
+  provider constants (`https://api.x.com/mcp`, `https://twitter.com/i/oauth2/
+  authorize`, `tweet.read tweet.write users.read offline_access`), overridable
+  for a proxy / self-hosted endpoint. A **custom (non-preset) MCP URL** shows
+  these inline instead (nothing is known).
 - **X / Bearer**: auth dropdown gated (no DCR — X's server has none); shared-token
   note; system-mode buttons (Test Connection / Connect).
 - **Atlassian / DCR**: dropdown gated to sign-in only; admin-voiced banners.
