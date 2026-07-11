@@ -83,7 +83,7 @@
                   <div class="flex-1 min-w-0">
                     <div class="font-medium truncate">{{ option.name }}</div>
                     <div class="text-[10px] text-gray-400 dark:text-gray-500">
-                      {{ option.table_count || 0 }} tables · {{ option.agent_count || 0 }} agents
+                      {{ connectionCountLabel(option) }} · {{ option.agent_count || 0 }} agents
                     </div>
                   </div>
                 </div>
@@ -270,7 +270,20 @@ interface Connection {
   type: string
   connector_key?: string | null
   table_count?: number
+  tool_count?: number
   agent_count?: number
+}
+
+// Tool-provider connections (MCP / custom API) expose tools, not tables, so
+// their catalog count is meaningless — show the tool count instead.
+const TOOL_PROVIDER_TYPES = ['mcp', 'custom_api']
+function connectionCountLabel(conn: Connection): string {
+  if (TOOL_PROVIDER_TYPES.includes(conn.type)) {
+    const n = conn.tool_count || 0
+    return `${n} tool${n === 1 ? '' : 's'}`
+  }
+  const n = conn.table_count || 0
+  return `${n} table${n === 1 ? '' : 's'}`
 }
 
 const connections = ref<Connection[]>([])
