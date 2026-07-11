@@ -241,6 +241,22 @@ class DataSourceRegistryEntry(BaseModel):
         arbitrary_types_allowed = True
 
 
+class McpAuthDefaults(BaseModel):
+    """Provider OAuth constants for an `oauth_app` preset.
+
+    authorize_url / token_url / scopes / audience are invariant per provider
+    (a property of X, GitHub, Google — not of the deployment). Only the admin's
+    client_id/client_secret vary per deployment. The catalog surfaces these so
+    the connect form pre-fills them (still editable) instead of asking the admin
+    to hand-type constants — matching how the native connectors (Google Drive)
+    hardcode their endpoints.
+    """
+    authorize_url: Optional[str] = None
+    token_url: Optional[str] = None
+    scopes: Optional[str] = None
+    audience: Optional[str] = None
+
+
 class McpPreset(BaseModel):
     """A named, ready-to-connect MCP server preset (e.g. Notion, Linear).
 
@@ -257,6 +273,13 @@ class McpPreset(BaseModel):
     transport: str = "streamable_http"   # streamable_http | sse
     auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer
     description: str = ""
+    # Which auth modes the connect form offers for this tile, in form-vocabulary
+    # (none | bearer | api_key | dcr | oauth_app). None → offer all (the generic
+    # / arbitrary-URL case). E.g. X excludes `dcr` (its server has no DCR).
+    allowed_auth: Optional[List[str]] = None
+    # Provider OAuth constants to pre-fill when `oauth_app` is chosen. None for
+    # DCR/bearer presets (DCR discovers endpoints; bearer needs none).
+    oauth_defaults: Optional[McpAuthDefaults] = None
 
 
 _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
@@ -1214,31 +1237,65 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
 # server_url / default auth / brand differ. The DCR set (auth="oauth") needs zero
 # admin setup — verified DCR-capable by live probe (2026-06). github/gmail need
 # an OAuth app; x an app-only bearer token.
+# Google OAuth 2.0 endpoints — shared by the Google first-party MCP servers.
+_GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
+
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
+              allowed_auth=["dcr"],
               description="Boards, items and updates from monday.com."),
     McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
+              allowed_auth=["dcr"],
               description="Pages, databases and search across your Notion workspace."),
     McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
-              transport="sse", description="Jira issues and Confluence pages."),
+              transport="sse", allowed_auth=["dcr"],
+              description="Jira issues and Confluence pages."),
     McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
+              allowed_auth=["dcr"],
               description="Issues, projects and cycles from Linear."),
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
+              allowed_auth=["dcr"],
               description="Errors, issues and releases from Sentry."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
-              auth="oauth_app", description="Repos, issues and PRs (needs a GitHub OAuth app)."),
+              auth="oauth_app", allowed_auth=["oauth_app"],
+              oauth_defaults=McpAuthDefaults(
+                  authorize_url="https://github.com/login/oauth/authorize",
+                  token_url="https://github.com/login/oauth/access_token",
+                  scopes="read:user repo read:org",
+              ),
+              description="Repos, issues and PRs (needs a GitHub OAuth app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.
     McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
-              auth="oauth_app", description="Files in Google Drive (needs a Google OAuth client)."),
+              auth="oauth_app", allowed_auth=["oauth_app"],
+              oauth_defaults=McpAuthDefaults(
+                  authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
+                  scopes="openid email https://www.googleapis.com/auth/drive.readonly",
+                  audience="https://drivemcp.googleapis.com/mcp/v1",
+              ),
+              description="Files in Google Drive (needs a Google OAuth client)."),
     McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
-              auth="oauth_app", description="Gmail messages (needs a Google OAuth client)."),
+              auth="oauth_app", allowed_auth=["oauth_app"],
+              oauth_defaults=McpAuthDefaults(
+                  authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
+                  scopes="openid email https://www.googleapis.com/auth/gmail.readonly",
+                  audience="https://gmailmcp.googleapis.com/mcp/v1",
+              ),
+              description="Gmail messages (needs a Google OAuth client)."),
     # X's MCP server takes an app-only bearer token from the X Developer Portal
     # (no DCR — verified by live probe 2026-07). App-only auth is read-only:
-    # public posts/users/search/trends work; bookmarks and "me" tools 403.
+    # public posts/users/search/trends work; bookmarks and "me" tools 403. It can
+    # also be connected via per-user OAuth (oauth_app) — endpoints pre-filled below.
     McpPreset(key="x", title="X", server_url="https://api.x.com/mcp",
-              auth="bearer", description="Posts, users, search and trends from X (needs an X API bearer token)."),
+              auth="bearer", allowed_auth=["bearer", "oauth_app"],
+              oauth_defaults=McpAuthDefaults(
+                  authorize_url="https://twitter.com/i/oauth2/authorize",
+                  token_url="https://api.x.com/2/oauth2/token",
+                  scopes="tweet.read tweet.write users.read offline_access",
+              ),
+              description="Posts, users, search and trends from X (needs an X API bearer token)."),
 ]
 
 

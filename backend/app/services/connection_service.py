@@ -80,6 +80,23 @@ _SHAPE_NOUNS = {
 }
 
 
+# An MCP server answering an *unauthenticated* probe with one of these is
+# advertising "I require auth" (RFC 9728 / standard OAuth). For a per-user OAuth
+# connector (oauth_app / DCR) there is no token at admin-config time, so this is
+# the expected, healthy response — not a failure.
+_AUTH_CHALLENGE_MARKERS = (
+    "401", "403", "unauthorized", "forbidden",
+    "www-authenticate", "invalid_token", "invalid token",
+)
+
+
+def _looks_like_auth_challenge(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.lower()
+    return any(marker in lowered for marker in _AUTH_CHALLENGE_MARKERS)
+
+
 def _connected_message(connection_type: str, table_count: int) -> str:
     """Build the success message after a connection test.
 
@@ -603,6 +620,17 @@ class ConnectionService:
         credentials: dict,
     ) -> dict:
         """Test connection with given parameters (before saving)."""
+        # Per-user OAuth MCP connectors (oauth_app / DCR) have NO token at
+        # admin-config time — the admin only registers the OAuth client; each
+        # user signs in later. So an authenticated tools/list is impossible here,
+        # and the server answering the unauthenticated probe with an auth
+        # challenge (401/403/WWW-Authenticate) is the *expected* healthy response.
+        # Treat "reachable but requires sign-in" as a pass; the real per-user auth
+        # is validated at the OAuth callback (test_user_connection).
+        oauth_user_mode = (
+            data_source_type == "mcp"
+            and (config or {}).get("auth_type") in ("oauth_app", "dcr")
+        )
         try:
             client = self._resolve_client_by_type(
                 data_source_type=data_source_type,
@@ -613,6 +641,14 @@ class ConnectionService:
             # Test basic connectivity
             connection_status = await client.atest_connection()
             if not connection_status.get("success"):
+                if oauth_user_mode and _looks_like_auth_challenge(connection_status.get("message")):
+                    return {
+                        "success": True,
+                        "message": "Server reachable — sign-in required (as configured). Tools load after each user signs in.",
+                        "connectivity": True,
+                        "schema_access": False,
+                        "requires_user_auth": True,
+                    }
                 return connection_status
 
             # For tool providers (MCP/API), list tools instead of schema access
