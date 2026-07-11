@@ -89,6 +89,7 @@
                                     v-for="ds in getSelectedDataSourceObjects.slice(0, 3)"
                                     :key="ds.id"
                                     :type="ds.type"
+                                    :icon="ds.icon"
                                     class="h-4 border border-white rounded"
                                 />
                             </div>
@@ -375,9 +376,9 @@ Examples:
                             <div class="flex items-center justify-between w-full py-0.5 pe-1">
                                 <div class="flex items-center">
                                     <div v-if="option.id === 'all'" class="flex -space-x-1 me-1.5">
-                                        <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
+                                        <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" :icon="ds.icon" class="h-3 border border-white rounded" />
                                     </div>
-                                    <DataSourceIcon v-else :type="option.type" class="h-3 me-1.5" />
+                                    <DataSourceIcon v-else :type="option.type" :icon="option.icon" class="h-3 me-1.5" />
                                     <span class="text-xs">{{ option.name }}</span>
                                 </div>
                                 <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ms-1" />
@@ -410,7 +411,7 @@ Examples:
                                     <span class="text-xs font-medium text-gray-900 dark:text-white truncate">{{ option.name }}</span>
                                 </div>
                                 <div class="flex items-center gap-1.5 ms-6">
-                                    <DataSourceIcon :type="option.data_source_type" class="h-2.5 flex-shrink-0" />
+                                    <DataSourceIcon :type="option.data_source_type" :icon="option.data_source_icon" class="h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ option.data_source_name }}</span>
                                 </div>
                             </div>
@@ -467,6 +468,7 @@ interface DataSource {
     id: string
     name: string
     type: string
+    icon?: string | null
 }
 
 interface SharedForm {
@@ -496,6 +498,7 @@ interface MentionableItem {
     name: string
     data_source_id?: string
     data_source_type?: string
+    data_source_icon?: string | null
     data_source_name?: string
     column_name?: string | null
 }
@@ -562,7 +565,8 @@ const dataSourceOptions = computed(() => {
     const allOption = {
         id: 'all',
         name: 'All Data Sources',
-        type: 'all'
+        type: 'all',
+        icon: null as string | null
     }
     return [allOption, ...availableDataSources.value]
 })

@@ -147,6 +147,13 @@ def _ensure_oauth_policy(connection: Connection) -> None:
 # Authorize
 # ---------------------------------------------------------------------------
 
+def _normalize_scopes(raw: str) -> str:
+    """OAuth `scope` is space-delimited (RFC 6749 §3.3). The connect form accepts
+    a comma- OR space-separated list (comma reads clearer); normalize either to
+    single-space-delimited for the authorize request."""
+    return " ".join((raw or "").replace(",", " ").split())
+
+
 @router.get("/{connection_id}/oauth/authorize")
 async def oauth_authorize(
     connection_id: str,
@@ -202,11 +209,17 @@ async def oauth_authorize(
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
-        "access_type": "offline",  # Google-specific, ignored by others
     }
+    # `access_type=offline` is a Google-only parameter (it prompts Google to
+    # return a refresh token). Other providers use the `offline_access` scope
+    # instead, and some are strict about unrecognized authorize params — X's
+    # OAuth2 consent screen fails with "You weren't able to give access to the
+    # App" when it's present. Only send it to Google.
+    if oauth_params.get("provider_name") == "google":
+        params["access_type"] = "offline"
     # Only send a scope when we actually have one (Notion DCR issues no scopes).
     if oauth_params.get("scopes"):
-        params["scope"] = oauth_params["scopes"]
+        params["scope"] = _normalize_scopes(oauth_params["scopes"])
     # RFC 8707 resource indicator — audience-bind the token to the MCP server.
     if oauth_params.get("audience"):
         params["resource"] = oauth_params["audience"]

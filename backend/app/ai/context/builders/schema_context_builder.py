@@ -156,12 +156,21 @@ class SchemaContextBuilder:
                     conn_id = None
                     conn_name = None
                     conn_type = None
+                    conn_is_active = True
                     if base is not None and getattr(base, 'connection_table', None):
                         ct = base.connection_table
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name = ct.connection.name
                             conn_type = ct.connection.type
+                            conn_is_active = bool(getattr(ct.connection, 'is_active', True))
+                    # Skip tables whose backing connection is flagged unhealthy.
+                    # Connection.is_active is a cached reachability flag; a dead
+                    # connection has no client (see construct_clients), so showing
+                    # its tables would invite the model to query a source it
+                    # cannot reach.
+                    if active_only and not conn_is_active:
+                        continue
 
                     normalized.append({
                         "name": name,
@@ -192,12 +201,18 @@ class SchemaContextBuilder:
                     conn_id = None
                     conn_name = None
                     conn_type = None
+                    conn_is_active = True
                     if getattr(t, 'connection_table', None):
                         ct = t.connection_table
                         if getattr(ct, 'connection', None):
                             conn_id = str(ct.connection.id)
                             conn_name = ct.connection.name
                             conn_type = ct.connection.type
+                            conn_is_active = bool(getattr(ct.connection, 'is_active', True))
+                    # Skip tables whose backing connection is flagged unhealthy
+                    # (mirrors construct_clients, which builds no client for it).
+                    if active_only and not conn_is_active:
+                        continue
 
                     normalized.append({
                         "name": getattr(t, 'name', ''),

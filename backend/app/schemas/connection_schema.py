@@ -118,6 +118,10 @@ class ConnectionDetailSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
+    # Non-secret credential fields, safe to send back so the edit form can
+    # pre-fill them (OAuth endpoints, client_id, scopes, api_key header). Secrets
+    # (client_secret, token, api_key, password) are NEVER included.
+    credentials_meta: Optional[dict] = None
     # Scheduled auto-reindex config (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: bool = True
     reindex_interval_hours: Optional[int] = None  # NULL -> default cadence

@@ -49,25 +49,13 @@
         </div>
       </div>
 
-      <div v-if="!isEditMode" class="flex items-start gap-2 pt-1">
-        <UCheckbox v-model="createAgent" class="mt-0.5" />
-        <div class="text-xs">
-          <label class="font-medium text-gray-700 dark:text-gray-300 cursor-pointer" @click="createAgent = !createAgent">
-            Create a public agent with this integration
-          </label>
-          <div class="text-gray-500 dark:text-gray-400">
-            We'll create an agent named "{{ agentName || (props.integrationTitle || 'Integration') }}" everyone in your org can use.
-            Each user signs in individually before using it.
-          </div>
-          <input
-            v-if="createAgent"
-            v-model="agentName"
-            type="text"
-            :placeholder="props.integrationTitle"
-            class="mt-2 w-full border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-      </div>
+      <CreatePublicAgentToggle
+        v-if="!isEditMode"
+        v-model:enabled="createAgent"
+        v-model:name="agentName"
+        :title="props.integrationTitle"
+        noun="integration"
+      />
 
       <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
         {{ testResult.message }}
@@ -287,16 +275,9 @@ async function handleSubmit() {
     // the successful integration save and toast the agent failure.
     if (createAgent.value) {
       try {
-        await useMyFetch('/data_sources', {
-          method: 'POST',
-          body: {
-            name: (agentName.value || props.integrationTitle || form.name).trim(),
-            type: props.integrationType,
-            connection_ids: [connection.id],
-            is_public: false,
-            auth_policy: 'user_required',
-            allowed_user_auth_modes: ['oauth'],
-          },
+        await createPublicAgent(connection.id, {
+          name: agentName.value || props.integrationTitle || form.name,
+          type: props.integrationType,
         })
         toast.add({
           title: 'Integration ready',

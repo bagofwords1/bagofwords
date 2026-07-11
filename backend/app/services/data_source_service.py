@@ -806,6 +806,7 @@ class DataSourceService:
             is_public=final_data_source.is_public,
             publish_status=getattr(final_data_source, "publish_status", "published") or "published",
             reliability_status=getattr(final_data_source, "reliability_status", "training") or "training",
+            icon=getattr(final_data_source, "icon", None),
             use_llm_sync=final_data_source.use_llm_sync,
             channel_availability=getattr(final_data_source, "channel_availability", None),
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
@@ -1065,6 +1066,7 @@ class DataSourceService:
             is_public=data_source.is_public,
             publish_status=getattr(data_source, "publish_status", "published") or "published",
             reliability_status=getattr(data_source, "reliability_status", "training") or "training",
+            icon=getattr(data_source, "icon", None),
             use_llm_sync=data_source.use_llm_sync,
             channel_availability=getattr(data_source, "channel_availability", None),
             owner_user_id=data_source.owner_user_id,
@@ -1229,6 +1231,7 @@ class DataSourceService:
                 is_public=bool(d.is_public),
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
+                icon=getattr(d, "icon", None),
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
@@ -1386,6 +1389,7 @@ class DataSourceService:
                 is_public=bool(d.is_public),
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
+                icon=getattr(d, "icon", None),
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
@@ -1482,6 +1486,7 @@ class DataSourceService:
                 status=("active" if bool(d.is_active) else "inactive"),
                 publish_status=getattr(d, "publish_status", "published") or "published",
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
+                icon=getattr(d, "icon", None),
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
@@ -2114,10 +2119,25 @@ class DataSourceService:
         if not data_source.connections:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
 
+        # Skip connections flagged unhealthy. Connection.is_active is a cached
+        # reachability flag, not a config toggle: a failed system_only connection
+        # test sets it False (ConnectionService.test_connection) and a later
+        # success flips it back. Building a client for a known-dead connection
+        # lets generated code "try each client" and fail on every run — e.g. a
+        # stale `SBODemoIL:SBODemoIL` whose login no longer works. Dropping it
+        # here (paired with the schema builder's matching connection filter)
+        # keeps both the client set and the model's context off dead
+        # connections. If every connection is inactive we return no clients;
+        # the data source then drops out downstream (AgentV2 `_has_client`).
+        active_connections = [
+            conn for conn in data_source.connections
+            if getattr(conn, "is_active", True)
+        ]
+
         clients: Dict[str, Any] = {}
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
 
-        for conn in data_source.connections:
+        for conn in active_connections:
             key = f"{data_source.name}:{conn.name}"
 
             # Resolve client class from registry
@@ -2156,7 +2176,7 @@ class DataSourceService:
             clients[key] = client
 
         # Backward compatibility: add legacy key aliases for single-connection domains
-        if len(data_source.connections) == 1:
+        if len(active_connections) == 1:
             first_key = next(iter(clients.keys()))
             first_client = clients[first_key]
             clients[data_source.name] = first_client
@@ -2298,6 +2318,11 @@ class DataSourceService:
         # Handle primary_instruction_id explicitly (allow None to clear it)
         if 'primary_instruction_id' in update_data:
             data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+
+        # Handle icon explicitly so an explicit null clears the custom-icon
+        # override (the generic loop below skips None values).
+        if 'icon' in update_data:
+            data_source_db.icon = update_data.pop('icon')
 
         # Update remaining domain-specific fields on DataSource
         for field, value in update_data.items():

@@ -27,7 +27,7 @@
                         </template>
                         <template v-else>
                             <span v-for="val in selectedValues.slice(0, 2)" :key="val" class="flex items-center gap-1 text-xs">
-                                <DataSourceIcon :type="getOptionType(val)" class="h-3.5" />
+                                <DataSourceIcon :type="getOptionType(val)" :icon="getOptionIcon(val)" class="h-3.5" />
                                 {{ getOptionLabel(val) }}
                             </span>
                             <span v-if="selectedValues.length > 2" class="text-xs text-gray-400">
@@ -40,7 +40,7 @@
                 <template #option="{ option }">
                     <div class="flex items-center gap-2">
                         <UIcon v-if="option.value === 'global'" name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                        <DataSourceIcon v-else :type="option.type" class="h-4" />
+                        <DataSourceIcon v-else :type="option.type" :icon="option.icon" class="h-4" />
                         <span>{{ option.label }}</span>
                     </div>
                 </template>
@@ -70,12 +70,14 @@ interface DataSource {
     id: string
     name: string
     type?: string
+    icon?: string | null
 }
 
 interface Option {
     value: string
     label: string
     type?: string
+    icon?: string | null
 }
 
 const props = defineProps<{
@@ -101,7 +103,8 @@ const options = computed<Option[]>(() => [
     ...props.dataSources.map(ds => ({
         value: ds.id,
         label: ds.name,
-        type: ds.type
+        type: ds.type,
+        icon: ds.icon ?? null
     }))
 ])
 
@@ -113,6 +116,10 @@ function getOptionLabel(value: string): string {
 
 function getOptionType(value: string): string | undefined {
     return options.value.find(o => o.value === value)?.type
+}
+
+function getOptionIcon(value: string): string | null | undefined {
+    return options.value.find(o => o.value === value)?.icon
 }
 
 // When selection changes, handle mutual exclusivity between Global and specific sources

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.445 (July 11, 2026)
+- **MCP connectors** — cleaner connect experience: pre-filled provider auth, tool previews, and one-click public agents.
+- **Custom agent icons** — pin an emoji or connection icon per agent.
+
 ## Version 0.0.444 (July 11, 2026)
 - **Elasticsearch connector** — query logs and metrics across indices, patterns, and data streams via the DSL (plus SQL/ES|QL); the index mapping is the schema, and rolling daily indices collapse into a single `<name>-*` pattern table.
 - **Splunk connector (enterprise)** — investigate events across indexes and sourcetypes with SPL; the `index::sourcetype` catalog is enumerated cheaply and fields are sampled for the highest-volume sourcetypes, with the rest discovered on demand.

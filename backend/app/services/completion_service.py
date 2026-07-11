@@ -653,6 +653,10 @@ class CompletionService:
 
                             clients = {}
                             for data_source in report_obj.data_sources:
+                                # Skip agents disabled/deactivated after being
+                                # attached to the report (see foreground path).
+                                if not self.data_source_service.is_execution_live(data_source):
+                                    continue
                                 try:
                                     ds_clients = await self.data_source_service.construct_clients(session, data_source, user_obj)
                                     clients.update(ds_clients)
@@ -1247,8 +1251,10 @@ class CompletionService:
                     for li in raw_li:
                         inst = instruction_map.get(li.get("id", ""))
                         ds_type = None
+                        ds_icon = None
                         if inst and inst.data_sources:
                             ds = inst.data_sources[0]
+                            ds_icon = getattr(ds, "icon", None)
                             if ds.connections:
                                 ds_type = ds.connections[0].type
                         enriched.append({
@@ -1259,6 +1265,7 @@ class CompletionService:
                             "load_reason": li.get("load_reason"),
                             "source_type": inst.source_type if inst else li.get("source_type"),
                             "data_source_type": ds_type,
+                            "data_source_icon": ds_icon,
                         })
                     loaded_instructions_list = enriched
 
@@ -1618,8 +1625,10 @@ class CompletionService:
                     for li in raw_li:
                         inst = instruction_map.get(li.get("id", ""))
                         ds_type = None
+                        ds_icon = None
                         if inst and inst.data_sources:
                             ds = inst.data_sources[0]
+                            ds_icon = getattr(ds, "icon", None)
                             if ds.connections:
                                 ds_type = ds.connections[0].type
                         enriched.append({
@@ -1630,6 +1639,7 @@ class CompletionService:
                             "load_reason": li.get("load_reason"),
                             "source_type": inst.source_type if inst else li.get("source_type"),
                             "data_source_type": ds_type,
+                            "data_source_icon": ds_icon,
                         })
                     loaded_instructions_list = enriched
 
@@ -2060,6 +2070,10 @@ class CompletionService:
                             with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                                 clients = {}
                                 for data_source in report_obj.data_sources:
+                                    # Skip agents disabled/deactivated after being
+                                    # attached to the report (see foreground path).
+                                    if not self.data_source_service.is_execution_live(data_source):
+                                        continue
                                     try:
                                         ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
                                         clients.update(ds_clients)

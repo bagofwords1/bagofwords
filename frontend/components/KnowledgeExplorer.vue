@@ -82,7 +82,7 @@
           <template v-else>
             <div v-for="grp in pendingGroups" :key="grp.id">
               <div class="px-2 py-1 flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                <DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-3.5 h-3.5 shrink-0" />
+                <DataSourceIcon v-if="grp.type || grp.icon" :type="grp.type" :connector-key="grp.connector_key" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
                 <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 truncate">{{ grp.name }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ grp.rows.length }}</span>
@@ -109,7 +109,7 @@
             <div v-if="searchResults.agents.length">
               <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Agents</div>
               <button v-for="a in searchResults.agents" :key="a.id" type="button" class="w-full flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 px-2" @click="onAgentClick(a)">
-                <DataSourceIcon :type="a.type" :connector-key="a.connector_key" class="w-4 h-4 shrink-0" />
+                <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="w-4 h-4 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ a.name }}</span>
               </button>
             </div>
@@ -155,9 +155,11 @@
             </UTooltip>
           </div>
 
+          <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+
           <template v-for="agent in agents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
-              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" class="w-4 h-4 shrink-0" /></template>
+              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
@@ -228,7 +230,8 @@
              so overflow-hidden doesn't clip them. -->
         <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
           <span class="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
-          <div class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
+          <Spinner v-if="!connectionsLoaded" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div v-else class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
             <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
               <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />
@@ -245,7 +248,7 @@
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="connectionsLoaded && canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('agentsPage.addConnection') }}
           </button>
@@ -282,7 +285,18 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 min-w-0">
-                  <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" class="w-4 h-4 shrink-0" />
+                  <AgentIconPicker
+                    v-if="agentDetail && agentCanUpdate"
+                    :model-value="agentDetail.icon"
+                    :type="agentDetail.type"
+                    :connector-key="agentDetail.connector_key"
+                    :connections="agentDetail.connections || []"
+                    icon-only
+                    icon-class="w-4 h-4"
+                    class="shrink-0"
+                    @change="setAgentIcon"
+                  />
+                  <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon="agentDetail.icon" class="w-4 h-4 shrink-0" />
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? $t('agentsPage.active') : $t('agentsPage.inactive')"></span>
                   <h2 class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
@@ -423,7 +437,7 @@
               </template>
               <template v-else>
                 <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipOpenAgent')" @click="openAgent(panelView.agentId)">
-                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" class="w-[18px] h-[18px] shrink-0" />
+                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" :icon="panelAgent?.icon" class="w-[18px] h-[18px] shrink-0" />
                   <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || $t('agentsPage.agent') }}</span>
                 </button>
                 <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
@@ -678,7 +692,7 @@
                   <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
-                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" class="w-3 h-3" />{{ ds.name }}</span>
+                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
@@ -896,6 +910,7 @@ import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import AgentIconPicker from '~/components/AgentIconPicker.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
@@ -948,6 +963,9 @@ const loadingGroups = ref<Set<string>>(new Set())
 const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
 const searching = ref(false)
 const agents = ref<any[]>([])
+// Show a spinner in the agents tree until the first load completes. Stays true
+// through later refreshes, which update the list silently.
+const agentsLoaded = ref(false)
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
 function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearningSaved'), color: 'green' }) }
@@ -1176,6 +1194,21 @@ const setAgentPublic = async (val: boolean) => {
     const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
     toast.add({ title: val ? t('agentsPage.toastMadePublic') : t('agentsPage.toastMadePrivate'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+}
+// Change the agent's custom icon from the agent-view header (manage access only).
+// `token` is an icon token ("emoji:…" | "type:…") or null to reset to default.
+const setAgentIcon = async (token: string | null) => {
+  const id = agentView.value?.agentId; if (!id) return
+  const prev = agentDetail.value?.icon ?? null
+  if (agentDetail.value) agentDetail.value.icon = token
+  try {
+    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
+    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; agents.value = [...agents.value] }
+    toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  } catch (e: any) {
+    if (agentDetail.value) agentDetail.value.icon = prev
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  }
 }
 const openAgent = async (id: string) => {
   clearRightPane()
@@ -1456,7 +1489,7 @@ const pendingGroups = computed(() => {
       for (const ds of dss) {
         if (!map.has(ds.id)) {
           const agent = agents.value.find(a => a.id === ds.id)
-          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, connector_key: agent?.connector_key, rows: [] })
+          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, connector_key: agent?.connector_key, rows: [] })
         }
         map.get(ds.id)!.rows.push(ins)
       }
@@ -2055,8 +2088,10 @@ const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value
 // agent/data source) only exist in the org-wide /connections list — fetch that
 // too so they're visible and can be managed instead of being orphaned.
 const orgConnections = ref<any[]>([])
+// Parallel to agentsLoaded: gate the connections area's spinner on the first load.
+const connectionsLoaded = ref(false)
 const fetchConnections = async () => {
-  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) } finally { connectionsLoaded.value = true }
 }
 const connections = computed(() => {
   const m = new Map<string, any>()
@@ -2158,8 +2193,8 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
-  } catch (e) { console.error(e) }
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+  } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
 // Group an agent's tools by their connection (MCP server / custom API), resolving
