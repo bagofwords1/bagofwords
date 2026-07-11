@@ -10,7 +10,7 @@
           <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
         <Icon v-if="(visibleAgents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-        <DataSourceIcon v-else :type="visibleAgents[0].type || visibleAgents[0].connections?.[0]?.type" :icon="visibleAgents[0].icon" class="h-5 flex-shrink-0" />
+        <DataSourceIcon v-else :type="visibleAgents[0].type || visibleAgents[0].connections?.[0]?.type" :connector-key="(visibleAgents[0] as any).connector_key || visibleAgents[0].connections?.[0]?.connector_key" :icon="visibleAgents[0].icon" class="h-5 flex-shrink-0" />
         <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ visibleAgents[0].name }}</span>
         <span
           v-if="stageBadge(visibleAgents[0])"
@@ -27,7 +27,7 @@
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors bg-white/80 dark:bg-gray-900/80"
         >
           <Icon v-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-          <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" :icon="selectedAgent.icon" class="h-5 flex-shrink-0" />
+          <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" :connector-key="(selectedAgent as any).connector_key || selectedAgent.connections?.[0]?.connector_key" :icon="selectedAgent.icon" class="h-5 flex-shrink-0" />
           <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
             {{ selectedAgent?.name || $t('reportAgent.selectAgent') }}
           </span>
@@ -50,7 +50,7 @@
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 dark:text-gray-300'"
             >
               <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-              <DataSourceIcon v-else :type="agent.type || agent.connections?.[0]?.type" :icon="agent.icon" class="h-4 flex-shrink-0" />
+              <DataSourceIcon v-else :type="agent.type || agent.connections?.[0]?.type" :connector-key="(agent as any).connector_key || agent.connections?.[0]?.connector_key" :icon="agent.icon" class="h-4 flex-shrink-0" />
               <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
               <span
                 v-if="stageBadge(agent)"

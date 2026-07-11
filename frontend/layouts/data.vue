@@ -67,7 +67,7 @@
                                         <span :class="['w-1.5 h-1.5 rounded-full flex-shrink-0', statusDotClass(getEffectiveStatus(conn))]" />
                                         <UTooltip :text="conn.name + (getEffectiveStatus(conn) === 'indexing' ? ' · ' + indexingSummary(conn.indexing) : '')">
                                             <div class="flex items-center gap-1">
-                                                <DataSourceIcon :type="conn.type" class="h-3.5 opacity-70" />
+                                                <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-3.5 opacity-70" />
                                                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ conn.name }}</span>
                                             </div>
                                         </UTooltip>
