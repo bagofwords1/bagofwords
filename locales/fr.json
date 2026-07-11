@@ -2991,7 +2991,9 @@
     "vizRenderFailed": "Échec du rendu du graphique",
     "diagramFailed": "Échec du rendu du diagramme",
     "exportMarkdown": "Télécharger en Markdown",
-    "printPdf": "Imprimer / Enregistrer en PDF"
+    "printPdf": "Imprimer / Enregistrer en PDF",
+    "exportPdf": "Exporter en PDF",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "Modifier",

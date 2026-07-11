@@ -2991,7 +2991,9 @@
     "vizRenderFailed": "Diagrammet kunde inte renderas",
     "diagramFailed": "Diagrammet kunde inte renderas",
     "exportMarkdown": "Ladda ner som Markdown",
-    "printPdf": "Skriv ut / Spara som PDF"
+    "printPdf": "Skriv ut / Spara som PDF",
+    "exportPdf": "Exportera som PDF",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "Redigera",

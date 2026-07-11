@@ -85,38 +85,27 @@
         <!-- Schedule -->
         <CronModal v-if="report" :report="report" />
 
-        <!-- Edit document (doc mode, report owner only) -->
-        <UTooltip v-if="isDocMode && isReportOwner && !isEditingDoc" :text="t('docEditor.editDocument')">
-          <button
-            @click="isEditingDoc = true"
-            data-testid="doc-edit-btn"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
-          >
-            <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-            <span class="text-xs text-gray-500 dark:text-gray-400 font-medium">{{ t('docEditor.edit') }}</span>
-          </button>
-        </UTooltip>
-
-        <!-- Export Markdown (doc mode only) -->
-        <UTooltip v-if="isDocMode" :text="t('docViewer.exportMarkdown')">
-          <button
-            @click="exportDocMarkdown"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
-          >
-            <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-blue-600" />
-            <span class="text-xs text-blue-600 font-medium">.md</span>
-          </button>
-        </UTooltip>
-
-        <!-- Print / Save as PDF (doc mode only) -->
-        <UTooltip v-if="isDocMode" :text="t('docViewer.printPdf')">
-          <button
-            @click="printDoc"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
-          >
-            <Icon name="heroicons:printer" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-          </button>
-        </UTooltip>
+        <!-- Doc export lives in the editor toolbar (owner, edit-by-default).
+             For the read-only viewer (non-owner) keep .md + PDF here. -->
+        <template v-if="isDocMode && !isEditingDoc">
+          <UTooltip :text="t('docViewer.exportMarkdown')">
+            <button
+              @click="exportDocMarkdown"
+              class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
+            >
+              <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-blue-600" />
+              <span class="text-xs text-blue-600 font-medium">.md</span>
+            </button>
+          </UTooltip>
+          <UTooltip :text="t('docViewer.exportPdf')">
+            <button
+              @click="printDoc"
+              class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
+            >
+              <Icon name="heroicons:printer" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+            </button>
+          </UTooltip>
+        </template>
 
         <!-- Export PPTX (slides mode only) -->
         <UTooltip v-if="selectedArtifact?.mode === 'slides'" text="Export as PowerPoint">
@@ -204,8 +193,10 @@
       <DocEditor
         v-else-if="isDocMode && selectedArtifact && isEditingDoc"
         ref="docEditorRef"
+        :key="selectedArtifactId"
         :markdown="docMarkdown"
         :visualizations="visualizationsData"
+        :title="selectedArtifact?.title"
         class="absolute inset-0"
         @save="saveDocEdit"
         @cancel="isEditingDoc = false"
@@ -665,8 +656,12 @@ const isReportOwner = computed(() => {
 const isEditingDoc = ref(false);
 const docEditorRef = ref<any>(null);
 
-// Leave edit mode when switching artifacts
-watch(selectedArtifactId, () => { isEditingDoc.value = false; });
+// Docs open in edit mode by default for the report owner; everyone else gets
+// the read-only viewer. Keyed on the loaded artifact so mode + ownership are
+// known (selectedArtifactId changes before the artifact finishes fetching).
+watch(selectedArtifact, (art) => {
+  isEditingDoc.value = (art?.mode === 'doc') && isReportOwner.value;
+}, { immediate: true });
 
 async function saveDocEdit(markdown: string) {
   if (!selectedArtifactId.value) return;
@@ -682,9 +677,10 @@ async function saveDocEdit(markdown: string) {
       return;
     }
     const newArtifact: any = data.value;
-    isEditingDoc.value = false;
     await fetchArtifactsList();
     if (newArtifact?.id) {
+      // Reselect the new version; the selectedArtifact watcher re-enters edit
+      // mode (owner) and the editor remounts via :key with the saved content.
       selectedArtifactId.value = newArtifact.id;
     }
     toast.add({ title: t('docEditor.saved'), color: 'green' });

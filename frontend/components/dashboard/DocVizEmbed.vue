@@ -44,8 +44,9 @@
             :view="viz.view"
           />
         </div>
-        <!-- Table (default) -->
-        <div v-else class="max-h-[420px] overflow-auto">
+        <!-- Table (default) — RenderTable/AgGrid is h-full, so the container
+             MUST have an explicit height or the grid collapses to 0px. -->
+        <div :style="{ height: tableHeight }">
           <RenderTable :widget="widgetShim" :step="tableStepShim" />
         </div>
       </div>
@@ -107,4 +108,13 @@ const tableStepShim = computed(() => ({
   data: { rows: props.viz?.rows || [], columns: props.viz?.columns || [] },
   data_model: { ...(props.viz?.dataModel || {}), type: 'table' },
 }))
+
+// Explicit height for the table container (AgGrid needs a sized parent).
+// header (~44px) + rows * ~34px, clamped so small tables stay compact and
+// large ones scroll internally instead of dominating the document.
+const tableHeight = computed(() => {
+  const n = props.viz?.rows?.length || 0
+  const px = Math.min(Math.max(44 + n * 34, 140), 440)
+  return `${px}px`
+})
 </script>

@@ -3098,7 +3098,9 @@
     "vizRenderFailed": "טעינת התרשים נכשלה",
     "diagramFailed": "טעינת הדיאגרמה נכשלה",
     "exportMarkdown": "הורדה כ-Markdown",
-    "printPdf": "הדפסה / שמירה כ-PDF"
+    "printPdf": "הדפסה / שמירה כ-PDF",
+    "exportPdf": "ייצוא כ-PDF",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "עריכה",

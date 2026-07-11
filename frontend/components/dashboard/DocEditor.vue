@@ -15,8 +15,29 @@
         </button>
       </template>
 
-      <div class="ms-auto flex items-center gap-2">
+      <div class="ms-auto flex items-center gap-1.5">
         <span v-if="saveError" class="text-xs text-red-500 max-w-xs truncate" :title="saveError">{{ saveError }}</span>
+
+        <!-- Export actions (moved here from the top bar) -->
+        <button
+          :title="$t('docViewer.exportMarkdown')"
+          class="flex items-center gap-1 px-2 py-1.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          @mousedown.prevent="exportMarkdown"
+        >
+          <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
+          <span class="text-xs font-medium">.md</span>
+        </button>
+        <button
+          :title="$t('docViewer.exportPdf')"
+          class="flex items-center gap-1 px-2 py-1.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          @mousedown.prevent="exportPdf"
+        >
+          <Icon name="heroicons:document-arrow-down" class="w-3.5 h-3.5" />
+          <span class="text-xs font-medium">{{ $t('docViewer.pdf') }}</span>
+        </button>
+
+        <span class="mx-0.5 h-4 w-px bg-gray-200 dark:bg-gray-700"></span>
+
         <button
           class="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           @click="$emit('cancel')"
@@ -66,6 +87,7 @@ interface DocViz {
 const props = defineProps<{
   markdown: string
   visualizations?: DocViz[]
+  title?: string
 }>()
 
 const emit = defineEmits<{
@@ -185,11 +207,43 @@ onBeforeUnmount(() => {
   editor.value?.destroy()
 })
 
+function currentMarkdown(): string {
+  if (!editor.value) return props.markdown
+  return (editor.value.storage as any).markdown.getMarkdown()
+}
+
 function save() {
   if (!editor.value) return
   saveError.value = ''
-  const markdown = (editor.value.storage as any).markdown.getMarkdown()
-  emit('save', markdown)
+  emit('save', currentMarkdown())
+}
+
+// Download the current (possibly unsaved) editor content as a .md file.
+function exportMarkdown() {
+  const title = props.title || 'document'
+  const blob = new Blob([currentMarkdown()], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${title.replace(/[^\w\d֐-׿؀-ۿ -]+/g, '').trim() || 'document'}.md`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// Export as PDF via the browser print dialog. The print stylesheet below
+// isolates the editor content (live charts and all) and hides the toolbar/app
+// chrome, so the PDF is the document only.
+function exportPdf() {
+  document.documentElement.classList.add('printing-doc-editor')
+  const cleanup = () => {
+    document.documentElement.classList.remove('printing-doc-editor')
+    window.removeEventListener('afterprint', cleanup)
+  }
+  window.addEventListener('afterprint', cleanup)
+  setTimeout(cleanup, 2000)
+  window.print()
 }
 
 const toolbarButtons = computed(() => {
@@ -247,3 +301,22 @@ const toolbarButtons = computed(() => {
 /* Selected atom node outline */
 .bow-doc-editor :deep(.ProseMirror-selectednode) { outline: 2px solid rgb(147 197 253); border-radius: 0.5rem; }
 </style>
+
+<!-- Print isolation: "Export as PDF" stamps `printing-doc-editor` on <html>,
+     so only the editor content (charts included) prints — toolbar and app
+     chrome are hidden, and the contenteditable caret/selection is suppressed. -->
+<style>
+@media print {
+  html.printing-doc-editor body * { visibility: hidden !important; }
+  html.printing-doc-editor .bow-doc-editor,
+  html.printing-doc-editor .bow-doc-editor * { visibility: visible !important; }
+  html.printing-doc-editor .bow-doc-editor {
+    position: fixed !important;
+    inset: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+  html.printing-doc-editor .bow-doc-editor .ProseMirror { caret-color: transparent !important; }
+  html.printing-doc-editor .bow-doc-editor .ProseMirror-selectednode { outline: none !important; }
+}

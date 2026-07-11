@@ -3098,7 +3098,9 @@
     "vizRenderFailed": "El gráfico no se pudo renderizar",
     "diagramFailed": "El diagrama no se pudo renderizar",
     "exportMarkdown": "Descargar como Markdown",
-    "printPdf": "Imprimir / Guardar como PDF"
+    "printPdf": "Imprimir / Guardar como PDF",
+    "exportPdf": "Exportar como PDF",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "Editar",

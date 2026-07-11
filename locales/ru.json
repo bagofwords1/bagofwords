@@ -2991,7 +2991,9 @@
     "vizRenderFailed": "Не удалось отобразить график",
     "diagramFailed": "Не удалось отобразить диаграмму",
     "exportMarkdown": "Скачать как Markdown",
-    "printPdf": "Печать / Сохранить как PDF"
+    "printPdf": "Печать / Сохранить как PDF",
+    "exportPdf": "Экспорт в PDF",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "Редактировать",

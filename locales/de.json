@@ -2991,7 +2991,9 @@
     "vizRenderFailed": "Diagramm konnte nicht gerendert werden",
     "diagramFailed": "Diagramm konnte nicht gerendert werden",
     "exportMarkdown": "Als Markdown herunterladen",
-    "printPdf": "Drucken / Als PDF speichern"
+    "printPdf": "Drucken / Als PDF speichern",
+    "exportPdf": "Als PDF exportieren",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "Bearbeiten",

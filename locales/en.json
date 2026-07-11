@@ -3314,7 +3314,9 @@
     "vizRenderFailed": "Chart failed to render",
     "diagramFailed": "Diagram failed to render",
     "exportMarkdown": "Download as Markdown",
-    "printPdf": "Print / Save as PDF"
+    "printPdf": "Print / Save as PDF",
+    "exportPdf": "Export as PDF",
+    "pdf": "PDF"
   },
   "docEditor": {
     "edit": "Edit",
