@@ -428,7 +428,7 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <DataSourceIcon :type="connection?.type" class="h-5" />
+            <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
             <h3 class="text-lg font-semibold">{{ $t('data.editConnection') }}</h3>
           </div>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />

@@ -38,7 +38,7 @@
                 >
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex items-center gap-3 min-w-0">
-                            <DataSourceIcon :type="conn.type" class="h-7 flex-shrink-0" />
+                            <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-7 flex-shrink-0" />
                             <div class="min-w-0">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
                                 <div class="text-xs text-gray-400">{{ conn.type }}</div>
@@ -121,7 +121,7 @@
                     :class="{ 'border-blue-400 bg-blue-50 dark:bg-blue-950': selectedConnectionId === conn.id }"
                 >
                     <input type="radio" name="link-conn" :value="conn.id" v-model="selectedConnectionId" class="sr-only" />
-                    <DataSourceIcon :type="conn.type" class="h-5 flex-shrink-0" />
+                    <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-5 flex-shrink-0" />
                     <div class="min-w-0 flex-1">
                         <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
                         <div class="text-xs text-gray-400">{{ conn.type }}</div>
@@ -147,7 +147,7 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" class="h-5" />
+                        <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
                         <h3 class="text-sm font-semibold">Edit connection</h3>
                     </div>
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showEditModal = false" />
