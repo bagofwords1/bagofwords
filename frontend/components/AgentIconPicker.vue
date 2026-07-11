@@ -1,12 +1,23 @@
 <template>
-    <div class="flex items-center gap-2">
-        <!-- Live preview of the current icon (custom emoji or default type icon) -->
-        <div class="w-9 h-9 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
+    <div :class="props.iconOnly ? 'inline-flex' : 'flex items-center gap-2'">
+        <!-- Live preview of the current icon (full mode only) -->
+        <div v-if="!props.iconOnly" class="w-9 h-9 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
             <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon="modelToken" class="w-5 h-5" />
         </div>
 
         <UPopover v-if="!props.disabled" :popper="{ placement: 'bottom-start' }">
+            <!-- Compact trigger: the icon itself is clickable (used in the agent header) -->
             <button
+                v-if="props.iconOnly"
+                type="button"
+                :title="hasCustom ? 'Change icon' : 'Set custom icon'"
+                class="group inline-flex items-center justify-center rounded-md p-0.5 -m-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors relative"
+            >
+                <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon="modelToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
+                <UIcon name="i-heroicons-pencil" class="w-2.5 h-2.5 text-gray-400 dark:text-gray-500 absolute -bottom-1 -end-1 opacity-0 group-hover:opacity-100 bg-white dark:bg-gray-900 rounded-full" />
+            </button>
+            <button
+                v-else
                 type="button"
                 class="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
             >
@@ -15,6 +26,24 @@
 
             <template #panel="{ close }">
                 <div class="p-3 w-64">
+                    <!-- Use one of the agent's connection icons -->
+                    <template v-if="connectionOptions.length">
+                        <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">Use a connection icon</div>
+                        <div class="flex flex-wrap gap-1 mb-3">
+                            <button
+                                v-for="c in connectionOptions"
+                                :key="c.token"
+                                type="button"
+                                :title="c.name"
+                                class="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800"
+                                :class="modelToken === c.token ? 'bg-gray-100 dark:bg-gray-800 ring-1 ring-gray-300 dark:ring-gray-600' : ''"
+                                @click="commit(c.token, true); close()"
+                            >
+                                <DataSourceIcon :type="c.type" :connector-key="c.connectorKey" class="w-4 h-4" />
+                            </button>
+                        </div>
+                    </template>
+
                     <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">Pick an emoji</div>
                     <div class="grid grid-cols-8 gap-1 mb-3">
                         <button
@@ -58,6 +87,8 @@
                 </div>
             </template>
         </UPopover>
+        <!-- Disabled + icon-only: render the plain icon (no trigger). -->
+        <DataSourceIcon v-else-if="props.iconOnly" :type="props.type" :connector-key="props.connectorKey" :icon="modelToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
     </div>
 </template>
 
@@ -66,11 +97,18 @@ import { computed, ref, watch } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 const props = defineProps<{
-    // The stored icon token ("emoji:<grapheme>" | "preset:<key>" | null).
+    // The stored icon token ("emoji:<grapheme>" | "type:<key>" | "preset:<key>" | null).
     modelValue: string | null | undefined
     // Fallback type/connector for the default-icon preview.
     type?: string | null
     connectorKey?: string | null
+    // The agent's connections, so the picker can offer their type/brand icons.
+    connections?: Array<{ type?: string | null; connector_key?: string | null; name?: string | null }>
+    // Compact mode: the icon itself is the clickable trigger (no preview box or
+    // text button). Used in the agent-view header.
+    iconOnly?: boolean
+    // Size class for the icon in iconOnly mode (default w-4 h-4).
+    iconClass?: string
     disabled?: boolean
 }>()
 
@@ -90,8 +128,27 @@ const PRESET_EMOJIS = [
 
 const modelToken = computed(() => props.modelValue ?? null)
 const parsed = computed(() => parseAgentIcon(modelToken.value))
-const hasCustom = computed(() => parsed.value.kind === 'emoji')
+// "Reset to default" is offered whenever any override is set (emoji or a pinned
+// connection type icon).
+const hasCustom = computed(() => parsed.value.kind === 'emoji' || parsed.value.kind === 'type')
 const rawEmoji = computed(() => (parsed.value.kind === 'emoji' ? parsed.value.value : ''))
+
+// Distinct connection icons for this agent. Each pins a "type:<key>" token where
+// the key is the brand connector (e.g. "notion") when present, else the plain
+// connection type (e.g. "snowflake"). Deduped so repeated types show once.
+const connectionOptions = computed(() => {
+    const out: { type?: string | null; connectorKey?: string | null; name: string; token: string }[] = []
+    const seen = new Set<string>()
+    for (const c of (props.connections || [])) {
+        const key = (c.connector_key || c.type || '').toString().trim()
+        if (!key) continue
+        const token = `type:${key}`
+        if (seen.has(token)) continue
+        seen.add(token)
+        out.push({ type: c.type, connectorKey: c.connector_key, name: c.name || key, token })
+    }
+    return out
+})
 
 const freeInput = ref('')
 watch(modelToken, () => { freeInput.value = '' })
@@ -110,8 +167,9 @@ function firstGrapheme(s: string | null | undefined): string {
     return Array.from(str)[0] || ''
 }
 
-function commit(emoji: string | null) {
-    const token = emojiToIconToken(emoji)
+// commit an emoji grapheme (default) or a pre-built token (raw = true).
+function commit(value: string | null, raw = false) {
+    const token = raw ? value : emojiToIconToken(value)
     emit('update:modelValue', token)
     emit('change', token)
 }
@@ -126,6 +184,6 @@ function applyFree() {
 }
 
 function clear() {
-    commit(null)
+    commit(null, true)
 }
 </script>

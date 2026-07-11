@@ -7,7 +7,7 @@
         role="img"
         aria-hidden="true"
     >{{ parsedIcon.value }}</span>
-    <UIcon v-else-if="props.type === 'custom_api'" name="heroicons-cog-6-tooth" :class="[computedClass, 'text-gray-500 dark:text-gray-400']" />
+    <UIcon v-else-if="effectiveType === 'custom_api'" name="heroicons-cog-6-tooth" :class="[computedClass, 'text-gray-500 dark:text-gray-400']" />
     <img v-else :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
 </template>
 
@@ -32,6 +32,14 @@ const FALLBACK_ICON = '/data_sources_icons/document.png'
 // Parse the custom icon override. Unrecognised/future tokens resolve to 'none'
 // and fall through to the default type icon, so nothing ever renders broken.
 const parsedIcon = computed(() => parseAgentIcon(props.icon))
+
+// A "type:<key>" override pins one of the agent's connection type/connector
+// icons. We feed the key into BOTH the connector-brand and the type-asset
+// resolution below (the connector map wins if the key is a known brand, e.g.
+// "notion"; otherwise it resolves as a plain type asset, e.g. "snowflake").
+const typeToken = computed(() => (parsedIcon.value.kind === 'type' ? parsedIcon.value.value : null))
+const effectiveType = computed(() => typeToken.value ?? props.type)
+const effectiveConnectorKey = computed(() => typeToken.value ?? props.connectorKey)
 
 const normalizeType = (raw: string) => {
     // normalize to icon-friendly token: lowercase, underscores, strip numeric suffixes
@@ -71,14 +79,14 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
 const iconPath = computed(() => {
     // Prefer the provider brand icon for known catalog connectors (even though
     // the underlying connection type is just "mcp").
-    const ck = props.connectorKey ? normalizeType(props.connectorKey) : '';
+    const ck = effectiveConnectorKey.value ? normalizeType(effectiveConnectorKey.value) : '';
     if (ck && CONNECTOR_ICON_FILE[ck]) {
         return `/data_sources_icons/${CONNECTOR_ICON_FILE[ck]}`;
     }
-    if (!props.type) {
+    if (!effectiveType.value) {
         return FALLBACK_ICON;
     }
-    const t = normalizeType(props.type);
+    const t = normalizeType(effectiveType.value);
 
     // Prefer tool/resource icons when available (stored under /icons)
     const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau', 'dataform', 'mcp', 'custom_api']);

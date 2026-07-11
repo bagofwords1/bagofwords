@@ -10,11 +10,12 @@
 // frontend seeing a newer token (or a garbage value) degrades gracefully to the
 // default icon instead of breaking.
 
-export type AgentIconKind = 'emoji' | 'preset' | 'none'
+export type AgentIconKind = 'emoji' | 'type' | 'preset' | 'none'
 
 export interface ParsedAgentIcon {
   kind: AgentIconKind
-  // For 'emoji': the grapheme to render. For 'preset': the preset key. Empty for 'none'.
+  // For 'emoji': the grapheme. For 'type': the connection type/connector key
+  // (e.g. "snowflake", "notion"). For 'preset': the preset key. Empty for 'none'.
   value: string
 }
 
@@ -34,6 +35,9 @@ export function parseAgentIcon(token: string | null | undefined): ParsedAgentIco
   }
   if (kind === 'emoji') {
     return { kind: 'emoji', value }
+  }
+  if (kind === 'type') {
+    return { kind: 'type', value }
   }
   // 'preset' is reserved but not yet rendered — fall through to the default icon
   // until the preset gallery ships.

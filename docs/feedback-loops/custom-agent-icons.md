@@ -70,6 +70,27 @@ with Playwright against the seeded "Music Store" demo agent:
 Evidence: `media/pr/custom-agent-icons/` (settings before, picker open, settings
 after, agents sidebar after, and before/after crops of the tree row).
 
+## Follow-ups (same PR)
+
+Two additions on top of the emoji picker, both validated the same way:
+
+- **Pin a connection icon** — the token namespace gained `type:<key>`
+  (`type:snowflake`, `type:notion`, …). The picker's "Use a connection icon" row
+  offers each of the agent's connection type/brand icons; selecting one stores
+  `type:<connector_key ?? type>`. `DataSourceIcon` renders it through the existing
+  type/connector resolution (`effectiveType`/`effectiveConnectorKey`), so it's the
+  same asset the connection would show — but **pinned**, i.e. decoupled from live
+  connection state (proven by pinning `type:snowflake` on the sqlite demo agent
+  and seeing the snowflake glyph in the sidebar:
+  `media/pr/custom-agent-icons/sidebar-type-pinned.png`).
+- **Edit from the agent header** — in the agent-view header, the icon itself is
+  now the picker trigger for users with manage access (`AgentIconPicker`'s
+  `iconOnly` mode; gated by `agentCanUpdate`). Read-only users still see a plain
+  icon. Evidence: `07-header-default.png`, `08-header-picker-open.png`.
+
+The e2e test covers the new `type:` token (accepted, round-trips) alongside
+`emoji:`/`preset:`.
+
 ## What this proves / regression notes
 
 - The override is stored, validated, round-tripped, and cleared correctly, and it
