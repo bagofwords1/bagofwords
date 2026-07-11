@@ -1,0 +1,26 @@
+# Local Elasticsearch 8.x for the elasticsearch connector feedback loop.
+# Security ON (so the API-key / basic auth paths are exercised) but HTTP TLS
+# OFF, so the demo connects over http with no self-signed-cert friction.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: bow-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - bootstrap.memory_lock=false
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - xpack.license.self_generated.type=basic
+      - ELASTIC_PASSWORD=elastic_pwd
+      - ingest.geoip.downloader.enabled=false
+      # Sandboxes often sit above the 90% disk watermark, which blocks shard
+      # allocation and pins the cluster RED. Disable the decider for the demo.
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:elastic_pwd http://localhost:9200/_cluster/health | grep -q status"]
+      interval: 5s
+      timeout: 5s
+      retries: 40

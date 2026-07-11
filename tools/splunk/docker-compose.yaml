@@ -1,0 +1,19 @@
+# Local Splunk 9.x for the splunk connector feedback loop.
+# Single container: web :8000, HEC :8088, management/REST :8089.
+services:
+  splunk:
+    image: splunk/splunk:9.3
+    container_name: bow-splunk
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_PASSWORD=Chang3d_pwd1
+      - SPLUNK_HEC_TOKEN=11111111-1111-1111-1111-111111111111
+    ports:
+      - "8000:8000"
+      - "8088:8088"
+      - "8089:8089"
+    healthcheck:
+      test: ["CMD", "curl", "-fk", "https://localhost:8089/services/server/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 40

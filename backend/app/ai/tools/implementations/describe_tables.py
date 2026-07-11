@@ -51,6 +51,63 @@ class DescribeTablesTool(Tool):
     def output_model(self) -> Type[BaseModel]:
         return DescribeTablesOutput
 
+    # Cap on how many thin tables we sample per describe_tables call — bounds the
+    # extra searches a schema-on-read source can trigger from one inspection.
+    _MAX_THIN_SAMPLES = 12
+
+    async def _sample_thin_tables(self, ctx: Any, runtime_ctx: Dict[str, Any]) -> None:
+        """Fill columns for matched tables that were indexed with none (thin,
+        schema-on-read). Best-effort: any failure leaves the table as-is. No-op
+        for normal sources — their tables already carry columns."""
+        try:
+            db = runtime_ctx.get("db")
+            organization = runtime_ctx.get("organization")
+            context_hub = runtime_ctx.get("context_hub")
+            if db is None or context_hub is None:
+                return
+            ds_objs = {str(getattr(d, "id", "")): d
+                       for d in (getattr(context_hub, "data_sources", []) or [])}
+            user = getattr(context_hub, "user", None)
+            from app.services.data_source_service import DataSourceService
+            dss = DataSourceService()
+            clients_cache: Dict[str, Dict[str, Any]] = {}
+            sampled = 0
+            for ds in (getattr(ctx, "data_sources", []) or []):
+                if sampled >= self._MAX_THIN_SAMPLES:
+                    break
+                ds_id = str(getattr(getattr(ds, "info", None), "id", "") or "")
+                ds_obj = ds_objs.get(ds_id)
+                if ds_obj is None:
+                    continue
+                for t in (getattr(ds, "tables", []) or []):
+                    if sampled >= self._MAX_THIN_SAMPLES:
+                        break
+                    if (getattr(t, "columns", None) or []):
+                        continue  # already has columns — nothing to sample
+                    if ds_id not in clients_cache:
+                        try:
+                            clients_cache[ds_id] = await dss.construct_clients(db, ds_obj, user) or {}
+                        except Exception:
+                            clients_cache[ds_id] = {}
+                    clients = {k: v for k, v in clients_cache[ds_id].items() if ":" in str(k)}
+                    conn_name = getattr(t, "connection_name", None)
+                    client = clients.get(f"{ds_obj.name}:{conn_name}") if conn_name else None
+                    if client is None and len(clients) == 1:
+                        client = next(iter(clients.values()))
+                    if client is None or not hasattr(client, "aget_schema"):
+                        continue
+                    try:
+                        sampled_tbl = await client.aget_schema(getattr(t, "name", None))
+                    except Exception:
+                        continue
+                    cols = getattr(sampled_tbl, "columns", None) or [] if sampled_tbl else []
+                    if cols:
+                        t.columns = cols
+                        sampled += 1
+        except Exception:
+            # Never let on-demand sampling break table inspection.
+            return
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = DescribeTablesInput(**tool_input)
 
@@ -73,6 +130,14 @@ class DescribeTablesTool(Tool):
             # Always add escaped literal version (handles names with special chars like parens)
             esc = re.escape(q)
             name_patterns.append(f"(?i)(?:^|[./]){esc}$")
+            # Separator-tolerant variant: match the query as the leading segment of
+            # a delimited/pattern name so a plain query finds collapsed or namespaced
+            # tables — e.g. "security" -> "security-*" (Elasticsearch patterns),
+            # "web" -> "web::access_combined" (Splunk index::sourcetype). Bounded to a
+            # separator so it won't match unrelated names like "securityaudit". The
+            # leading anchor also allows ':' so a bare sourcetype matches a Splunk
+            # "index::sourcetype" name (e.g. "json_app" -> "app::json_app").
+            name_patterns.append(f"(?i)(?:^|[./:]){esc}(?:[-:._*/].*)?$")
 
             # Also add as raw regex if it contains special chars (for intentional patterns like .*Opportunities.*)
             if special.search(q or ""):
@@ -103,6 +168,15 @@ class DescribeTablesTool(Tool):
                     connection_ids=data.connection_ids,
                     name_patterns=name_patterns or None,
                 )
+                # Sample-on-demand for THIN tables (schema-on-read sources like
+                # Splunk index a cheap catalog and leave low-volume sourcetypes
+                # with no columns). When the agent inspects such a table, fetch its
+                # fields live via the client's get_schema so the excerpt carries
+                # real columns instead of "0 columns" (which the agent misreads as
+                # empty). Best-effort and no-op for normal sources (their tables
+                # always have columns); never breaks the tool.
+                await self._sample_thin_tables(ctx, runtime_ctx)
+
                 # Compute counts before render limits
                 try:
                     searched_sources = len(getattr(ctx, "data_sources", []) or [])
