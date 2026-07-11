@@ -20,10 +20,16 @@ class ArtifactContentSlides(BaseModel):
     slides: List[SlideContent]
 
 
+class ArtifactContentDoc(BaseModel):
+    """Content structure for doc mode artifacts (markdown documents)."""
+    markdown: str
+    visualization_ids: List[str] = Field(default_factory=list)
+
+
 class ArtifactBase(BaseModel):
     """Base schema for Artifact."""
     title: Optional[str] = "Untitled Artifact"
-    mode: Literal["page", "slides"] = "page"
+    mode: Literal["page", "slides", "doc"] = "page"
 
 
 class ArtifactCreate(ArtifactBase):

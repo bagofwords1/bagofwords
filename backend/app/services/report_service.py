@@ -775,7 +775,12 @@ class ReportService:
             .limit(1)
         )
         if artifact_id:
+            # Explicit target may be any mode — docs refresh their embedded vizs too.
             artifact_stmt = artifact_stmt.where(Artifact.id == str(artifact_id))
+        else:
+            # Default rerun follows the latest DASHBOARD; a newer doc must not
+            # silently change which queries a report rerun refreshes.
+            artifact_stmt = artifact_stmt.where(Artifact.mode.in_(("page", "slides")))
         artifact_row = (await db.execute(artifact_stmt)).first()
         content = artifact_row[0] if artifact_row else None
         viz_ids = list(dict.fromkeys(

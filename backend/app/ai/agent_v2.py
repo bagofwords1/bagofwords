@@ -492,6 +492,9 @@ class AgentV2:
                 .where(
                     Artifact.report_id == str(self.report.id),
                     Artifact.status == "completed",
+                    # Docs (mode='doc') must never occupy the active-artifact slot:
+                    # dashboard continuity rules and edit_artifact routing bind to it.
+                    Artifact.mode.in_(("page", "slides")),
                 )
                 .order_by(Artifact.created_at.desc())
                 .limit(1)

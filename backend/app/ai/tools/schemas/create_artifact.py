@@ -28,7 +28,8 @@ class CreateArtifactInput(BaseModel):
         "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your prompt describes a CHANGE to that artifact, not a fresh build. "
         "Preserve the existing title (don't invent 'Enhanced X' / 'Improved Y') unless the user asked to rename. Describe ALL existing vizs in the layout (they're still on the canvas) plus the new additions. "
         "Prefer `edit_artifact` for small/additive changes; only use `create_artifact` when the change is structurally too large for surgical diffs — and even then, carry all prior viz_ids forward.\n\n"
-        "Do NOT use this tool to modify an existing artifact; use edit_artifact instead."
+        "Do NOT use this tool to modify an existing artifact; use edit_artifact instead. "
+        "For a WRITTEN report/document/memo (not an interactive dashboard), use create_doc instead."
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt.")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")

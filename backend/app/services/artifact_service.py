@@ -80,9 +80,14 @@ class ArtifactService:
         return list(res.scalars().all())
 
     async def get_latest_by_report(
-        self, db: AsyncSession, report_id: str
+        self, db: AsyncSession, report_id: str, include_docs: bool = False
     ) -> Optional[Artifact]:
-        """Get the most recent artifact for a report."""
+        """Get the most recent artifact for a report.
+
+        By default docs (mode='doc') are excluded: every existing consumer of
+        "the report's latest artifact" means the dashboard/slides deliverable.
+        Pass include_docs=True to consider docs too.
+        """
         stmt = (
             select(Artifact)
             .options(lazyload("*"))
@@ -93,6 +98,8 @@ class ArtifactService:
             .order_by(Artifact.created_at.desc())
             .limit(1)
         )
+        if not include_docs:
+            stmt = stmt.where(Artifact.mode.in_(("page", "slides")))
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
