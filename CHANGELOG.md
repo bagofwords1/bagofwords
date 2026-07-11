@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.444 (July 11, 2026)
+- **Elasticsearch connector** — query logs and metrics across indices, patterns, and data streams via the DSL (plus SQL/ES|QL); the index mapping is the schema, and rolling daily indices collapse into a single `<name>-*` pattern table.
+- **Splunk connector (enterprise)** — investigate events across indexes and sourcetypes with SPL; the `index::sourcetype` catalog is enumerated cheaply and fields are sampled for the highest-volume sourcetypes, with the rest discovered on demand.
+- **Thin-table field discovery** — `describe_tables` now samples a schema-on-read table's fields on inspection (so the agent stops treating "0 columns" as empty) and matches pattern/namespaced names (`security` → `security-*`, `web` → `web::access_combined`).
+
 ## Version 0.0.443 (July 10, 2026)
 - **Prometheus connector (#595)** — query metrics with PromQL over the Prometheus HTTP API; each metric becomes a table.
 - **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel (e.g. `create_data` across several sources), controlled by the `ai_tool_concurrency` org setting (defaults to 4; set to 1 for serial).
