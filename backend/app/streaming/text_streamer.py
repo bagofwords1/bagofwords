@@ -31,9 +31,16 @@ class PlanningTextStreamer:
         split_large_chunks: bool = False,  # Disabled - reduces event count significantly
         max_chunk_size: int = 100,  # Larger chunks when splitting is enabled
         split_delay_ms: int = 8,  # Delay between split emissions
+        persist: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ):
         self.emit = emit
         self.seq_fn = seq_fn
+        # Optional best-effort DB persistence hook, invoked on the snapshot
+        # cadence with (reasoning, content). Keeps the persisted block fresh
+        # enough (≤ snapshot_every_ms stale) that a client resuming from the
+        # DB — page refresh, watch-endpoint fallback — sees partial text
+        # instead of an empty block.
+        self.persist = persist
         self.completion_id = completion_id
         self.agent_execution_id = agent_execution_id
         self.block_id = block_id
@@ -142,6 +149,11 @@ class PlanningTextStreamer:
         # Periodic full snapshot for robustness
         if (now - self.last_snapshot) >= self.snapshot_every_ms:
             self.last_snapshot = now
+            if self.persist is not None and (self.prev_reasoning or self.prev_content):
+                try:
+                    await self.persist(self.prev_reasoning, self.prev_content)
+                except Exception:
+                    pass  # best-effort; never disrupt the token stream
             if self.prev_reasoning:
                 seq = await self.seq_fn()
                 await self.emit(SSEEvent(
