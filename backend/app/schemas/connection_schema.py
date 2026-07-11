@@ -93,6 +93,10 @@ class ConnectionSchema(BaseModel):
     # Per-user auth status for the requesting user (user_required connections):
     # has_user_credentials / effective_auth / uses_fallback / connection.
     user_status: Optional[Dict[str, Any]] = None
+    # Catalog key for a known connector (e.g. "notion", "monday") so the UI can
+    # render the provider's brand icon even though `type` is just "mcp". None for
+    # generic connections.
+    connector_key: Optional[str] = None
 
     class Config:
         from_attributes = True
