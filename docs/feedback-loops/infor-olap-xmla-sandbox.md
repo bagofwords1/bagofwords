@@ -118,3 +118,43 @@ c.execute_query("SELECT { [Measures].[Unit Sales] } ON COLUMNS, "
   never a broken client.
 - Known cosmetic issue left open: the `"Reached the XMLA endpoint"` wording in
   `xmla_base.py:110` fires even on pure DNS failures.
+
+## Loop B — live completion e2e (requires an Anthropic API key)
+
+Extends Loop A through the agent runtime: an LLM-driven completion that
+discovers the cube schema and executes MDX through the connector. Secrets via
+env only — never commit or echo the key.
+
+```bash
+# after Loop A (stack up, connection saved & indexed):
+# 1. LLM provider — POST /api/llm/providers with provider_type=anthropic,
+#    credentials={"api_key": $ANTHROPIC_API_KEY} and the preset models list
+#    (model entries: model_id, name, is_custom:false, is_enabled:true, is_preset:true).
+# 2. Agent — POST /api/data_sources {name, connection_id, is_public:true},
+#    then POST /api/data_sources/{id}/bulk_update_tables {"action":"activate"}
+#    (tables attach INACTIVE by default; the agent sees no schema until activated).
+# 3. Report — POST /api/reports {title, data_sources:[<data_source_id>]}.
+# 4. Completion — POST /api/reports/{id}/completions
+#    {"prompt": {"content": "What are the total unit sales by product family? …", "mode": "chat"}}
+```
+
+Observed (2026-07-11, model `claude-fable-5`): the agent ran `describe_tables`,
+then `create_data`, generating and executing real MDX through
+`InforOlapClient.execute_query`:
+
+```mdx
+SELECT { [Measures].[Unit Sales] } ON COLUMNS,
+NON EMPTY { [Product].Children } ON ROWS
+FROM [Sales]
+```
+
+and answered with the correct FoodMart totals (Food 191,940 / Non-Consumable
+50,236 / Drink 24,597 — identical to the direct-client run), rendered as a
+table widget in the report:
+
+![completion](assets/infor-olap-sandbox-completion.png)
+
+Gotchas worth keeping: report `data_sources` takes **DataSource (agent) ids,
+not connection ids**; agent tables start `is_active=0`; a soft-deleted LLM
+provider still occupies the unique (org, name) slot, so recreate under a new
+name.
