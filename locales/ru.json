@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Написать документ",
+      "writing": "Пишу документ...",
+      "created": "Документ создан",
+      "failed": "Ошибка документа",
+      "untitled": "Документ без названия",
+      "openDocument": "Открыть документ",
+      "chartsCount": "{n} графиков"
+    },
+    "editDoc": {
+      "label": "Редактировать документ",
+      "editing": "Редактирую документ...",
+      "edited": "Документ изменён",
+      "failed": "Ошибка редактирования",
+      "diff": "diff",
+      "rewrite": "переписан",
+      "editsCount": "{n} точечных правок"
     }
   },
   "entityCreate": {
@@ -1972,7 +1990,10 @@
     "empty": "Дашборды не найдены",
     "emptyDescription": "Попробуйте изменить поисковый запрос или создайте отчёт с дашбордом.",
     "showingRange": "Показано с {start} по {end} из {total} дашбордов",
-    "fetchFailed": "Не удалось загрузить дашборды"
+    "fetchFailed": "Не удалось загрузить дашборды",
+    "typeAll": "Все",
+    "typeDashboards": "Дашборды",
+    "typeDocs": "Документы"
   },
   "excel": {
     "greeting": "Здравствуйте, {name} 👋",
@@ -2964,5 +2985,22 @@
     "toastSaved": "Триггер сохранён",
     "toastDeleted": "Триггер удалён",
     "saveFailed": "Не удалось сохранить триггер"
+  },
+  "docViewer": {
+    "vizUnavailable": "Визуализация недоступна",
+    "vizRenderFailed": "Не удалось отобразить график",
+    "diagramFailed": "Не удалось отобразить диаграмму",
+    "exportMarkdown": "Скачать как Markdown",
+    "printPdf": "Печать / Сохранить как PDF",
+    "exportPdf": "Экспорт в PDF",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "Редактировать",
+    "editDocument": "Редактировать документ",
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "saved": "Документ сохранён",
+    "saveFailed": "Не удалось сохранить документ"
   }
 }

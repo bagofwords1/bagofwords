@@ -89,6 +89,16 @@ class EditArtifactMCPTool(MCPTool):
                 error_message=f"Artifact {input_data.artifact_id} not found.",
             ).model_dump()
 
+        if artifact.mode == "doc":
+            return MCPEditArtifactOutput(
+                report_id=input_data.report_id,
+                success=False,
+                error_message=(
+                    f"Artifact {input_data.artifact_id} is a document (mode='doc'); "
+                    f"edit_artifact only edits dashboards/slides."
+                ),
+            ).model_dump()
+
         # Extract existing code and viz IDs
         content = artifact.content or {}
         existing_code = content.get("code", "")

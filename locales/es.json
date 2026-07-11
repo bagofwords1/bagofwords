@@ -983,6 +983,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Escribir documento",
+      "writing": "Escribiendo documento...",
+      "created": "Documento creado",
+      "failed": "Error en el documento",
+      "untitled": "Documento sin título",
+      "openDocument": "Abrir documento",
+      "chartsCount": "{n} gráficos"
+    },
+    "editDoc": {
+      "label": "Editar documento",
+      "editing": "Editando documento...",
+      "edited": "Documento editado",
+      "failed": "Error al editar",
+      "diff": "diff",
+      "rewrite": "reescritura",
+      "editsCount": "{n} ediciones quirúrgicas"
     }
   },
   "entityCreate": {
@@ -2064,7 +2082,10 @@
     "empty": "No se encontraron paneles",
     "emptyDescription": "Prueba ajustar el término de búsqueda o crea un reporte con un panel.",
     "showingRange": "Mostrando {start} a {end} de {total} paneles",
-    "fetchFailed": "No se pudieron cargar los paneles"
+    "fetchFailed": "No se pudieron cargar los paneles",
+    "typeAll": "Todos",
+    "typeDashboards": "Paneles",
+    "typeDocs": "Documentos"
   },
   "excel": {
     "greeting": "Hola, {name} 👋",
@@ -3071,5 +3092,22 @@
     "toastSaved": "Disparador guardado",
     "toastDeleted": "Disparador eliminado",
     "saveFailed": "No se pudo guardar el disparador"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualización no disponible",
+    "vizRenderFailed": "El gráfico no se pudo renderizar",
+    "diagramFailed": "El diagrama no se pudo renderizar",
+    "exportMarkdown": "Descargar como Markdown",
+    "printPdf": "Imprimir / Guardar como PDF",
+    "exportPdf": "Exportar como PDF",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "Editar",
+    "editDocument": "Editar documento",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "saved": "Documento guardado",
+    "saveFailed": "No se pudo guardar el documento"
   }
 }

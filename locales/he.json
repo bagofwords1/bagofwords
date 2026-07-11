@@ -983,6 +983,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "כתיבת מסמך",
+      "writing": "כותב מסמך...",
+      "created": "המסמך נוצר",
+      "failed": "יצירת המסמך נכשלה",
+      "untitled": "מסמך ללא שם",
+      "openDocument": "פתיחת מסמך",
+      "chartsCount": "{n} תרשימים"
+    },
+    "editDoc": {
+      "label": "עריכת מסמך",
+      "editing": "עורך מסמך...",
+      "edited": "המסמך נערך",
+      "failed": "העריכה נכשלה",
+      "diff": "diff",
+      "rewrite": "שכתוב",
+      "editsCount": "{n} עריכות נקודתיות"
     }
   },
   "entityCreate": {
@@ -2064,7 +2082,10 @@
     "empty": "לא נמצאו דשבורדים",
     "emptyDescription": "נסה לשנות את מונח החיפוש, או צור דשבורד חדש.",
     "showingRange": "מוצגים {start} עד {end} מתוך {total} דשבורדים",
-    "fetchFailed": "טעינת הדשבורדים נכשלה"
+    "fetchFailed": "טעינת הדשבורדים נכשלה",
+    "typeAll": "הכול",
+    "typeDashboards": "גלריות",
+    "typeDocs": "מסמכים"
   },
   "excel": {
     "greeting": "היי, {name} 👋",
@@ -3071,5 +3092,22 @@
     "toastSaved": "הטריגר נשמר",
     "toastDeleted": "הטריגר נמחק",
     "saveFailed": "שמירת הטריגר נכשלה"
+  },
+  "docViewer": {
+    "vizUnavailable": "התצוגה אינה זמינה",
+    "vizRenderFailed": "טעינת התרשים נכשלה",
+    "diagramFailed": "טעינת הדיאגרמה נכשלה",
+    "exportMarkdown": "הורדה כ-Markdown",
+    "printPdf": "הדפסה / שמירה כ-PDF",
+    "exportPdf": "ייצוא כ-PDF",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "עריכה",
+    "editDocument": "עריכת מסמך",
+    "save": "שמירה",
+    "cancel": "ביטול",
+    "saved": "המסמך נשמר",
+    "saveFailed": "שמירת המסמך נכשלה"
   }
 }

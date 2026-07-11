@@ -749,6 +749,8 @@ import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
+import CreateDocTool from '~/components/tools/CreateDocTool.vue'
+import EditDocTool from '~/components/tools/EditDocTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
@@ -1606,6 +1608,10 @@ function getToolComponent(toolName: string) {
 			return ReadReportTool
 		case 'edit_artifact':
 			return EditArtifactTool
+		case 'create_doc':
+			return CreateDocTool
+		case 'edit_doc':
+			return EditDocTool
 		case 'read_resources':
 			return ReadResourcesTool
 		case 'inspect_data':

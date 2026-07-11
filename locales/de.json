@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Dokument schreiben",
+      "writing": "Dokument wird geschrieben...",
+      "created": "Dokument erstellt",
+      "failed": "Dokument fehlgeschlagen",
+      "untitled": "Unbenanntes Dokument",
+      "openDocument": "Dokument öffnen",
+      "chartsCount": "{n} Diagramme"
+    },
+    "editDoc": {
+      "label": "Dokument bearbeiten",
+      "editing": "Dokument wird bearbeitet...",
+      "edited": "Dokument bearbeitet",
+      "failed": "Bearbeitung fehlgeschlagen",
+      "diff": "Diff",
+      "rewrite": "Neufassung",
+      "editsCount": "{n} gezielte Änderungen"
     }
   },
   "entityCreate": {
@@ -1972,7 +1990,10 @@
     "empty": "Keine Dashboards gefunden",
     "emptyDescription": "Versuchen Sie, Ihren Suchbegriff anzupassen, oder erstellen Sie einen Bericht mit einem Dashboard.",
     "showingRange": "Zeige {start} bis {end} von {total} Dashboards",
-    "fetchFailed": "Dashboards konnten nicht geladen werden"
+    "fetchFailed": "Dashboards konnten nicht geladen werden",
+    "typeAll": "Alle",
+    "typeDashboards": "Dashboards",
+    "typeDocs": "Dokumente"
   },
   "excel": {
     "greeting": "Hallo, {name} 👋",
@@ -2964,5 +2985,22 @@
     "toastSaved": "Trigger gespeichert",
     "toastDeleted": "Trigger gelöscht",
     "saveFailed": "Trigger konnte nicht gespeichert werden"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualisierung nicht verfügbar",
+    "vizRenderFailed": "Diagramm konnte nicht gerendert werden",
+    "diagramFailed": "Diagramm konnte nicht gerendert werden",
+    "exportMarkdown": "Als Markdown herunterladen",
+    "printPdf": "Drucken / Als PDF speichern",
+    "exportPdf": "Als PDF exportieren",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "Bearbeiten",
+    "editDocument": "Dokument bearbeiten",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "saved": "Dokument gespeichert",
+    "saveFailed": "Dokument konnte nicht gespeichert werden"
   }
 }
