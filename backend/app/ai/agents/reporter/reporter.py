@@ -35,7 +35,7 @@ class Reporter:
         {plan}
 
         Generate a title for the report. Should be concise and descriptive of the report. Not more than 5 words.
-        Write the title in the SAME language the user's messages above are written in — e.g. a Hebrew conversation gets a Hebrew title, a Spanish one a Spanish title. Do not default to English. Keep code, table names, and identifiers as-is.
+        Write the title in the SAME language the user's messages above are written in — do not default to English. Keep code, table names, and identifiers as-is.
         {build_language_directive(self.organization_settings)}
         Your response should be just the title, nothing else. No quotes / markdown / etc.
 
