@@ -653,6 +653,10 @@ class CompletionService:
 
                             clients = {}
                             for data_source in report_obj.data_sources:
+                                # Skip agents disabled/deactivated after being
+                                # attached to the report (see foreground path).
+                                if not self.data_source_service.is_execution_live(data_source):
+                                    continue
                                 try:
                                     ds_clients = await self.data_source_service.construct_clients(session, data_source, user_obj)
                                     clients.update(ds_clients)
@@ -2066,6 +2070,10 @@ class CompletionService:
                             with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                                 clients = {}
                                 for data_source in report_obj.data_sources:
+                                    # Skip agents disabled/deactivated after being
+                                    # attached to the report (see foreground path).
+                                    if not self.data_source_service.is_execution_live(data_source):
+                                        continue
                                     try:
                                         ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
                                         clients.update(ds_clients)

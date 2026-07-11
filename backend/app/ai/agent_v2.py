@@ -317,6 +317,26 @@ class AgentV2:
                     prefix = f"{name}:"
                     return any(k == name or k.startswith(prefix) for k in clients)
                 self.data_sources = [ds for ds in self.data_sources if _has_client(ds)]
+
+                # Symmetrically, drop any client whose data source is NOT live.
+                # `clients` is aggregated report-wide by the caller, and on the
+                # streaming/background completion paths it is not pre-filtered by
+                # is_execution_live — so a data source disabled (or deactivated)
+                # after being snapshotted onto the report can still contribute a
+                # client here. Left in, that client stays in the `ds_clients`
+                # dict handed to generated code even though its schema is already
+                # excluded above via self.data_sources — letting the model query
+                # (or blindly "try each client" against) a source it was never
+                # shown. That is the "wrong client" failure: e.g. a stale
+                # `SBODemoIL:SBODemoIL` connection whose login no longer works.
+                # Keep the client set aligned with the live/queryable sources.
+                _live_ds_names = {getattr(ds, 'name', None) for ds in self.data_sources}
+                _live_ds_names.discard(None)
+
+                def _client_is_live(key: str) -> bool:
+                    return any(key == n or key.startswith(f"{n}:") for n in _live_ds_names)
+
+                self.clients = {k: v for k, v in clients.items() if _client_is_live(k)}
             all_files = getattr(report, 'files', []) or []
             # Split files: images go to LLM vision, everything else goes through existing flow
             self.image_files = [f for f in all_files if (getattr(f, 'content_type', '') or '').startswith('image/')]

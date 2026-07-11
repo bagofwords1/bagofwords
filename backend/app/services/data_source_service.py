@@ -2119,10 +2119,25 @@ class DataSourceService:
         if not data_source.connections:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
 
+        # Skip connections flagged unhealthy. Connection.is_active is a cached
+        # reachability flag, not a config toggle: a failed system_only connection
+        # test sets it False (ConnectionService.test_connection) and a later
+        # success flips it back. Building a client for a known-dead connection
+        # lets generated code "try each client" and fail on every run — e.g. a
+        # stale `SBODemoIL:SBODemoIL` whose login no longer works. Dropping it
+        # here (paired with the schema builder's matching connection filter)
+        # keeps both the client set and the model's context off dead
+        # connections. If every connection is inactive we return no clients;
+        # the data source then drops out downstream (AgentV2 `_has_client`).
+        active_connections = [
+            conn for conn in data_source.connections
+            if getattr(conn, "is_active", True)
+        ]
+
         clients: Dict[str, Any] = {}
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
 
-        for conn in data_source.connections:
+        for conn in active_connections:
             key = f"{data_source.name}:{conn.name}"
 
             # Resolve client class from registry
@@ -2161,7 +2176,7 @@ class DataSourceService:
             clients[key] = client
 
         # Backward compatibility: add legacy key aliases for single-connection domains
-        if len(data_source.connections) == 1:
+        if len(active_connections) == 1:
             first_key = next(iter(clients.keys()))
             first_client = clients[first_key]
             clients[data_source.name] = first_client
