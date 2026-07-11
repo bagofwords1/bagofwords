@@ -69,6 +69,28 @@ Re-run Loop A with the fix in place:
 14 passed, 209 warnings in 25.30s
 ```
 
+## Loop C — UI evidence (Playwright)
+
+`cd frontend && node ../tools/agent/shoot_mcp_forms.mjs` (stack booted via
+`tools/agent/boot_stack.sh --dev` + `seed_org.py`) drives the real connect form
+on `/agents/new` and captures three states:
+
+| X — OAuth (admin app) | X — Bearer | Jira/Atlassian — DCR |
+|---|---|---|
+| ![x-oauth](assets/mcp-x-oauth-app-prefilled.png) | ![x-bearer](assets/mcp-x-bearer.png) | ![atlassian-dcr](assets/mcp-atlassian-dcr.png) |
+
+- **X / OAuth**: Authorize URL, Token URL and Scopes (`tweet.read tweet.write
+  users.read offline_access`) are **pre-filled**; only Client ID/Secret are
+  blank. Admin-voiced copy ("registering an OAuth app for your whole org … each
+  user signs in individually"). Buttons read **Verify** / **Add connection**.
+- **X / Bearer**: auth dropdown is gated (no DCR option, since X's server has no
+  DCR); shared-token note shown; system-mode buttons (Test Connection / Connect).
+- **Atlassian / DCR**: dropdown gated to sign-in only; admin-voiced banners.
+
+Before this change the OAuth fields opened blank and Test Connection returned
+`Failed to connect … 401` (see the connect-form screenshots earlier in the
+investigation).
+
 ## What this proves / regression notes
 
 - Presets now carry their form spec; X's OAuth endpoints + `tweet.write` scope
