@@ -16,6 +16,7 @@
                     :model-value="form.icon"
                     :type="integration?.type || integration?.connections?.[0]?.type"
                     :connector-key="integration?.connections?.[0]?.connector_key"
+                    :connections="integration?.connections || []"
                     :disabled="!canManageDs || saving.icon"
                     @change="saveIcon"
                     class="mb-4"

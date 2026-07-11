@@ -282,7 +282,18 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 min-w-0">
-                  <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon="agentDetail.icon" class="w-4 h-4 shrink-0" />
+                  <AgentIconPicker
+                    v-if="agentDetail && agentCanUpdate"
+                    :model-value="agentDetail.icon"
+                    :type="agentDetail.type"
+                    :connector-key="agentDetail.connector_key"
+                    :connections="agentDetail.connections || []"
+                    icon-only
+                    icon-class="w-4 h-4"
+                    class="shrink-0"
+                    @change="setAgentIcon"
+                  />
+                  <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon="agentDetail.icon" class="w-4 h-4 shrink-0" />
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? $t('agentsPage.active') : $t('agentsPage.inactive')"></span>
                   <h2 class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
@@ -896,6 +907,7 @@ import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import AgentIconPicker from '~/components/AgentIconPicker.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
@@ -1176,6 +1188,21 @@ const setAgentPublic = async (val: boolean) => {
     const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
     toast.add({ title: val ? t('agentsPage.toastMadePublic') : t('agentsPage.toastMadePrivate'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+}
+// Change the agent's custom icon from the agent-view header (manage access only).
+// `token` is an icon token ("emoji:…" | "type:…") or null to reset to default.
+const setAgentIcon = async (token: string | null) => {
+  const id = agentView.value?.agentId; if (!id) return
+  const prev = agentDetail.value?.icon ?? null
+  if (agentDetail.value) agentDetail.value.icon = token
+  try {
+    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
+    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; agents.value = [...agents.value] }
+    toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  } catch (e: any) {
+    if (agentDetail.value) agentDetail.value.icon = prev
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  }
 }
 const openAgent = async (id: string) => {
   clearRightPane()

@@ -380,16 +380,19 @@ class DataSourceUpdate(DataSourceBase):
     def _validate_icon(cls, v: Optional[str]) -> Optional[str]:
         # None (clear) is allowed. Otherwise require a recognised namespaced
         # token so garbage can't be stored; the value after the prefix is left
-        # to the client (the emoji picker constrains it). "preset:" is accepted
-        # now so the door is open before the preset gallery ships.
+        # to the client (the emoji picker constrains it).
+        #   emoji:<grapheme>  — a custom emoji
+        #   type:<key>        — pin one of the agent's connection type/connector
+        #                       icons (e.g. "type:snowflake", "type:notion")
+        #   preset:<key>      — reserved for a future curated preset gallery
         if v is None:
             return v
         v = v.strip()
         if not v:
             return None
-        allowed_kinds = ("emoji:", "preset:")
+        allowed_kinds = ("emoji:", "type:", "preset:")
         if not v.startswith(allowed_kinds):
-            raise ValueError("icon must be a token like 'emoji:<char>' or 'preset:<key>'")
+            raise ValueError("icon must be a token like 'emoji:<char>', 'type:<key>' or 'preset:<key>'")
         # Guard against unbounded input (emoji + ZWJ sequences stay well under this).
         if len(v) > 64:
             raise ValueError("icon token too long")

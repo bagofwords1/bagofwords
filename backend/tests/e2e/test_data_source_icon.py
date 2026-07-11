@@ -61,6 +61,15 @@ def test_data_source_custom_icon_roundtrip(
     listed = {d["id"]: d for d in list_resp.json()}
     assert listed[ds_id]["icon"] == "emoji:📊"
 
+    # A "type:" token is accepted — pins one of the agent's connection icons.
+    updated = update_data_source(
+        data_source_id=ds_id,
+        payload={"icon": "type:snowflake"},
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert updated["icon"] == "type:snowflake"
+
     # A "preset:" token is accepted (reserved for a future preset gallery).
     updated = update_data_source(
         data_source_id=ds_id,
