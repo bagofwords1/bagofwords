@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import difflib
 
@@ -75,6 +75,17 @@ class Hunk:
             "after": self.after,
             "ops": [{"type": t, "text": txt} for t, txt in self.ops],
         }
+
+
+@dataclass
+class RebasedHunkCache:
+    """Request-local memoization for a batch of tracked-change comparisons."""
+
+    intents: dict[tuple[str, str], List[Hunk]] = field(default_factory=dict)
+    alignments: dict[
+        tuple[str, str],
+        tuple[List[str], List[str], List[Optional[int]], List[int]],
+    ] = field(default_factory=dict)
 
 
 def compute_hunks(base: str, proposed: str) -> List[Hunk]:
@@ -194,7 +205,13 @@ def live_hunks_against_main(base: str, proposed: str, main: str) -> List[dict]:
     return out
 
 
-def rebased_hunks_against_main(base: str, proposed: str, main: str) -> List[dict]:
+def rebased_hunks_against_main(
+    base: str,
+    proposed: str,
+    main: str,
+    *,
+    cache: Optional[RebasedHunkCache] = None,
+) -> List[dict]:
     """Lenient variant of `live_hunks_against_main`. Same intent hunks, positioned
     against current main, but instead of DROPPING a hunk whose base region drifted
     in main (the strict conflict rule), it surfaces it anyway with `before` taken
@@ -206,14 +223,37 @@ def rebased_hunks_against_main(base: str, proposed: str, main: str) -> List[dict
     matching `rejected_hunks` and won't re-surface. The already-applied / no-op
     skips are preserved, so when main hasn't drifted this returns exactly what
     `live_hunks_against_main` does (healthy suggestions unaffected)."""
-    intent = compute_hunks(base, proposed)
+    base = base or ""
+    proposed = proposed or ""
+    main = main or ""
+
+    intent_key = (base, proposed)
+    if cache is not None and intent_key in cache.intents:
+        intent = cache.intents[intent_key]
+    else:
+        intent = compute_hunks(base, proposed)
+        if cache is not None:
+            cache.intents[intent_key] = intent
     if not intent:
         return []
-    ta, tm = _tokenize(base), _tokenize(main)
-    pos = _base_to_main_positions(ta, tm)
-    offs = [0]
-    for t in tm:
-        offs.append(offs[-1] + len(t))
+
+    alignment_key = (base, main)
+    alignment = cache.alignments.get(alignment_key) if cache is not None else None
+    if alignment is None:
+        ta = _tokenize(base)
+        if base == main:
+            tm = ta
+            pos = list(range(len(ta) + 1))
+        else:
+            tm = _tokenize(main)
+            pos = _base_to_main_positions(ta, tm)
+        offs = [0]
+        for t in tm:
+            offs.append(offs[-1] + len(t))
+        alignment = (ta, tm, pos, offs)
+        if cache is not None:
+            cache.alignments[alignment_key] = alignment
+    ta, tm, pos, offs = alignment
     out: List[dict] = []
     for h in intent:
         mi1, mi2 = pos[h.base_lo], pos[h.base_hi]
@@ -234,6 +274,31 @@ def rebased_hunks_against_main(base: str, proposed: str, main: str) -> List[dict
         out.append({"key": h.key, "start": offs[mi1], "end": offs[mi1] + len(before),
                     "before": before, "after": after_str})
     return out
+
+
+def has_live_hunk_against_main(
+    base: str,
+    proposed: str,
+    main: str,
+    rejected_keys: Optional[Set[str]] = None,
+    *,
+    cache: Optional[RebasedHunkCache] = None,
+) -> bool:
+    """Whether a suggestion has an unrejected hunk that still changes main."""
+
+    base = base or ""
+    proposed = proposed or ""
+    main = main or ""
+    rejected = rejected_keys or set()
+
+    if proposed == base or proposed == main:
+        return False
+    if base == main and not rejected:
+        return True
+    return any(
+        hunk["key"] not in rejected
+        for hunk in rebased_hunks_against_main(base, proposed, main, cache=cache)
+    )
 
 
 def applied_text_for(base: str, proposed: str, hunk_index: int, onto_main: str) -> Tuple[Optional[str], bool]:
