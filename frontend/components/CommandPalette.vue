@@ -24,7 +24,7 @@
     >
       <!-- Agents use the real data-source logo for their type -->
       <template #agents-icon="{ command }">
-        <DataSourceIcon :type="command.dsType" class="h-4 w-4 flex-shrink-0" />
+        <DataSourceIcon :type="command.dsType" :icon="command.dsIcon" class="h-4 w-4 flex-shrink-0" />
       </template>
     </UCommandPalette>
 
@@ -216,6 +216,7 @@ const agentsGroup = computed(() => {
       id: `agent-${a.id}`,
       label: a.name,
       dsType: a.type,
+      dsIcon: a.icon,
       suffix: a.status === 'active' ? 'active' : 'inactive',
       to: `/agents/${a.id}`,
     })),

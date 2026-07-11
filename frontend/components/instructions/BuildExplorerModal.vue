@@ -29,6 +29,7 @@
                             <DataSourceIcon
                                 v-if="selectedDsFilter"
                                 :type="(selectedDsFilter as any).type || (selectedDsFilter as any).connections?.[0]?.type"
+                                :icon="(selectedDsFilter as any).icon"
                                 class="h-4 flex-shrink-0"
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
@@ -63,7 +64,7 @@
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
                                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start border-t border-gray-100 dark:border-gray-800"
                                 >
-                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" class="h-4 flex-shrink-0" />
+                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
                                     <Icon v-if="dsFilterId === d.id" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>

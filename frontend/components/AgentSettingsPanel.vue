@@ -9,6 +9,18 @@
             <!-- General -->
             <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
                 <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">General</div>
+
+                <!-- Icon -->
+                <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Icon</label>
+                <AgentIconPicker
+                    :model-value="form.icon"
+                    :type="integration?.type || integration?.connections?.[0]?.type"
+                    :connector-key="integration?.connections?.[0]?.connector_key"
+                    :disabled="!canManageDs || saving.icon"
+                    @change="saveIcon"
+                    class="mb-4"
+                />
+
                 <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Agent name</label>
                 <div class="flex items-center gap-2">
                     <input
@@ -292,6 +304,7 @@ import { useCan, usePermissions, useResourcePermissions } from '~/composables/us
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
+import AgentIconPicker from '~/components/AgentIconPicker.vue'
 
 const props = defineProps<{ agentId: string }>()
 const emit = defineEmits(['updated', 'deleted'])
@@ -306,7 +319,9 @@ const loading = ref(true)
 
 const form = reactive({
     name: '',
-    isPublic: true
+    isPublic: true,
+    // Custom icon override token ("emoji:<grapheme>" | null).
+    icon: null as string | null,
 })
 
 const original = reactive({
@@ -314,7 +329,7 @@ const original = reactive({
     isPublic: true
 })
 
-const saving = reactive({ name: false, public: false })
+const saving = reactive({ name: false, public: false, icon: false })
 
 // ── Channel availability ─────────────────────────────────────────────────
 interface ChannelInfo { key: string; name: string; connected: boolean }
@@ -467,6 +482,7 @@ watch(integration, (ds) => {
     if (ds) {
         form.name = ds?.name || ''
         form.isPublic = ds?.is_public ?? false
+        form.icon = ds?.icon ?? null
         original.name = form.name
         original.isPublic = form.isPublic
         channelAvailability.value = (ds?.channel_availability && typeof ds.channel_availability === 'object')
@@ -762,6 +778,23 @@ async function saveName() {
         emit('updated')
     }
     saving.name = false
+}
+
+async function saveIcon(token: string | null) {
+    if (!ready.value || saving.icon) return
+    const prev = form.icon
+    form.icon = token
+    saving.icon = true
+    // Send an explicit null to clear the override (the backend/service treats
+    // null as "reset to the default icon"); a token to set it.
+    const ok = await updateDataSource({ icon: token })
+    if (ok) {
+        if (integration.value) integration.value.icon = token
+        emit('updated')
+    } else {
+        form.icon = prev
+    }
+    saving.icon = false
 }
 
 async function onTogglePublic(value: boolean) {

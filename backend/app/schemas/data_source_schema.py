@@ -10,6 +10,9 @@ class DataSourceSummarySchema(BaseModel):
     context: Optional[str] = None
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     publish_status: Optional[str] = None
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    # None = use the default type/connector icon.
+    icon: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -20,6 +23,8 @@ class DataSourceMinimalSchema(BaseModel):
     name: str
     type: Optional[str] = None  # Computed from connection
     description: Optional[str] = None
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    icon: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -134,6 +139,8 @@ class DataSourceReportSchema(BaseModel):
     is_public: bool = False
     owner_user_id: Optional[str] = None
     use_llm_sync: bool = False
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    icon: Optional[str] = None
 
     # Publishing lifecycle — lets the client badge non-production agents
     # (Development / Training) the same way the data source selector does.
@@ -177,6 +184,8 @@ class DataSourceSchema(DataSourceBase):
     publish_status: str = "published"
     reliability_status: str = "training"
     use_llm_sync: bool = False
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    icon: Optional[str] = None
     # Per-channel availability map ({channel_type: bool}). None = available in
     # every connected channel.
     channel_availability: Optional[Dict[str, bool]] = None
@@ -223,6 +232,8 @@ class DataSourceListItemSchema(BaseModel):
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     publish_status: str = "published"
     reliability_status: str = "training"
+    # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
+    icon: Optional[str] = None
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
@@ -328,6 +339,10 @@ class DataSourceUpdate(DataSourceBase):
     conversation_starters: Optional[list] = None
     is_public: Optional[bool] = None
     use_llm_sync: Optional[bool] = None
+    # Optional per-agent custom icon override. A namespaced token
+    # ("emoji:<grapheme>" | "preset:<key>"). Pass an explicit null to clear the
+    # override and fall back to the default icon; omit to leave unchanged.
+    icon: Optional[str] = None
     # Per-channel availability map ({channel_type: bool}). None = leave unchanged.
     channel_availability: Optional[Dict[str, bool]] = None
     # Manager-set publishing lifecycle. Guarded by the 'manage' resource
@@ -358,6 +373,26 @@ class DataSourceUpdate(DataSourceBase):
         allowed = {"ok", "training", "development"}
         if v not in allowed:
             raise ValueError(f"reliability_status must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator('icon')
+    @classmethod
+    def _validate_icon(cls, v: Optional[str]) -> Optional[str]:
+        # None (clear) is allowed. Otherwise require a recognised namespaced
+        # token so garbage can't be stored; the value after the prefix is left
+        # to the client (the emoji picker constrains it). "preset:" is accepted
+        # now so the door is open before the preset gallery ships.
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        allowed_kinds = ("emoji:", "preset:")
+        if not v.startswith(allowed_kinds):
+            raise ValueError("icon must be a token like 'emoji:<char>' or 'preset:<key>'")
+        # Guard against unbounded input (emoji + ZWJ sequences stay well under this).
+        if len(v) > 64:
+            raise ValueError("icon token too long")
         return v
 
     # Connection-related fields (will be delegated to Connection update)

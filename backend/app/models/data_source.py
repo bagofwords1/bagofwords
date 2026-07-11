@@ -77,6 +77,16 @@ class DataSource(BaseSchema):
     context = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
+
+    # Optional per-agent custom icon override. A namespaced token so the format
+    # can grow beyond emoji without a schema change:
+    #   "emoji:<grapheme>"  → render the emoji (e.g. "emoji:📊")
+    #   "preset:<key>"      → (future) a curated brand/preset icon
+    #   NULL                → fall back to the connection type / connector icon
+    #                         (the default behaviour, unchanged).
+    # Anything the client doesn't recognise degrades gracefully to the default,
+    # so newer tokens never break an older frontend.
+    icon = Column(String, nullable=True)
     conversation_starters = Column(JSON, nullable=True)
     use_llm_sync = Column(Boolean, nullable=False, default=False)
 

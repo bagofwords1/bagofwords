@@ -7,8 +7,9 @@
       >
         <template v-if="segment.ref">
           <DataSourceIcon
-            v-if="segment.ref.data_source_type"
+            v-if="segment.ref.data_source_type || segment.ref.data_source_icon"
             :type="segment.ref.data_source_type"
+            :icon="segment.ref.data_source_icon"
             class="h-3 flex-shrink-0"
           />
           <Icon

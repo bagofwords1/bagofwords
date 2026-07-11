@@ -3838,7 +3838,7 @@ class InstructionService:
             )
             primary_ds = primary_result.scalars().all()
             instruction_dict["primary_for"] = [
-                DataSourceMinimalSchema(id=str(ds.id), name=ds.name).model_dump()
+                DataSourceMinimalSchema(id=str(ds.id), name=ds.name, icon=getattr(ds, "icon", None)).model_dump()
                 for ds in primary_ds
             ]
         except Exception as e:
@@ -3864,7 +3864,7 @@ class InstructionService:
                         from app.models.connection import Connection
                         from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, Connection.type)
+                            select(DataSource.name, Connection.type, DataSource.icon)
                             .select_from(DataSource)
                             .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
                             .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
@@ -3874,6 +3874,7 @@ class InstructionService:
                         if ds_info:
                             ref_data["data_source_name"] = ds_info.name
                             ref_data["data_source_type"] = ds_info.type
+                            ref_data["data_source_icon"] = ds_info.icon
                             ref_data["data_source_id"] = referenced_obj.data_source_id
                             
                     elif ref.object_type == "datasource_table":
@@ -3884,7 +3885,7 @@ class InstructionService:
                         from app.models.connection import Connection
                         from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, Connection.type)
+                            select(DataSource.name, Connection.type, DataSource.icon)
                             .select_from(DataSource)
                             .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
                             .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
@@ -3894,6 +3895,7 @@ class InstructionService:
                         if ds_info:
                             ref_data["data_source_name"] = ds_info.name
                             ref_data["data_source_type"] = ds_info.type
+                            ref_data["data_source_icon"] = ds_info.icon
                             ref_data["data_source_id"] = referenced_obj.datasource_id
                 else:
                     logger.warning(f"Referenced object not found: type={ref.object_type}, id={ref.object_id}")

@@ -82,7 +82,7 @@
           <template v-else>
             <div v-for="grp in pendingGroups" :key="grp.id">
               <div class="px-2 py-1 flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                <DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-3.5 h-3.5 shrink-0" />
+                <DataSourceIcon v-if="grp.type || grp.icon" :type="grp.type" :connector-key="grp.connector_key" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
                 <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 truncate">{{ grp.name }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ grp.rows.length }}</span>
@@ -109,7 +109,7 @@
             <div v-if="searchResults.agents.length">
               <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Agents</div>
               <button v-for="a in searchResults.agents" :key="a.id" type="button" class="w-full flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 px-2" @click="onAgentClick(a)">
-                <DataSourceIcon :type="a.type" class="w-4 h-4 shrink-0" />
+                <DataSourceIcon :type="a.type" :icon="a.icon" class="w-4 h-4 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ a.name }}</span>
               </button>
             </div>
@@ -157,7 +157,7 @@
 
           <template v-for="agent in agents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
-              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" class="w-4 h-4 shrink-0" /></template>
+              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
@@ -282,7 +282,7 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 min-w-0">
-                  <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" class="w-4 h-4 shrink-0" />
+                  <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon="agentDetail.icon" class="w-4 h-4 shrink-0" />
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? $t('agentsPage.active') : $t('agentsPage.inactive')"></span>
                   <h2 class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
@@ -423,7 +423,7 @@
               </template>
               <template v-else>
                 <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipOpenAgent')" @click="openAgent(panelView.agentId)">
-                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" class="w-[18px] h-[18px] shrink-0" />
+                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" :icon="panelAgent?.icon" class="w-[18px] h-[18px] shrink-0" />
                   <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || $t('agentsPage.agent') }}</span>
                 </button>
                 <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
@@ -678,7 +678,7 @@
                   <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
-                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
+                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
@@ -1456,7 +1456,7 @@ const pendingGroups = computed(() => {
       for (const ds of dss) {
         if (!map.has(ds.id)) {
           const agent = agents.value.find(a => a.id === ds.id)
-          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, connector_key: agent?.connector_key, rows: [] })
+          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, connector_key: agent?.connector_key, rows: [] })
         }
         map.get(ds.id)!.rows.push(ins)
       }
@@ -2158,7 +2158,7 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')

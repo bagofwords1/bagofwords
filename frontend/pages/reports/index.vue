@@ -332,7 +332,7 @@
                                                     :key="data_source.id || data_source.name"
                                                     :text="data_source.name"
                                                 >
-                                                    <DataSourceIcon :type="data_source.type" class="h-3 inline" />
+                                                    <DataSourceIcon :type="data_source.type" :icon="data_source.icon" class="h-3 inline" />
                                                 </UTooltip>
                                                 <UTooltip
                                                     v-if="report.data_sources.length > 2"
