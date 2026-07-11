@@ -155,6 +155,8 @@
             </UTooltip>
           </div>
 
+          <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+
           <template v-for="agent in agents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
@@ -228,7 +230,8 @@
              so overflow-hidden doesn't clip them. -->
         <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
           <span class="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
-          <div class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
+          <Spinner v-if="!connectionsLoaded" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div v-else class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
             <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
               <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />
@@ -245,7 +248,7 @@
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="connectionsLoaded && canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('agentsPage.addConnection') }}
           </button>
@@ -960,6 +963,9 @@ const loadingGroups = ref<Set<string>>(new Set())
 const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
 const searching = ref(false)
 const agents = ref<any[]>([])
+// Show a spinner in the agents tree until the first load completes. Stays true
+// through later refreshes, which update the list silently.
+const agentsLoaded = ref(false)
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
 function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearningSaved'), color: 'green' }) }
@@ -2082,8 +2088,10 @@ const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value
 // agent/data source) only exist in the org-wide /connections list — fetch that
 // too so they're visible and can be managed instead of being orphaned.
 const orgConnections = ref<any[]>([])
+// Parallel to agentsLoaded: gate the connections area's spinner on the first load.
+const connectionsLoaded = ref(false)
 const fetchConnections = async () => {
-  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) } finally { connectionsLoaded.value = true }
 }
 const connections = computed(() => {
   const m = new Map<string, any>()
@@ -2186,7 +2194,7 @@ const fetchAgents = async () => {
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
     agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
-  } catch (e) { console.error(e) }
+  } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
 // Group an agent's tools by their connection (MCP server / custom API), resolving
