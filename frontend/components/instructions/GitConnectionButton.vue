@@ -2,7 +2,7 @@
     <UTooltip :text="tooltip">
         <button
             @click="$emit('click')"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300"
         >
             <span class="relative">
                 <!-- GitBranchIcon when not connected -->
