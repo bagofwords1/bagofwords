@@ -104,6 +104,10 @@
         <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
           {{ testResult.message }}
         </div>
+
+        <div v-if="submitError" class="text-xs px-3 py-2 rounded bg-red-50 dark:bg-red-950 text-red-700">
+          {{ submitError }}
+        </div>
       </template>
 
       <div class="flex items-center justify-between pt-2">
@@ -138,7 +142,6 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const toast = useToast()
 const selectedExisting = ref<any>(null)
 const existingConnections = computed(() => props.existingConnections || [])
 const existingConnectionOptions = computed(() =>
@@ -209,6 +212,16 @@ watch(() => props.prefill, (p) => {
 const testing = ref(false)
 const submitting = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
+const submitError = ref<string | null>(null)
+
+// Extract a human-readable message from a useMyFetch error (FetchError) or a
+// thrown exception. `detail` is what FastAPI returns for HTTPException.
+function errorMessage(err: any, fallback: string): string {
+  return err?.data?.detail || err?.message || fallback
+}
+
+// Clear the inline submit error as soon as the user edits any field.
+watch(() => ({ ...form }), () => { submitError.value = null })
 
 function buildCredentials(): Record<string, any> | undefined {
   if (form.auth_type === 'bearer' && form.token) return { token: form.token }
@@ -261,32 +274,42 @@ async function handleSubmit() {
   }
 
   submitting.value = true
+  submitError.value = null
+  const fallback = isEditMode.value ? t('settings.mcpModal.failedUpdate') : t('settings.mcpModal.failedConnect')
   try {
     const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type }
     const credentials = buildCredentials()
 
+    let response: any
     if (isEditMode.value && props.editConnection) {
       const body: Record<string, any> = { name: form.name, config, credentials, auth_policy: authPolicy.value }
       if (allowedUserAuthModes.value) body.allowed_user_auth_modes = allowedUserAuthModes.value
-      const response = await useMyFetch(`/connections/${props.editConnection.id}`, {
+      response = await useMyFetch(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
         body,
       })
-      if (response.data.value) emit('saved', response.data.value)
     } else {
       const body: Record<string, any> = {
         name: form.name, type: 'mcp', config, credentials,
         auth_policy: authPolicy.value,
       }
       if (allowedUserAuthModes.value) body.allowed_user_auth_modes = allowedUserAuthModes.value
-      const response = await useMyFetch('/connections', {
+      response = await useMyFetch('/connections', {
         method: 'POST',
         body,
       })
-      if (response.data.value) emit('saved', response.data.value)
     }
+
+    // useMyFetch resolves (never throws) on HTTP errors — a non-2xx response
+    // surfaces via response.error, so surface it inline instead of silently
+    // doing nothing (e.g. a duplicate connection name → 409).
+    if (response.error?.value) {
+      submitError.value = errorMessage(response.error.value, fallback)
+      return
+    }
+    if (response.data.value) emit('saved', response.data.value)
   } catch (e: any) {
-    toast.add({ title: isEditMode.value ? t('settings.mcpModal.failedUpdate') : t('settings.mcpModal.failedConnect'), description: e?.data?.detail, color: 'red' })
+    submitError.value = errorMessage(e, fallback)
   } finally {
     submitting.value = false
   }
