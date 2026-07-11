@@ -44,6 +44,7 @@
                     v-for="conn in (agentDetails.connections || []).slice(0, 3)"
                     :key="conn.id"
                     :type="conn.type"
+                    :connector-key="conn.connector_key"
                     class="h-4 flex-shrink-0 ring-1 ring-white dark:ring-gray-900 rounded"
                   />
                 </div>

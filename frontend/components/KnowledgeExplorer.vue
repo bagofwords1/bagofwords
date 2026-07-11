@@ -109,7 +109,7 @@
             <div v-if="searchResults.agents.length">
               <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Agents</div>
               <button v-for="a in searchResults.agents" :key="a.id" type="button" class="w-full flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 px-2" @click="onAgentClick(a)">
-                <DataSourceIcon :type="a.type" class="w-4 h-4 shrink-0" />
+                <DataSourceIcon :type="a.type" :connector-key="a.connector_key" class="w-4 h-4 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ a.name }}</span>
               </button>
             </div>
@@ -231,7 +231,7 @@
           <div class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
             <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
               <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
-                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
+                <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />
                 <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
             </UTooltip>
@@ -341,7 +341,7 @@
             <!-- Connections / Connect -->
             <div class="flex flex-wrap items-center gap-1.5 mb-3">
               <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
-                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />{{ c.name }}
+                <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />{{ c.name }}
                 <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
               <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-[11px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />{{ $t('agentsPage.connect') }}</button>
@@ -678,7 +678,7 @@
                   <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
-                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
+                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
@@ -813,7 +813,7 @@
         <div class="max-h-[60vh] overflow-auto -mx-1 px-1 space-y-0.5">
           <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
             <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
-              <DataSourceIcon :type="c.type" class="w-4 h-4" />
+              <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-4 h-4" />
               <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </span>
             <span class="min-w-0 flex-1">
