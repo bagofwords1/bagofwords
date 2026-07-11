@@ -50,7 +50,7 @@
               <div v-if="selectedConnections.length > 0" class="flex items-center gap-1.5 flex-wrap">
                 <template v-for="conn in selectedConnections" :key="conn.id">
                   <div class="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5">
-                    <DataSourceIcon :type="conn.type" class="h-3.5 flex-shrink-0" />
+                    <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-3.5 flex-shrink-0" />
                     <span class="text-xs truncate max-w-[100px]">{{ conn.name }}</span>
                   </div>
                 </template>
@@ -59,11 +59,11 @@
             </template>
             <template #option="{ option }">
               <div class="flex items-center gap-2 w-full">
-                <DataSourceIcon :type="option.type" class="h-4 flex-shrink-0" />
+                <DataSourceIcon :type="option.type" :connector-key="option.connector_key" class="h-4 flex-shrink-0" />
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{{ option.name }}</div>
                   <div class="text-[10px] text-gray-400">
-                    {{ option.table_count || 0 }} tables · {{ option.agent_count || 0 }} agents
+                    {{ connectionCountLabel(option) }} · {{ option.agent_count || 0 }} agents
                   </div>
                 </div>
               </div>
@@ -134,8 +134,22 @@ interface Connection {
   id: string
   name: string
   type: string
+  connector_key?: string | null
   table_count?: number
+  tool_count?: number
   agent_count?: number
+}
+
+// Tool-provider connections (MCP / custom API) expose tools, not tables, so
+// their catalog count is meaningless — show the tool count instead.
+const TOOL_PROVIDER_TYPES = ['mcp', 'custom_api']
+function connectionCountLabel(conn: Connection): string {
+  if (TOOL_PROVIDER_TYPES.includes(conn.type)) {
+    const n = conn.tool_count || 0
+    return `${n} tool${n === 1 ? '' : 's'}`
+  }
+  const n = conn.table_count || 0
+  return `${n} table${n === 1 ? '' : 's'}`
 }
 
 const connections = ref<Connection[]>([])

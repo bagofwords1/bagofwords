@@ -164,6 +164,7 @@ async def list_connections(
     from sqlalchemy.orm import defer
     from app.models.connection_indexing import ConnectionIndexing
     from app.schemas.data_source_registry import tool_provider_types
+    from app.services.data_source_service import _conn_connector_key
     _TOOL_PROVIDER_TYPES = tool_provider_types()
 
     conn_ids = [str(c.id) for c in connections]
@@ -305,6 +306,7 @@ async def list_connections(
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
             user_status=user_status_payload,
+            connector_key=_conn_connector_key(conn),
         ))
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
@@ -334,6 +336,7 @@ async def create_connection(
     # Inline the latest indexing run so the modal can show progress
     # immediately without a second roundtrip.
     from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    from app.services.data_source_service import _conn_connector_key
     indexing_row = await indexing_service.get_latest(db, str(connection.id))
     indexing_payload = _indexing_to_progress(indexing_row)
     return ConnectionSchema(
@@ -348,6 +351,7 @@ async def create_connection(
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         indexing=indexing_payload.model_dump() if indexing_payload else None,
+        connector_key=_conn_connector_key(connection),
     )
 
 
