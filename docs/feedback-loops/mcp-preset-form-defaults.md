@@ -101,6 +101,25 @@ Re-run Loop A with the fix in place:
 Before this change the OAuth fields opened blank on both create and edit, and
 Test Connection returned `Failed to connect … 401`.
 
+## Loop D — "Create a public agent" toggle (shared)
+
+For per-user OAuth (OBO) MCP connections, the connect form now offers the same
+one-step affordance as the Integration form: a **"Create a public agent with
+this connection"** toggle that, on save, spins up a public org-wide agent linked
+to the connection so users can sign in and use it immediately.
+
+![create-agent](assets/mcp-x-create-agent.png)
+
+- Gated to `oauth_app`/`dcr` (per-user) in create mode — hidden for bearer/none
+  (verified: checkbox visible for `oauth_app`, hidden for `bearer`).
+- Extracted a shared `CreatePublicAgentToggle.vue` + `createPublicAgent()`
+  (`composables/usePublicAgent.ts`); both the Integration and MCP forms use them
+  (Custom API can adopt next), so there's one source of truth.
+- **Bug fixed in the extraction:** the old inline code sent `is_public: false`
+  despite the "public" label. The shared helper sends `is_public: true`.
+  Verified end-to-end: creating an `oauth_app` connection with the toggle on
+  produced an agent `type=mcp is_public=True auth_policy=user_required`.
+
 ## What this proves / regression notes
 
 - Presets now carry their form spec; X's OAuth endpoints + `tweet.write` scope

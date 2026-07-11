@@ -164,6 +164,16 @@
           </div>
         </div>
 
+        <!-- OBO connections (per-user OAuth/DCR): offer to spin up a public
+             org-wide agent so users can sign in and use it immediately. -->
+        <CreatePublicAgentToggle
+          v-if="!isEditMode && isPerUser"
+          v-model:enabled="createAgent"
+          v-model:name="agentName"
+          :title="form.name"
+          noun="connection"
+        />
+
         <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
           {{ testResult.message }}
         </div>
@@ -362,6 +372,13 @@ const isPerUser = computed(() => PER_USER_OAUTH.includes(form.auth_type))
 const authPolicy = computed(() => isPerUser.value ? 'user_required' : 'system_only')
 const allowedUserAuthModes = computed(() => isPerUser.value ? ['oauth'] : undefined)
 
+// "Create a public agent" — offered for per-user OAuth (OBO) connections in
+// create mode. Default on: the common case is enabling the connector so the org
+// can use it immediately; each user signs in individually.
+const createAgent = ref(true)
+const agentName = ref('')
+const toast = useToast()
+
 // For per-user OAuth the admin isn't authenticating here — they're saving config
 // and verifying reachability. Reflect that in the button copy.
 const submitLabel = computed(() => {
@@ -428,7 +445,20 @@ async function handleSubmit() {
       submitError.value = errorMessage(response.error.value, fallback)
       return
     }
-    if (response.data.value) emit('saved', response.data.value)
+    const saved = response.data.value
+    if (saved) {
+      // Best-effort: for an OBO connection, optionally spin up a public org-wide
+      // agent so users can sign in and use it right away. A failure here (e.g. a
+      // duplicate agent name) must not block the successful connection save.
+      if (!isEditMode.value && isPerUser.value && createAgent.value) {
+        try {
+          await createPublicAgent((saved as any).id, { name: agentName.value || form.name, type: 'mcp' })
+        } catch (e: any) {
+          toast.add({ title: 'Connection saved, but agent creation failed', description: errorMessage(e, 'Agent creation failed'), color: 'yellow' })
+        }
+      }
+      emit('saved', saved)
+    }
   } catch (e: any) {
     submitError.value = errorMessage(e, fallback)
   } finally {
