@@ -33,7 +33,14 @@ from app.serializers.completion_v2 import serialize_block_v2, serialize_block_v2
 from app.models.visualization import Visualization
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
-from app.streaming.completion_stream import CompletionEventQueue
+from app.streaming.completion_stream import (
+    CompletionEventQueue,
+    HEARTBEAT,
+    STREAM_DONE,
+    register_stream,
+    unregister_stream,
+    get_active_stream,
+)
 
 
 from app.services.step_service import StepService
@@ -54,6 +61,14 @@ from app.settings.database import create_async_session_factory
 # under pool_size + max_overflow. Per uvicorn worker; effective global limit is
 # this * num_workers.
 _AGENT_RUN_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BOW_MAX_CONCURRENT_AGENTS", "12")))
+
+# Cadence of ": ping" SSE comments on quiet streams (kickoff + watch). Keeps
+# proxies from reaping idle connections and lets clients detect dead ones.
+_SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
+
+# DB re-read cadence for the watch endpoint's fallback tail (when the live
+# in-process queue is not available, e.g. another uvicorn worker owns the run).
+_WATCH_TAIL_INTERVAL_SECONDS = float(os.getenv("BOW_WATCH_TAIL_INTERVAL_SECONDS", "0.7"))
 
 from sqlalchemy import select, update, func, delete
 from sqlalchemy.orm import selectinload
@@ -2022,8 +2037,11 @@ class CompletionService:
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
             _log("build_id_resolved")
 
-            # Create event queue for streaming
+            # Create event queue for streaming. Registered by system completion
+            # id so a reconnecting client (refresh, dropped connection) can
+            # re-attach to the live stream via the watch endpoint.
             event_queue = CompletionEventQueue()
+            register_stream(str(system_completion.id), event_queue)
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
@@ -2205,8 +2223,10 @@ class CompletionService:
                         finally:
                             if _agent_slot:
                                 _AGENT_RUN_SEMAPHORE.release()
-                            # Mark queue as finished
+                            # Mark queue as finished and drop it from the live
+                            # registry (late watchers fall back to DB state).
                             event_queue.finish()
+                            unregister_stream(str(system_completion.id))
 
             # Start agent execution in background
             asyncio.create_task(run_agent_with_streaming())
@@ -2241,11 +2261,21 @@ class CompletionService:
                     }
                 )
                 yield _format_sse_event_traced(start_event)
-                
-                # Stream agent events
-                async for event in event_queue.get_events():
-                    yield _format_sse_event_traced(event)
-                
+
+                # Stream agent events, emitting an SSE comment heartbeat during
+                # quiet stretches (long tool runs) so intermediaries don't reap
+                # the idle connection and clients can detect a dead one.
+                while True:
+                    item = await CompletionEventQueue.next_event(
+                        event_queue.primary, timeout=_SSE_HEARTBEAT_SECONDS
+                    )
+                    if item is HEARTBEAT:
+                        yield ": ping\n\n"
+                        continue
+                    if item is STREAM_DONE:
+                        break
+                    yield _format_sse_event_traced(item)
+
                 # Send completion event
                 finish_event = SSEEvent(
                     event="completion.finished",
@@ -2282,6 +2312,180 @@ class CompletionService:
                 detail=f"Unexpected error: {str(e)}"
             )
     
+    async def watch_completion_stream(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        completion_id: str,
+        current_user: User,
+        organization: Organization,
+    ):
+        """Re-attachable SSE stream for an existing (usually in-progress) completion.
+
+        GET counterpart of the POST kickoff stream: no side effects, safe to
+        retry, so clients can reconnect after a refresh or network drop.
+
+        Emits `completion.resumed`, then a full idempotent `block.upsert`
+        snapshot from the DB, then live events:
+        - If this worker owns the run, attaches to the live in-process queue
+          (token-level granularity). The subscription starts BEFORE the DB
+          snapshot is read so no event can fall in between; overlap produces
+          duplicate upserts, which are idempotent.
+        - Otherwise tails the DB (blocks are persisted incrementally),
+          emitting `block.upsert` for every block whose serialized state
+          changed, at block-level granularity.
+
+        Ends with `completion.finished` and `[DONE]` once the completion
+        leaves in_progress (or was sigkilled).
+        """
+        report = await self.report_service.get_report(db, report_id, current_user, organization)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        completion = await db.get(Completion, completion_id)
+        if (
+            not completion
+            or str(completion.report_id) != str(report.id)
+            or completion.role != "system"
+        ):
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        # Subscribe to the live queue BEFORE releasing the request session /
+        # reading the snapshot, so no event is lost between snapshot and attach.
+        live_queue = get_active_stream(str(completion_id))
+        subscription = live_queue.subscribe() if live_queue is not None else None
+
+        # Release the request-scoped DB connection before handing the client a
+        # long-lived StreamingResponse (same pool-starvation concern as the
+        # kickoff stream). Ticks below use short-lived sessions.
+        try:
+            await db.commit()
+        except Exception:
+            pass
+        await db.close()
+
+        session_factory = create_async_session_factory()
+        cid = str(completion_id)
+
+        def _effective_status(c: Completion) -> str:
+            if c.sigkill is not None and c.status == "in_progress":
+                return "stopped"
+            return c.status
+
+        async def _read_state():
+            """Fetch current status + serialized blocks in a fresh session."""
+            async with session_factory() as session:
+                comp = await session.get(Completion, completion_id)
+                if comp is None:
+                    return "error", {}
+                blocks_res = await session.execute(
+                    select(CompletionBlock)
+                    .where(CompletionBlock.completion_id == completion_id)
+                    .order_by(CompletionBlock.block_index.asc())
+                )
+                serialized: dict[str, str] = {}
+                for block in blocks_res.scalars().all():
+                    try:
+                        schema = await serialize_block_v2(session, block)
+                        serialized[str(block.id)] = schema.model_dump_json()
+                    except Exception as e:
+                        logger.warning(f"[watch:{cid}] block serialize failed: {e!r}")
+                return _effective_status(comp), serialized
+
+        async def watch_stream_generator():
+            try:
+                status, blocks = await _read_state()
+
+                yield format_sse_event(SSEEvent(
+                    event="completion.resumed",
+                    completion_id=cid,
+                    data={"system_completion_id": cid, "status": status},
+                ))
+
+                # Idempotent snapshot replay: full current block state.
+                for block_json in blocks.values():
+                    yield format_sse_event(SSEEvent(
+                        event="block.upsert",
+                        completion_id=cid,
+                        data={"block": json.loads(block_json)},
+                    ))
+
+                if status == "in_progress":
+                    if subscription is not None:
+                        # Live attach: forward the in-process event stream.
+                        while True:
+                            item = await CompletionEventQueue.next_event(
+                                subscription, timeout=_SSE_HEARTBEAT_SECONDS
+                            )
+                            if item is HEARTBEAT:
+                                yield ": ping\n\n"
+                                # Safety net: if the queue somehow never
+                                # finishes but the run is over, close anyway.
+                                status, _ = await _read_state()
+                                if status != "in_progress":
+                                    break
+                                continue
+                            if item is STREAM_DONE:
+                                break
+                            yield format_sse_event(item)
+                        # Converge on persisted state: re-emit the final block
+                        # snapshot (idempotent) in case any late event was
+                        # dropped from the bounded queue.
+                        status, final_blocks = await _read_state()
+                        for block_json in final_blocks.values():
+                            yield format_sse_event(SSEEvent(
+                                event="block.upsert",
+                                completion_id=cid,
+                                data={"block": json.loads(block_json)},
+                            ))
+                    else:
+                        # DB tail: another worker owns the run (or it already
+                        # detached). Emit block upserts as persisted state
+                        # changes, with heartbeats during quiet stretches.
+                        last_emit = time.monotonic()
+                        while True:
+                            await asyncio.sleep(_WATCH_TAIL_INTERVAL_SECONDS)
+                            status, current = await _read_state()
+                            changed = [
+                                bj for bid, bj in current.items()
+                                if blocks.get(bid) != bj
+                            ]
+                            blocks = current
+                            for block_json in changed:
+                                yield format_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=cid,
+                                    data={"block": json.loads(block_json)},
+                                ))
+                            if status != "in_progress":
+                                break
+                            if changed:
+                                last_emit = time.monotonic()
+                            elif time.monotonic() - last_emit >= _SSE_HEARTBEAT_SECONDS:
+                                yield ": ping\n\n"
+                                last_emit = time.monotonic()
+
+                yield format_sse_event(SSEEvent(
+                    event="completion.finished",
+                    completion_id=cid,
+                    data={"system_completion_id": cid, "status": status},
+                ))
+                yield "data: [DONE]\n\n"
+            finally:
+                if live_queue is not None and subscription is not None:
+                    live_queue.unsubscribe(subscription)
+
+        return StreamingResponse(
+            watch_stream_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Transfer-Encoding": "chunked",
+                "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     async def _get_response_completions(self, db: AsyncSession, head_completion: Completion, current_user: User, organization: Organization):
         response_completions = await db.execute(
             select(Completion)

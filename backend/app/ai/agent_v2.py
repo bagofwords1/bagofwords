@@ -1644,33 +1644,56 @@ class AgentV2:
         except Exception:
             pass
 
-    async def _persist_partial_decision_text(self, reasoning_text: str | None, content_text: str | None):
-        """Persist partial reasoning/content into the current decision block for resilience on stop."""
+    async def _persist_planning_block_partial(
+        self,
+        block_id: str,
+        loop_index: int,
+        block_index: int,
+        reasoning: str | None,
+        content: str | None,
+    ):
+        """Persist partial planning reasoning/content into the (pre-created)
+        decision block, inserting the skeleton row on first call.
+
+        Called on the PlanningTextStreamer snapshot cadence (~1.2s) so a client
+        resuming from persisted state — page refresh, watch-endpoint DB tail —
+        sees live partial text instead of an empty block. decision.final's
+        upsert_block_for_decision finds this row by (agent_execution_id,
+        loop_index, source_type='decision') and completes it in place, keeping
+        the block id stable with the streamed placeholder.
+        """
         try:
-            if not self.current_execution or not self.system_completion:
+            if not self.current_execution or not self.system_completion or not block_id:
                 return
-            # Fetch latest decision block and update fields if present
-            from sqlalchemy import select
             from app.models.completion_block import CompletionBlock
-            stmt = select(CompletionBlock).where(
-                CompletionBlock.agent_execution_id == self.current_execution.id
-            ).order_by(CompletionBlock.block_index.desc())
-            block = (await self.db.execute(stmt)).scalar_one_or_none()
-            if not block:
-                return
-            updated = False
-            if content_text is not None and content_text.strip():
-                block.content = content_text
-                updated = True
-            if reasoning_text is not None and reasoning_text.strip():
-                block.reasoning = reasoning_text
-                updated = True
-            if updated:
-                self.db.add(block)
-                await self.db.commit()
+            block = await self.db.get(CompletionBlock, block_id)
+            if block is None:
+                block = CompletionBlock(
+                    id=block_id,
+                    completion_id=str(self.system_completion.id),
+                    agent_execution_id=str(self.current_execution.id),
+                    source_type='decision',
+                    plan_decision_id=None,
+                    tool_execution_id=None,
+                    block_index=block_index,
+                    loop_index=loop_index,
+                    title='Planning (action)',
+                    status='in_progress',
+                    icon='🧠',
+                    started_at=datetime.utcnow(),
+                )
+            if content is not None and content.strip():
+                block.content = content
+            if reasoning is not None and reasoning.strip():
+                block.reasoning = reasoning
+            self.db.add(block)
+            await self.db.commit()
         except Exception:
-            # Best-effort; ignore persistence failures
-            pass
+            # Best-effort; never disrupt the planning stream
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
 
     async def _capture_telemetry_background(self, event_name: str, properties: dict):
         """Capture telemetry in background to avoid blocking main execution."""
@@ -2718,12 +2741,27 @@ class AgentV2:
                 if current_block_id:
                     async def _next_seq():
                         return await self.project_manager.next_seq(self.db, self.current_execution)
+                    async def _persist_partials(
+                        reasoning: str,
+                        content: str,
+                        _bid=current_block_id,
+                        _li=loop_index,
+                        _bi=int(pre_seq * 100),
+                    ):
+                        await self._persist_planning_block_partial(
+                            block_id=_bid,
+                            loop_index=_li,
+                            block_index=_bi,
+                            reasoning=reasoning,
+                            content=content,
+                        )
                     plan_streamer = PlanningTextStreamer(
                         emit=self._emit_sse_event,
                         seq_fn=_next_seq,
                         completion_id=str(self.system_completion.id),
                         agent_execution_id=str(self.current_execution.id),
                         block_id=current_block_id,
+                        persist=_persist_partials,
                     )
                 else:
                     plan_streamer = None
@@ -2764,6 +2802,20 @@ class AgentV2:
                         ))
                     except Exception as _cexc:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
+                    # Remove the persisted partial-text skeleton (if the
+                    # snapshot cadence wrote one) so a reload doesn't show a
+                    # stale in-progress planning card for a cancelled attempt.
+                    try:
+                        from app.models.completion_block import CompletionBlock as _CB
+                        _skel = await self.db.get(_CB, current_block_id)
+                        if _skel is not None and _skel.plan_decision_id is None and _skel.source_type == 'decision':
+                            await self.db.delete(_skel)
+                            await self.db.commit()
+                    except Exception:
+                        try:
+                            await self.db.rollback()
+                        except Exception:
+                            pass
 
                 _ws_block_count = 0  # native web-search tool blocks emitted this turn
                 _ws_tool_execs = []  # (tool_execution, block) per web search, for citation backfill

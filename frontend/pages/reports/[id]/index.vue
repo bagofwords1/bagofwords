@@ -540,7 +540,7 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="isCompletionInProgress ? {} : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? {} : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -975,6 +975,13 @@ const isStreaming = ref<boolean>(false)
 // Flips to false on completion.finished/error, even though isStreaming stays true
 // for the knowledge harness tail. Used to unblock the prompt box early.
 const isCompletionInProgress = ref<boolean>(false)
+// True whenever any system message is in_progress — including runs resumed
+// after a refresh (watch stream/polling), which never set
+// isCompletionInProgress. Drives the prompt box stop button so an in-flight
+// run can always be stopped, not just one started in this page session.
+const hasInProgressCompletion = computed(() =>
+	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
+)
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -3214,9 +3221,12 @@ onUnmounted(() => {
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
 	}
-	// Stop any polling timers
+	// Stop any polling timers and stream watchers
 	stopPollingInProgressCompletion()
 	stopScheduledCompletionsPoll()
+	stopWatchStream()
+	stopKickoffWatchdog()
+	document.removeEventListener('visibilitychange', onStreamVisibilityChange)
 	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
@@ -3293,10 +3303,18 @@ function abortStream() {
 		currentController.abort()
 		currentController = null
 	}
+	// Stop any resume stream so it doesn't immediately re-attach to the run
+	// we're killing.
+	stopWatchStream()
 	// Signal backend to stop the running agent loop if we know the server-side id
 	try {
 					const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+		// system_completion_id is only set by the kickoff stream. After a
+		// refresh the message comes from loadCompletions, where its id IS the
+		// server-side completion id (kickoff placeholders use "system-<ts>").
+		const rawId = String(sysMsg?.id ?? '')
 		const systemId = (sysMsg as any)?.system_completion_id
+			|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
 		if (systemId) {
 			useMyFetch(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
 			// Mark locally as stopped for immediate UI feedback
@@ -3425,8 +3443,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	messages.value.push(sysMsg)
 	scrollToBottom()
 
-	// Stop any background polling and start streaming
+	// Stop any background polling/watching and start streaming
 	stopPollingInProgressCompletion()
+	stopWatchStream()
 
 	// Start streaming
 	if (isStreaming.value) abortStream()
@@ -3460,6 +3479,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 async function startStreaming(requestBody: any, sysId: string) {
 
+	kickoffStalled = false
+	lastKickoffByteAt = Date.now()
+	startKickoffWatchdog()
 	try {
 		const options: any = {
 			method: 'POST',
@@ -3485,12 +3507,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 			if (done) {
 				break
 			}
-			
+			lastKickoffByteAt = Date.now()
+
 			// Check if stream was aborted
 			if (currentController?.signal.aborted) {
 				break
 			}
-			
+
 			buffer += decoder.decode(value, { stream: true })
 
 			let nlIndex: number
@@ -3542,7 +3565,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const idx = messages.value.findIndex(m => m.id === sysId)
 		if (idx !== -1) {
 			let errorMessage = 'An error occurred during streaming.'
-			
+
 			if (err instanceof Error) {
 				if (err.name === 'AbortError') {
 					// Check if this was a user-initiated stop (sigkill) vs connection abort
@@ -3555,6 +3578,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 					if (sysMsg && sysMsg.status && sysMsg.status !== 'in_progress') {
 						return
 					}
+					// Watchdog abort: the connection went silent (no bytes, no
+					// heartbeats), not a user stop. Reconnect to the run.
+					if (kickoffStalled) {
+						kickoffStalled = false
+						if (await recoverStreamAfterError(sysId)) return
+					}
 					if (sysMsg && sysMsg.system_completion_id) {
 						// This was likely a user stop, mark as stopped without error
 						messages.value[idx] = { ...messages.value[idx], status: 'stopped' }
@@ -3564,14 +3593,19 @@ async function startStreaming(requestBody: any, sysId: string) {
 						errorMessage = 'Stream was cancelled.'
 						messages.value[idx] = { ...messages.value[idx], status: 'stopped' }
 					}
-				} else if (err.message.includes('Stream HTTP error')) {
-					errorMessage = `Connection error: ${err.message}`
-					messages.value[idx] = { ...messages.value[idx], status: 'error' }
 				} else {
-					errorMessage = `Error: ${err.message}`
+					// Network drop or HTTP error mid-stream. The agent keeps
+					// running server-side, so reconnect to its watch stream
+					// instead of surfacing a false error. Only mark error when
+					// recovery itself fails.
+					if (await recoverStreamAfterError(sysId)) return
+					errorMessage = err.message.includes('Stream HTTP error')
+						? `Connection error: ${err.message}`
+						: `Error: ${err.message}`
 					messages.value[idx] = { ...messages.value[idx], status: 'error' }
 				}
 			} else {
+				if (await recoverStreamAfterError(sysId)) return
 				messages.value[idx] = { ...messages.value[idx], status: 'error' }
 			}
 			
@@ -3591,20 +3625,254 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} finally {
+		stopKickoffWatchdog()
 		isStreaming.value = false
 		isCompletionInProgress.value = false
 		currentController = null
 	}
 }
 
-// === Minimal polling for refresh resume (no SSE resume) ===
-const isPolling = ref<boolean>(false)
-const pollIntervalMs = 1200
-let pollHandle: number | null = null
+// === SSE resume: re-attach to an in-progress completion's event stream ===
+// GET /reports/{id}/completions/{completion_id}/stream is side-effect free and
+// replays an idempotent block snapshot before live events, so it is safe to
+// (re)connect any number of times — page refresh, network blips, backgrounded
+// mobile tabs. Reconnects with backoff until [DONE]; falls back to polling
+// only if the watch endpoint is persistently unreachable.
+let watchController: AbortController | null = null
+let watchTarget: string | null = null
+let watchGeneration = 0
+let watchWatchdogHandle: number | null = null
+let lastWatchByteAt = 0
+
+// Kickoff-stream stall detection (mobile networks can die silently: no error,
+// no bytes). The server heartbeats every ~15s, so >45s of silence means the
+// connection is dead — abort so the error path reconnects via watch stream.
+const STREAM_STALL_MS = 45_000
+let kickoffWatchdogHandle: number | null = null
+let lastKickoffByteAt = 0
+let kickoffStalled = false
+
+function startKickoffWatchdog() {
+	stopKickoffWatchdog()
+	if (typeof window === 'undefined') return
+	kickoffWatchdogHandle = window.setInterval(() => {
+		if (isStreaming.value && Date.now() - lastKickoffByteAt > STREAM_STALL_MS) {
+			kickoffStalled = true
+			try { currentController?.abort() } catch {}
+		}
+	}, 5000)
+}
+
+function stopKickoffWatchdog() {
+	if (kickoffWatchdogHandle !== null) {
+		clearInterval(kickoffWatchdogHandle)
+		kickoffWatchdogHandle = null
+	}
+}
 
 function getLastInProgressSystem(): ChatMessage | undefined {
 	return [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
 }
+
+function findWatchMessageIndex(completionId: string, sysId?: string): number {
+	return messages.value.findIndex(m =>
+		m.id === completionId
+		|| (m as any).system_completion_id === completionId
+		|| (sysId !== undefined && m.id === sysId)
+	)
+}
+
+function stopWatchStream() {
+	watchGeneration++
+	watchTarget = null
+	if (watchController) {
+		try { watchController.abort() } catch {}
+		watchController = null
+	}
+	stopWatchWatchdog()
+}
+
+function startWatchWatchdog() {
+	stopWatchWatchdog()
+	if (typeof window === 'undefined') return
+	watchWatchdogHandle = window.setInterval(() => {
+		if (Date.now() - lastWatchByteAt > STREAM_STALL_MS) {
+			try { watchController?.abort() } catch {}
+		}
+	}, 5000)
+}
+
+function stopWatchWatchdog() {
+	if (watchWatchdogHandle !== null) {
+		clearInterval(watchWatchdogHandle)
+		watchWatchdogHandle = null
+	}
+}
+
+// Recover a broken kickoff stream: find the server-side completion id (from
+// the started event, or the API if the POST died before it arrived) and
+// re-attach via the watch stream. Returns false when there is nothing to
+// re-attach to (the caller then surfaces the error).
+async function recoverStreamAfterError(sysId: string): Promise<boolean> {
+	const idx = messages.value.findIndex(m => m.id === sysId)
+	if (idx === -1) return false
+	const msg = messages.value[idx]
+	if (msg.status && msg.status !== 'in_progress') return false
+	let cid = (msg as any).system_completion_id as string | undefined
+	if (!cid) {
+		// The POST may have created the completion server-side before dying.
+		try {
+			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=5`)
+			const list: any[] = (data.value as any)?.completions || []
+			const inprog = [...list].reverse().find((c: any) => c.role === 'system' && c.status === 'in_progress')
+			if (inprog) {
+				cid = String(inprog.id)
+				;(messages.value[idx] as any).system_completion_id = cid
+			}
+		} catch {}
+	}
+	if (!cid) return false
+	startWatchStream(cid, { sysId })
+	return true
+}
+
+async function startWatchStream(completionId: string, opts: { sysId?: string } = {}) {
+	if (!completionId || typeof window === 'undefined') return
+	if (watchTarget === completionId) return
+	stopWatchStream()
+	stopPollingInProgressCompletion()
+	watchTarget = completionId
+	const gen = ++watchGeneration
+
+	const stillMine = () => watchGeneration === gen
+	const stillInProgress = () => {
+		const idx = findWatchMessageIndex(completionId, opts.sysId)
+		return idx !== -1 && messages.value[idx]?.status === 'in_progress'
+	}
+
+	let idleAttempts = 0
+	try {
+		while (stillMine() && stillInProgress()) {
+			let sawDone = false
+			let gotEvents = false
+			try {
+				watchController = new AbortController()
+				lastWatchByteAt = Date.now()
+				startWatchWatchdog()
+				const raw: any = await useMyFetch(`/reports/${report_id}/completions/${completionId}/stream`, {
+					method: 'GET',
+					signal: watchController.signal,
+					stream: true
+				} as any)
+				const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
+				if (!res?.ok || !res?.body) throw new Error(`Watch stream HTTP error: ${res?.status}`)
+				;({ sawDone, gotEvents } = await consumeWatchStream(res, completionId, opts.sysId, gen))
+			} catch (e) {
+				// Aborted (superseded / watchdog) or network error — loop decides.
+			} finally {
+				stopWatchWatchdog()
+			}
+			if (!stillMine() || sawDone) return
+			idleAttempts = gotEvents ? 0 : idleAttempts + 1
+			if (idleAttempts >= 5) {
+				// Watch endpoint persistently unreachable — degrade to polling
+				// so the user still converges on the final result.
+				watchTarget = null
+				startPollingInProgressCompletion()
+				return
+			}
+			await new Promise(r => setTimeout(r, Math.min(500 * 2 ** idleAttempts, 5000)))
+		}
+	} finally {
+		if (stillMine()) {
+			watchTarget = null
+			watchController = null
+		}
+	}
+}
+
+// Parse and dispatch a watch SSE stream. Returns sawDone=true when the server
+// closed the stream with [DONE] (terminal), gotEvents=true when at least one
+// event was dispatched (used to reset reconnect backoff).
+async function consumeWatchStream(res: Response, completionId: string, sysId: string | undefined, gen: number): Promise<{ sawDone: boolean, gotEvents: boolean }> {
+	const reader = res.body!.getReader()
+	const decoder = new TextDecoder()
+	let buffer = ''
+	let currentEvent: string | null = null
+	let gotEvents = false
+
+	while (true) {
+		const { done, value } = await reader.read()
+		if (done) break
+		lastWatchByteAt = Date.now()
+		if (watchGeneration !== gen) break
+		buffer += decoder.decode(value, { stream: true })
+
+		let nlIndex: number
+		while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+			const line = buffer.slice(0, nlIndex).trimEnd()
+			buffer = buffer.slice(nlIndex + 1)
+
+			if (line.startsWith('event:')) {
+				currentEvent = line.slice(6).trim()
+			} else if (line.startsWith('data:')) {
+				const dataStr = line.slice(5).trim()
+				if (dataStr === '[DONE]') {
+					// Terminal: converge on canonical persisted state.
+					await loadCompletions({ skipEstimate: true })
+					loadReport()
+					loadReportSummary()
+					promptBoxRef.value?.refreshContextEstimate?.()
+					autoScrollIfNearBottom()
+					return { sawDone: true, gotEvents: true }
+				}
+				try {
+					const parsed = JSON.parse(dataStr)
+					const payload = parsed.data ?? parsed
+					const idx = findWatchMessageIndex(completionId, sysId)
+					if (idx !== -1) {
+						gotEvents = true
+						await handleStreamingEvent(currentEvent, payload, idx)
+						if (!pendingScroll.value) {
+							pendingScroll.value = true
+							window.requestAnimationFrame(() => {
+								autoScrollIfNearBottom()
+								pendingScroll.value = false
+							})
+						}
+					}
+				} catch (e) {
+					// ignore non-JSON data lines
+				}
+			}
+		}
+	}
+	return { sawDone: false, gotEvents }
+}
+
+function onStreamVisibilityChange() {
+	// Backgrounded mobile tabs freeze timers and silently kill sockets. On
+	// return to foreground, force an immediate reconnect if the stream is
+	// stale instead of waiting for the watchdog cadence.
+	if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+	if (watchTarget && Date.now() - lastWatchByteAt > 20_000) {
+		try { watchController?.abort() } catch {}
+	}
+	if (isStreaming.value && Date.now() - lastKickoffByteAt > 20_000) {
+		kickoffStalled = true
+		try { currentController?.abort() } catch {}
+	}
+	// Nothing streaming or watching, but a completion is still in progress
+	// (e.g. every reconnect path exhausted itself while hidden) — re-attach.
+	if (!isStreaming.value && !watchTarget && !isPolling.value) {
+		const sys = getLastInProgressSystem()
+		if (sys) startWatchStream(String(sys.id))
+	}
+}
+
+// === Polling fallback (only when the watch stream is unreachable) ===
+const isPolling = ref<boolean>(false)
+let pollHandle: number | null = null
 
 function stopPollingInProgressCompletion() {
 	if (pollHandle !== null) {
@@ -3620,13 +3888,13 @@ async function startPollingInProgressCompletion() {
 	if (!sys) return
 
 	isPolling.value = true
-	const startTs = Date.now()
-	const maxDurationMs = 2 * 60 * 1000
+	// Backoff from 1.2s toward 5s — the fallback needs liveness, not load.
+	let interval = 1200
 
 	const tick = async () => {
 		// If SSE streaming has (re)started, stop polling — SSE is the source of truth
 		// and loadCompletions would wipe in-memory stream state.
-		if (isStreaming.value) {
+		if (isStreaming.value || watchTarget) {
 			stopPollingInProgressCompletion()
 			return
 		}
@@ -3639,19 +3907,16 @@ async function startPollingInProgressCompletion() {
 				promptBoxRef.value?.refreshContextEstimate?.()
 				return
 			}
-			if (Date.now() - startTs > maxDurationMs) {
-				stopPollingInProgressCompletion()
-				return
-			}
-			// Schedule next tick only if we should continue polling
-			pollHandle = window.setTimeout(tick, pollIntervalMs)
+			interval = Math.min(interval * 1.25, 5000)
+			pollHandle = window.setTimeout(tick, interval)
 		} catch (e) {
 			// keep polling on transient errors
-			pollHandle = window.setTimeout(tick, pollIntervalMs)
+			interval = Math.min(interval * 1.25, 5000)
+			pollHandle = window.setTimeout(tick, interval)
 		}
 	}
 
-	pollHandle = window.setTimeout(tick, pollIntervalMs)
+	pollHandle = window.setTimeout(tick, interval)
 }
 
 // === Background poll to detect new scheduled completions ===
@@ -3663,8 +3928,8 @@ function startScheduledCompletionsPoll() {
 	// Only poll if this report actually has scheduled prompts that can fire in the background
 	if (!scheduledPrompts.value || scheduledPrompts.value.length === 0) return
 	const tick = async () => {
-		// Skip while streaming (SSE is authoritative) or while tab is hidden
-		if (isStreaming.value || (typeof document !== 'undefined' && document.hidden)) {
+		// Skip while streaming/watching (SSE is authoritative) or while tab is hidden
+		if (isStreaming.value || watchTarget || (typeof document !== 'undefined' && document.hidden)) {
 			scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
 			return
 		}
@@ -3740,10 +4005,13 @@ onMounted(async () => {
 		prefillText.value = route.query.prompt as string
 	}
 
-	// If a system message is still in progress (after refresh), begin polling until it finishes
-	if (!isStreaming.value && getLastInProgressSystem()) {
-		startPollingInProgressCompletion()
+	// If a system message is still in progress (after refresh), re-attach to
+	// its live SSE stream (watch endpoint); polling remains only as fallback.
+	if (!isStreaming.value) {
+		const inProgress = getLastInProgressSystem()
+		if (inProgress) startWatchStream(String(inProgress.id))
 	}
+	document.addEventListener('visibilitychange', onStreamVisibilityChange)
 
 	// Start background poll for new scheduled completions
 	startScheduledCompletionsPoll()
