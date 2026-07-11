@@ -1,6 +1,6 @@
 <template>
   <div class="doc-viewer h-full overflow-y-auto bg-white dark:bg-gray-900">
-    <article class="bow-doc" :class="{ 'bow-doc--compact': compact }">
+    <article class="bow-doc" :class="{ 'bow-doc--compact': compact }" :dir="docDir">
       <template v-for="(block, i) in blocks" :key="i">
         <!-- Markdown prose -->
         <div v-if="block.type === 'md'" class="bow-doc-md" v-html="block.html" />
@@ -35,6 +35,7 @@ import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
+import { detectDocDir } from '~/utils/docDirection'
 import DocVizEmbed from '~/components/dashboard/DocVizEmbed.vue'
 import DocMermaid from '~/components/dashboard/DocMermaid.vue'
 
@@ -200,6 +201,10 @@ function parseBlocks(markdown: string, allowColumns = true): DocBlock[] {
 }
 
 const blocks = computed<DocBlock[]>(() => parseBlocks(props.markdown))
+
+// Document direction inferred from content (Hebrew/Arabic → RTL). Charts,
+// tables and lists use logical CSS properties, so they flip automatically.
+const docDir = computed(() => detectDocDir(props.markdown))
 </script>
 
 <style scoped>

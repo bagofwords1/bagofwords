@@ -39,12 +39,6 @@
         <span class="mx-0.5 h-4 w-px bg-gray-200 dark:bg-gray-700"></span>
 
         <button
-          class="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          @click="$emit('cancel')"
-        >
-          {{ $t('docEditor.cancel') }}
-        </button>
-        <button
           class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
           :disabled="isSaving"
           @click="save"
@@ -73,6 +67,7 @@ import TableHeader from '@tiptap/extension-table-header'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { Markdown } from 'tiptap-markdown'
 import DocVizNodeView from '~/components/dashboard/DocVizNodeView.vue'
+import { detectDocDir } from '~/utils/docDirection'
 
 interface DocViz {
   id: string
@@ -196,7 +191,10 @@ onMounted(() => {
       }),
     ],
     editorProps: {
-      attributes: { class: 'focus:outline-none' },
+      // Direction inferred from the doc content (Hebrew/Arabic → RTL), not the
+      // UI locale — a Hebrew doc edited by an English-UI user stays RTL. An
+      // explicit dir (never dir="auto") keeps the caret placed correctly.
+      attributes: { class: 'focus:outline-none', dir: detectDocDir(props.markdown) },
     },
   })
   // Provide viz data to node views via editor storage

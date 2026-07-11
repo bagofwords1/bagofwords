@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.448 (July 11, 2026)
+- **Document creation (#613)** — the analyst can now write findings as markdown documents, a new artifact type alongside dashboards and slides. Docs carry live charts, mermaid diagrams, tables, and per-claim citations (built for root-cause analyses, deep-dive reports, and memos), render in the report panel and on shared links, export to Markdown/PDF, and are editable in place by the report owner — with full RTL (Hebrew/Arabic) support.
+
 ## Version 0.0.447 (July 11, 2026)
 - **Reliable completion streaming (#612)** — SSE now survives page refreshes, network drops, and backgrounded mobile tabs: the client reconnects and resumes live (running tool cards and the stop button included) instead of degrading to polling or showing a false error.
 
