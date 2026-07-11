@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.446 (July 11, 2026)
+- **OpenAI model presets** — add GPT-5.6 Sol, Terra, and Luna; keep GPT-5.5 available, make Terra the default model, and retire older GPT-5.4/5.2 presets.
+
 ## Version 0.0.445 (July 11, 2026)
 - **MCP connectors** — cleaner connect experience: pre-filled provider auth, tool previews, and one-click public agents.
 - **Custom agent icons** — pin an emoji or connection icon per agent.
