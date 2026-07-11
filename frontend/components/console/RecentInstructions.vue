@@ -35,6 +35,7 @@
                                         v-for="dataSource in instruction.data_sources.slice(0, 3)"
                                         :key="dataSource.id"
                                         :type="dataSource.type"
+                                        :icon="dataSource.icon"
                                         class="w-4 h-4"
                                         :title="dataSource.name"
                                     />
@@ -86,6 +87,7 @@ interface DataSource {
     id: string
     name: string
     type: string
+    icon?: string | null
     status: 'active' | 'inactive'
     description: string
     conversation_starters?: any[]

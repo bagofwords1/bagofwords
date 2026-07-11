@@ -149,6 +149,13 @@ class PlannerInput(BaseModel):
     # instead of relying on snippet search.
     web_search_domains: List[str] = []
 
+    # Parallel tool emission. True when the org's ai_tool_concurrency setting
+    # is > 1: relaxes the one-tool-per-turn prompt rule and lifts the
+    # provider-level parallel_tool_calls restriction so the model MAY emit
+    # several independent tool_use blocks in one response (the dispatch layer
+    # then runs them concurrently under that same setting).
+    parallel_tools_enabled: bool = False
+
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None
 

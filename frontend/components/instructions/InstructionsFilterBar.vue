@@ -208,13 +208,13 @@
                         >
                             <template #label>
                                 <span class="flex items-center gap-2 text-xs">
-                                    <DataSourceIcon v-if="selectedDataSource?.type" :type="selectedDataSource.type" class="h-4" />
+                                    <DataSourceIcon v-if="selectedDataSource?.type || selectedDataSource?.icon" :type="selectedDataSource.type" :icon="selectedDataSource?.icon" class="h-4" />
                                     {{ selectedDataSource?.label || 'All Data Sources' }}
                                 </span>
                             </template>
                             <template #option="{ option }">
                                 <span class="flex items-center gap-2 text-xs">
-                                    <DataSourceIcon v-if="option.type" :type="option.type" class="h-4" />
+                                    <DataSourceIcon v-if="option.type || option.icon" :type="option.type" :icon="option.icon" class="h-4" />
                                     {{ option.label }}
                                 </span>
                             </template>
@@ -271,6 +271,7 @@ interface DataSource {
     id: string
     name: string
     type: string
+    icon?: string | null
 }
 
 interface SourceTypeOption {
@@ -394,11 +395,12 @@ const labelOptions = computed(() => {
 
 const dataSourceOptions = computed(() => {
     return [
-        { value: null, label: 'All Data Sources', type: null },
+        { value: null, label: 'All Data Sources', type: null, icon: null },
         ...props.dataSources.map(ds => ({
             value: ds.id,
             label: ds.name,
-            type: ds.type
+            type: ds.type,
+            icon: ds.icon ?? null
         }))
     ]
 })

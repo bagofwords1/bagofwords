@@ -1,0 +1,13 @@
+groups:
+  - name: recording
+    rules:
+      # Recording rules add synthetic metric names to the catalog, exercising
+      # the connector's metric->table discovery on non-exporter series.
+      - record: job:up:count
+        expr: count by (job) (up)
+      - record: job:up:ratio
+        expr: avg by (job) (up)
+      - record: instance:node_memory_used_ratio
+        expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+      - record: job:prometheus_http_requests:rate5m
+        expr: sum by (job, code) (rate(prometheus_http_requests_total[5m]))

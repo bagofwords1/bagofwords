@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -191,9 +192,34 @@ class UsageLimitContext:
     _cache_loaded_at: float = field(default=-1.0, init=False, repr=False)
     _CACHE_TTL_SECONDS: float = field(default=30.0, init=False, repr=False)
     _cache_lock: Optional[asyncio.Lock] = field(default=None, init=False, repr=False)
+    # Buffered data-plane metering (queries / bytes), mirroring the token/cost
+    # buffers above. Events are appended from sandboxed code-exec worker
+    # THREADS (see TrackedClient in code_execution.py), so unlike the int
+    # buffers these need an explicit threading.Lock. Each event:
+    # {metric, connection_id, amount, source, source_ref_id, metadata}.
+    _pending_data_events: List[dict] = field(default_factory=list, init=False, repr=False)
+    _data_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    # Per-(metric, connection_id) enforcement cache: {"limit", "used", "loaded_at"}.
+    # Same TTL/refresh-then-raise discipline as the token cache.
+    _data_cache: Dict[tuple, dict] = field(default_factory=dict, init=False, repr=False)
+    # Set on contexts created via for_source(): buffered amounts/events and
+    # quota checks delegate to the root context so one end-of-run flush covers
+    # everything added under any derived label.
+    _parent: Optional["UsageLimitContext"] = field(default=None, init=False, repr=False)
+
+    def _root(self) -> "UsageLimitContext":
+        ctx = self
+        while ctx._parent is not None:
+            ctx = ctx._parent
+        return ctx
 
     def for_source(self, source: str, source_ref_id: Optional[str] = None) -> "UsageLimitContext":
-        return UsageLimitContext(
+        """Derive a child context that relabels `source` but shares the
+        parent's accumulation buffers and quota caches (via `_parent`
+        delegation). Without the delegation, usage added through a derived
+        context (e.g. the coder's tokens inside a create_data tool call) sat
+        in the child's own buffers, which nothing ever flushed."""
+        child = UsageLimitContext(
             organization_id=self.organization_id,
             user_id=self.user_id,
             source=source,
@@ -201,6 +227,8 @@ class UsageLimitContext:
             session_maker=self.session_maker,
             loop=self.loop,
         )
+        child._parent = self
+        return child
 
     def add_tokens(self, amount: int, metadata: Optional[dict] = None) -> None:
         """Buffer tokens for a later flush. Cheap, no IO, no lock.
@@ -213,9 +241,10 @@ class UsageLimitContext:
             return
         if not has_feature("usage_limits"):
             return
-        self._pending_tokens += int(amount)
+        root = self._root()
+        root._pending_tokens += int(amount)
         if metadata is not None:
-            self._last_metadata = metadata
+            root._last_metadata = metadata
 
     def add_cost(self, amount_micro_usd: int, metadata: Optional[dict] = None) -> None:
         """Buffer LLM spend (in micro-USD) for a later flush. Mirrors add_tokens."""
@@ -223,9 +252,10 @@ class UsageLimitContext:
             return
         if not has_feature("usage_limits"):
             return
-        self._pending_cost_micro += int(amount_micro_usd)
+        root = self._root()
+        root._pending_cost_micro += int(amount_micro_usd)
         if metadata is not None:
-            self._last_cost_metadata = metadata
+            root._last_cost_metadata = metadata
 
     @property
     def pending_tokens(self) -> int:
@@ -277,6 +307,9 @@ class UsageLimitContext:
         Enforces both the monthly token cap and the monthly USD spend cap.
         Raises UsageLimitExceeded if the call would push us over either.
         """
+        if self._parent is not None:
+            # Derived contexts share the root's cache and pending buffers.
+            return await self._root().check_tokens(requested_tokens)
         if not has_feature("usage_limits") or self.session_maker is None:
             return
         if requested_tokens <= 0:
@@ -351,11 +384,17 @@ class UsageLimitContext:
             )
 
     async def flush(self) -> None:
-        """Persist any buffered tokens and spend. Called by the agent at end of run."""
+        """Persist any buffered tokens, spend, and data-plane usage events.
+        Called by the agent at end of run (and by non-agent owners of a
+        context after their execution finishes)."""
+        if self._parent is not None:
+            # Buffers live on the root; flush there.
+            return await self._root().flush()
         if self.session_maker is None:
             return
         await self._flush_tokens()
         await self._flush_cost()
+        await self._flush_data_events()
 
     async def _flush_tokens(self) -> None:
         if self._pending_tokens <= 0:
@@ -391,6 +430,144 @@ class UsageLimitContext:
             if meta is not None:
                 self._last_cost_metadata = meta
             raise
+
+    # ── Data-plane metering (queries / bytes) — buffered like tokens/cost ──
+    #
+    # Rationale (docs/feedback-loops/agent-latency-deep-dive.md): the previous
+    # shape did a synchronous counter+event WRITE around every sandboxed
+    # execute_query. On SQLite those writes queue behind the agent's writer
+    # lock, wait out busy_timeout (30s) twice per query, then get skipped —
+    # +60s per execution and the metering lost anyway. Now: enforcement is a
+    # cached READ (WAL-safe), recording is buffered here and persisted by the
+    # same end-of-run flush() the token/cost buffers already use.
+
+    def _add_data_event(self, metric: str, connection_id: str, amount: int,
+                        metadata: Optional[dict]) -> None:
+        if amount <= 0 or not has_feature("usage_limits"):
+            return
+        # Source labeling comes from THIS context; storage lives on the root
+        # so a single end-of-run flush covers derived (for_source) contexts.
+        event = {
+            "metric": metric,
+            "connection_id": str(connection_id or ""),
+            "amount": int(amount),
+            "source": self.source,
+            "source_ref_id": self.source_ref_id,
+            "metadata": metadata,
+        }
+        root = self._root()
+        with root._data_lock:
+            root._pending_data_events.append(event)
+            entry = root._data_cache.get((metric, event["connection_id"]))
+            if entry is not None:
+                entry["pending"] = entry.get("pending", 0) + int(amount)
+
+    def add_data_query(self, connection_id: str, metadata: Optional[dict] = None) -> None:
+        """Buffer one data-query usage event. Cheap, no IO, thread-safe."""
+        self._add_data_event(METRIC_DATA_QUERIES, connection_id, 1, metadata)
+
+    def add_data_bytes(self, connection_id: str, amount: int, metadata: Optional[dict] = None) -> None:
+        """Buffer a data-bytes usage event. Cheap, no IO, thread-safe."""
+        self._add_data_event(METRIC_DATA_BYTES, connection_id, int(amount), metadata)
+
+    async def _refresh_data_cache_entry(self, metric: str, connection_id: str) -> dict:
+        """Load the effective limit + current counter for one (metric, connection)."""
+        limit = None
+        used = 0
+        if self.session_maker is not None:
+            async with self.session_maker() as db:
+                limits = await usage_policy_service.resolve_effective_limits(
+                    db, self.organization_id, self.user_id
+                )
+                if metric == METRIC_DATA_QUERIES:
+                    limit = limits.query_limit_for_connection(connection_id)
+                else:
+                    limit = limits.data_bytes_limit_for_connection(connection_id)
+                if limit is not None:
+                    used = await usage_policy_service._get_counter_used(
+                        db,
+                        org_id=self.organization_id,
+                        user_id=self.user_id,
+                        metric=metric,
+                        scope_type=SCOPE_CONNECTION,
+                        scope_ref_id=connection_id,
+                    )
+        import time as _time
+        with self._data_lock:
+            prior = self._data_cache.get((metric, connection_id)) or {}
+            entry = {
+                "limit": limit,
+                "used": used,
+                "loaded_at": _time.monotonic(),
+                # keep unflushed local usage in the projection
+                "pending": prior.get("pending", 0),
+            }
+            self._data_cache[(metric, connection_id)] = entry
+        return entry
+
+    async def _check_data(self, metric: str, connection_id: str, amount: int) -> None:
+        """Pre-query quota check. In-memory against the cached limit/counter
+        (refreshed at most once per TTL); force-refresh before raising so a
+        stale-low cache can't produce a false rejection. Same one-call grace
+        window the token cap tolerates."""
+        if not has_feature("usage_limits") or self.session_maker is None:
+            return
+        connection_id = str(connection_id or "")
+        import time as _time
+        entry = self._data_cache.get((metric, connection_id))
+        if entry is None or (_time.monotonic() - entry["loaded_at"]) >= self._CACHE_TTL_SECONDS:
+            if self._cache_lock is None:
+                self._cache_lock = asyncio.Lock()
+            async with self._cache_lock:
+                entry = self._data_cache.get((metric, connection_id))
+                if entry is None or (_time.monotonic() - entry["loaded_at"]) >= self._CACHE_TTL_SECONDS:
+                    entry = await self._refresh_data_cache_entry(metric, connection_id)
+        if entry["limit"] is None:
+            return
+        projected = entry["used"] + entry.get("pending", 0) + int(amount)
+        if projected <= entry["limit"]:
+            return
+        # Might be stale low — refresh and re-check before raising.
+        entry = await self._refresh_data_cache_entry(metric, connection_id)
+        if entry["limit"] is None:
+            return
+        projected = entry["used"] + entry.get("pending", 0) + int(amount)
+        if projected > entry["limit"]:
+            raise UsageLimitExceeded(
+                "Monthly usage quota exceeded.",
+                metric=metric,
+                limit=entry["limit"],
+                used=entry["used"] + entry.get("pending", 0),
+                requested=int(amount),
+            )
+
+    async def check_data_query(self, connection_id: str) -> None:
+        await self._root()._check_data(METRIC_DATA_QUERIES, connection_id, 1)
+
+    async def check_data_bytes(self, connection_id: str, amount: int) -> None:
+        await self._root()._check_data(METRIC_DATA_BYTES, connection_id, int(amount))
+
+    async def _flush_data_events(self) -> None:
+        with self._data_lock:
+            if not self._pending_data_events:
+                return
+            events = self._pending_data_events
+            self._pending_data_events = []
+        try:
+            await usage_policy_service.record_data_usage_with_context(self, events)
+        except Exception:
+            # Best-effort. Re-credit so a future flush retries.
+            with self._data_lock:
+                self._pending_data_events = events + self._pending_data_events
+            raise
+        # Move the flushed amounts from "pending" into "used" so checks
+        # stay accurate without a DB refresh.
+        with self._data_lock:
+            for event in events:
+                entry = self._data_cache.get((event["metric"], event["connection_id"]))
+                if entry is not None:
+                    entry["pending"] = max(entry.get("pending", 0) - event["amount"], 0)
+                    entry["used"] = entry.get("used", 0) + event["amount"]
 
     def run_blocking(self, coroutine):
         if self.loop and self.loop.is_running():
@@ -975,6 +1152,12 @@ class UsagePolicyService:
     ) -> None:
         if not context.session_maker:
             return
+        # Same gate as UsageLimitContext.add_tokens: with the feature off
+        # there is nothing to enforce, and this write is pure overhead —
+        # on SQLite it can burn the whole 30s busy_timeout PER QUERY when
+        # another writer holds the lock during code execution.
+        if not has_feature("usage_limits"):
+            return
         async with context.session_maker() as db:
             await self.consume_data_query(
                 db,
@@ -987,6 +1170,69 @@ class UsagePolicyService:
             )
             await db.commit()
 
+    async def record_data_usage_with_context(
+        self,
+        context: UsageLimitContext,
+        events: List[dict],
+    ) -> None:
+        """Persist buffered data-plane usage events (queries / bytes) in one
+        session+commit. Counters are aggregated per (metric, connection);
+        enforcement never happens here — it already ran at check time, and a
+        bookkeeping flush must not raise quota errors."""
+        if not context.session_maker or not events:
+            return
+        async with context.session_maker() as db:
+            await self.record_data_usage(
+                db,
+                org_id=context.organization_id,
+                user_id=context.user_id,
+                events=events,
+            )
+            await db.commit()
+
+    async def record_data_usage(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: str,
+        user_id: str,
+        events: List[dict],
+    ) -> None:
+        if not has_feature("usage_limits") or not events:
+            return
+        limits = await self.resolve_effective_limits(db, org_id, user_id)
+        policy_id = limits.policy_ids[0] if limits.policy_ids else None
+        totals: Dict[tuple, int] = {}
+        for event in events:
+            key = (event["metric"], event.get("connection_id") or "")
+            totals[key] = totals.get(key, 0) + int(event.get("amount") or 0)
+        for (metric, connection_id), amount in totals.items():
+            await self._increment_counter(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                metric=metric,
+                scope_type=SCOPE_CONNECTION,
+                scope_ref_id=connection_id,
+                amount=amount,
+                limit=None,
+                enforce_limit=False,
+            )
+        for event in events:
+            self._add_event(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                policy_id=policy_id,
+                metric=event["metric"],
+                amount=int(event.get("amount") or 0),
+                scope_type=SCOPE_CONNECTION,
+                scope_ref_id=event.get("connection_id") or "",
+                source=event.get("source"),
+                source_ref_id=event.get("source_ref_id"),
+                metadata=event.get("metadata"),
+            )
+
     async def consume_data_bytes_with_context(
         self,
         context: UsageLimitContext,
@@ -996,6 +1242,8 @@ class UsagePolicyService:
         metadata: Optional[dict] = None,
     ) -> None:
         if not context.session_maker:
+            return
+        if not has_feature("usage_limits"):
             return
         async with context.session_maker() as db:
             await self.consume_data_bytes(

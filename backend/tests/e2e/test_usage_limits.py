@@ -897,6 +897,10 @@ def generate_df(ds_clients, excel_files):
     with pytest.raises(UsageLimitExceeded):
         _run(executor.execute_code_async(code=code, ds_clients={"main": client}, excel_files=[]))
     assert client.calls == 1
+    # Data-query metering is buffered during execution and persisted by the
+    # owner's end-of-run flush (agent_v2 does this in a finally block, even
+    # when the run raises). Simulate that flush here before asserting counters.
+    _run(usage_ctx.flush())
     assert _run(_counter_used(
         org_id,
         user_id,
@@ -1014,6 +1018,8 @@ def generate_df(ds_clients, excel_files):
         _run(executor.execute_code_async(code=code, ds_clients={"main": client}, excel_files=[]))
     assert exc_info.value.metric == METRIC_DATA_BYTES
     assert client.calls == 2
+    # Buffered metering is persisted by the owner's end-of-run flush; simulate it.
+    _run(usage_ctx.flush())
     assert _run(_counter_used(
         org_id,
         user_id,

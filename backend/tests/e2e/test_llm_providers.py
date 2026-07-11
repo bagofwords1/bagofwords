@@ -1,4 +1,55 @@
+import asyncio
+
 import pytest
+
+from app.dependencies import async_session_maker
+from app.models.llm_model import LLMModel
+from app.models.llm_provider import LLMProvider
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+async def _seed_stale_openai_preset(org_id):
+    """Seed a stale preset provider; the public API only creates custom providers."""
+    async with async_session_maker() as db:
+        provider = LLMProvider(
+            organization_id=org_id,
+            name="OpenAI",
+            provider_type="openai",
+            is_preset=True,
+            is_enabled=True,
+            use_preset_credentials=True,
+        )
+        db.add(provider)
+        await db.flush()
+
+        db.add_all([
+            LLMModel(
+                organization_id=org_id,
+                provider_id=provider.id,
+                name="GPT-5.5",
+                model_id="gpt-5.5",
+                is_preset=True,
+                is_enabled=True,
+                is_default=True,
+                supports_vision=True,
+            ),
+            LLMModel(
+                organization_id=org_id,
+                provider_id=provider.id,
+                name="GPT-5.4 Mini",
+                model_id="gpt-5.4-mini",
+                is_preset=True,
+                is_enabled=True,
+                is_small_default=True,
+                supports_vision=True,
+            ),
+        ])
+        await db.commit()
+        return str(provider.id)
+
 
 @pytest.mark.e2e
 def test_llm_providers(create_llm_provider_and_models, get_models, get_default_model, create_user, login_user, whoami):
@@ -15,6 +66,7 @@ def test_llm_providers(create_llm_provider_and_models, get_models, get_default_m
     default_model = get_default_model(user_token, org_id)
     
     assert len(default_model) == 1
+    assert default_model[0]["model_id"] == "gpt-5.6-terra"
 
     #set_llm_provider_as_default(provider_id, user_token, org_id)
     #toggle_llm_active_status(default_model[0]["id"], True, user_token, org_id)
@@ -167,13 +219,46 @@ def test_llm_provider_with_base_url_creates_models(create_openai_provider_with_b
     provider_models = [m for m in models if m["provider_id"] == provider_id]
     
     # Should have created the expected models
-    assert len(provider_models) >= 2  # At least gpt-5.4 and gpt-5.4-mini based on the fixture
+    assert len(provider_models) >= 2  # At least Sol and Luna based on the fixture
 
     # Verify model details
     model_ids = [m["model_id"] for m in provider_models]
-    assert "gpt-5.4" in model_ids
-    assert "gpt-5.4-mini" in model_ids
+    assert "gpt-5.6-sol" in model_ids
+    assert "gpt-5.6-luna" in model_ids
     
     # All models should be enabled by default
     for model in provider_models:
         assert model["is_enabled"] == True
+
+
+@pytest.mark.e2e
+def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, login_user, whoami):
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+    provider_id = _run(_seed_stale_openai_preset(org_id))
+
+    response = test_client.get(
+        "/api/llm/models",
+        headers={"Authorization": f"Bearer {user_token}", "X-Organization-Id": org_id},
+    )
+    assert response.status_code == 200, response.json()
+
+    provider_models = [m for m in response.json() if m["provider_id"] == provider_id]
+    by_model_id = {m["model_id"]: m for m in provider_models}
+
+    assert by_model_id["gpt-5.6-sol"]["is_enabled"] is True
+    assert by_model_id["gpt-5.6-sol"]["is_default"] is False
+    assert by_model_id["gpt-5.6-sol"]["max_output_tokens"] == 128000
+
+    assert by_model_id["gpt-5.6-terra"]["is_enabled"] is True
+    assert by_model_id["gpt-5.6-terra"]["is_default"] is True
+
+    assert by_model_id["gpt-5.6-luna"]["is_enabled"] is True
+    assert by_model_id["gpt-5.6-luna"]["is_small_default"] is True
+
+    assert by_model_id["gpt-5.5"]["is_enabled"] is True
+    assert by_model_id["gpt-5.5"]["is_default"] is False
+    assert by_model_id["gpt-5.5"]["max_output_tokens"] == 128000
+    assert by_model_id["gpt-5.4-mini"]["is_enabled"] is False
+    assert by_model_id["gpt-5.4-mini"]["is_small_default"] is False

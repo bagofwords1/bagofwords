@@ -94,7 +94,7 @@
                   <span v-else class="text-xs truncate">{{ $t('prompts.nAgentsSelected', { n: agentIds.length }) }}</span>
                 </template>
                 <template #option="{ option }">
-                  <DataSourceIcon v-if="option.type" :type="option.type" class="h-3.5 w-auto flex-shrink-0" />
+                  <DataSourceIcon v-if="option.type || option.icon" :type="option.type" :icon="option.icon" class="h-3.5 w-auto flex-shrink-0" />
                   <span class="text-xs truncate">{{ option.name }}</span>
                 </template>
               </USelectMenu>
@@ -106,7 +106,7 @@
                   :key="a.id"
                   class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
                 >
-                  <DataSourceIcon :type="a.type" class="h-3 w-auto" />
+                  <DataSourceIcon :type="a.type" :icon="a.icon" class="h-3 w-auto" />
                   {{ a.name }}
                   <button type="button" class="hover:text-red-500" @click="removeAgent(a.id)">
                     <UIcon name="heroicons-x-mark" class="w-2.5 h-2.5" />
@@ -230,15 +230,15 @@ const audienceOptions = computed(() => {
 
 // Options for the agent multiselect (only agents the user can manage).
 const agentOptions = computed(() =>
-  manageableAgents.value.map(a => ({ id: a.id, name: a.name, type: a.type })),
+  manageableAgents.value.map(a => ({ id: a.id, name: a.name, type: a.type, icon: a.icon })),
 )
 
-// Selected agents resolved to { id, name, type } for the named chips. Always
-// explicit — never "Auto".
+// Selected agents resolved to { id, name, type, icon } for the named chips.
+// Always explicit — never "Auto".
 const selectedAgentChips = computed(() =>
   agentIds.value.map(id => {
     const a = (props.agents || []).find(x => x.id === id)
-    return { id, name: a?.name || id, type: a?.type }
+    return { id, name: a?.name || id, type: a?.type, icon: a?.icon }
   }),
 )
 

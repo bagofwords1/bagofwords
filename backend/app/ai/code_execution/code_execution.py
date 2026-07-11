@@ -19,17 +19,84 @@ from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 
 from app.ai.http.safe_client import SafeHttpClient
 
-# `redirect_stdout` mutates the *global* sys.stdout. When the code-exec
-# thread pool runs N executions concurrently, the enter/exit ordering
-# can leave sys.stdout pointing at a sibling thread's already-closed
-# StringIO buffer. The next print/df.info()/etc. inside ANY thread then
-# raises ValueError("I/O operation on closed file"). Serializing the
-# redirect_stdout window with a lock keeps the (very brief) duration of
-# the redirect race-free; user code executes inside the lock but it's
-# already CPU-bound by the GIL, so wall-clock impact is negligible.
-_STDOUT_REDIRECT_LOCK = threading.Lock()
+# stdout capture for sandboxed user code.
+#
+# The old approach (`redirect_stdout` + a global lock) serialized the ENTIRE
+# exec+generate_df window across all concurrent executions, because
+# redirect_stdout mutates the process-global sys.stdout. The lock's comment
+# argued user code is "CPU-bound by the GIL, so wall-clock impact is
+# negligible" — untrue for generate_df, which runs I/O-bound warehouse
+# queries that release the GIL. The lock therefore serialized every data
+# fetch in the process: across concurrent completions, and across the
+# parallel multi-tool batches introduced for agent_v2.
+#
+# Replacement: install a process-wide stdout ROUTER once. Each code-exec
+# worker thread binds its own capture buffer; writes from a thread with a
+# bound buffer go there, everything else falls through to the original
+# stdout. No global mutation per execution → no lock → executions overlap.
+# (Prints from the per-query timeout threads spawned inside generate_df go
+# to the fallback, not the capture — client internals don't print, and the
+# old behavior for those threads was "whichever buffer happened to be
+# globally active", which was strictly worse.)
+class _ThreadLocalStdoutRouter:
+    """sys.stdout replacement routing writes to a per-thread buffer."""
+
+    def __init__(self, fallback):
+        self._fallback = fallback
+        self._local = threading.local()
+
+    def bind(self, buffer) -> None:
+        self._local.buffer = buffer
+
+    def unbind(self) -> None:
+        self._local.buffer = None
+
+    def _target(self):
+        buf = getattr(self._local, "buffer", None)
+        return buf if buf is not None else self._fallback
+
+    def write(self, s):
+        return self._target().write(s)
+
+    def writelines(self, lines):
+        return self._target().writelines(lines)
+
+    def flush(self):
+        try:
+            return self._target().flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        try:
+            return bool(self._target().isatty())
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._target(), name)
+
+
+_STDOUT_ROUTER_INSTALL_LOCK = threading.Lock()
+
+
+def _stdout_router() -> _ThreadLocalStdoutRouter:
+    """Return the installed router, installing it idempotently.
+
+    Re-checks sys.stdout each call: test harnesses (pytest capsys) and some
+    servers swap sys.stdout at runtime; wrapping the current object keeps
+    their capture working (writes fall through to it when no buffer bound).
+    """
+    with _STDOUT_ROUTER_INSTALL_LOCK:
+        current = sys.stdout
+        if isinstance(current, _ThreadLocalStdoutRouter):
+            return current
+        router = _ThreadLocalStdoutRouter(current)
+        sys.stdout = router
+        return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
-from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
+from app.services.usage_policy_service import UsageLimitContext
+from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
@@ -404,6 +471,7 @@ class QueryCapturingClientWrapper:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
+                self._enforce_rate_limit(query)
                 self._consume_query_quota(query)
                 result = self._call_with_timeout(query, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
@@ -480,7 +548,48 @@ class QueryCapturingClientWrapper:
             raise holder["exc"]
         return holder.get("value")
 
+    def _enforce_rate_limit(self, query: str) -> None:
+        """Hard-block this query if the connection is over its per-window rate
+        limit (enterprise `connection_rate_limit`).
+
+        Runs only when a usage context is present — i.e. the agent data-query
+        path. Indexing / connection-test paths carry no usage context, so they
+        are exempt automatically. RateLimitExceeded is not an OperationalError,
+        so it propagates (the block) even on SQLite.
+        """
+        context = self._usage_context
+        if context is None or context.session_maker is None:
+            return
+        connection_id = self._connection_id()
+        if not connection_id:
+            return
+        try:
+            context.run_blocking(
+                connection_rate_limit_service.check_and_consume_with_context(
+                    context,
+                    connection_id=str(connection_id),
+                    metadata=self._usage_metadata(query),
+                )
+            )
+        except OperationalError as e:
+            # SQLite-only best-effort, same policy as the usage recorder: a
+            # locked bookkeeping write shouldn't crash the query. Enforcement
+            # (RateLimitExceeded) is not an OperationalError and still propagates.
+            if not _is_sqlite_lock_error(e):
+                raise
+            logger.debug("Skipping rate-limit check; SQLite is locked")
+
     def _consume_query_quota(self, query: str) -> None:
+        """Enforce, then buffer — never write to the DB from the sandbox thread.
+
+        The old shape ran the counter+event WRITE synchronously here; on SQLite
+        it queued behind the agent's writer lock, waited out busy_timeout (30s)
+        and got skipped — +30s per query with the metering lost anyway (see
+        docs/feedback-loops/agent-latency-deep-dive.md). Enforcement is now a
+        cached READ (`check_data_query`, WAL-safe, in-memory after first load);
+        the usage event is buffered on the context and persisted by the same
+        end-of-run flush() the token/cost buffers use.
+        """
         context = self._usage_context
         if context is None or context.session_maker is None:
             return
@@ -489,22 +598,16 @@ class QueryCapturingClientWrapper:
             return
         metadata = self._usage_metadata(query)
         try:
-            context.run_blocking(
-                usage_policy_service.consume_data_query_with_context(
-                    context,
-                    connection_id=str(connection_id),
-                    metadata=metadata,
-                )
-            )
+            # Raises UsageLimitExceeded when over quota — propagates, same as before.
+            context.run_blocking(context.check_data_query(str(connection_id)))
         except OperationalError as e:
-            # SQLite-only: the agent's long-lived session can hold the single
-            # write lock while model code runs, making this bookkeeping write
-            # time out. Metering is best-effort there (same policy as the LLM
-            # usage recorder); enforcement raises UsageLimitExceeded, which is
-            # not an OperationalError and still propagates.
+            # SQLite-only: the rare cache-refresh READ can still lose to a
+            # locked DB in exotic states. Enforcement is best-effort there;
+            # UsageLimitExceeded is not an OperationalError and still propagates.
             if not _is_sqlite_lock_error(e):
                 raise
-            logger.debug("Skipping data-query quota write; SQLite is locked")
+            logger.debug("Skipping data-query quota check; SQLite is locked")
+        context.add_data_query(str(connection_id), metadata)
 
     def _consume_data_bytes_quota(self, query: str, result_bytes: int, rows: Optional[int]) -> None:
         context = self._usage_context
@@ -519,18 +622,12 @@ class QueryCapturingClientWrapper:
             "result_bytes": result_bytes,
         }
         try:
-            context.run_blocking(
-                usage_policy_service.consume_data_bytes_with_context(
-                    context,
-                    connection_id=str(connection_id),
-                    amount=result_bytes,
-                    metadata=metadata,
-                )
-            )
+            context.run_blocking(context.check_data_bytes(str(connection_id), result_bytes))
         except OperationalError as e:
             if not _is_sqlite_lock_error(e):
                 raise
-            logger.debug("Skipping data-bytes quota write; SQLite is locked")
+            logger.debug("Skipping data-bytes quota check; SQLite is locked")
+        context.add_data_bytes(str(connection_id), result_bytes, metadata)
 
     def _connection_id(self) -> Optional[str]:
         connection_id = getattr(self._original, "_bow_connection_id", None)
@@ -691,26 +788,31 @@ class StreamingCodeExecutor:
             if self.logger:
                 self.logger.debug(f"Executing code:\n{code}")
             wait_started = _time.monotonic()
-            _STDOUT_REDIRECT_LOCK.acquire()
-            lock_acquired_at = _time.monotonic()
+            router = _stdout_router()
+            capture_started_at = _time.monotonic()
+            stdout_capture = io.StringIO()
+            router.bind(stdout_capture)
             try:
+                # Span name + attributes kept from the lock era so existing
+                # dashboards/queries keep working; lock_wait_ms is now just
+                # the (near-zero) router install/lookup time, and a non-zero
+                # regression here means the router got re-serialized somehow.
                 with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
-                    lock_span.set_attribute("code_execution.lock_wait_ms", round((lock_acquired_at - wait_started) * 1000.0, 3))
+                    lock_span.set_attribute("code_execution.lock_wait_ms", round((capture_started_at - wait_started) * 1000.0, 3))
                     lock_span.set_attribute("code_execution.code_chars", len(code or ""))
-                    with io.StringIO() as stdout_capture:
-                        with redirect_stdout(stdout_capture):
-                            exec(code, local_namespace)
-                            generate_df = local_namespace.get('generate_df')
-                            if not generate_df:
-                                raise Exception("No generate_df function found in code")
-                            df = self._invoke_generate_df(
-                                generate_df, wrapped_clients, excel_files, http_client,
-                                load_step=load_step, load_entity=load_entity,
-                            )
-                        output_log = stdout_capture.getvalue()
-                    lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
+                    exec(code, local_namespace)
+                    generate_df = local_namespace.get('generate_df')
+                    if not generate_df:
+                        raise Exception("No generate_df function found in code")
+                    df = self._invoke_generate_df(
+                        generate_df, wrapped_clients, excel_files, http_client,
+                        load_step=load_step, load_entity=load_entity,
+                    )
+                    output_log = stdout_capture.getvalue()
+                    lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
             finally:
-                _STDOUT_REDIRECT_LOCK.release()
+                router.unbind()
+                stdout_capture.close()
             span.set_attribute("code_execution.query_count", len(executed_queries))
             span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
             return df, output_log, executed_queries

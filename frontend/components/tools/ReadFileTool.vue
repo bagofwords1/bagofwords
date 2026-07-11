@@ -2,13 +2,13 @@
   <div class="mt-1">
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Reading {{ fileLabel }}…</span>
+        <span v-if="status === 'running'" class="flex items-center">
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Reading ' + fileLabel + '…' }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Read {{ fileLabel }}</span>
+          <span>{{ modelTitle || ('Read ' + fileLabel) }}</span>
           <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
           <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
@@ -44,6 +44,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string
@@ -57,6 +58,11 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution }>()
 
 const status = computed(() => props.toolExecution?.status || '')
+
+const modelTitle = computed<string>(() => {
+  const t = props.toolExecution?.arguments_json?.title
+  return typeof t === 'string' && t.trim() ? t.trim() : ''
+})
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 
 const fileLabel = computed(() => {
@@ -84,12 +90,14 @@ const expanded = ref(false)
 
 <style scoped>
 .tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
+  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
   background-clip: text;
+  color: transparent;
+  animation: shimmer 2s linear infinite;
 }
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

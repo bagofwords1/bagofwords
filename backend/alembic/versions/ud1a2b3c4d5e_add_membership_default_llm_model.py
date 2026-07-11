@@ -23,8 +23,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("memberships", sa.Column("default_llm_model_id", sa.String(36), nullable=True))
+    # Idempotent add: dev databases may already carry the column from an
+    # earlier run of this migration while alembic_version points before it.
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("memberships")}
+    if "default_llm_model_id" not in cols:
+        op.add_column("memberships", sa.Column("default_llm_model_id", sa.String(36), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("memberships", "default_llm_model_id")
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("memberships")}
+    if "default_llm_model_id" in cols:
+        op.drop_column("memberships", "default_llm_model_id")

@@ -1712,6 +1712,7 @@ class ReportService:
                         use_llm_sync=ds.use_llm_sync,
                         publish_status=getattr(ds, "publish_status", "published") or "published",
                         reliability_status=getattr(ds, "reliability_status", "training") or "training",
+                        icon=getattr(ds, "icon", None),
                         # Compute type from first connection
                         type=ds.connections[0].type if ds.connections else None,
                     )

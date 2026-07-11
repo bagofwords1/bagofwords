@@ -1,6 +1,6 @@
 ---
 name: add-connection-type
-description: Add a new data source / connection type (e.g. a SQL Server-like database) end to end — client with get_schemas/execute_query, config + credentials schemas, registry entry, icon, tests — plus the verification steps. Use when adding or significantly extending a connector.
+description: Add a new data source / connection type (e.g. a SQL Server-like database) end to end — client with get_schemas/execute_query, config + credentials schemas, registry entry, icon, tests — plus the verification steps. Also covers adding or updating an MCP connector (a preset, not a new type). Use when adding or significantly extending a connector.
 ---
 
 # Add a new connection type
@@ -9,6 +9,9 @@ A connector is **registry-driven**: the frontend form, auth variants, and
 client resolution all derive from one entry in
 `backend/app/schemas/data_source_registry.py` (`REGISTRY`). You almost never
 touch frontend form code.
+
+> **Adding an MCP server?** You almost never need a new type — add a **preset**
+> instead. Jump to [Adding or updating an MCP connector](#adding-or-updating-an-mcp-connector-preset).
 
 Before writing anything, read one reference implementation end to end:
 `postgresql` (plain SQL DB), `mssql_client.py` (ODBC + Kerberos variants), or
@@ -92,3 +95,81 @@ uv run pytest tests/integrations/ds_clients.py -k "<type>" -v
   write them like product text, not comments.
 - `is_connection=False` is only for tool providers (MCP-style); leave it
   unset for data sources or schema indexing will skip your type.
+
+## Adding or updating an MCP connector (preset)
+
+An MCP server almost never needs a new *type* — the runtime, DCR, and OAuth all
+gate on `connection.type == "mcp"`. Add a **preset** instead: a named
+`McpPreset` in `MCP_PRESETS`
+(`backend/app/schemas/data_source_registry.py`) that resolves to `type="mcp"`.
+It carries only branding + a form spec — no client, no config/credentials
+schema, no per-type tests, no new dispatch sites.
+
+### 1. Add / edit the preset entry
+
+```python
+McpPreset(
+    key="x", title="X",
+    server_url="https://api.x.com/mcp",
+    transport="streamable_http",           # streamable_http | sse
+    auth="oauth_app",                      # default form auth: oauth(DCR) | oauth_app | bearer
+    allowed_auth=["oauth_app", "bearer"],  # modes the form offers, in FORM vocab
+                                           # (none|bearer|api_key|dcr|oauth_app); None = all
+    oauth_defaults=McpAuthDefaults(        # prefilled when oauth_app is chosen — these are
+        authorize_url="https://twitter.com/i/oauth2/authorize",  # provider constants, editable
+        token_url="https://api.x.com/2/oauth2/token",
+        scopes="tweet.read tweet.write users.read offline_access",
+        audience=None,                     # RFC 8707 resource, only if the server needs it
+    ),
+    sample_tools=["get_users_by_username", "search_posts"],  # illustrative preview ONLY
+    description="Posts, users, search and trends from X.",    # user-facing subtitle
+)
+```
+
+Pick the auth shape:
+- **DCR** (`auth="oauth"`, e.g. Notion/Linear/Atlassian): omit `oauth_defaults`
+  (endpoints are auto-discovered, RFC 9728/8414); `allowed_auth=["dcr"]`. Add the
+  server + AS host to `allowed_dcr_hosts()` coverage via the preset URL.
+- **oauth_app** (X/GitHub/Gmail/Drive): provider endpoints are invariant, so fill
+  `oauth_defaults`; only client_id/secret are per-deployment. `allowed_auth`
+  usually `["oauth_app"]` (X also allows `"bearer"`).
+- **bearer**: a per-user token/PAT; no `oauth_defaults`.
+
+`GET /connectors/catalog` serves presets via `mcp_presets()` → `model_dump()`,
+so any new field flows to the form with **no route change**.
+
+### 2. Icon
+
+Drop `frontend/public/data_sources_icons/<key>.svg` and map `key → file` in
+`frontend/components/DataSourceIcon.vue` (`CONNECTOR_ICON_FILE`).
+
+### What the form does automatically (no frontend work)
+
+`MCPConnectionForm.vue` is preset-aware: it prefills `oauth_defaults`, gates the
+auth dropdown by `allowed_auth`, hides the known fields (server URL, transport,
+OAuth endpoints) under **Advanced** for presets (a custom URL shows them inline),
+renders the `description` subtitle + `sample_tools` chips, offers **Create a
+public agent** for OBO modes (oauth_app/dcr), and treats a 401/auth-challenge on
+Test as "reachable — sign-in required". Edit-mode prefill reads `credentials_meta`
+from `GET /connections/{id}` (non-secret OAuth fields only — secrets never leave
+the server).
+
+### Gotchas
+
+- `access_type=offline` is Google-only — the authorize route
+  (`connection_oauth.py`) gates it on `provider_name == "google"`; other
+  providers (e.g. X) reject the unknown param. Don't reintroduce it globally.
+- Tools for `user_required` presets are discovered **per user on first sign-in**
+  (no admin token at config time), not at connection create.
+- `allowed_auth` uses the FORM vocabulary (`dcr`), not the catalog `auth` value
+  (`oauth`). Keep them consistent.
+
+### Tests + verify
+
+- Extend `backend/tests/unit/test_mcp_presets.py` — pin the contract (auth,
+  server_url, transport, `oauth_defaults`, `allowed_auth`, `sample_tools`) and
+  catalog serialization.
+- Live pass: catalog tile → prefilled form → Test/Verify → create → tools
+  discovered on first sign-in. Screenshots via the **ui-evidence** skill.
+- Reference loops: `docs/feedback-loops/mcp-preset-form-defaults.md` and
+  `docs/feedback-loops/x-mcp-preset.md`.

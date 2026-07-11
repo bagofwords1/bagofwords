@@ -260,7 +260,10 @@ async def test_send_response_posts_text(monkeypatch):
     assert body["to"] == "15551234567"
     assert body["type"] == "text"
     assert body["text"]["body"] == "hi there"
-    assert body["context"] == {"message_id": "wamid.AAA"}
+    # Outbound replies intentionally do NOT quote the inbound message: quoting
+    # the root prompt on every reply reads as repetitive clutter, and thread
+    # association is tracked server-side via Completion.external_thread_ts.
+    assert "context" not in body
 
 
 @pytest.mark.asyncio
@@ -333,7 +336,37 @@ async def test_send_file_in_thread_uploads_and_sends(monkeypatch, tmp_path):
     assert body["type"] == "document"
     assert body["document"]["id"] == "media-xyz"
     assert body["document"]["filename"] == "report.csv"
-    assert body["context"] == {"message_id": "wamid.AAA"}
+    # Media messages, like text replies, don't quote the root prompt.
+    assert "context" not in body
+
+
+@pytest.mark.asyncio
+async def test_send_image_in_dm_uploads_and_sends_image(monkeypatch, tmp_path):
+    f = tmp_path / "chart.png"
+    f.write_bytes(b"\x89PNG\r\n\x1a\n")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/media"):
+            return httpx.Response(200, json={"id": "media-img"})
+        return httpx.Response(200, json={"messages": [{"id": "wamid.I"}]})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
+    a = make_adapter()
+    ok = await a.send_image_in_dm("15551234567", str(f), "Revenue chart")
+    assert ok is True
+    # Two calls: upload then send
+    assert any(r.url.path.endswith("/media") for r in calls)
+    send_req = [r for r in calls if r.url.path.endswith("/messages")][-1]
+    body = json.loads(send_req.content.decode())
+    # Images are sent as the native WhatsApp `image` type (not `document`),
+    # carry a caption, and never include a `filename`.
+    assert body["type"] == "image"
+    assert body["image"]["id"] == "media-img"
+    assert body["image"]["caption"] == "Revenue chart"
+    assert "filename" not in body["image"]
+    assert "context" not in body
 
 
 @pytest.mark.asyncio

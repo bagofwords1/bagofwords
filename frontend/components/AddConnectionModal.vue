@@ -124,15 +124,6 @@
           </button>
         </div>
 
-        <!-- DCR catalog connector: no admin setup required. -->
-        <div
-          v-if="selectedDataSource?.is_dcr"
-          class="mb-4 flex items-start gap-2 text-xs text-green-800 dark:text-green-300 border border-green-200 dark:border-green-500/30 rounded-md p-3 bg-green-50 dark:bg-green-950/40"
-        >
-          <UIcon name="i-heroicons-sparkles" class="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{{ $t('data.connectorDcrNote') }}</span>
-        </div>
-
         <MCPConnectionForm
           v-if="selectedDataSource?.type === 'mcp'"
           :prefill="mcpPrefill"
@@ -411,6 +402,12 @@ function selectCatalogEntry(entry: any) {
     server_url: entry.server_url,
     transport: entry.transport === 'sse' ? 'sse' : 'streamable_http',
     auth_type: authType,
+    // Preset form spec: gate the auth dropdown, pre-fill provider OAuth constants,
+    // and show the connector overview (description + sample tools).
+    allowed_auth: entry.allowed_auth || null,
+    oauth_defaults: entry.oauth_defaults || null,
+    description: entry.description || '',
+    sample_tools: entry.sample_tools || null,
   }
   step.value = 'form'
 }

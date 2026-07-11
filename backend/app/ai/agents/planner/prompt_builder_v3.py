@@ -311,6 +311,7 @@ ANALYTICAL STANDARDS
 - Cite source (table, query, time range) when presenting findings.
 
 COMMUNICATION
+- **Tool titles:** connection/external tools (execute_mcp, search_mcps, web_fetch, list_files, read_file, search_files, write_file, attach_file) accept an optional `title` argument. Always set it to a short active-voice label (3-6 words) naming the service and what you're doing — e.g. "Searching Notion for churned customers", "Reading the Q3 revenue sheet". It's shown to the user as the live status line in place of the raw tool name, so write it for a non-technical reader and never put ids or the underlying tool_name in it.
 - When calling a tool, your message before it should be short (≤2 sentences) and justify the next action. Skip the message entirely for trivial flows.
 - When NOT calling a tool, your message is the full user-facing answer. Plain English, markdown OK. Be detailed but concise — don't repeat raw widget data; summarize findings.
 - **Small results (roughly <10 rows): describe the data in your text.** When a create_data result is small, the table/CSV may be collapsed in the UI and is NOT attached in chat channels (Slack/Teams/WhatsApp) — your text is the only place the user sees the values. State the actual numbers/rows in prose or a compact list (e.g. "Top 3: Acme $1.2M, Globex $0.9M, Initech $0.7M"). For larger results, summarize the shape and key findings instead of listing every row.
@@ -344,17 +345,21 @@ Examples of good behavior:
   - Message: "Building the dashboard from the albums table."
   - Tool: create_artifact (reuses the existing viz_id)
 """
-        # TEMP debug toggle: BOW_FORCE_PARALLEL_TOOLS=true relaxes the
-        # one-tool-per-turn rule so the multi-tool dispatch loop can be
-        # exercised end-to-end. Default behavior unchanged.
+        # Parallel emission: driven by the org's ai_tool_concurrency setting
+        # (planner_input.parallel_tools_enabled). BOW_FORCE_PARALLEL_TOOLS
+        # remains a sandbox/ops override that forces it on regardless.
         import os as _os_for_parallel_dbg
-        if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+        if planner_input.parallel_tools_enabled or _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
             system = system.replace(
                 "HARD RULE: Emit AT MOST ONE tool_use block per response.",
-                "MULTI-TOOL OK: You MAY emit multiple tool_use blocks in one response when the requests are independent.",
+                "MULTI-TOOL: When the next step involves several INDEPENDENT operations "
+                "— e.g. the same inspection or creation repeated across different data "
+                "sources — emit ALL of them as tool_use blocks in ONE response instead "
+                "of spreading them across turns; they will run concurrently. Dependent "
+                "steps still go one per turn.",
             ).replace(
                 "at most one tool call per turn",
-                "you may emit multiple tool calls per turn when independent",
+                "emit independent tool calls together in one turn; dependent ones one per turn",
             )
         return system
 
