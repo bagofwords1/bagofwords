@@ -103,6 +103,28 @@ async def test_full_subscriber_drops_without_blocking_others():
 
 
 @pytest.mark.asyncio
+async def test_subscriber_receives_running_tool_replay():
+    """Tool executions are write-on-complete (no DB row until they finish), so
+    a resuming client can only learn about an in-flight tool from the live
+    queue: subscribe() must replay tool.started for tools still running, and
+    must not replay tools that already finished."""
+    q = CompletionEventQueue()
+    await q.put(SSEEvent(event="tool.started", completion_id="c1",
+                         data={"tool_execution_id": "te-running", "tool_name": "create_data"}))
+    await q.put(SSEEvent(event="tool.started", completion_id="c1",
+                         data={"tool_execution_id": "te-done", "tool_name": "inspect_data"}))
+    await q.put(SSEEvent(event="tool.finished", completion_id="c1",
+                         data={"tool_execution_id": "te-done", "status": "success"}))
+
+    sub = q.subscribe()
+    replayed = await CompletionEventQueue.next_event(sub, timeout=1)
+    assert isinstance(replayed, SSEEvent) and replayed.event == "tool.started"
+    assert replayed.data["tool_execution_id"] == "te-running"
+    # Nothing else pending: the finished tool was not replayed.
+    assert await CompletionEventQueue.next_event(sub, timeout=0.05) is HEARTBEAT
+
+
+@pytest.mark.asyncio
 async def test_next_event_heartbeat_on_timeout():
     q = CompletionEventQueue()
     sub = q.subscribe()

@@ -540,7 +540,7 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="isCompletionInProgress ? {} : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? {} : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -975,6 +975,13 @@ const isStreaming = ref<boolean>(false)
 // Flips to false on completion.finished/error, even though isStreaming stays true
 // for the knowledge harness tail. Used to unblock the prompt box early.
 const isCompletionInProgress = ref<boolean>(false)
+// True whenever any system message is in_progress — including runs resumed
+// after a refresh (watch stream/polling), which never set
+// isCompletionInProgress. Drives the prompt box stop button so an in-flight
+// run can always be stopped, not just one started in this page session.
+const hasInProgressCompletion = computed(() =>
+	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
+)
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -3296,10 +3303,18 @@ function abortStream() {
 		currentController.abort()
 		currentController = null
 	}
+	// Stop any resume stream so it doesn't immediately re-attach to the run
+	// we're killing.
+	stopWatchStream()
 	// Signal backend to stop the running agent loop if we know the server-side id
 	try {
 					const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+		// system_completion_id is only set by the kickoff stream. After a
+		// refresh the message comes from loadCompletions, where its id IS the
+		// server-side completion id (kickoff placeholders use "system-<ts>").
+		const rawId = String(sysMsg?.id ?? '')
 		const systemId = (sysMsg as any)?.system_completion_id
+			|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
 		if (systemId) {
 			useMyFetch(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
 			// Mark locally as stopped for immediate UI feedback

@@ -103,6 +103,29 @@ tools used: create_data:success, create_data:success, create_artifact:success
 GAUNTLET PASS
 ```
 
+### Follow-up regressions (found in review, fixed here)
+
+1. **Stop button vanished after refresh** — `PromptBoxV2`'s stop button was
+   gated on `isCompletionInProgress`, set only by the kickoff path; and
+   `abortStream()` read `system_completion_id`, also kickoff-only, so even a
+   visible stop couldn't sigkill after a reload. Fixed by deriving the gate
+   from message state (`hasInProgressCompletion`) and falling back to the
+   message id (which IS the completion id after `loadCompletions`).
+2. **Tool card disappeared when refreshing the instant a tool started** —
+   tool executions are write-on-complete (`start_tool_execution`: "nothing is
+   persisted to DB here"), so no DB snapshot can contain a running tool. The
+   broadcaster now tracks running tools from the event flow and `subscribe()`
+   replays their `tool.started` after the snapshot, so the card renders with
+   the timeline.
+
+Verified by `tools/agent/sse_tool_refresh_probe.mjs` — observed:
+
+```
+tool card gap after timeline render: 10ms (PASS <2s)
+stop button visible after refresh: PASS
+stop actually killed the run: PASS (status=stopped, sigkill=true)
+```
+
 ## Loop B — API-level check (no browser)
 
 ```bash

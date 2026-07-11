@@ -39,6 +39,12 @@ class CompletionEventQueue:
         self._queues: list[asyncio.Queue] = []
         self._finished = False
         self._dropped: int = 0
+        # tool_execution_id -> its tool.started event, for tools currently
+        # running. Tool executions are write-on-complete (no DB row until they
+        # finish), so a resuming client's DB snapshot cannot know about them —
+        # subscribe() replays these markers so tool cards render immediately
+        # after a mid-tool reconnect instead of waiting for the next event.
+        self._running_tools: dict[str, SSEEvent] = {}
         self._primary: asyncio.Queue = self._add_queue()
 
     def _add_queue(self) -> asyncio.Queue:
@@ -54,12 +60,26 @@ class CompletionEventQueue:
     def primary(self) -> asyncio.Queue:
         return self._primary
 
+    def _track_running_tools(self, event: SSEEvent):
+        try:
+            name = getattr(event, "event", None)
+            te_id = (getattr(event, "data", None) or {}).get("tool_execution_id")
+            if not te_id:
+                return
+            if name == "tool.started":
+                self._running_tools[str(te_id)] = event
+            elif name in ("tool.finished", "tool.error"):
+                self._running_tools.pop(str(te_id), None)
+        except Exception:
+            pass
+
     async def put(self, event: SSEEvent):
         """Broadcast a validated Pydantic event to every consumer queue.
 
         Non-blocking: drops the event for any full queue so the agent is never
         stalled waiting for a slow consumer.
         """
+        self._track_running_tools(event)
         for q in list(self._queues):
             try:
                 q.put_nowait(event)
@@ -77,6 +97,15 @@ class CompletionEventQueue:
         sentinel so the consumer terminates immediately.
         """
         q = self._add_queue()
+        # Replay running-tool markers first: the watch stream yields its DB
+        # snapshot before draining this queue, so the client already has the
+        # target blocks when these arrive. A tool that finished in the
+        # meantime is corrected by its own tool.finished event queued behind.
+        for ev in list(self._running_tools.values()):
+            try:
+                q.put_nowait(ev)
+            except asyncio.QueueFull:
+                break
         if self._finished:
             q.put_nowait(_SENTINEL)
         return q
