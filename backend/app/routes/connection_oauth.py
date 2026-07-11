@@ -147,6 +147,13 @@ def _ensure_oauth_policy(connection: Connection) -> None:
 # Authorize
 # ---------------------------------------------------------------------------
 
+def _normalize_scopes(raw: str) -> str:
+    """OAuth `scope` is space-delimited (RFC 6749 §3.3). The connect form accepts
+    a comma- OR space-separated list (comma reads clearer); normalize either to
+    single-space-delimited for the authorize request."""
+    return " ".join((raw or "").replace(",", " ").split())
+
+
 @router.get("/{connection_id}/oauth/authorize")
 async def oauth_authorize(
     connection_id: str,
@@ -212,7 +219,7 @@ async def oauth_authorize(
         params["access_type"] = "offline"
     # Only send a scope when we actually have one (Notion DCR issues no scopes).
     if oauth_params.get("scopes"):
-        params["scope"] = oauth_params["scopes"]
+        params["scope"] = _normalize_scopes(oauth_params["scopes"])
     # RFC 8707 resource indicator — audience-bind the token to the MCP server.
     if oauth_params.get("audience"):
         params["resource"] = oauth_params["audience"]

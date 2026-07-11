@@ -1246,46 +1246,95 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
 _GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 
+_TOOLS_MONDAY = [
+    "get_board_items_by_name", "get_board_schema", "create_item", "create_update",
+    "change_item_column_values", "move_item_to_group", "create_board", "create_column",
+    "delete_column", "delete_item", "get_users_by_name", "all_monday_api",
+    "get_graphql_schema", "get_type_details", "create_custom_activity",
+    "create_timeline_item", "fetch_custom_activity", "create_workflow_instructions",
+    "read_docs", "workspace_info",
+]
+_TOOLS_NOTION = [
+    "search", "fetch", "create-pages", "update-page", "move-pages", "duplicate-page",
+    "create-database", "update-database", "create-comment", "get-comments", "get-users",
+    "get-self", "get-user",
+]
+_TOOLS_ATLASSIAN = [
+    "atlassianUserInfo", "getAccessibleAtlassianResources", "getConfluenceSpaces",
+    "getConfluencePage", "getPagesInConfluenceSpace", "getConfluencePageAncestors",
+    "getConfluencePageFooterComments", "getConfluencePageInlineComments",
+    "getConfluencePageDescendants", "createConfluencePage", "updateConfluencePage",
+    "createConfluenceFooterComment", "createConfluenceInlineComment",
+    "searchConfluenceUsingCql", "getJiraIssue", "editJiraIssue", "createJiraIssue",
+    "getTransitionsForJiraIssue", "transitionJiraIssue", "lookupJiraAccountId",
+    "searchJiraIssuesUsingJql", "addCommentToJiraIssue", "getJiraIssueRemoteIssueLinks",
+    "getVisibleJiraProjects", "getJiraProjectIssueTypesMetadataZapier",
+    "getCompassComponents", "getCompassComponent", "getCompassCustomFieldDefinitions",
+    "createCompassCustomFieldDefinition", "createCompassComponent",
+    "createCompassComponentRelationship",
+]
+_TOOLS_LINEAR = [
+    "list_comments", "create_comment", "list_cycles", "get_document", "list_documents",
+    "get_issue", "list_issues", "create_issue", "update_issue", "list_issue_statuses",
+    "get_issue_status", "list_my_issues", "list_issue_labels", "list_projects",
+    "get_project", "create_project", "update_project", "list_teams", "get_team",
+    "list_users", "get_user", "search_documentation",
+]
+_TOOLS_SENTRY = [
+    "whoami", "find_organizations", "find_teams", "find_projects", "find_issues",
+    "find_releases", "find_tags", "get_issue_details", "get_event_attachment",
+    "update_issue", "find_errors", "find_transactions", "create_team", "create_project",
+    "update_project", "create_dsn", "find_dsns", "analyze_issue_with_seer", "search_docs",
+    "get_doc",
+]
+_TOOLS_GOOGLE_DRIVE = [
+    "search_files", "list_recent_files", "read_file_content", "download_file_content",
+    "get_file_metadata", "get_file_permissions", "create_file",
+]
+_TOOLS_GMAIL = [
+    "search_threads", "get_thread", "list_labels", "list_drafts", "create_draft",
+]
+
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
-              allowed_auth=["dcr"],
+              allowed_auth=["dcr"], sample_tools=_TOOLS_MONDAY,
               description="Boards, items and updates from monday.com."),
     McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
-              allowed_auth=["dcr"],
+              allowed_auth=["dcr"], sample_tools=_TOOLS_NOTION,
               description="Pages, databases and search across your Notion workspace."),
     McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
-              transport="sse", allowed_auth=["dcr"],
+              transport="sse", allowed_auth=["dcr"], sample_tools=_TOOLS_ATLASSIAN,
               description="Jira issues and Confluence pages."),
     McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
-              allowed_auth=["dcr"],
+              allowed_auth=["dcr"], sample_tools=_TOOLS_LINEAR,
               description="Issues, projects and cycles from Linear."),
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
-              allowed_auth=["dcr"],
+              allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY,
               description="Errors, issues and releases from Sentry."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
               oauth_defaults=McpAuthDefaults(
                   authorize_url="https://github.com/login/oauth/authorize",
                   token_url="https://github.com/login/oauth/access_token",
-                  scopes="read:user repo read:org",
+                  scopes="read:user, repo, read:org",
               ),
               description="Repos, issues and PRs (needs a GitHub OAuth app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.
     McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
-              auth="oauth_app", allowed_auth=["oauth_app"],
+              auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GOOGLE_DRIVE,
               oauth_defaults=McpAuthDefaults(
                   authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
-                  scopes="openid email https://www.googleapis.com/auth/drive.readonly",
+                  scopes="openid, email, https://www.googleapis.com/auth/drive.readonly",
                   audience="https://drivemcp.googleapis.com/mcp/v1",
               ),
               description="Files in Google Drive (needs a Google OAuth client)."),
     McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
-              auth="oauth_app", allowed_auth=["oauth_app"],
+              auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GMAIL,
               oauth_defaults=McpAuthDefaults(
                   authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
-                  scopes="openid email https://www.googleapis.com/auth/gmail.readonly",
+                  scopes="openid, email, https://www.googleapis.com/auth/gmail.readonly",
                   audience="https://gmailmcp.googleapis.com/mcp/v1",
               ),
               description="Gmail messages (needs a Google OAuth client)."),
@@ -1298,7 +1347,7 @@ MCP_PRESETS: List[McpPreset] = [
               oauth_defaults=McpAuthDefaults(
                   authorize_url="https://twitter.com/i/oauth2/authorize",
                   token_url="https://api.x.com/2/oauth2/token",
-                  scopes="tweet.read tweet.write users.read offline_access",
+                  scopes="tweet.read, tweet.write, users.read, offline_access",
               ),
               sample_tools=["get_users_by_username", "get_users_timeline", "search_posts", "get_trends"],
               description="Posts, users, search and trends from X (needs an X API bearer token)."),

@@ -87,6 +87,16 @@ def test_preset_allowed_auth_gating():
     assert mcp_preset("github").allowed_auth == ["oauth_app"]
 
 
+def test_scope_normalization_comma_or_space():
+    # The form accepts comma- or space-separated scopes; the authorize request
+    # must be space-delimited (RFC 6749).
+    from app.routes.connection_oauth import _normalize_scopes
+    assert _normalize_scopes("tweet.read, tweet.write, users.read") == "tweet.read tweet.write users.read"
+    assert _normalize_scopes("openid profile offline_access") == "openid profile offline_access"
+    assert _normalize_scopes("a,b,  c ,") == "a b c"
+    assert _normalize_scopes("") == ""
+
+
 def test_catalog_exposes_preset_form_spec():
     # The new fields must serialize through mcp_presets() → GET /connectors/catalog.
     x = next(p for p in mcp_presets() if p["key"] == "x")
@@ -94,12 +104,15 @@ def test_catalog_exposes_preset_form_spec():
     assert x["oauth_defaults"]["authorize_url"] == "https://twitter.com/i/oauth2/authorize"
 
 
-def test_sample_tools_present_for_x():
-    # Illustrative tool preview shown before live discovery.
-    tools = mcp_preset("x").sample_tools
-    assert tools and "get_users_by_username" in tools
-    # DCR presets don't ship a static sample (discovered per-user after sign-in).
-    assert mcp_preset("monday").sample_tools is None
+def test_sample_tools_present():
+    # X keeps a hand-curated sample (not in the Anthropic directory).
+    assert "get_users_by_username" in (mcp_preset("x").sample_tools or [])
+    # Directory-sourced previews for the DCR / Google presets.
+    assert "search" in (mcp_preset("notion").sample_tools or [])
+    assert mcp_preset("monday").sample_tools  # populated from the directory
+    assert mcp_preset("linear").sample_tools and mcp_preset("gmail").sample_tools
+    # GitHub isn't in the directory → no static preview.
+    assert mcp_preset("github").sample_tools is None
 
 
 # ── Test-connection reinterpretation for per-user OAuth MCP ─────────────────
