@@ -206,6 +206,19 @@ class Coder:
         # Define data preview instruction based on enable_llm_see_data flag
         data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
 
+        _lazy_cfg = self.organization_settings.get_config("enable_lazy_queries")
+        lazy_enabled = bool(getattr(_lazy_cfg, "value", _lazy_cfg))
+        lazy_query_instruction = (
+            "- OUT-OF-CORE (LAZY) QUERIES ENABLED: for potentially large result sets "
+            "(full-table scans, or queries without aggregation/LIMIT), PREFER "
+            "`ds_clients[\"<client_key>\"].execute_query_lazy(\"SOME QUERY\")` over `execute_query`. "
+            "It streams results to disk and returns a LazyFrame exposing the same interface plus "
+            "lazy transforms (`.sql(...)`, `.limit(n)`). Push filters/aggregation into the SQL. "
+            "You may return the LazyFrame directly (it is materialized under a bounded cap) or reduce "
+            "then materialize with `.to_df()` (e.g. `lf.limit(n).to_df()`). For small or already-"
+            "aggregated results, `execute_query` is fine."
+        ) if lazy_enabled else ""
+
         similar_successful_code_snippets = await code_context_builder.get_top_successful_snippets_for_data_model(data_model)
         similar_failed_code_snippets = await code_context_builder.get_top_failed_snippets_for_data_model(data_model)
         text = f"""
@@ -303,6 +316,7 @@ class Coder:
            - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
+           {lazy_query_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
@@ -518,6 +532,18 @@ class Coder:
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
             data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            _lazy_cfg = self.organization_settings.get_config("enable_lazy_queries")
+            lazy_enabled = bool(getattr(_lazy_cfg, "value", _lazy_cfg))
+            lazy_query_instruction = (
+                "- OUT-OF-CORE (LAZY) QUERIES ENABLED: for potentially large result sets "
+                "(full-table scans, or queries without aggregation/LIMIT), PREFER "
+                "`ds_clients[\"<client_key>\"].execute_query_lazy(\"SOME QUERY\")` over `execute_query`. "
+                "It streams results to disk and returns a LazyFrame exposing the same interface plus "
+                "lazy transforms (`.sql(...)`, `.limit(n)`). Push filters/aggregation into the SQL. "
+                "You may return the LazyFrame directly (it is materialized under a bounded cap) or reduce "
+                "then materialize with `.to_df()` (e.g. `lf.limit(n).to_df()`). For small or already-"
+                "aggregated results, `execute_query` is fine."
+            ) if lazy_enabled else ""
             # If the user is clearly referring to a step we can load, force reuse
             # via load_step instead of writing SQL from scratch. Detected here (not
             # left to the model) so a weak model can't drift back to re-querying.
@@ -676,6 +702,7 @@ class Coder:
                - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
+               {lazy_query_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
                - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)`.
                  * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.

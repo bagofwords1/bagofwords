@@ -896,7 +896,7 @@ def test_lazy_stream_setup_failure_reclaims_query_dir(tmp_path, monkeypatch):
 
 
 def test_reader_open_failure_closes_duckdb_connection(tmp_path, monkeypatch):
-    import app.data_sources.clients.lazy_frame as lazy_module
+    import app.data_sources.clients.lazy_frame.frame as lazy_module
 
     path = tmp_path / "valid.parquet"
     pd.DataFrame({"x": [1]}).to_parquet(path, index=False)
