@@ -55,6 +55,9 @@ Format: `- **Title (#PR)** — description.`
   "various", "enhancements". State the capability directly.
 - **Be specific, not vague.** "caps requests per minute/hour/day, enforced as
   a hard block" beats "better rate limiting".
+- **Never real data.** No customer/org names, account identifiers, emails,
+  tokens, connection strings, or any PII — release notes are public. Use
+  generic placeholders (`<name>`, `acme`) if an example needs one.
 
 ## Examples
 
