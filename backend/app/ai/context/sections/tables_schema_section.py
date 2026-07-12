@@ -38,6 +38,31 @@ class MCPToolItem(BaseModel):
     connection_name: Optional[str] = None
 
 
+class FileScopeItem(BaseModel):
+    """Compact descriptor for a file-source connection (network_dir / s3 /
+    sharepoint / drive). Instead of enumerating every file as a <table> — which
+    burns tokens and doesn't scale — we describe the SCOPE and point the agent
+    at the retrieval tools."""
+    connection_id: Optional[str] = None
+    name: str
+    type: str
+    base: Optional[str] = None
+    globs: List[str] = []
+    index_mode: str = "content"      # none | metadata | content
+    file_count: int = 0
+    capped: bool = False
+    sample: List[str] = []           # a few representative file ids
+    topics: List[str] = []           # aggregate keywords (content mode)
+    supports_search: bool = True     # native search API OR index_mode==content
+    writable: bool = False
+    per_user: bool = False           # per-user OAuth (each user reads as themselves)
+    # True when this connector enforces a path/glob scope boundary (network_dir/
+    # s3/sharepoint). False for token-scoped sources (OneDrive/Drive) whose only
+    # boundary is the user's OAuth account — for those we render no <scope> and
+    # no "else denied" language, because neither would be true.
+    enforces_scope: bool = True
+
+
 class TablesSchemaContext(ContextSection):
     tag_name: ClassVar[str] = "data_sources"
 
@@ -46,6 +71,11 @@ class TablesSchemaContext(ContextSection):
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []
+        file_scopes: List[FileScopeItem] = []
+
+        # Below this many files, list them inline (cheap + lets the agent pick
+        # directly); above it, emit only scope + sample + topics.
+        _FILE_INLINE_THRESHOLD: ClassVar[int] = 15
 
         # Short, human-readable explanations of each agent (data source)
         # publishing-status value so the planner understands what the status
@@ -199,6 +229,66 @@ class TablesSchemaContext(ContextSection):
             )
             return xml_tag("mcp_tools", "\n".join(conn_parts))
 
+        def _render_file_scope_xml(self, fs: "FileScopeItem") -> str:
+            """A file connection as a compact scope descriptor — NOT a file
+            enumeration. See FileScopeItem."""
+            inner = []
+            # Scope: the include-globs (the boundary). Tiny connections list
+            # their files directly instead.
+            if fs.file_count and fs.file_count <= self._FILE_INLINE_THRESHOLD and fs.sample:
+                files_xml = "\n".join(f'<file>{xml_escape(n)}</file>' for n in fs.sample)
+                inner.append(xml_tag("files", files_xml))
+            else:
+                # A <scope> only for connectors that ENFORCE a path/glob boundary
+                # (network_dir/s3/sharepoint). Token-scoped sources (OneDrive/
+                # Drive) have no such boundary — the user's OAuth account is the
+                # limit — so a <scope> here would misrepresent what's enforced.
+                if fs.enforces_scope:
+                    if fs.globs:
+                        patt = "\n".join(f'<pattern>{xml_escape(g)}</pattern>' for g in fs.globs)
+                        inner.append(xml_tag("scope", patt))
+                    else:
+                        inner.append(xml_tag("scope", "<pattern>**</pattern>"))
+                if fs.sample:
+                    sm = "\n".join(f'<file>{xml_escape(n)}</file>' for n in fs.sample)
+                    inner.append(xml_tag("sample", sm))
+            # Index/state (self-closing).
+            inner.append(
+                f'<index mode="{xml_escape(fs.index_mode)}" files="{fs.file_count}" '
+                f'capped="{"true" if fs.capped else "false"}"/>'
+            )
+            if fs.topics:
+                inner.append(xml_tag("topics", xml_escape(", ".join(fs.topics[:12]))))
+            # Per-user OAuth sources: the sample/count above (if any) reflect the
+            # querying user's own account, and discovery is always live — so tell
+            # the model not to treat an empty scope as "no files".
+            if fs.per_user:
+                inner.append(xml_tag(
+                    "auth",
+                    "per-user — each user reads with their own connected account. "
+                    "The file list is per-user and fetched live; an empty scope here "
+                    "does NOT mean no files — call list_files/search_files to see the "
+                    "current user's files (they must have connected their account)."
+                ))
+            # Usage guidance — gate search_files on real capability, and the
+            # "else denied" clause on real scope enforcement.
+            denial = (" Access is limited to the scope above; anything else is denied."
+                      if fs.enforces_scope else "")
+            if fs.supports_search:
+                usage = ("search_files to find by topic · list_files to browse · "
+                         "read_file to read (use offset/length for large files)." + denial)
+            else:
+                usage = ("list_files (with name_pattern to filter) to browse · "
+                         "read_file to read (use offset/length for large files). "
+                         "No content search on this connection — discover by filename." + denial)
+            inner.append(xml_tag("usage", usage))
+            attrs = {"name": fs.name, "type": fs.type, "kind": "files"}
+            if fs.connection_id:
+                attrs["id"] = fs.connection_id
+            if fs.writable:
+                attrs["writable"] = "true"
+            return xml_tag("connection", "\n".join(inner), attrs)
+
         def render(self) -> str:
             # Group tables by connection
             conn_groups = self._group_tables_by_connection()
@@ -211,7 +301,12 @@ class TablesSchemaContext(ContextSection):
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
 
             # Check if we have multi-connection (more than one group, or the group isn't 'default')
-            has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
+            # File connections also count — they render as their own <connection>.
+            has_multi_connection = (
+                len(conn_groups) > 1
+                or (len(conn_groups) == 1 and 'default' not in conn_groups)
+                or bool(self.file_scopes and self.tables)
+            )
 
             if has_multi_connection:
                 # Render with nested <connection> tags
@@ -233,6 +328,10 @@ class TablesSchemaContext(ContextSection):
                 tables_xml = [self._render_table_xml(t) for t in (self.tables or [])]
                 content_parts.append("\n\n".join(tables_xml))
 
+            # File-source connections → compact scope descriptors (not tables).
+            for fs in (self.file_scopes or []):
+                content_parts.append(self._render_file_scope_xml(fs))
+
             # Render MCP tools if present
             if self.mcp_tools:
                 mcp_parts = self._render_mcp_tools_xml()
@@ -242,7 +341,7 @@ class TablesSchemaContext(ContextSection):
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
             # Only include type if single connection (for backward compatibility)
-            if not has_multi_connection and self.info.type:
+            if not has_multi_connection and not self.file_scopes and self.info.type:
                 ds_attrs["type"] = self.info.type
 
             return xml_tag(self.tag_name, "\n".join(content_parts), ds_attrs)

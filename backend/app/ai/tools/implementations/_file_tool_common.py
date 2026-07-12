@@ -25,6 +25,36 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir", "s3"}
 
 
+async def audit_file_access_denied(
+    runtime_ctx: Dict[str, Any], connection_id: str, file_id: str, reason: str
+) -> None:
+    """Record an audit-trail entry when a file tool is denied access to a path
+    outside the connection's include-globs. Best-effort — never raises, never
+    blocks the tool response. Viewing is license-gated at the API; logging is
+    always on so the trail is complete."""
+    try:
+        db = runtime_ctx.get("db")
+        organization = runtime_ctx.get("organization")
+        user = runtime_ctx.get("user")
+        if db is None or organization is None:
+            return
+        from app.ee.audit.service import audit_service
+        await audit_service.log(
+            db=db,
+            organization_id=str(organization.id),
+            action="file.access_denied",
+            user_id=str(user.id) if user is not None else None,
+            resource_type="connection",
+            resource_id=str(connection_id),
+            details={"file_id": file_id, "reason": reason,
+                     "report_id": str(getattr(runtime_ctx.get("report"), "id", "")) or None},
+            commit=True,
+        )
+        logger.warning("file.access_denied conn=%s file=%s: %s", connection_id, file_id, reason)
+    except Exception:
+        logger.debug("audit_file_access_denied failed", exc_info=True)
+
+
 async def resolve_file_data_source(
     runtime_ctx: Dict[str, Any],
     connection_id: str,
@@ -74,50 +104,87 @@ async def resolve_file_client(
     if not db or not organization:
         return None, "Missing database session or organization context."
 
-    # Build the agent's attached file-source connections from the report's
-    # data sources. Used both as an allow-list (security) and as the
-    # fallback when the LLM passes a data_source_id instead of a connection_id.
-    attached_conns: list = []
+    # The agent's attached file-source connections form the allow-list AND the
+    # resolution target. We only ever resolve to something on this list, so the
+    # forgiving fallbacks below can never reach a connection the current report
+    # isn't already built on. Restrict to ACTIVE connections on ACTIVE data
+    # sources — a disabled agent/connection is not a valid target.
+    attached: list = []  # (ds, conn)
     if report:
         for ds in (report.data_sources or []):
+            if not getattr(ds, "is_active", True):
+                continue
             for conn in (ds.connections or []):
-                if conn.type in FILE_SOURCE_TYPES:
-                    attached_conns.append((ds, conn))
+                if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
+                    attached.append((ds, conn))
 
-    attached_conn_ids = {str(conn.id) for _, conn in attached_conns}
-    attached_ds_ids = {str(ds.id) for ds, _ in attached_conns}
-    sid = str(connection_id)
+    attached_conn_ids = {str(conn.id) for _, conn in attached}
+    sid = str(connection_id or "").strip()
+    sid_l = sid.lower()
 
     resolved_conn = None
+    resolved_ds = None
 
-    if sid in attached_conn_ids:
-        # Direct Connection ID match — happy path.
-        for _, conn in attached_conns:
+    if report:
+        # Resolve forgivingly — the model frequently passes the agent's name or
+        # its data_source id instead of the connection id. Order: exact
+        # connection id → data_source id → data_source NAME → (if the agent has
+        # exactly one file connection) that connection regardless of the guess.
+        for ds, conn in attached:
             if str(conn.id) == sid:
-                resolved_conn = conn
+                resolved_ds, resolved_conn = ds, conn
                 break
-    elif sid in attached_ds_ids:
-        # LLM passed the DataSource (agent) ID. Pick the first file-source
-        # connection on that data source.
-        for ds, conn in attached_conns:
-            if str(ds.id) == sid:
-                resolved_conn = conn
-                break
+        if resolved_conn is None:
+            for ds, conn in attached:
+                if str(ds.id) == sid:
+                    resolved_ds, resolved_conn = ds, conn
+                    break
+        if resolved_conn is None and sid_l:
+            for ds, conn in attached:
+                if (getattr(ds, "name", "") or "").strip().lower() == sid_l:
+                    resolved_ds, resolved_conn = ds, conn
+                    break
+        if resolved_conn is None and len(attached) == 1:
+            resolved_ds, resolved_conn = attached[0]
+            logger.info(
+                "resolve_file_client: '%s' matched no id/name; using the agent's "
+                "only file connection %s (%s).",
+                connection_id, resolved_conn.id, resolved_conn.name,
+            )
 
-    if resolved_conn is None:
-        if report and attached_conns:
+        if resolved_conn is None:
             return None, (
                 f"'{connection_id}' is not a file source attached to this agent. "
                 f"Attached file connections: {sorted(attached_conn_ids)}."
             )
-        # No report scope — fall through to direct DB lookup (used by
-        # standalone tool calls / tests).
+
+        # Access guard: never operate on a data source the current user can't
+        # access — not even via the forgiving fallbacks above. Skipped only when
+        # there's no user in context (standalone/system callers). Fail-open on a
+        # resolver error (matches the existing trust in report.data_sources); a
+        # definitive "no" blocks.
+        if current_user is not None and resolved_ds is not None:
+            try:
+                from app.core.permission_resolver import user_can_access_data_source
+                allowed = await user_can_access_data_source(
+                    db, str(current_user.id), str(organization.id), resolved_ds
+                )
+            except Exception:
+                allowed = True
+            if not allowed:
+                return None, (
+                    f"You do not have access to the data source "
+                    f"'{getattr(resolved_ds, 'name', '?')}'."
+                )
+    else:
+        # No report scope — direct DB lookup (standalone tool calls / tests).
         from app.models.connection import Connection
         result = await db.execute(
             select(Connection).where(
                 Connection.id == sid,
                 Connection.organization_id == str(organization.id),
                 Connection.type.in_(list(FILE_SOURCE_TYPES)),
+                Connection.is_active == True,  # noqa: E712
             )
         )
         resolved_conn = result.scalar_one_or_none()
@@ -136,6 +203,14 @@ async def resolve_file_client(
         return None, (
             f"Connection '{resolved_conn.name}' does not support {required_capability.value}."
         )
+
+    # Stash the resolved connection so tools can inspect its auth policy (e.g.
+    # list_files listing live-per-user for per-user OAuth sources) without a
+    # second lookup.
+    try:
+        client._bow_connection = resolved_conn
+    except Exception:
+        pass
 
     return client, None
 
@@ -202,6 +277,13 @@ _ATTACHABLE_BY_EXT = {
     "txt": "text/plain",
     "md": "text/markdown",
     "pdf": "application/pdf",
+    # Rendered page images / picture files — materialized so they get a file id
+    # (referenceable in later turns and visible in the UI).
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
 }
 
 # Reverse map: MIME → extension. Used when materializing an MCP blob/resource
@@ -220,6 +302,80 @@ def ext_for_mime(mime: Optional[str]) -> Optional[str]:
     if not mime:
         return None
     return _EXT_BY_MIME.get(mime.strip().lower())
+
+
+# Picture files we can hand to a vision model as-is (normalized to PNG).
+_RENDERABLE_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"}
+
+
+def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 150):
+    """Turn a *binary* file payload into page images for a vision model.
+
+    - Picture files (png/jpg/…) pass through, normalized to PNG.
+    - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
+      Chromium uses for PDFs — as a self-contained wheel, so no system poppler
+      and no headless-browser launch).
+
+    Returns ``(images, total_pages)`` where ``images`` is a list of
+    ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
+    ``([], 0)`` when the payload isn't a renderable binary or the renderer is
+    unavailable, so the caller simply keeps the original (binary) result.
+    """
+    if not isinstance(payload, (bytes, bytearray)):
+        return [], 0
+    data = bytes(payload)
+    ext = file_id.rsplit(".", 1)[-1].lower() if "." in (file_id or "") else ""
+    import io
+    try:
+        if ext in _RENDERABLE_IMAGE_EXTS:
+            from PIL import Image
+            im = Image.open(io.BytesIO(data))
+            im.load()
+            if im.mode not in ("RGB", "RGBA", "L"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            return [(buf.getvalue(), "image/png")], 1
+        if ext == "pdf":
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(data)
+            try:
+                total = len(pdf)
+                out = []
+                for i in range(min(total, max_pages)):
+                    page = pdf[i]
+                    pil = page.render(scale=dpi / 72.0).to_pil()
+                    if pil.mode not in ("RGB", "L"):
+                        pil = pil.convert("RGB")
+                    buf = io.BytesIO()
+                    pil.save(buf, format="PNG")
+                    out.append((buf.getvalue(), "image/png"))
+                return out, total
+            finally:
+                pdf.close()
+    except Exception as e:  # corrupt/locked file, unsupported image
+        logger.info("render_file_images: could not render %s: %s", file_id, e)
+    return [], 0
+
+
+def allow_llm_see_data(runtime_ctx: Dict[str, Any]) -> bool:
+    """Whether the org lets raw data/content reach the model. Defaults to True
+    when settings are unavailable, matching the other tool call sites."""
+    try:
+        org = runtime_ctx.get("organization")
+        settings = getattr(org, "settings", None)
+        if settings is None:
+            return True
+        try:
+            return bool(settings.get_config("allow_llm_see_data").value)
+        except Exception:
+            pass
+        cfg = getattr(settings, "config", None)
+        if isinstance(cfg, dict):
+            return bool(cfg.get("allow_llm_see_data", {}).get("value", True))
+    except Exception:
+        pass
+    return True
 
 # Hard cap on auto-attach size. Larger files still return content inline but
 # don't get persisted — the agent should reach for a more specific reader.
@@ -278,7 +434,12 @@ async def attach_drive_file_to_session(
         from app.models.report import Report
 
         os.makedirs("uploads/files", exist_ok=True)
-        unique_filename = f"{uuid.uuid4()}_{filename}"
+        # File ids from nested sources carry path separators (e.g.
+        # "docs/scan.png"); they must not leak into the on-disk path or the open
+        # fails on a missing subdir. Flatten for storage; keep `filename` (the
+        # display name) intact.
+        safe_name = filename.replace("/", "_").replace("\\", "_")
+        unique_filename = f"{uuid.uuid4()}_{safe_name}"
         path = f"uploads/files/{unique_filename}"
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content_bytes)

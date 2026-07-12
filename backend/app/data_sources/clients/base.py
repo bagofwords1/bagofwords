@@ -56,6 +56,14 @@ class DataSourceClient(ABC):
     # get_schemas. File-shaped clients set their own set.
     capabilities: set = {Capability.QUERY}
 
+    # When True, listing files live from the source is cheap enough to do on
+    # every list_files call (local FS walk, bounded S3 LIST) — so list_files
+    # reads the live per-connection client instead of the shared, per-data-
+    # source catalog cache. This is both fresher and correctly scoped to the
+    # single connection (the cache unions all of a data source's connections).
+    # Remote-API sources (Graph/Drive) leave this False and use the cache.
+    cheap_live_listing: bool = False
+
     def __init__(self):
         pass
 
@@ -170,6 +178,17 @@ class DataSourceClient(ABC):
         """Free-text search over the connection's accessible files."""
         raise NotImplementedError("search_files not supported by this client")
 
+    def file_version(self, file_id: str) -> Optional[str]:
+        """A cheap, stable version token for a file (mtime+size, ETag, …) used to
+        key a content cache and detect staleness — without downloading the file.
+
+        Returning None means "no cheap version available"; callers then skip
+        caching and read live. Implementations that DO support it MUST enforce
+        the connection's access scope (raise on an out-of-scope id) so a cache
+        hit is still access-checked. Default: unsupported.
+        """
+        return None
+
     def write_file(
         self,
         filename: str,
@@ -204,6 +223,9 @@ class DataSourceClient(ABC):
 
     async def asearch_files(self, query: str, **kwargs) -> list:
         return await asyncio.to_thread(self.search_files, query, **kwargs)
+
+    async def afile_version(self, file_id: str) -> Optional[str]:
+        return await asyncio.to_thread(self.file_version, file_id)
 
     async def awrite_file(
         self,

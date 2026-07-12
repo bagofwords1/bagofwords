@@ -571,6 +571,10 @@ const props = withDefaults(defineProps<{
   showStats?: boolean;
   pageSize?: number;
   skipRefreshOnSave?: boolean;
+  // Restrict the grid to a single connection's tables (comma-separated
+  // connection IDs also accepted). Used by the per-connection CatalogSelector
+  // so a mixed agent shows each SQL connection's tables in its own section.
+  connectionFilter?: string;
   // Noun used in micro-copy ("Reload {plural}", "No {plural} found", etc.).
   // Defaults to tables. For file-shaped data sources (OneDrive, SharePoint,
   // Google Drive) the parent passes {sing: 'file', plural: 'files'}.
@@ -589,9 +593,14 @@ const props = withDefaults(defineProps<{
   showStats: false,
   pageSize: 100,
   skipRefreshOnSave: false,
+  connectionFilter: '',
 })
 
 const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
+
+// Let a parent composite (CatalogSelector) drive save across several
+// per-connection grids with one button. onSave is a hoisted declaration below.
+defineExpose({ save: () => onSave() })
 
 const toast = useToast()
 
@@ -819,8 +828,12 @@ async function fetchTables() {
       if (selectedSchemas.value.length > 0) {
         params.set('schema_filter', selectedSchemas.value.join(','))
       }
-      if (selectedConnections.value.length > 0) {
-        params.set('connection_filter', selectedConnections.value.join(','))
+      // A forced connectionFilter prop (per-connection section) wins over the
+      // in-grid connection chips.
+      const connFilter = (props.connectionFilter || '').trim()
+        || (selectedConnections.value.length > 0 ? selectedConnections.value.join(',') : '')
+      if (connFilter) {
+        params.set('connection_filter', connFilter)
       }
       if (sort.key) {
         // Map frontend sort keys to backend
@@ -849,7 +862,11 @@ async function fetchTables() {
           totalMatching.value = paginatedData.total
           totalPages.value = paginatedData.total_pages
           selectedCount.value = paginatedData.selected_count
-          totalTables.value = paginatedData.total_tables
+          // When scoped to one connection, "of N" / "N active" should reflect
+          // that connection's own total, not the whole data source.
+          totalTables.value = (props.connectionFilter || '').trim()
+            ? paginatedData.total
+            : paginatedData.total_tables
           
           // Update available schemas (only on first load or refresh)
           if (paginatedData.schemas && paginatedData.schemas.length > 0) {

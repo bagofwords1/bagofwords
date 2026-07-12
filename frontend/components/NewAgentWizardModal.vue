@@ -136,23 +136,11 @@
         </div>
       </div>
 
-      <!-- ── Step 2: Select Tables ────────────────────────────────── -->
+      <!-- ── Step 2: Configure knowledge (tables / files / tools) ──── -->
       <div v-else-if="step === 'schema'">
-        <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Choose 5-20 related tables for this agent. You can always add more later.</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Pick tables for databases, review the file scope for directories — each source its own way.</p>
         <div class="bg-white dark:bg-gray-900 rounded-lg">
-          <TablesSelector
-            :ds-id="dsId"
-            schema="full"
-            :can-update="true"
-            :show-refresh="true"
-            :show-save="true"
-            :show-header="true"
-            header-title="Select tables"
-            header-subtitle="Choose 5-20 related tables. Start focused, you can always add more later."
-            save-label="Save & Continue"
-            :skip-refresh-on-save="true"
-            @saved="step = 'context'"
-          />
+          <AgentKnowledgeTabs :ds-id="dsId" continue-label="Save & Continue" @saved="step = 'context'" />
         </div>
       </div>
 
@@ -208,7 +196,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
-import TablesSelector from '@/components/datasources/TablesSelector.vue'
+import AgentKnowledgeTabs from '@/components/datasources/AgentKnowledgeTabs.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'

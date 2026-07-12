@@ -185,7 +185,21 @@
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noToolsConnected')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" addable :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)" @add="triggerUpload(agent.id)">
+              <TreeGroup :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="filesGroupCount(agent.id)" :indent="1" addable :active="panelView?.kind === 'files' && panelView?.agentId === agent.id" :open="isOpen('files:' + agent.id)" @toggle="onPanelRowClick('files', agent.id)" @add="triggerUpload(agent.id)">
+                <!-- Directory connections: each glob rule, prefixed with its connection-type icon -->
+                <template v-for="fc in (agentFileConns[agent.id] || [])" :key="fc.id">
+                  <div v-for="g in fc.globs" :key="fc.id + ':' + g"
+                    class="flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-600 dark:text-gray-400 min-w-0"
+                    style="padding-inline-start:48px;padding-inline-end:8px">
+                    <DataSourceIcon :type="fc.type" :connector-key="fc.connector_key" class="w-3.5 h-3.5 shrink-0" />
+                    <span class="flex-1 text-start truncate font-mono text-xs">{{ g }}</span>
+                    <span class="text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[100px]">{{ fc.name }}</span>
+                  </div>
+                  <div v-if="fc.globs.length === 0" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 italic min-w-0" style="padding-inline-start:48px">
+                    <DataSourceIcon :type="fc.type" :connector-key="fc.connector_key" class="w-3.5 h-3.5 shrink-0" />
+                    <span class="truncate">{{ fc.name }} · whole path</span>
+                  </div>
+                </template>
                 <div
                   v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
                   class="group/file w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer"
@@ -196,7 +210,7 @@
                   <span class="flex-1 text-start truncate">{{ f.filename }}</span>
                   <button v-if="canManageAgent(agent.id)" class="shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover/file:opacity-100 flex items-center justify-center" :title="$t('agentsPage.tipDeleteFile')" @click.stop="deleteFile(agent.id, f)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
                 </div>
-                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noFiles')" add @add="triggerUpload(agent.id)" :pad="48" />
+                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? 0) === 0 && (agentFileConns[agent.id]?.length ?? 0) === 0" :text="$t('agentsPage.noFiles')" add @add="triggerUpload(agent.id)" :pad="48" />
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
@@ -472,7 +486,7 @@
                 </template>
               </TablesSelector>
               <ToolsSelector
-                v-else
+                v-else-if="panelView.kind === 'tools'"
                 :key="'tools-' + panelView.agentId + '-' + toolsRefreshKey"
                 :ds-id="panelView.agentId"
                 :connections="panelConnections"
@@ -481,6 +495,13 @@
                 @add-custom-api="openAddCustomApi(panelView.agentId)"
                 @edit-connection="openConnectionDetail"
                 @delete-connection="onToolsConnectionChanged"
+              />
+              <AgentFilesPanel
+                v-else-if="panelView.kind === 'files'"
+                :key="'files-' + panelView.agentId"
+                :ds-id="panelView.agentId"
+                :can-update="panelCanUpdate"
+                @edit-connection="openConnectionDetail"
               />
             </div>
           </div>
@@ -925,6 +946,7 @@ import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
+import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
@@ -1013,6 +1035,10 @@ const agentTables = ref<Record<string, { id: string; name: string; is_active: bo
 const agentTableTotals = ref<Record<string, number>>({})
 const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
+// File-source connections per agent, with their include-glob rules — shown in
+// the Files tree next to uploads.
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail'])
+const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
 // file preview
@@ -1122,15 +1148,15 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
@@ -1144,7 +1170,7 @@ const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
 // Row-click on Tables/Tools opens the editable panel immediately (like clicking
 // an agent). Re-clicking the already-open row just collapses the tree node.
-const onPanelRowClick = (kind: 'tables' | 'tools', agentId: string) => {
+const onPanelRowClick = (kind: 'tables' | 'tools' | 'files', agentId: string) => {
   if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(kind + ':' + agentId); return }
   if (!isOpen(kind + ':' + agentId)) expand(kind + ':' + agentId)
   openPanel(kind, agentId)
@@ -2204,6 +2230,12 @@ const fetchAgents = async () => {
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
 // Group an agent's tools by their connection (MCP server / custom API), resolving
 // the connection name + type from the agent's connections for the tree headers.
+// Count shown on the Files tree node: uploads + total glob rules.
+const filesGroupCount = (agentId: string) => {
+  const ups = agentFiles.value[agentId]?.length || 0
+  const globs = (agentFileConns.value[agentId] || []).reduce((n: number, c: any) => n + (c.globs?.length || 0), 0)
+  return (ups + globs) || undefined
+}
 const toolGroups = (agentId: string) => {
   const tools = agentTools.value[agentId] || []
   const a = agents.value.find(x => x.id === agentId)
@@ -2243,6 +2275,17 @@ const loadAgentMeta = async (id: string) => {
   } catch { agentTables.value[id] = []; delete agentTableTotals.value[id] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
+  // File-source connections + their glob rules (shown in the Files tree).
+  try {
+    const { data } = await useMyFetch<any[]>(`/data_sources/${id}/connections`, { method: 'GET' })
+    agentFileConns.value[id] = (data.value || [])
+      .filter((c: any) => FILE_CONN_TYPES.has(c.type))
+      .map((c: any) => ({
+        id: c.id, name: c.name, type: c.type, connector_key: c.connector_key,
+        globs: String(c.config?.include_globs || '').split(/[,\n]/).map((s: string) => s.trim()).filter(Boolean),
+      }))
+    agentFileConns.value = { ...agentFileConns.value }
+  } catch { agentFileConns.value[id] = [] }
   agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }; agentFiles.value = { ...agentFiles.value }
 }
 

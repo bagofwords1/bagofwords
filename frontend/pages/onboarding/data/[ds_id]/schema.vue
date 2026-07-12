@@ -26,18 +26,16 @@
                 </div>
               </div>
 
-              <TablesSelector
-              :key="tablesKey"
-              :dsId="dsId"
-              schema="full"
-              :canUpdate="true"
-              :showRefresh="false"
-              :showSave="!anyIndexing"
-              :saveLabel="$t('onboarding.schema.save')"
-              maxHeight="50vh"
-              :skipRefreshOnSave="true"
-              @saved="onSaved"
-            />
+              <CatalogSelector
+                :key="tablesKey"
+                :ds-id="dsId"
+                :connections="scopeConnections"
+                :registry-by-type="registryByType"
+                :can-update="true"
+                :show-continue="!anyIndexing"
+                :continue-label="$t('onboarding.schema.save')"
+                @saved="onSaved"
+              />
             </template>
           </div>
         </template>
@@ -49,7 +47,7 @@
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
-import TablesSelector from '@/components/datasources/TablesSelector.vue'
+import CatalogSelector from '@/components/datasources/CatalogSelector.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -71,10 +69,25 @@ const indexingConnections = computed(() =>
 )
 const anyIndexing = computed(() => indexingConnections.value.length > 0)
 
+// Connections with config (for CatalogSelector's file-scope) + registry shapes.
+const scopeConnections = ref<any[]>([])
+const registryByType = ref<Record<string, any>>({})
+
 async function fetchDataSource() {
   if (!dsId.value) return
   const { data } = await useMyFetch(`/data_sources/${dsId.value}`, { method: 'GET' })
   dataSource.value = data.value || dataSource.value
+}
+
+async function fetchScopeMeta() {
+  try {
+    const [reg, conns] = await Promise.all([
+      useMyFetch('/available_data_sources', { method: 'GET' }),
+      useMyFetch(`/data_sources/${dsId.value}/connections`, { method: 'GET' }),
+    ])
+    for (const entry of (reg.data.value as any[]) || []) registryByType.value[entry.type] = entry
+    scopeConnections.value = (conns.data.value as any[]) || []
+  } catch (e) { /* non-fatal */ }
 }
 
 const POLL_INTERVAL_MS = 2000
@@ -102,7 +115,7 @@ function maybeStartPolling() {
 
 onMounted(async () => {
   try {
-    await fetchDataSource()
+    await Promise.all([fetchDataSource(), fetchScopeMeta()])
   } finally {
     initialLoading.value = false
   }

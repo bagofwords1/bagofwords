@@ -22,6 +22,11 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients.base import Capability, DataSourceClient
+from app.data_sources.clients._file_source_common import (
+    GlobScopeError,
+    globs_from_str,
+    path_matches_globs,
+)
 
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -94,6 +99,7 @@ class GraphDriveClient(DataSourceClient):
         drive_name: Optional[str] = None,
         # Shared file-scoping config
         folder_path: Optional[str] = None,
+        include_globs: Optional[str] = None,
         allowed_extensions: Optional[str] = None,
         recursive: bool = False,
         # Mode discriminator (set by the registry-specific subclass)
@@ -111,6 +117,11 @@ class GraphDriveClient(DataSourceClient):
         self.site_url = (site_url or "").strip()
         self.drive_name = (drive_name or "").strip() or None
         self.folder_path = (folder_path or "").strip().strip("/") or None
+        # Glob scope relative to folder_path — the connection's access boundary,
+        # enforced at the read chokepoint (mirrors network_dir / s3). Paths are
+        # matched relative to the scoped root, so a pattern like 'Reports/**/*.xlsx'
+        # is written the same way here as for the other file connectors.
+        self.include_globs = globs_from_str(include_globs)
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         self.recursive = bool(recursive)
         self.mode = mode
@@ -166,6 +177,31 @@ class GraphDriveClient(DataSourceClient):
         if not self.allowed_extensions:
             return True
         return _ext(name) in self.allowed_extensions
+
+    def _rel_from_parent(self, parent_path: Optional[str], name: str) -> str:
+        """Path of an item relative to the connection's scoped root (folder_path).
+
+        Graph reports a parent as e.g. '/drives/{id}/root:/Reports/2025'. We take
+        the portion after 'root:', append the file name, then strip the
+        folder_path prefix so globs are matched the same way they are written
+        (relative to the configured folder), exactly like s3's prefix-relative id.
+        """
+        parent = parent_path or ""
+        after = parent.split("root:", 1)[1] if "root:" in parent else ""
+        full = "/".join(p for p in [after.strip("/"), (name or "").strip("/")] if p)
+        root = (self.folder_path or "").strip("/")
+        if root and (full == root or full.startswith(root + "/")):
+            full = full[len(root):].strip("/")
+        return full
+
+    def _enforce_scope(self, rel_path: str) -> None:
+        """Single access chokepoint: an in-drive but off-glob path is DENIED
+        (not merely hidden), mirroring network_dir / s3."""
+        if self.include_globs and not path_matches_globs(rel_path, self.include_globs):
+            raise GlobScopeError(
+                f"'{rel_path}' is outside this connection's allowed patterns "
+                f"({', '.join(self.include_globs)}). Access denied."
+            )
 
     def _get(self, path: str, **kwargs) -> dict:
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
@@ -269,6 +305,10 @@ class GraphDriveClient(DataSourceClient):
                 continue
             if not self._allowed(name):
                 continue
+            # `path` is already relative to the scoped root — filter by the
+            # connection's glob scope so listings never surface off-scope files.
+            if self.include_globs and not path_matches_globs(path, self.include_globs):
+                continue
             results.append({
                 "id": entry["id"],
                 "name": name,
@@ -362,6 +402,10 @@ class GraphDriveClient(DataSourceClient):
         resolved_id = self._resolve_item_id(drive_id, file_id)
         meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
+        # Access boundary: enforce the connection's glob scope BEFORE fetching
+        # bytes. We already hold the item metadata (parentReference + name), so
+        # this costs no extra round-trip. An in-drive but off-glob item is denied.
+        self._enforce_scope(self._rel_from_parent((meta.get("parentReference") or {}).get("path"), name))
         ext = _ext(name)
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         if max_bytes and len(content) > max_bytes:
@@ -391,6 +435,18 @@ class GraphDriveClient(DataSourceClient):
             if "folder" in entry:
                 continue
             if not self._allowed(entry.get("name", "")):
+                continue
+            # Drive-wide search can return hits outside the connection's scoped
+            # root / globs — keep only in-scope results.
+            rel = self._rel_from_parent((entry.get("parentReference") or {}).get("path"), entry.get("name", ""))
+            root = (self.folder_path or "").strip("/")
+            if root:
+                pr = (entry.get("parentReference") or {}).get("path") or ""
+                after = pr.split("root:", 1)[1].strip("/") if "root:" in pr else ""
+                full = "/".join(p for p in [after, (entry.get("name") or "")] if p)
+                if not (full == root or full.startswith(root + "/")):
+                    continue  # outside the scoped folder entirely
+            if self.include_globs and not path_matches_globs(rel, self.include_globs):
                 continue
             results.append({
                 "id": entry["id"],

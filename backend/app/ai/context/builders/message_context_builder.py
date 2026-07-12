@@ -403,6 +403,95 @@ def _digest_scheduled_tool(tool_execution) -> str:
     return ""
 
 
+def _digest_file_tool(tool_execution, allow_llm_see_data: bool = True) -> str:
+    """Digest for the file connector tools (list_files / search_files / read_file
+    / attach_file).
+
+    Without this, these fall through to the generic 60-char result_summary, so a
+    later turn loses the file listing (and re-lists) and loses a read file's
+    content (and re-reads). We keep identifiers + a bounded preview — never the
+    full payload, and never any base64. Returns "" for other tools so callers
+    fall through. The read text snippet is gated on allow_llm_see_data.
+    """
+    name = getattr(tool_execution, 'tool_name', None)
+    if name not in ('list_files', 'search_files', 'read_file', 'attach_file'):
+        return ""
+    rj = getattr(tool_execution, 'result_json', None) or {}
+    if not isinstance(rj, dict):
+        return ""
+
+    if name in ('list_files', 'search_files'):
+        files = rj.get('files') or []
+        total = rj.get('file_count')
+        if not isinstance(total, int):
+            total = len(files)
+        shown = [str(f.get('name') or f.get('id') or '?')[:60]
+                 for f in files[:5] if isinstance(f, dict)]
+        parts = []
+        q = rj.get('query')
+        if q:
+            parts.append(f'q="{str(q)[:60]}"')
+        head = f"found {total}"
+        if shown:
+            more = f" (+{len(files) - 5} more)" if len(files) > 5 else ""
+            head += " — [" + "; ".join(shown) + f"]{more}"
+        parts.append(head)
+        if rj.get('truncated') or rj.get('capped'):
+            parts.append("truncated")
+        return "; ".join(parts)
+
+    if name == 'read_file':
+        parts = []
+        fid = rj.get('file_id')
+        if fid:
+            parts.append(f"file: {str(fid)[:80]}")
+        ct = rj.get('content_type')
+        if ct:
+            parts.append(ct)
+        if ct == 'tabular':
+            rc, cc = rj.get('row_count'), rj.get('col_count')
+            if rc is not None and cc is not None:
+                parts.append(f"{rc}×{cc}")
+        elif ct == 'images':
+            n = rj.get('image_count') or len(rj.get('image_file_ids') or [])
+            tot = rj.get('pages_total')
+            parts.append(f"{n} of {tot} page image(s)" if tot else f"{n} page image(s)")
+            ids = rj.get('image_file_ids') or []
+            if ids:
+                parts.append("img_ids: " + ", ".join(str(i) for i in ids[:4]))
+        elif ct in ('text', 'json'):
+            txt = rj.get('text') or rj.get('csv') or ''
+            parts.append(f"{len(txt)} chars")
+            if txt and allow_llm_see_data:
+                snippet = txt[:200].replace('\n', ' ')
+                parts.append(f'"{snippet}…"' if len(txt) > 200 else f'"{snippet}"')
+        if rj.get('windowed'):
+            parts.append(f"window {rj.get('byte_count')}B of {rj.get('total_size')}"
+                         + (" eof" if rj.get('eof') else ""))
+        sfid = rj.get('session_file_id')
+        if sfid:
+            parts.append(f"session_file_id: {sfid}")
+        if rj.get('truncated'):
+            parts.append("truncated")
+        return "; ".join(parts)
+
+    if name == 'attach_file':
+        parts = []
+        n = rj.get('attached_count')
+        if isinstance(n, int):
+            parts.append(f"attached {n}")
+        files = rj.get('files') or rj.get('attached') or []
+        names = [str(f.get('file_name') or f.get('filename') or f.get('id'))
+                 for f in files[:5] if isinstance(f, dict)]
+        if names:
+            parts.append(", ".join(names))
+        if rj.get('error'):
+            parts.append(f"error: {str(rj.get('error'))[:80]}")
+        return "; ".join(parts) if parts else "attached"
+
+    return ""
+
+
 def _digest_notification_tool(tool_execution) -> str:
     """One-line digest for notification tools (send_email today; Slack/Teams
     later) so the conversation history records that the user was notified, with
@@ -959,6 +1048,10 @@ class MessageContextBuilder:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'web_search':
                                     digest = _digest_web_search(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in ('list_files', 'search_files', 'read_file', 'attach_file') and tool_execution.result_json:
+                                    digest = _digest_file_tool(tool_execution, allow_llm_see_data)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.created_widget_id:
@@ -1555,6 +1648,10 @@ class MessageContextBuilder:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name == 'web_search':
                                 digest = _digest_web_search(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.status == 'success' and tool_execution.tool_name in ('list_files', 'search_files', 'read_file', 'attach_file') and tool_execution.result_json:
+                                digest = _digest_file_tool(tool_execution, allow_llm_see_data)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.status == 'error' and tool_execution.error_message:

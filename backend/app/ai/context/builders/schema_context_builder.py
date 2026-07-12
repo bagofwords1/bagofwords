@@ -383,7 +383,12 @@ class SchemaContextBuilder:
                     filtered.append(t)
                 tables = filtered
 
-            # Apply top_k cap last
+            # Pull file-source connections OUT of the table pool: they render as
+            # compact scope descriptors, not per-file <table> rows — so they
+            # never consume the top_k budget or bloat the prompt.
+            file_scopes, tables = self._build_file_scopes(ds, tables)
+
+            # Apply top_k cap last (to the remaining structured tables only)
             if top_k is not None and top_k > 0:
                 tables = tables[:top_k]
 
@@ -404,6 +409,7 @@ class SchemaContextBuilder:
                     ),
                     tables=tables,
                     mcp_tools=mcp_tools,
+                    file_scopes=file_scopes,
                 )
             )
 
@@ -433,6 +439,80 @@ class SchemaContextBuilder:
             return status.effective_auth or 'none'
         except Exception:
             return 'none'
+
+    # File-source connectors and which of them have a native search API.
+    _FILE_SOURCE_TYPES = {"network_dir", "s3", "sharepoint", "onedrive", "google_drive", "outlook_mail"}
+    _NATIVE_SEARCH_TYPES = {"sharepoint", "onedrive", "google_drive"}
+    # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
+    # account IS the scope. Everything else enforces a path/glob scope.
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail"}
+
+    def _build_file_scopes(self, ds, tables):
+        """Turn the data source's file-source connections into compact scope
+        descriptors and remove their per-file rows from `tables`.
+
+        Returns (file_scopes, remaining_tables)."""
+        import json as _json
+        import re as _re
+        from collections import defaultdict
+        from app.ai.context.sections.tables_schema_section import FileScopeItem
+
+        conns = getattr(ds, 'connections', None) or []
+        file_conns = [c for c in conns if getattr(c, 'type', None) in self._FILE_SOURCE_TYPES]
+        if not file_conns:
+            return [], tables
+
+        file_conn_ids = {str(c.id) for c in file_conns}
+        by_conn = defaultdict(list)
+        remaining = []
+        for t in (tables or []):
+            cid = str(getattr(t, 'connection_id', '') or '')
+            (by_conn[cid].append(t) if cid in file_conn_ids else remaining.append(t))
+
+        scopes = []
+        for c in file_conns:
+            cfg = c.config
+            if isinstance(cfg, str):
+                try:
+                    cfg = _json.loads(cfg or "{}")
+                except Exception:
+                    cfg = {}
+            cfg = cfg or {}
+            globs = [g.strip() for g in _re.split(r"[,\n]", str(cfg.get("include_globs") or "")) if g.strip()]
+            index_mode = cfg.get("index_mode") or ("content" if cfg.get("index_content", True) else "metadata")
+            base = (f"s3://{cfg.get('bucket')}/{cfg.get('prefix') or ''}"
+                    if cfg.get("bucket") else cfg.get("root_path"))
+            cid = str(c.id)
+            ftabs = by_conn.get(cid, [])
+            sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
+            topics, seen = [], set()
+            for t in ftabs:
+                mj = getattr(t, 'metadata_json', None) or {}
+                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph")
+                       or mj.get("google_drive") or {}) if isinstance(mj, dict) else {}
+                for kw in (sub.get("keywords") or []):
+                    k = str(kw).lower()
+                    if k not in seen:
+                        seen.add(k); topics.append(kw)
+                    if len(topics) >= 12:
+                        break
+                if len(topics) >= 12:
+                    break
+            supports_search = (c.type in self._NATIVE_SEARCH_TYPES) or (index_mode == "content")
+            # Per-user OAuth connection: each user reads with their own token, so
+            # the cached sample/count (if any) is not a global truth. Flag it so
+            # the descriptor tells the model discovery is per-user + live.
+            per_user = (getattr(c, "auth_policy", None) == "user_required"
+                        and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
+            enforces_scope = c.type not in self._TOKEN_SCOPED_TYPES
+            scopes.append(FileScopeItem(
+                connection_id=cid, name=c.name, type=c.type, base=base,
+                globs=globs, index_mode=index_mode, file_count=len(ftabs),
+                capped=False, sample=sample, topics=topics,
+                supports_search=supports_search, writable=bool(cfg.get("writable")),
+                per_user=bool(per_user), enforces_scope=enforces_scope,
+            ))
+        return scopes, remaining
 
     async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
         """Query enabled MCP/custom_api tools for a data source's connections."""

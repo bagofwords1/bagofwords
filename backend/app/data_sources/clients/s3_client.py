@@ -34,7 +34,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table
-from app.data_sources.clients._document_text import DOC_EXTS, extract_document_text
+from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
+from app.data_sources.clients._file_source_common import (
+    INDEX_CONTENT,
+    INDEX_NONE,
+    GlobScopeError,
+    globs_from_str,
+    normalize_index_mode,
+    path_matches_globs,
+)
 from app.data_sources.clients._keywords import extract_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
@@ -60,6 +68,10 @@ class S3Client(DataSourceClient):
         Capability.READ_FILE,
     }
 
+    # A bounded list_objects_v2 under the prefix is cheap enough to do live per
+    # call → list per-connection from the source, not the shared catalog cache.
+    cheap_live_listing = True
+
     def __init__(
         self,
         bucket: Optional[str] = None,
@@ -67,9 +79,11 @@ class S3Client(DataSourceClient):
         region: Optional[str] = None,
         endpoint_url: Optional[str] = None,
         allowed_extensions: Optional[str] = None,
+        include_globs: Optional[str] = None,
         recursive: bool = True,
         max_file_mb: int = 100,
         index_content: bool = True,
+        index_mode: Optional[str] = None,
         max_catalog_objects: int = 5000,
         max_keywords: int = 50,
         # Credentials (one variant's worth is present at a time).
@@ -87,9 +101,13 @@ class S3Client(DataSourceClient):
         self.region = (region or "").strip() or None
         self.endpoint_url = (endpoint_url or "").strip() or None
         self.allowed_extensions = self._parse_exts(allowed_extensions)
+        # Include-globs (relative to the prefix) scope the connection AND act as
+        # an access boundary enforced in _resolve_key.
+        self.include_globs = globs_from_str(include_globs)
         self.recursive = bool(recursive)
         self.max_file_bytes = int(max_file_mb) * 1024 * 1024 if max_file_mb else None
-        self.index_content = bool(index_content)
+        self.index_mode = normalize_index_mode(index_mode, index_content_legacy=index_content)
+        self.index_content = self.index_mode == INDEX_CONTENT
         self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 5000
         self.max_keywords = int(max_keywords) if max_keywords else 50
 
@@ -135,7 +153,7 @@ class S3Client(DataSourceClient):
             return True
         return name.lower() in {".ds_store", "thumbs.db", "desktop.ini"}
 
-    def _resolve_key(self, rel_or_id: str) -> str:
+    def _resolve_key(self, rel_or_id: str, *, enforce_scope: bool = True) -> str:
         """Resolve a file id / relative path to an absolute S3 key INSIDE the
         configured prefix. This is the single security chokepoint: any id that
         escapes the prefix (`..`, absolute, leading slash tricks) is rejected.
@@ -164,6 +182,16 @@ class S3Client(DataSourceClient):
                 raise ValueError(f"Key escapes the connection prefix: {rel_or_id}")
         if normalized.startswith("/") or normalized.startswith(".."):
             raise ValueError(f"Key escapes the connection prefix: {rel_or_id}")
+        # Access boundary: if include-globs are configured, the prefix-relative
+        # key must match one — else a read/attach of an in-prefix but off-glob
+        # object is denied here (single chokepoint), not merely hidden.
+        if enforce_scope and self.include_globs:
+            rel = self._rel_id(normalized)
+            if not path_matches_globs(rel, self.include_globs):
+                raise GlobScopeError(
+                    f"'{rel}' is outside this connection's allowed patterns "
+                    f"({', '.join(self.include_globs)}). Access denied."
+                )
         return normalized
 
     def _rel_id(self, key: str) -> str:
@@ -239,7 +267,7 @@ class S3Client(DataSourceClient):
         # Scope the listing to prefix (+ optional sub-folder id).
         list_prefix = self.prefix
         if folder_id:
-            sub = self._resolve_key(folder_id)
+            sub = self._resolve_key(folder_id, enforce_scope=False)
             list_prefix = sub if sub.endswith("/") else sub + "/"
 
         paginator = s3.get_paginator("list_objects_v2")
@@ -259,6 +287,11 @@ class S3Client(DataSourceClient):
                 if self._is_junk(key):
                     continue
                 if not self._allowed(key.rsplit("/", 1)[-1]):
+                    continue
+                # Scope filter: only prefix-relative keys matching include-globs.
+                if self.include_globs and not path_matches_globs(
+                    self._rel_id(key), self.include_globs
+                ):
                     continue
                 entries.append(self._entry(key, obj.get("Size", 0), obj.get("LastModified")))
         entries.sort(key=lambda e: (not e["is_folder"], e["path"].lower()))
@@ -292,7 +325,9 @@ class S3Client(DataSourceClient):
 
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(data, key)
-            return text if text else data
+            # Near-empty extraction on a rich doc (scanned / image-based / CID
+            # font) → return raw bytes so the tool can render it for vision.
+            return text if doc_text_is_usable(text) else data
 
         if ext == "csv":
             return pd.read_csv(io.BytesIO(data))
@@ -313,6 +348,21 @@ class S3Client(DataSourceClient):
             return data.decode("utf-8")
         except UnicodeDecodeError:
             return data
+
+    def file_version(self, file_id: str) -> Optional[str]:
+        """ETag (falls back to size:last-modified) as the cache key. `_resolve_key`
+        enforces the glob scope, so an off-scope id raises — a cache hit stays
+        access-checked. One cheap HEAD, no object download."""
+        key = self._resolve_key(file_id, enforce_scope=True)  # raises GlobScopeError off-glob
+        try:
+            head = self._client().head_object(Bucket=self.bucket, Key=key)
+            etag = (head.get("ETag") or "").strip('"')
+            if etag:
+                return etag
+            lm = head.get("LastModified")
+            return f"{int(head.get('ContentLength', 0))}:{lm.timestamp() if lm else ''}"
+        except Exception:
+            return None
 
     def _get_bytes(self, key: str) -> Tuple[bytes, int]:
         """Fetch a whole object's bytes, enforcing the size cap via a HEAD first
@@ -451,9 +501,11 @@ class S3Client(DataSourceClient):
 
     def get_schemas(self, progress_callback=None) -> List[Table]:
         """Index the bucket/prefix into catalog rows (bounded by
-        max_catalog_objects). When index_content is on, each object's contents
-        are read once to extract keywords + a content hash, stored in
-        metadata_json so the tool-layer search matches by topic."""
+        max_catalog_objects). Honors the index tier: `none` caches nothing
+        (live at the tool layer), `metadata` lists without reading contents,
+        `content` also extracts keywords + a content hash for topic search."""
+        if self.index_mode == INDEX_NONE:
+            return []
         tables: List[Table] = []
         files = self.list_files(recursive=self.recursive)
         truncated = False
