@@ -13,6 +13,15 @@ from app.services.data_source_service import DataSourceService
 from app.settings.config import settings
 
 
+# Sending one of these words — and nothing else — starts a fresh conversation
+# report instead of continuing the current one. Matched case-insensitively after
+# trimming surrounding whitespace, so "new", "New" and "  new  " all qualify but
+# "new report" / "retry new" do not. Only platforms that reuse a report across
+# messages (Teams 1:1, WhatsApp) honour it; see _is_new_conversation_command.
+NEW_REPORT_COMMANDS = {"new", "חדש"}
+NEW_REPORT_COMMAND_PLATFORMS = {"teams", "whatsapp"}
+
+
 class ExternalPlatformManager:
     """Manages external platform interactions"""
     
@@ -283,6 +292,55 @@ class ExternalPlatformManager:
             token
         )
 
+    @staticmethod
+    def _is_new_conversation_command(platform_type: str, text: str) -> bool:
+        """Return True when the whole message is a single "start fresh" keyword.
+
+        Only the exact word (e.g. "new" / "חדש") counts — "new report" or
+        "retry new" are ordinary prompts, not commands — and only on platforms
+        that otherwise reuse a report across messages (Teams 1:1, WhatsApp),
+        where the user has no other way to break out of the running report.
+        """
+        if platform_type not in NEW_REPORT_COMMAND_PLATFORMS:
+            return False
+        if not text:
+            return False
+        return text.strip().lower() in NEW_REPORT_COMMANDS
+
+    async def _find_recent_platform_report(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user_id: str,
+        platform_id: str,
+        max_age_days: int,
+    ) -> Optional[Any]:
+        """Return the user's most recent report for a platform within the window.
+
+        Report-level (rather than completion-level) lookup, so a freshly created
+        report with no completions yet — e.g. one started by a "new" command —
+        is still picked up by the next message.
+        """
+        from app.models.report import Report
+        from sqlalchemy import select, and_
+        import datetime
+
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=max_age_days)
+        result = await db.execute(
+            select(Report)
+            .filter(
+                and_(
+                    Report.external_platform_id == platform_id,
+                    Report.organization_id == organization_id,
+                    Report.user_id == user_id,
+                    Report.created_at >= cutoff,
+                )
+            )
+            .order_by(Report.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def _get_or_create_conversation_report(
         self,
         db: AsyncSession,
@@ -290,6 +348,7 @@ class ExternalPlatformManager:
         user: Any,
         user_mapping: ExternalUserMapping,
         channel_type: str = None,
+        force_new: bool = False,
     ) -> Tuple[Any, bool]:
         """
         Get a report for a user if one from the platform exists from the last 24 hours,
@@ -319,7 +378,7 @@ class ExternalPlatformManager:
         # the user's most recent report from the last 24h (mirrors Teams'
         # per-conversation reuse). Other platforms mint a fresh report per
         # top-level message and rely on thread replies for continuation.
-        if user_mapping.platform_type == "whatsapp":
+        if user_mapping.platform_type == "whatsapp" and not force_new:
             result = await db.execute(
                 select(Report)
                 .filter(
@@ -449,22 +508,53 @@ class ExternalPlatformManager:
         created = False
 
         platform_type = processed_data.get("platform_type", "slack")
+        message_text = processed_data.get("message_text") or ""
 
-        if is_thread_reply and thread_ts and platform_type != "whatsapp":
+        # A lone "new"/"חדש" message is a command to start a fresh report, not a
+        # prompt — only on platforms that otherwise keep reusing one report
+        # (Teams 1:1, WhatsApp), where the user has no other way out. Force-create
+        # the report, confirm it, and stop: there's no question to answer yet, so
+        # we don't create a completion. The next message reuses this fresh report.
+        if self._is_new_conversation_command(platform_type, message_text):
+            report, _ = await self._get_or_create_conversation_report(
+                db, organization, user, user_mapping, channel_type, force_new=True
+            )
+            report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
+            if platform_type == "teams":
+                report_link = f"[{report.title}]({report_url})"
+            else:  # whatsapp
+                report_link = f"{report.title} ({report_url})"
+            await adapter.send_dm_in_thread(
+                user_mapping.external_user_id,
+                f"> I've started a new conversation report for you: {report_link}",
+                thread_ts,
+                channel_id=channel_id,
+            )
+            return {
+                "success": True,
+                "action": "new_conversation_started",
+                "user_id": user_mapping.app_user_id,
+                "report_id": str(report.id),
+                "thread_ts": thread_ts,
+            }
+
+        if platform_type == "teams" and channel_type == "personal":
+            # Teams 1:1 chats have no threading, so reuse the user's most recent
+            # Teams report within a 5-day window (older ones start fresh). This is
+            # report-level rather than keyed on a completion's thread_ts, so a
+            # report just started by a "new" command — which has no completion
+            # yet — is still the one this next message continues.
+            report = await self._find_recent_platform_report(
+                db, organization.id, user.id, user_mapping.platform_id,
+                max_age_days=5,
+            )
+        elif is_thread_reply and thread_ts and platform_type != "whatsapp":
             # This is a reply in an existing thread - find the associated report.
             # WhatsApp is excluded: its thread_ts is the (per-message) inbound id,
             # not a stable conversation key, so it reuses by 24h window instead.
             report = await self._find_report_by_thread_ts(
                 db, organization.id, user.id, thread_ts,
                 platform_type=platform_type,
-            )
-        elif platform_type == "teams" and channel_type == "personal" and thread_ts:
-            # Teams 1:1 chats have no threading — reuse report by conversation ID
-            # within a 5-day window so old conversations start fresh
-            report = await self._find_report_by_thread_ts(
-                db, organization.id, user.id, thread_ts,
-                platform_type=platform_type,
-                max_age_days=5,
             )
 
         if not report:
