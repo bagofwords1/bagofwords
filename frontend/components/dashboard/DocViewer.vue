@@ -212,7 +212,7 @@ const docDir = computed(() => detectDocDir(props.markdown))
   max-width: 46rem;
   margin: 0 auto;
   padding: 3rem 1.5rem 5rem;
-  font-size: 0.9375rem;
+  font-size: 0.875rem; /* 14px — document-scale body text (Google Docs / Notion feel) */
   line-height: 1.75;
   color: rgb(55 65 81); /* gray-700 */
 }
