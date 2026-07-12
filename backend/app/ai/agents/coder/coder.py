@@ -64,6 +64,27 @@ class Coder:
             return value if isinstance(value, str) else None
         return current_time_str(_get("timezone"), _get("week_start"), _get("locale"))
 
+    def _lazy_query_instruction(self) -> str:
+        """Codegen prompt line for the opt-in lazy query path, or "" when the
+        org hasn't enabled it. Resolved through the same helper the execution
+        wrapper uses, so the prompt never advertises a method the sandbox
+        would then refuse (and a missing settings object means disabled, not
+        a crash)."""
+        from app.ai.code_execution.code_execution import resolve_lazy_enabled
+
+        if not resolve_lazy_enabled(self.organization_settings):
+            return ""
+        return (
+            "- OUT-OF-CORE (LAZY) QUERIES ENABLED: for potentially large result sets "
+            "(full-table scans, or queries without aggregation/LIMIT), PREFER "
+            "`ds_clients[\"<client_key>\"].execute_query_lazy(\"SOME QUERY\")` over `execute_query`. "
+            "It streams results to disk and returns a LazyFrame exposing the same interface plus "
+            "lazy transforms (`.sql(...)`, `.limit(n)`). Push filters/aggregation into the SQL. "
+            "You may return the LazyFrame directly (it is materialized under a bounded cap) or reduce "
+            "then materialize with `.to_df()` (e.g. `lf.limit(n).to_df()`). For small or already-"
+            "aggregated results, `execute_query` is fine."
+        )
+
     async def execute(self, schemas, persona, prompt, memories, previous_messages):
         # Implementation left out as not requested.
         pass
@@ -206,18 +227,7 @@ class Coder:
         # Define data preview instruction based on enable_llm_see_data flag
         data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
 
-        _lazy_cfg = self.organization_settings.get_config("enable_lazy_queries")
-        lazy_enabled = bool(getattr(_lazy_cfg, "value", _lazy_cfg))
-        lazy_query_instruction = (
-            "- OUT-OF-CORE (LAZY) QUERIES ENABLED: for potentially large result sets "
-            "(full-table scans, or queries without aggregation/LIMIT), PREFER "
-            "`ds_clients[\"<client_key>\"].execute_query_lazy(\"SOME QUERY\")` over `execute_query`. "
-            "It streams results to disk and returns a LazyFrame exposing the same interface plus "
-            "lazy transforms (`.sql(...)`, `.limit(n)`). Push filters/aggregation into the SQL. "
-            "You may return the LazyFrame directly (it is materialized under a bounded cap) or reduce "
-            "then materialize with `.to_df()` (e.g. `lf.limit(n).to_df()`). For small or already-"
-            "aggregated results, `execute_query` is fine."
-        ) if lazy_enabled else ""
+        lazy_query_instruction = self._lazy_query_instruction()
 
         similar_successful_code_snippets = await code_context_builder.get_top_successful_snippets_for_data_model(data_model)
         similar_failed_code_snippets = await code_context_builder.get_top_failed_snippets_for_data_model(data_model)
@@ -532,18 +542,7 @@ class Coder:
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
             data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
-            _lazy_cfg = self.organization_settings.get_config("enable_lazy_queries")
-            lazy_enabled = bool(getattr(_lazy_cfg, "value", _lazy_cfg))
-            lazy_query_instruction = (
-                "- OUT-OF-CORE (LAZY) QUERIES ENABLED: for potentially large result sets "
-                "(full-table scans, or queries without aggregation/LIMIT), PREFER "
-                "`ds_clients[\"<client_key>\"].execute_query_lazy(\"SOME QUERY\")` over `execute_query`. "
-                "It streams results to disk and returns a LazyFrame exposing the same interface plus "
-                "lazy transforms (`.sql(...)`, `.limit(n)`). Push filters/aggregation into the SQL. "
-                "You may return the LazyFrame directly (it is materialized under a bounded cap) or reduce "
-                "then materialize with `.to_df()` (e.g. `lf.limit(n).to_df()`). For small or already-"
-                "aggregated results, `execute_query` is fine."
-            ) if lazy_enabled else ""
+            lazy_query_instruction = self._lazy_query_instruction()
             # If the user is clearly referring to a step we can load, force reuse
             # via load_step instead of writing SQL from scratch. Detected here (not
             # left to the model) so a weak model can't drift back to re-querying.
