@@ -177,4 +177,5 @@ async def run_prompt_for(
         db, prompt_id, current_user, organization,
         principal_type=data.principal_type, user_ids=data.user_ids,
         group_id=data.group_id, parameters=data.parameters,
+        delivery_channels=data.delivery_channels,
     )

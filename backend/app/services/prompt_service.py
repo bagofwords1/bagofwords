@@ -557,15 +557,85 @@ class PromptService:
 
         return {"users": users, "groups": groups}
 
+    async def _resolve_teams_destination(self, db, organization, target_user_id):
+        """Where to deliver a run-for result inside Teams for `target_user_id`.
+
+        Returns ``(external_user_id, external_channel_id)`` when the target has
+        a verified Teams mapping, else ``None`` (they simply don't get a Teams
+        message). ``external_channel_id`` is the target's existing 1:1 chat with
+        the bot when we've seen one, or ``None`` — in which case the adapter
+        opens a fresh 1:1 conversation from the user id at send time.
+        """
+        from app.services.external_user_mapping_service import ExternalUserMappingService
+        from app.models.completion import Completion
+
+        mapping = await ExternalUserMappingService().get_mapping_by_app_user(
+            db, str(organization.id), "teams", str(target_user_id)
+        )
+        if not mapping or not mapping.is_verified or not mapping.external_user_id:
+            return None
+
+        conv_id = (await db.execute(
+            select(Completion.external_channel_id)
+            .where(
+                Completion.external_platform == "teams",
+                Completion.external_user_id == mapping.external_user_id,
+                Completion.external_channel_type == "personal",
+                Completion.external_channel_id.isnot(None),
+            )
+            .order_by(Completion.created_at.desc())
+            .limit(1)
+        )).scalars().first()
+        return (mapping.external_user_id, conv_id)
+
+    async def _deliver_run_for_email(self, db, organization, target, prompt_title, actor_name, report):
+        """Email the target a link to the report an admin just ran for them.
+
+        Best-effort: no-ops (logs) if the target has no email or SMTP isn't
+        configured — the email channel never blocks the run itself.
+        """
+        email = getattr(target, "email", None)
+        if not email:
+            return
+        try:
+            from app.services.notification_service import NotificationService
+            from app.schemas.notification_schema import NotificationChannel, NotificationType
+            from app.dependencies import _locale_from_org
+            from app.settings.config import settings
+
+            base_url = (getattr(settings.bow_config, "base_url", None) or "http://localhost:3000") if settings.bow_config else "http://localhost:3000"
+            await NotificationService().dispatch(
+                notification_type=NotificationType.SCHEDULE_REPORT,
+                channels=[NotificationChannel.EMAIL],
+                recipients=[email],
+                share_url=f"{base_url}/reports/{report.id}",
+                report_title=prompt_title,
+                sender_name=actor_name,
+                message=f"{actor_name} ran the prompt '{prompt_title}' for you.",
+                report_id=str(report.id),
+                db=db,
+                organization_id=str(organization.id),
+                locale=_locale_from_org(organization),
+            )
+        except Exception:
+            logger.exception("run-for: email delivery failed for user=%s", getattr(target, "id", None))
+
     async def run_prompt_for(
         self, db: AsyncSession, prompt_id: str, current_user: User,
         organization: Organization, principal_type: str,
         user_ids: Optional[List[str]] = None, group_id: Optional[str] = None,
         parameters: Optional[Dict[str, Any]] = None,
+        delivery_channels: Optional[List[str]] = None,
     ) -> dict:
         """Admin run-on-behalf. For each eligible target user, create a report
         owned by + private to that target, run as that target, record a
         prompt_runs row (actor=admin), and notify the target.
+
+        `delivery_channels` optionally pushes each result beyond the report +
+        in-app inbox: 'teams' delivers the answer to the target's Teams DM (via
+        the completion's external routing), 'email' sends them a link. Both are
+        best-effort per target — a target the channel can't reach still gets
+        the report and inbox notification.
 
         Authz: full_admin OR `manage` on ALL the prompt's agents.
         Eligibility: each target must be able to RESOLVE the prompt; the rest
@@ -588,6 +658,9 @@ class PromptService:
         target_ids = await self._expand_principal(
             db, organization, principal_type, user_ids, group_id
         )
+
+        # Only the channels we actually support today; unknown values ignored.
+        channels = {c for c in (delivery_channels or []) if c in ("teams", "email")}
 
         report_service = ReportService()
         completion_service = CompletionService()
@@ -613,6 +686,23 @@ class PromptService:
                 db, prompt, target, organization, report_service, ReportCreate
             )
 
+            # Teams delivery rides on the completion's external routing: when we
+            # stamp external_platform/user/channel, the completion-finished
+            # listeners push the answer to the target's Teams DM. Resolve it
+            # up front; a target with no verified Teams mapping just gets no
+            # Teams message (report + inbox still happen).
+            teams_kwargs = {}
+            if "teams" in channels:
+                teams_dest = await self._resolve_teams_destination(db, organization, tid)
+                if teams_dest:
+                    ext_user_id, ext_channel_id = teams_dest
+                    teams_kwargs = dict(
+                        external_platform="teams",
+                        external_user_id=ext_user_id,
+                        external_channel_id=ext_channel_id,
+                        external_channel_type="personal",
+                    )
+
             await completion_service.create_completion(
                 db,
                 report.id,
@@ -625,12 +715,18 @@ class PromptService:
                 current_user=target,
                 organization=organization,
                 background=True,
+                **teams_kwargs,
             )
 
             await self._record_run(
                 db, prompt_id=prompt.id, user_id=tid,
                 actor_id=current_user.id, report_id=report.id, parameters=parameters,
             )
+
+            if "email" in channels:
+                await self._deliver_run_for_email(
+                    db, organization, target, prompt_title, actor_name, report
+                )
 
             # Transparency: tell the target an admin ran a prompt for them.
             try:
@@ -665,6 +761,7 @@ class PromptService:
                     "group_id": str(group_id) if group_id else None,
                     "ran": ran,
                     "skipped": skipped,
+                    "delivery_channels": sorted(channels),
                 },
             )
         except Exception:
