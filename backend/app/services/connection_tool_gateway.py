@@ -31,6 +31,15 @@ from app.models.data_source import DataSource
 from app.models.data_source_connection_tool import DataSourceConnectionTool
 from app.models.domain_connection import domain_connection
 from app.models.organization import Organization
+from app.services.tool_policy_service import (
+    ToolPolicyService,
+    TOOL_POLICY_ALLOW,
+    TOOL_POLICY_ASK,
+    TOOL_POLICY_AUTO,
+    TOOL_POLICY_DENY,
+    normalize_tool_policy,
+    resolve_effective_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +59,12 @@ class GatewayTool:
     data_source_name: Optional[str]
     input_schema: Optional[Dict[str, Any]]
     is_enabled: bool
-    policy: str  # allow | confirm | deny
+    policy: str  # admin policy: allow | ask | deny | auto
+    connection_tool_id: Optional[str] = None
+    # Requesting user's own preference and the policy that applies to them
+    # (only differs from ``policy`` when list_tools was given a user).
+    user_policy: Optional[str] = None
+    effective_policy: Optional[str] = None
 
     def to_summary(self) -> Dict[str, Any]:
         """Compact form (no input_schema) — mirrors the internal <mcp_tools> block."""
@@ -61,7 +75,7 @@ class GatewayTool:
             "connection_name": self.connection_name or "",
             "connection_type": self.connection_type or "",
             "data_source_id": self.data_source_id,
-            "policy": self.policy,
+            "policy": self.effective_policy or self.policy,
         }
 
     def to_full(self) -> Dict[str, Any]:
@@ -143,12 +157,15 @@ class ConnectionToolGateway:
         *,
         data_source_ids: List[str],
         include_disabled: bool = False,
+        current_user=None,
     ) -> List[GatewayTool]:
         """List effective tools across the given agents.
 
         Effective ``is_enabled`` / ``policy`` come from the per-agent overlay
         when present, otherwise the ConnectionTool default. Disabled tools are
-        excluded unless ``include_disabled`` is set.
+        excluded unless ``include_disabled`` is set. When ``current_user`` is
+        given, each tool also carries that user's own preference and the
+        user-resolved ``effective_policy``.
         """
         data_source_ids = [str(i) for i in (data_source_ids or [])]
         if not data_source_ids:
@@ -178,8 +195,16 @@ class ConnectionToolGateway:
             )
         )
         tools_by_conn: Dict[str, List[ConnectionTool]] = {}
+        all_tool_ids: List[str] = []
         for ct in ct_rows.scalars().all():
             tools_by_conn.setdefault(str(ct.connection_id), []).append(ct)
+            all_tool_ids.append(str(ct.id))
+
+        user_prefs: Dict[str, str] = {}
+        if current_user is not None and all_tool_ids:
+            user_prefs = await ToolPolicyService().get_user_preferences(
+                db, str(current_user.id), all_tool_ids
+            )
 
         result: List[GatewayTool] = []
         for ds_id, conns in conns_by_ds.items():
@@ -187,9 +212,10 @@ class ConnectionToolGateway:
                 for ct in tools_by_conn.get(str(conn.id), []):
                     overlay = overlays.get((ds_id, str(ct.id)))
                     is_enabled = overlay.is_enabled if overlay else ct.is_enabled
-                    policy = overlay.policy if overlay else ct.policy
+                    policy = normalize_tool_policy(overlay.policy if overlay else ct.policy)
                     if not is_enabled and not include_disabled:
                         continue
+                    user_policy = user_prefs.get(str(ct.id))
                     result.append(
                         GatewayTool(
                             name=ct.name,
@@ -202,6 +228,9 @@ class ConnectionToolGateway:
                             input_schema=ct.input_schema,
                             is_enabled=is_enabled,
                             policy=policy,
+                            connection_tool_id=str(ct.id),
+                            user_policy=user_policy,
+                            effective_policy=resolve_effective_policy(policy, user_policy),
                         )
                     )
         return result
@@ -220,12 +249,16 @@ class ConnectionToolGateway:
     ) -> GatewayResult:
         """Invoke ``tool_name`` on one of ``data_source_id``'s tool connections.
 
-        Enforces effective enablement + policy. By default only ``allow`` tools
-        run; ``confirm`` is blocked unless ``allow_confirm`` is set, and ``deny``
-        is always blocked (there is no interactive confirm over the MCP gateway).
+        Enforces effective enablement + policy for ``current_user`` (their
+        preference stacks on the admin layers; admin deny is absolute). Only
+        ``allow`` tools run by default; ``ask`` is blocked unless
+        ``allow_confirm`` is set (there is no interactive prompt over the MCP
+        gateway), ``deny`` is always blocked, and ``auto`` delegates the
+        decision to the small-model tool-call judge.
         """
         tools = await self.list_tools(
-            db, organization, data_source_ids=[str(data_source_id)], include_disabled=True
+            db, organization, data_source_ids=[str(data_source_id)],
+            include_disabled=True, current_user=current_user,
         )
         candidates = [t for t in tools if t.name == tool_name]
         if connection_id:
@@ -248,17 +281,34 @@ class ConnectionToolGateway:
                 blocked_by_policy="disabled",
             )
 
-        allowed_policies = {"allow"} | ({"confirm"} if allow_confirm else set())
-        if tool.policy not in allowed_policies:
+        effective = tool.effective_policy or tool.policy
+        if effective == TOOL_POLICY_AUTO:
+            verdict = await self._auto_judge(
+                db, organization, current_user, tool, arguments or {}
+            )
+            if not verdict.approve:
+                return GatewayResult(
+                    success=False,
+                    content_type="text",
+                    error=(
+                        f"Tool '{tool_name}' was declined by automatic policy review: "
+                        f"{verdict.reason or 'not approved'}."
+                    ),
+                    input_schema=tool.input_schema,
+                    blocked_by_policy=TOOL_POLICY_AUTO,
+                )
+        elif effective != TOOL_POLICY_ALLOW and not (
+            effective == TOOL_POLICY_ASK and allow_confirm
+        ):
             return GatewayResult(
                 success=False,
                 content_type="text",
                 error=(
-                    f"Tool '{tool_name}' is blocked by policy '{tool.policy}' and "
+                    f"Tool '{tool_name}' is blocked by policy '{effective}' and "
                     f"cannot be invoked through the MCP gateway."
                 ),
                 input_schema=tool.input_schema,
-                blocked_by_policy=tool.policy,
+                blocked_by_policy=effective,
             )
 
         # Resolve the Connection ORM object and construct a provider client.
@@ -308,4 +358,29 @@ class ConnectionToolGateway:
             data=raw.get("data"),
             connection_name=conn.name,
             input_schema=tool.input_schema,
+        )
+
+    async def _auto_judge(self, db, organization, current_user, tool: GatewayTool, arguments: Dict[str, Any]):
+        """Small-model review of an 'auto' policy call on the gateway path."""
+        from app.ai.classifiers.tool_call_judge import ToolCallJudge, ToolCallVerdict
+
+        try:
+            from app.services.llm_service import LLMService
+
+            small_model = await LLMService().get_default_model(
+                db, organization, current_user, is_small=True
+            )
+        except Exception as e:
+            logger.error("ConnectionToolGateway: failed to resolve small model: %s", e)
+            small_model = None
+        if small_model is None:
+            return ToolCallVerdict(
+                approve=False, confidence=0.0,
+                reason="no LLM model available for automatic policy review",
+            )
+        return await ToolCallJudge(small_model).judge(
+            tool_name=tool.name,
+            tool_description=tool.description,
+            connection_name=tool.connection_name,
+            arguments=arguments,
         )

@@ -82,8 +82,12 @@ class ListAgentToolsMCPTool(MCPTool):
             return MCPListAgentToolsOutput(tools=[], total_count=0).model_dump()
 
         gateway_tools = await ConnectionToolGateway().list_tools(
-            db, organization, data_source_ids=ds_ids
+            db, organization, data_source_ids=ds_ids, current_user=user
         )
+        # Never advertise tools the caller cannot execute (effective deny).
+        gateway_tools = [
+            t for t in gateway_tools if (t.effective_policy or t.policy) != "deny"
+        ]
 
         if input_data.query:
             q = input_data.query.lower()

@@ -197,6 +197,62 @@ async def submit_clarify_response(
     )
 
 
+@router.post("/api/completions/{completion_id}/mcp_tool_confirmations/{confirmation_id}")
+@requires_permission('create_reports')
+async def respond_to_mcp_tool_confirmation(
+    completion_id: str,
+    confirmation_id: str,
+    body: dict,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Resolve a pending MCP tool approval ('ask' policy) for a running
+    completion. Only the user who started the run may respond. With
+    ``remember: true`` the decision is persisted as that user's per-tool
+    policy preference so future runs skip the prompt."""
+    from app.ai.tools.confirmation import get_confirmation_meta, resolve_confirmation
+    from app.services.tool_policy_service import (
+        ToolPolicyService, TOOL_POLICY_ALLOW, TOOL_POLICY_DENY,
+    )
+
+    approved = bool(body.get("approved"))
+    remember = bool(body.get("remember"))
+
+    meta = get_confirmation_meta(confirmation_id)
+    if meta is None or meta.get("kind") != "mcp_tool_policy":
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+    if completion_id not in (meta.get("completion_ids") or []):
+        raise HTTPException(status_code=404, detail="Confirmation not found for this completion")
+    if meta.get("user_id") and str(current_user.id) != str(meta["user_id"]):
+        raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
+
+    if remember and meta.get("connection_tool_id"):
+        # Brief retry: on SQLite a concurrent agent write can hold the single
+        # writer lock for a moment ("database is locked").
+        last_err = None
+        for attempt in range(3):
+            try:
+                await ToolPolicyService().set_user_preference(
+                    db, str(current_user.id), str(meta["connection_tool_id"]),
+                    TOOL_POLICY_ALLOW if approved else TOOL_POLICY_DENY,
+                )
+                await db.commit()
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                await db.rollback()
+                await asyncio.sleep(0.4 * (attempt + 1))
+        if last_err is not None:
+            raise HTTPException(status_code=500, detail="Failed to save preference")
+
+    resolved = resolve_confirmation(confirmation_id, {"approved": approved, "remember": remember})
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+    return {"status": "ok", "approved": approved, "remembered": remember}
+
+
 @requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/cancel_wait")
 async def cancel_wait(

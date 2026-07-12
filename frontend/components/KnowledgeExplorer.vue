@@ -179,7 +179,7 @@
                     <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0" />
                     <span class="flex-1 text-start truncate font-mono text-xs">{{ tool.name }}</span>
                     <span v-if="tool.is_enabled === false" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500">{{ $t('agentsPage.toolOff') }}</span>
-                    <span v-else-if="tool.policy && tool.policy !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ tool.policy }}</span>
+                    <span v-else-if="(tool.effective_policy || tool.policy) && (tool.effective_policy || tool.policy) !== 'allow'" class="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400" :class="tool.user_policy ? 'text-blue-500 dark:text-blue-400' : ''" :title="tool.user_policy ? $t('agentsPage.toolPolicyYours') : ''">{{ tool.effective_policy || tool.policy }}</span>
                   </div>
                 </TreeGroup>
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noToolsConnected')" :pad="48" />

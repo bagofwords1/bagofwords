@@ -224,7 +224,8 @@
     "toastCreated": "Creato",
     "toastSaveFailed": "Impossibile salvare",
     "toastRestored": "Ripristinata v{n}",
-    "toastPrimaryUpdated": "Istruzione primaria aggiornata."
+    "toastPrimaryUpdated": "Istruzione primaria aggiornata.",
+    "toolPolicyYours": "La tua policy personale"
   },
   "smoke": {
     "hello": "Ciao",
@@ -811,7 +812,20 @@
       "running": "Esecuzione dello strumento MCP…",
       "foundTools": "{count} strumenti trovati",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (non riuscito)"
+      "failed": "{name} (non riuscito)",
+      "awaitingApproval": "In attesa della tua approvazione per eseguire {name}…",
+      "autoReviewing": "Revisione di {name} secondo la policy…",
+      "approvalTitle": "Consentire all'agente di eseguire questo strumento?",
+      "approvalHint": "Le scelte “Sempre” vengono salvate come tua preferenza per le esecuzioni future.",
+      "allowOnce": "Consenti una volta",
+      "alwaysAllow": "Consenti sempre",
+      "denyOnce": "Nega",
+      "alwaysDeny": "Nega sempre",
+      "declined": "{name} (rifiutato)",
+      "blockedByPolicy": "{name} (bloccato dalla policy)",
+      "autoDeclinedLabel": "{name} (rifiutato automaticamente)",
+      "autoApproved": "Approvato automaticamente dalla revisione della policy",
+      "autoDenied": "Rifiutato dalla revisione della policy"
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"
@@ -3002,5 +3016,19 @@
     "cancel": "Annulla",
     "saved": "Documento salvato",
     "saveFailed": "Impossibile salvare il documento"
+  },
+  "toolsSelector": {
+    "adminPolicy": "admin",
+    "adminPolicyTip": "Policy impostata dagli amministratori dell'agente — predefinita per tutti gli utenti",
+    "myPolicy": "io",
+    "myPolicyTip": "La tua policy personale per questo strumento — si applica solo alle tue esecuzioni",
+    "myPolicyFailed": "Impossibile aggiornare la tua policy dello strumento",
+    "policyAllow": "consenti",
+    "policyAsk": "chiedi",
+    "policyAuto": "auto",
+    "policyDeny": "nega",
+    "policyInherit": "eredita ({policy})",
+    "reset": "reimposta",
+    "resetTip": "Reimposta al valore predefinito della connessione"
   }
 }

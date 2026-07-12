@@ -236,7 +236,8 @@
     "toastCreated": "נוצר",
     "toastSaveFailed": "לא ניתן לשמור",
     "toastRestored": "שוחזרה גרסה {n}",
-    "toastPrimaryUpdated": "ההנחיה הראשית עודכנה."
+    "toastPrimaryUpdated": "ההנחיה הראשית עודכנה.",
+    "toolPolicyYours": "המדיניות האישית שלך"
   },
   "smoke": {
     "hello": "שלום",
@@ -833,7 +834,20 @@
       "running": "מריץ כלי MCP…",
       "foundTools": "נמצאו {count} כלים",
       "csvSuccess": "{name} ← CSV",
-      "failed": "{name} (נכשל)"
+      "failed": "{name} (נכשל)",
+      "awaitingApproval": "ממתין לאישורך להרצת {name}…",
+      "autoReviewing": "בודק את {name} מול המדיניות…",
+      "approvalTitle": "לאפשר לסוכן להריץ כלי זה?",
+      "approvalHint": "בחירות “תמיד” נשמרות כהעדפה שלך להרצות עתידיות.",
+      "allowOnce": "אפשר פעם אחת",
+      "alwaysAllow": "אפשר תמיד",
+      "denyOnce": "דחה",
+      "alwaysDeny": "דחה תמיד",
+      "declined": "{name} (נדחה)",
+      "blockedByPolicy": "{name} (חסום לפי מדיניות)",
+      "autoDeclinedLabel": "{name} (נדחה אוטומטית)",
+      "autoApproved": "אושר אוטומטית בבדיקת מדיניות",
+      "autoDenied": "נדחה בבדיקת מדיניות"
     },
     "answerQuestion": {
       "thought": "חשב על התשובה"
@@ -3109,5 +3123,19 @@
     "cancel": "ביטול",
     "saved": "המסמך נשמר",
     "saveFailed": "שמירת המסמך נכשלה"
+  },
+  "toolsSelector": {
+    "adminPolicy": "מנהל",
+    "adminPolicyTip": "מדיניות שנקבעה על ידי מנהלי הסוכן — ברירת המחדל לכל המשתמשים",
+    "myPolicy": "אני",
+    "myPolicyTip": "המדיניות האישית שלך לכלי זה — חלה רק על ההרצות שלך",
+    "myPolicyFailed": "עדכון מדיניות הכלי שלך נכשל",
+    "policyAllow": "אפשר",
+    "policyAsk": "שאל",
+    "policyAuto": "אוטומטי",
+    "policyDeny": "דחה",
+    "policyInherit": "ירושה ({policy})",
+    "reset": "אפס",
+    "resetTip": "אפס לברירת המחדל של החיבור"
   }
 }
