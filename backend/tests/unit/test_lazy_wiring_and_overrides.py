@@ -1124,8 +1124,10 @@ class TestRound5MaxReviewFixes:
         import app.data_sources.clients.lazy_frame as lf_mod
 
         monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
-        monkeypatch.setattr(lf_mod.LazyFrame, "from_parquet", classmethod(
-            lambda cls, path, owns_source=True: (_ for _ in ()).throw(RuntimeError("footer corrupt"))
+        monkeypatch.setattr(lf_mod.LazyFrame, "_from_parquet", classmethod(
+            lambda cls, path, owns_source=True, stream_config=None: (
+                _ for _ in ()
+            ).throw(RuntimeError("footer corrupt"))
         ))
         with pytest.raises(RuntimeError, match="footer corrupt"):
             lf_mod.lazy_from_dataframe(pd.DataFrame({"x": [1]}))
@@ -1449,3 +1451,122 @@ class TestRound7SecurityAndAccountingRegressions:
         with consume_row_dicts_to_lazyframe(iter([{"amount": exact}])) as lf:
             restored = lf.to_df()["amount"].iloc[0]
         assert Decimal(str(restored)) == exact
+
+
+class TestRound8MaterializationAndIsolation:
+    def test_generated_code_cannot_materialize_past_operator_ceiling(
+        self, tmp_path, monkeypatch
+    ):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_CAP", "2")
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES", "1048576")
+
+        class LazyClient(TinyClient):
+            result = None
+
+            def execute_query_lazy(self, sql):
+                self.result = lazy_from_dataframe(pd.DataFrame({"x": [1, 2, 3]}))
+                return self.result
+
+        client = LazyClient()
+        code = """
+def generate_df(db_clients, excel_files):
+    return db_clients["db"].execute_query_lazy("SELECT x").to_df()
+"""
+        executor = StreamingCodeExecutor(
+            organization_settings=_FakeOrgSettings(enable_lazy_queries=True)
+        )
+        try:
+            with pytest.raises(ValueError, match="too large to materialize"):
+                executor.execute_code(code=code, ds_clients={"db": client}, excel_files=[])
+        finally:
+            if client.result is not None:
+                client.result.close()
+
+    def test_generated_code_cannot_call_parquet_factory(self):
+        from app.ai.code_execution.code_execution import (
+            UnsafePythonError,
+            validate_python_code,
+        )
+
+        code = """
+def generate_df(db_clients, excel_files):
+    lf = db_clients["db"].execute_query_lazy("SELECT x")
+    return lf.from_parquet("/tmp/other-tenant.parquet").to_df()
+"""
+        with pytest.raises(UnsafePythonError, match="from_parquet|forbidden"):
+            validate_python_code(code)
+
+    def test_generated_code_cannot_call_private_parquet_factory(self):
+        from app.ai.code_execution.code_execution import (
+            UnsafePythonError,
+            validate_python_code,
+        )
+
+        code = """
+def generate_df(db_clients, excel_files):
+    lf = db_clients["db"].execute_query_lazy("SELECT x")
+    return lf._from_parquet("/tmp/other-tenant.parquet").to_df()
+"""
+        with pytest.raises(UnsafePythonError, match="_from_parquet|forbidden"):
+            validate_python_code(code)
+
+    def test_generated_code_cannot_construct_owning_lazyframe(self):
+        from app.ai.code_execution.code_execution import (
+            UnsafePythonError,
+            validate_python_code,
+        )
+
+        code = """
+def generate_df(db_clients, excel_files):
+    lf = db_clients["db"].execute_query_lazy("SELECT x")
+    forged = type(lf)(None, None, "/tmp/known-victim", owns_source=True)
+    forged.close()
+    return lf.to_df()
+"""
+        with pytest.raises(UnsafePythonError, match="type|forbidden"):
+            validate_python_code(code)
+
+    def test_connection_timeout_carries_into_downstream_compute(
+        self, tmp_path, monkeypatch
+    ):
+        from app.errors.app_error import AppError
+        from app.errors.codes import ErrorCode
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        monkeypatch.setenv("BOW_LAZY_COMPUTE_TIMEOUT_SECONDS", "30")
+        released = threading.Event()
+
+        class BlockingRelation:
+            def aggregate(self, _query):
+                return self
+
+            def fetchone(self):
+                if not released.wait(timeout=1.5):
+                    raise RuntimeError("connection timeout did not propagate")
+                raise RuntimeError("duckdb query interrupted")
+
+        class InterruptibleConnection:
+            def interrupt(self):
+                released.set()
+
+        source_path = tmp_path / "meterable.parquet"
+        pd.DataFrame({"x": [1]}).to_parquet(source_path, index=False)
+        frame = LazyFrame(
+            InterruptibleConnection(),
+            BlockingRelation(),
+            source_path,
+            owns_source=False,
+        )
+
+        class LazyClient(TinyClient):
+            def execute_query_lazy(self, sql):
+                return frame
+
+        wrapper, _, _ = _make_wrapper(LazyClient(), timeout=1)
+        returned = wrapper.execute_query_lazy("SELECT x")
+        with pytest.raises(AppError) as exc_info:
+            returned.row_count()
+        assert exc_info.value.error_code == ErrorCode.QUERY_TIMEOUT.value

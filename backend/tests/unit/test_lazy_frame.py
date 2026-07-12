@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 
@@ -18,6 +19,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from app.data_sources.clients.lazy_frame import (
+    LazyFrame,
     ResultTooLargeError,
     StreamConfig,
     _consume_arrow_to_parquet,
@@ -909,8 +911,202 @@ def test_reader_open_failure_closes_duckdb_connection(tmp_path, monkeypatch):
             self.closed = True
 
     con = FailingReaderConnection()
-    monkeypatch.setattr(lazy_module, "_open_duckdb", lambda allowed: con)
+    monkeypatch.setattr(
+        lazy_module,
+        "_open_duckdb",
+        lambda allowed, config=None: con,
+    )
 
     with pytest.raises(RuntimeError, match="reader open failed"):
-        lazy_module.LazyFrame.from_parquet(path)
+        lazy_module.LazyFrame._from_parquet(path)
     assert con.closed is True
+
+
+def test_public_materializers_cannot_exceed_global_ceiling(tmp_path, monkeypatch):
+    """Every public eager conversion is bounded, including callers that try to
+    pass a larger ad-hoc limit than the operator-configured ceiling."""
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_CAP", "2")
+    monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES", "1048576")
+    lf = lazy_from_dataframe(pd.DataFrame({"x": [1, 2, 3]}))
+    try:
+        materializers = (
+            lf.to_df,
+            lf.to_arrow,
+            lambda: lf.to_df_bounded(max_rows=1_000_000, max_bytes=1_000_000_000),
+            lambda: lf.head(1_000_000),
+        )
+        for materialize in materializers:
+            with pytest.raises(ValueError, match="too large to materialize"):
+                materialize()
+    finally:
+        lf.close()
+
+
+def test_lazy_compute_timeout_interrupts_blocking_relation(tmp_path, monkeypatch):
+    """Downstream compute has its own timeout after source streaming returns."""
+    from app.errors.app_error import AppError
+    from app.errors.codes import ErrorCode
+
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_COMPUTE_TIMEOUT_SECONDS", "0.05")
+    released = threading.Event()
+
+    class BlockingRelation:
+        def aggregate(self, _query):
+            return self
+
+        def fetchone(self):
+            if not released.wait(timeout=0.3):
+                raise RuntimeError("compute was not interrupted")
+            raise RuntimeError("duckdb query interrupted")
+
+    class InterruptibleConnection:
+        def interrupt(self):
+            released.set()
+
+    lf = LazyFrame(
+        InterruptibleConnection(),
+        BlockingRelation(),
+        tmp_path / "unused.parquet",
+        owns_source=False,
+    )
+    with pytest.raises(AppError) as exc_info:
+        lf.row_count()
+    assert exc_info.value.error_code == ErrorCode.QUERY_TIMEOUT.value
+
+
+def test_lazy_compute_checks_aggregate_capacity_after_growth(tmp_path, monkeypatch):
+    """DuckDB temp growth is checked after downstream work, not only ingest."""
+    spill_root = tmp_path / "spill"
+    monkeypatch.setenv("BOW_LAZY_DIR", str(spill_root))
+    monkeypatch.setenv("BOW_LAZY_DIR_MAX_BYTES", "100000")
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+    lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+    query_dir = lf._source_paths[0].parent
+
+    class GrowingRelation:
+        def aggregate(self, _query):
+            return self
+
+        def fetchone(self):
+            temp_dir = query_dir / "duckdb_tmp"
+            temp_dir.mkdir(exist_ok=True)
+            (temp_dir / "growth.tmp").write_bytes(b"x" * 200_000)
+            return (1,)
+
+    lf._rel = GrowingRelation()
+    try:
+        with pytest.raises(ResultTooLargeError, match="aggregate"):
+            lf.row_count()
+    finally:
+        lf.close()
+
+
+def test_duckdb_temp_directory_has_explicit_remaining_budget(tmp_path, monkeypatch):
+    """DuckDB must not retain its default of 90% of available disk space."""
+    cap = 2 * 1024 * 1024
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_DIR_MAX_BYTES", str(cap))
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+    lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+    try:
+        setting = lf._con.execute(
+            "SELECT current_setting('max_temp_directory_size')"
+        ).fetchone()[0]
+        assert setting != "90% of available disk space"
+        value, unit = setting.split()
+        scale = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3}
+        assert float(value) * scale[unit] <= cap
+    finally:
+        lf.close()
+
+
+def test_public_from_parquet_cannot_read_or_own_arbitrary_files(tmp_path, monkeypatch):
+    """Only trusted spill helpers may open files and take deletion ownership."""
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    victim = tmp_path / "outside-query-boundary.parquet"
+    pd.DataFrame({"secret": ["tenant-b"]}).to_parquet(victim, index=False)
+    owner = lazy_from_dataframe(pd.DataFrame({"safe": [1]}))
+    opened = None
+    try:
+        with pytest.raises(PermissionError, match="internal"):
+            opened = owner.from_parquet(victim)
+    finally:
+        if opened is not None:
+            opened.close()
+        owner.close()
+    assert victim.exists()
+
+
+def test_public_constructor_cannot_take_file_deletion_ownership(tmp_path, monkeypatch):
+    """Owning frames can only be created by trusted spill factories."""
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    victim = tmp_path / "known-victim.parquet"
+    pd.DataFrame({"secret": [1]}).to_parquet(victim, index=False)
+    forged = None
+    try:
+        with pytest.raises(PermissionError, match="trusted|internal"):
+            forged = LazyFrame(None, None, victim, owns_source=True)
+    finally:
+        if forged is not None:
+            forged.close()
+    assert victim.exists()
+
+
+def test_pandas_amplification_is_rejected_before_conversion(tmp_path, monkeypatch):
+    """Object/string expansion must be budgeted before allocating pandas."""
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES", "2000000")
+    lf = lazy_from_dataframe(pd.DataFrame({"seed": [1]}))
+    arrow_table = pa.table({"value": ["x"] * 200_000})
+
+    class ConversionProbe:
+        called = False
+
+        def __getattr__(self, name):
+            return getattr(arrow_table, name)
+
+        def to_pandas(self):
+            self.called = True
+            return arrow_table.to_pandas()
+
+    probe = ConversionProbe()
+    monkeypatch.setattr(lf, "_arrow_table_bounded", lambda *args, **kwargs: probe)
+    try:
+        with pytest.raises(ValueError, match="too large to materialize"):
+            lf.to_df_bounded(max_rows=1_000_000, max_bytes=2_000_000)
+        assert probe.called is False
+    finally:
+        lf.close()
+
+
+def test_live_duckdb_connections_reserve_disjoint_temp_budgets(tmp_path, monkeypatch):
+    """Concurrent frame temp maxima cannot sum past the aggregate root cap."""
+    cap = 4 * 1024 * 1024
+    spill_root = tmp_path / "spill"
+    monkeypatch.setenv("BOW_LAZY_DIR", str(spill_root))
+    monkeypatch.setenv("BOW_LAZY_DIR_MAX_BYTES", str(cap))
+    monkeypatch.setenv("BOW_LAZY_MAX_BYTES", str(cap))
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+
+    def setting_bytes(frame):
+        setting = frame._con.execute(
+            "SELECT current_setting('max_temp_directory_size')"
+        ).fetchone()[0]
+        value, unit = setting.split()
+        scale = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3}
+        return int(float(value) * scale[unit])
+
+    first = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+    second = lazy_from_dataframe(pd.DataFrame({"x": [2]}))
+    try:
+        physical = sum(
+            path.stat().st_size
+            for path in spill_root.rglob("*")
+            if path.is_file()
+        )
+        assert physical + setting_bytes(first) + setting_bytes(second) <= cap
+    finally:
+        first.close()
+        second.close()

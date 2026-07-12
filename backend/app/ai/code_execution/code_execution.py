@@ -263,6 +263,9 @@ FORBIDDEN_ATTRIBUTES = frozenset({
     '__self__', '__dict__', '__builtins__', '__import__',
     '__loader__', '__spec__', '__path__', '__file__',
     '__cached__', '__annotations__',
+    # LazyFrame spill opening grants filesystem access and deletion ownership;
+    # generated code may transform an existing frame, never choose new files.
+    'from_parquet',
 })
 
 
@@ -609,6 +612,14 @@ class QueryCapturingClientWrapper:
                 self._enforce_rate_limit(query)
                 self._consume_query_quota(query)
                 result = self._call_with_timeout(query, args, kwargs, method=method)
+                if lazy:
+                    set_compute_timeout = getattr(
+                        result,
+                        "_set_compute_timeout",
+                        None,
+                    )
+                    if callable(set_compute_timeout):
+                        set_compute_timeout(self._query_timeout_seconds)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 try:
                     rows, result_bytes = self._meter_result(result, lazy)

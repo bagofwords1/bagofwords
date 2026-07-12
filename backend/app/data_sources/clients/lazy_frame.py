@@ -64,11 +64,48 @@ class ResultTooLargeError(AppError):
         self.byte_estimate = int(byte_estimate)
 
 
+class LazyComputeTimeoutError(AppError):
+    """Raised when downstream DuckDB work exceeds its wall-clock budget."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        message = (
+            f"Lazy result computation exceeded {timeout_seconds:g}s. Narrow the "
+            "query, apply filters/aggregation before materializing, or use LIMIT."
+        )
+        super().__init__(
+            ErrorCode.QUERY_TIMEOUT,
+            message,
+            status_code=408,
+            params={"timeout_seconds": timeout_seconds},
+        )
+        self.timeout_seconds = timeout_seconds
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.environ[name])
     except (KeyError, ValueError):
         return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+
+
+def _materialization_limits() -> tuple[int, int]:
+    """Operator ceilings shared by every public materialization surface."""
+    max_rows = max(0, _env_int("BOW_LAZY_RESULT_MATERIALIZE_CAP", 1_000_000))
+    max_bytes = max(
+        0,
+        _env_int(
+            "BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES",
+            512 * 1024 * 1024,
+        ),
+    )
+    return max_rows, max_bytes
 
 
 def _ensure_secure_root(root: Path, strict: bool) -> None:
@@ -245,6 +282,40 @@ class StreamConfig:
                 limit_desc=f"aggregate spill dir over budget (dir_max_bytes={self.dir_max_bytes})",
             )
 
+    def remaining_capacity_bytes(self) -> int:
+        """Best available DuckDB temp allowance under aggregate/free-space caps.
+
+        DuckDB otherwise defaults to 90% of the whole filesystem. Even if a
+        stat call fails, the configured aggregate cap remains an upper bound.
+        """
+        import shutil
+
+        try:
+            total = sum(
+                f.stat().st_size for f in self.root.rglob("*") if f.is_file()
+            )
+        except Exception:
+            total = 0
+        remaining = self.dir_max_bytes - total
+        try:
+            free = shutil.disk_usage(
+                self.root.parent if not self.root.exists() else self.root
+            ).free
+            remaining = min(remaining, free - self.min_free_bytes)
+        except Exception:
+            pass
+        if remaining <= 0:
+            raise ResultTooLargeError(
+                rows=0,
+                byte_estimate=max(0, int(total)),
+                limit_desc=(
+                    "no spill capacity remains under aggregate/free-space budget "
+                    f"(dir_max_bytes={self.dir_max_bytes}, "
+                    f"min_free_bytes={self.min_free_bytes})"
+                ),
+            )
+        return int(remaining)
+
 
 # --- cooperative cancellation ------------------------------------------------
 # The code-exec wrapper runs each query on an abandonable daemon thread; when
@@ -274,7 +345,7 @@ class QueryAbandonedError(RuntimeError):
         )
 
 
-def _open_duckdb(allowed_dirs):
+def _open_duckdb(allowed_dirs, config: Optional[StreamConfig] = None):
     """Hardened DuckDB connection for LazyFrame compute.
 
     The relation is exposed to sandboxed LLM-generated code via .sql(), so an
@@ -287,6 +358,9 @@ def _open_duckdb(allowed_dirs):
     can't SET any of it back."""
     import duckdb
 
+    config = config or StreamConfig()
+    config.check_capacity(full=True)
+    temp_budget = config.remaining_capacity_bytes()
     con = duckdb.connect(database=":memory:")
 
     def _q(s) -> str:
@@ -299,6 +373,7 @@ def _open_duckdb(allowed_dirs):
         con.execute(
             f"SET memory_limit='{_q(os.environ.get('BOW_LAZY_DUCKDB_MEM') or '2GB')}'"
         )
+        con.execute(f"SET max_temp_directory_size='{temp_budget}B'")
         if dirs:
             tmp_dir = Path(dirs[0]) / "duckdb_tmp"
             tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -379,6 +454,8 @@ class LazyFrame:
         owns_source: bool = True,
         parent: Optional[LazyFrame] = None,
         hidden_columns=None,
+        stream_config: Optional[StreamConfig] = None,
+        compute_timeout_seconds: Optional[float] = None,
     ):
         self._con = con
         # None when the backing file has zero columns (empty result from a
@@ -398,6 +475,22 @@ class LazyFrame:
         # and its finalizer would close the shared connection out from under
         # the derived frame.
         self._parent = parent
+        self._stream_config = (
+            stream_config
+            or (parent._stream_config if parent is not None else None)
+            or StreamConfig()
+        )
+        inherited_timeout = (
+            parent._compute_timeout_seconds if parent is not None else None
+        )
+        timeout = (
+            compute_timeout_seconds
+            if compute_timeout_seconds is not None
+            else inherited_timeout
+        )
+        if timeout is None:
+            timeout = _env_float("BOW_LAZY_COMPUTE_TIMEOUT_SECONDS", 60.0)
+        self._compute_timeout_seconds = float(timeout) if float(timeout) > 0 else 60.0
         # GC safety net: callers (LLM-generated code especially) routinely
         # never call close(), and the spill can be gigabytes. finalize() is
         # idempotent, so an explicit close() simply runs it early.
@@ -409,7 +502,24 @@ class LazyFrame:
 
     @classmethod
     def from_parquet(cls, path, owns_source: bool = True) -> "LazyFrame":
+        """Reject caller-selected files.
+
+        Spill opening grants a DuckDB connection access to the file's parent
+        and ownership may delete the file on close. Only the trusted stream
+        helpers may cross that boundary through ``_from_parquet``.
+        """
+        raise PermissionError("LazyFrame.from_parquet is internal-only")
+
+    @classmethod
+    def _from_parquet(
+        cls,
+        path,
+        owns_source: bool = True,
+        stream_config: Optional[StreamConfig] = None,
+    ) -> "LazyFrame":
         import pyarrow.parquet as pq
+
+        stream_config = stream_config or StreamConfig()
 
         paths = [Path(p) for p in path] if isinstance(path, (list, tuple)) else [Path(path)]
         # DuckDB cannot read a zero-column Parquet ("need at least one non-root
@@ -433,11 +543,12 @@ class LazyFrame:
                 paths,
                 owns_source=owns_source,
                 hidden_columns=hidden_columns,
+                stream_config=stream_config,
             )
         # Hardened connection: file access confined to the spill dir(s),
         # bounded memory, config locked (see _open_duckdb). DuckDB spills its
         # own compute state to disk under the same root.
-        con = _open_duckdb({p.parent for p in readable})
+        con = _open_duckdb({p.parent for p in readable}, stream_config)
         # union_by_name reconciles part files whose column sets drifted:
         # missing columns become NULL, matching the eager pandas behavior.
         try:
@@ -454,7 +565,13 @@ class LazyFrame:
             paths,
             owns_source=owns_source,
             hidden_columns=hidden_columns,
+            stream_config=stream_config,
         )
+
+    def _set_compute_timeout(self, timeout_seconds: float) -> None:
+        """Apply the wrapper's per-connection timeout to downstream compute."""
+        if isinstance(timeout_seconds, (int, float)) and timeout_seconds > 0:
+            self._compute_timeout_seconds = float(timeout_seconds)
 
     # -- lazy transforms (return new handles, no materialization) -----------
 
@@ -490,7 +607,10 @@ class LazyFrame:
             # with a binder error naming it, which is honest — the schema is
             # unknown. SELECT * exposes `_bow_empty` with zero rows.
             if self._con is None:
-                self._con = _open_duckdb({p.parent for p in self._source_paths})
+                self._con = _open_duckdb(
+                    {p.parent for p in self._source_paths},
+                    self._stream_config,
+                )
                 # The finalizer snapshotted con=None at construction (or was
                 # never registered, for a derived frame); re-register so
                 # close()/GC also closes this lazily-created connection. A
@@ -547,24 +667,132 @@ class LazyFrame:
 
     # -- materialization (explicit; this is where memory is spent) ----------
 
-    def _arrow_table(self, relation=None):
-        relation = self._rel if relation is None else relation
-        reader = relation.arrow()
+    def _run_compute(self, operation):
+        """Run one DuckDB operation under wall-clock and spill-root guards."""
+        config = self._stream_config
+        config.check_capacity(full=True)
+        interrupt = getattr(self._con, "interrupt", None)
+        timeout_seconds = self._compute_timeout_seconds
+        state_lock = threading.Lock()
+        state = {"finished": False, "timed_out": False}
+
+        def interrupt_on_timeout() -> None:
+            with state_lock:
+                if state["finished"]:
+                    return
+                state["timed_out"] = True
+            try:
+                interrupt()
+            except Exception:
+                logger.debug("LazyFrame: failed to interrupt timed-out compute", exc_info=True)
+
+        timer = None
+        if callable(interrupt) and timeout_seconds > 0:
+            timer = threading.Timer(timeout_seconds, interrupt_on_timeout)
+            timer.daemon = True
+            timer.start()
+
         try:
-            table = reader.read_all()
+            try:
+                result = operation()
+            except BaseException as exc:
+                with state_lock:
+                    state["finished"] = True
+                    timed_out = state["timed_out"]
+                if timed_out:
+                    raise LazyComputeTimeoutError(timeout_seconds) from exc
+                # A concurrent query may have pushed the aggregate root over
+                # budget while this operation was running.
+                config.check_capacity(full=True)
+                message = str(exc).lower()
+                if "max_temp_directory_size" in message or (
+                    "temp" in message and "size limit" in message
+                ):
+                    raise ResultTooLargeError(
+                        rows=0,
+                        byte_estimate=0,
+                        limit_desc=(
+                            "DuckDB downstream temp spill exceeded its remaining "
+                            "aggregate/free-space budget"
+                        ),
+                    ) from exc
+                raise
+            else:
+                with state_lock:
+                    state["finished"] = True
+                    timed_out = state["timed_out"]
+                if timed_out:
+                    raise LazyComputeTimeoutError(timeout_seconds)
+                config.check_capacity(full=True)
+                return result
         finally:
-            close = getattr(reader, "close", None)
-            if callable(close):
-                close()
-        hidden = [c for c in self._hidden_columns if c in table.column_names]
-        return table.drop_columns(hidden) if hidden else table
+            if timer is not None:
+                timer.cancel()
+                if timer.is_alive():
+                    timer.join(timeout=0.2)
+
+    @staticmethod
+    def _bounded_materialization_limits(max_rows: int, max_bytes: int) -> tuple[int, int]:
+        configured_rows, configured_bytes = _materialization_limits()
+        return (
+            min(max(0, int(max_rows)), configured_rows),
+            min(max(0, int(max_bytes)), configured_bytes),
+        )
+
+    def _arrow_table_bounded(self, max_rows: int, max_bytes: int, relation=None):
+        import pyarrow as pa
+
+        relation = self._rel if relation is None else relation
+        if relation is None:
+            return pa.table({})
+        max_rows, max_bytes = self._bounded_materialization_limits(
+            max_rows, max_bytes
+        )
+
+        def materialize():
+            batch_size = max(
+                1,
+                min(_env_int("BOW_LAZY_CHUNKSIZE", 50_000), max_rows + 1),
+            )
+            reader = relation.arrow(batch_size)
+            batches = []
+            rows = 0
+            arrow_bytes = 0
+            try:
+                schema = reader.schema
+                for batch in reader:
+                    rows += int(batch.num_rows)
+                    arrow_bytes += int(batch.nbytes)
+                    if rows > max_rows or arrow_bytes > max_bytes:
+                        raise ValueError(
+                            "LazyFrame result is too large to materialize "
+                            f"(rows={rows}, bytes={arrow_bytes}, "
+                            f"max_rows={max_rows}, max_bytes={max_bytes})"
+                        )
+                    batches.append(batch)
+            finally:
+                close = getattr(reader, "close", None)
+                if callable(close):
+                    close()
+            table = pa.Table.from_batches(batches, schema=schema)
+            hidden = [
+                c for c in self._hidden_columns if c in table.column_names
+            ]
+            return table.drop_columns(hidden) if hidden else table
+
+        return self._run_compute(materialize)
+
+    def _arrow_table(self, relation=None):
+        max_rows, max_bytes = _materialization_limits()
+        return self._arrow_table_bounded(
+            max_rows,
+            max_bytes,
+            relation=relation,
+        )
 
     def to_df(self) -> pd.DataFrame:
-        if self._rel is None:
-            return pd.DataFrame()
-        # DuckDB's .df() coerces DECIMAL to float64. Arrow -> pandas preserves
-        # Python Decimal values and therefore exact financial precision.
-        return self._arrow_table().to_pandas()
+        max_rows, max_bytes = _materialization_limits()
+        return self.to_df_bounded(max_rows, max_bytes)
 
     def to_df_bounded(self, max_rows: int, max_bytes: int) -> pd.DataFrame:
         """Materialize this relation in bounded Arrow batches.
@@ -576,31 +804,12 @@ class LazyFrame:
         """
         if self._rel is None:
             return pd.DataFrame()
-
-        import pyarrow as pa
-
-        batch_size = max(1, min(_env_int("BOW_LAZY_CHUNKSIZE", 50_000), max_rows + 1))
-        reader = self._rel.arrow(batch_size)
-        batches = []
-        rows = 0
-        arrow_bytes = 0
-        try:
-            for batch in reader:
-                rows += int(batch.num_rows)
-                arrow_bytes += int(batch.nbytes)
-                if rows > max_rows or arrow_bytes > max_bytes:
-                    raise ValueError(
-                        "LazyFrame result is too large to materialize "
-                        f"(rows={rows}, bytes={arrow_bytes}, "
-                        f"max_rows={max_rows}, max_bytes={max_bytes})"
-                    )
-                batches.append(batch)
-        finally:
-            close = getattr(reader, "close", None)
-            if callable(close):
-                close()
-
-        table = pa.Table.from_batches(batches, schema=reader.schema)
+        max_rows, max_bytes = self._bounded_materialization_limits(
+            max_rows, max_bytes
+        )
+        table = self._arrow_table_bounded(max_rows, max_bytes)
+        # DuckDB's .df() coerces DECIMAL to float64. Arrow -> pandas preserves
+        # Python Decimal values and therefore exact financial precision.
         result = table.to_pandas()
         pandas_bytes = int(result.memory_usage(deep=True).sum())
         if pandas_bytes > max_bytes:
@@ -612,22 +821,28 @@ class LazyFrame:
         hidden = [c for c in self._hidden_columns if c in result.columns]
         return result.drop(columns=hidden) if hidden else result
 
-    def to_arrow(self):
+    def to_arrow_bounded(self, max_rows: int, max_bytes: int):
         if self._rel is None:
             import pyarrow as pa
 
             return pa.table({})
-        return self._arrow_table()
+        return self._arrow_table_bounded(max_rows, max_bytes)
+
+    def to_arrow(self):
+        max_rows, max_bytes = _materialization_limits()
+        return self.to_arrow_bounded(max_rows, max_bytes)
 
     def row_count(self) -> int:
         if self._rel is None:
             return 0
-        return int(self._rel.aggregate("count(*) AS n").fetchone()[0])
+        return self._run_compute(
+            lambda: int(self._rel.aggregate("count(*) AS n").fetchone()[0])
+        )
 
     def head(self, n: int = 10) -> pd.DataFrame:
         if self._rel is None:
             return pd.DataFrame()
-        return self._arrow_table(self._rel.limit(n)).to_pandas()
+        return self.limit(n).to_df()
 
     @property
     def columns(self) -> list:
@@ -910,7 +1125,7 @@ def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None)
         normalized.to_parquet(path, index=False)
         _restrict_file(path)
         config.check_capacity(full=True)
-        return _from_parquet_or_cleanup(path)
+        return _from_parquet_or_cleanup(path, config)
     except BaseException:
         _release_lazy_resources(None, [path])
         raise
@@ -1177,12 +1392,16 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     return path
 
 
-def _from_parquet_or_cleanup(paths) -> LazyFrame:
+def _from_parquet_or_cleanup(paths, config: StreamConfig) -> LazyFrame:
     """Open the freshly-written spill as a LazyFrame; if opening fails
     (corrupt footer, fs error), delete the spill instead of orphaning
     a multi-GB file until the stale sweep."""
     try:
-        return LazyFrame.from_parquet(paths, owns_source=True)
+        return LazyFrame._from_parquet(
+            paths,
+            owns_source=True,
+            stream_config=config,
+        )
     except BaseException:
         _release_lazy_resources(None, paths if isinstance(paths, (list, tuple)) else [paths])
         raise
@@ -1193,7 +1412,7 @@ def _lazy_via(stream_fn, connect_cm, sql, config) -> LazyFrame:
     path = config.new_spill_path()
     try:
         written = stream_fn(connect_cm, sql, path, config)
-        return _from_parquet_or_cleanup(written)
+        return _from_parquet_or_cleanup(written, config)
     except BaseException:
         # Covers setup failures before a consumer installs its own cleanup
         # (connect/execute/reader creation), and removes every part/temp file by
@@ -1287,7 +1506,7 @@ def consume_chunks_to_lazyframe(chunks, config: Optional[StreamConfig] = None, c
     config = config or StreamConfig()
     path = config.new_spill_path()
     paths = _consume_chunks_to_parquet(chunks, path, config, columns=columns)
-    return _from_parquet_or_cleanup(paths)
+    return _from_parquet_or_cleanup(paths, config)
 
 
 def consume_arrow_to_lazyframe(arrow_iter, config: Optional[StreamConfig] = None) -> LazyFrame:
@@ -1295,7 +1514,7 @@ def consume_arrow_to_lazyframe(arrow_iter, config: Optional[StreamConfig] = None
     config = config or StreamConfig()
     path = config.new_spill_path()
     _consume_arrow_to_parquet(arrow_iter, path, config)
-    return _from_parquet_or_cleanup(path)
+    return _from_parquet_or_cleanup(path, config)
 
 
 def consume_row_dicts_to_lazyframe(
