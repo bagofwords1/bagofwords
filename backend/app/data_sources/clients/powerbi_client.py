@@ -59,16 +59,28 @@ class PowerBIClient(DataSourceClient):
     AUTH_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     SCOPE = "https://analysis.windows.net/powerbi/api/.default"
 
+    # Connection-test probe budget: enough to skip a few empty/system models
+    # without hammering large tenants.
+    MAX_PROBE_WORKSPACES = 5
+    MAX_PROBE_DATASETS = 5
+
     def __init__(
         self,
         tenant_id: str = None,
         client_id: str = None,
         client_secret: str = None,
         access_token: str = None,
+        workspaces: str = None,
     ):
         self.tenant_id = tenant_id
         self.client_id = client_id
         self.client_secret = client_secret
+        # Optional comma-separated workspace names or IDs limiting discovery
+        # (mirrors the schema filter on the Fabric connector).
+        self.workspaces = workspaces
+        self._workspace_filter = {
+            w.strip().lower() for w in (workspaces or "").split(",") if w.strip()
+        }
 
         self._access_token: Optional[str] = access_token
         self._http: Optional[requests.Session] = None
@@ -107,6 +119,15 @@ class PowerBIClient(DataSourceClient):
         self._http = requests.Session()
 
     def test_connection(self) -> Dict:
+        """
+        Validate credentials and API access.
+
+        The DAX probe classifies failures by which layer answered, not by
+        message text: a 401/403 is a real permission problem, while ANY
+        response from the Analysis Services engine (including "model has no
+        tables") proves auth, routing, and query access all work. Probes
+        several datasets so one empty/system model can't fail the test.
+        """
         # Phase 1: Authenticate
         try:
             self.connect()
@@ -116,13 +137,10 @@ class PowerBIClient(DataSourceClient):
                 "message": f"Authentication failed: {e}",
             }
 
-        # Phase 2: Get first page of workspaces only (don't follow pagination)
+        # Phase 2: List workspaces (applies the configured workspace filter).
+        # Without a filter, only the first page is fetched to stay fast.
         try:
-            headers = self._build_headers()
-            resp = self._http.get(f"{self.BASE_URL}/groups", headers=headers, timeout=30)
-            if resp.status_code >= 300:
-                raise RuntimeError(f"HTTP {resp.status_code} {resp.text}")
-            workspaces = (resp.json() or {}).get("value") or []
+            workspaces = self.list_workspaces(first_page_only=not self._workspace_filter)
         except Exception as e:
             return {
                 "success": False,
@@ -130,103 +148,200 @@ class PowerBIClient(DataSourceClient):
             }
 
         if not workspaces:
+            if self._workspace_filter:
+                return {
+                    "success": False,
+                    "message": (
+                        f"Connected, but none of the configured workspaces ({self.workspaces}) were found. "
+                        "Check the names/IDs and ensure the service principal is a Member/Contributor of those workspaces."
+                    ),
+                }
             return {
                 "success": False,
                 "message": "Connected but no workspaces found. Ensure the service principal has access to at least one workspace.",
             }
 
-        # Phase 3: Get datasets from first workspace only
-        first_ws = workspaces[0]
-        first_ws_id = first_ws.get("id")
-        try:
-            ds_list = self.list_datasets(first_ws_id)
-        except Exception as e:
+        # Phase 3: Probe datasets across workspaces until one query reaches the engine
+        probed = 0
+        datasets_seen = 0
+        engine_details: List[str] = []   # engine answered, model unqueryable (empty, RLS, ...)
+        permission_error: Optional[str] = None
+        last_error: Optional[str] = None
+
+        for ws in workspaces[: self.MAX_PROBE_WORKSPACES]:
+            if probed >= self.MAX_PROBE_DATASETS:
+                break
+            ws_id = ws.get("id")
+            ws_name = ws.get("name") or ws_id
+            try:
+                ds_list = self.list_datasets(ws_id)
+            except Exception as e:
+                last_error = f"Failed to list datasets in workspace '{ws_name}': {e}"
+                continue
+            datasets_seen += len(ds_list)
+
+            for ds in ds_list:
+                if probed >= self.MAX_PROBE_DATASETS:
+                    break
+                probed += 1
+                ds_name = ds.get("name") or ds.get("id")
+                outcome, detail = self._probe_dataset_query(ws_id, ds.get("id"))
+
+                if outcome == "ok":
+                    return {
+                        "success": True,
+                        "message": (
+                            f"Connected to Power BI. Verified query access on dataset "
+                            f"'{ds_name}' in workspace '{ws_name}'."
+                        ),
+                        "workspaces": len(workspaces),
+                        "datasets": datasets_seen,
+                    }
+                if outcome == "engine":
+                    # The semantic engine answered — credentials and query
+                    # access are proven; only this particular model is
+                    # unqueryable (empty, OLS-hidden tables, RLS, ...).
+                    engine_details.append(f"'{ds_name}' ({ws_name}): {detail}")
+                elif outcome == "forbidden":
+                    permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
+                elif outcome == "error":
+                    last_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
+                # outcome == "skip" (404/stale) → try the next dataset
+
+        if engine_details:
+            # Query access verified — every probed model just had nothing to query.
+            return {
+                "success": True,
+                "message": (
+                    f"Connected to Power BI ({len(workspaces)} workspace(s), {datasets_seen} dataset(s)). "
+                    f"Query access verified, but the {len(engine_details)} probed model(s) were empty or "
+                    f"not queryable: {'; '.join(engine_details[:3])}"
+                ),
+                "workspaces": len(workspaces),
+                "datasets": datasets_seen,
+            }
+
+        if permission_error:
             return {
                 "success": False,
-                "message": f"Connected but failed to list datasets: {e}",
+                "message": (
+                    f"Connected but not authorized to query {permission_error}. "
+                    "Ensure the service principal is a Member or Contributor of the workspace "
+                    "(Viewer is not enough), and that 'Allow service principals to use Power BI APIs' "
+                    "is enabled in the tenant settings."
+                ),
                 "connectivity": True,
             }
 
-        if not ds_list:
+        if datasets_seen == 0:
             return {
                 "success": False,
-                "message": f"Connected to {len(workspaces)}+ workspace(s) but no datasets found in first workspace. Ensure the service principal is a Member/Contributor of your workspaces.",
-                "connectivity": True,
-            }
-
-        # Phase 4: Try DAX query on the first dataset to verify query access
-        first_ds = ds_list[0]
-        first_ds_id = first_ds["id"]
-        first_ds_name = first_ds.get("name") or first_ds_id
-        try:
-            url = f"{self.BASE_URL}/groups/{first_ws_id}/datasets/{first_ds_id}/executeQueries"
-            body = {
-                "queries": [{"query": "EVALUATE ROW(\"test\", 1)"}],
-                "serializerSettings": {"includeNulls": True},
-            }
-            resp = self._http.post(url, json=body, headers=headers, timeout=30)
-            if resp.status_code >= 300:
-                # Extract the detail message from Power BI's error response
-                detail_msg = ""
-                try:
-                    err = resp.json().get("error", {})
-                    pbi_err = err.get("pbi.error", {})
-                    for d in pbi_err.get("details", []):
-                        val = (d.get("detail") or {}).get("value", "")
-                        if val:
-                            detail_msg = val
-                            break
-                except Exception:
-                    pass
-
-                if not detail_msg:
-                    detail_msg = f"HTTP {resp.status_code} on dataset '{first_ds_name}'. Ensure the service principal is added as a Member or Contributor in your Power BI workspaces, and that the workspace is on Premium/PPU/Embedded capacity."
-
-                return {
-                    "success": False,
-                    "message": f"Connected but cannot query datasets: {detail_msg}",
-                    "connectivity": True,
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "message": f"Connected but cannot query dataset '{first_ds_name}': {e}",
+                "message": (
+                    f"Connected to {len(workspaces)} workspace(s) but found no datasets. "
+                    "Ensure the service principal is a Member/Contributor of workspaces that contain semantic models."
+                ),
                 "connectivity": True,
             }
 
         return {
-            "success": True,
-            "message": f"Connected to Power BI. Found {len(workspaces)}+ workspace(s), {len(ds_list)} dataset(s) in first workspace.",
-            "workspaces": len(workspaces),
-            "datasets": len(ds_list),
+            "success": False,
+            "message": f"Connected but could not verify query access: {last_error or 'no dataset could be probed'}",
+            "connectivity": True,
         }
 
-    def list_workspaces(self) -> List[Dict]:
+    def _probe_dataset_query(self, workspace_id: str, dataset_id: str) -> Tuple[str, str]:
         """
-        List all workspaces (groups) the service principal has access to.
+        Run a minimal DAX query against one dataset and classify the outcome
+        by which layer answered:
+
+          - "ok":        query succeeded
+          - "engine":    the AS engine answered with a model-level error
+                         (empty model, OLS/RLS, invalid state) — query access
+                         itself is proven
+          - "forbidden": 401/403 — a real permission problem
+          - "skip":      404 — stale/deleted dataset, try another
+          - "error":     anything else (5xx, network, ...)
+        """
+        try:
+            url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries"
+            body = {
+                "queries": [{"query": "EVALUATE ROW(\"test\", 1)"}],
+                "serializerSettings": {"includeNulls": True},
+            }
+            resp = self._request("POST", url, json_body=body, timeout=30)
+
+            if resp.status_code < 300:
+                return "ok", ""
+            if resp.status_code in (401, 403):
+                return "forbidden", self._extract_pbi_error(resp) or f"HTTP {resp.status_code}"
+            if resp.status_code == 404:
+                return "skip", "HTTP 404"
+
+            detail = self._extract_pbi_error(resp)
+            if detail:
+                # A structured pbi.error means the request authenticated and
+                # reached the semantic engine; the model itself is the problem.
+                return "engine", detail
+            return "error", f"HTTP {resp.status_code} {resp.text[:300]}"
+        except Exception as e:
+            return "error", str(e)
+
+    @staticmethod
+    def _extract_pbi_error(resp) -> str:
+        """Pull the human-readable detail out of a Power BI error response."""
+        try:
+            err = (resp.json() or {}).get("error", {})
+            pbi_err = err.get("pbi.error", {})
+            for d in pbi_err.get("details", []):
+                val = (d.get("detail") or {}).get("value", "")
+                if val:
+                    return val
+            return err.get("message") or ""
+        except Exception:
+            return ""
+
+    def list_workspaces(self, first_page_only: bool = False) -> List[Dict]:
+        """
+        List workspaces (groups) the service principal has access to,
+        restricted to the configured `workspaces` filter when one is set
+        (matches on workspace name or ID, case-insensitive).
         """
         self.connect()
         url = f"{self.BASE_URL}/groups"
-        headers = self._build_headers()
 
         results: List[Dict] = []
         while url:
-            resp = self._http.get(url, headers=headers, timeout=30)
+            resp = self._request("GET", url, timeout=30)
             if resp.status_code >= 300:
                 raise RuntimeError(f"Failed to list workspaces: HTTP {resp.status_code} {resp.text}")
 
             payload = resp.json() or {}
             items = payload.get("value") or []
             for ws in items:
+                if not self._workspace_allowed(ws):
+                    continue
                 results.append({
                     "id": ws.get("id"),
                     "name": ws.get("name"),
                     "type": ws.get("type"),
                     "isOnDedicatedCapacity": ws.get("isOnDedicatedCapacity"),
                 })
+            # With a filter, stop early once every configured workspace is found
+            if self._workspace_filter and len(results) >= len(self._workspace_filter):
+                break
+            if first_page_only:
+                break
             url = payload.get("@odata.nextLink")
 
         return results
+
+    def _workspace_allowed(self, ws: Dict) -> bool:
+        """Check a workspace against the configured filter (name or ID)."""
+        if not self._workspace_filter:
+            return True
+        ws_id = (ws.get("id") or "").strip().lower()
+        ws_name = (ws.get("name") or "").strip().lower()
+        return ws_id in self._workspace_filter or ws_name in self._workspace_filter
 
     def list_datasets(self, workspace_id: str) -> List[Dict]:
         """
@@ -234,11 +349,10 @@ class PowerBIClient(DataSourceClient):
         """
         self.connect()
         url = f"{self.BASE_URL}/groups/{workspace_id}/datasets"
-        headers = self._build_headers()
 
         results: List[Dict] = []
         while url:
-            resp = self._http.get(url, headers=headers, timeout=30)
+            resp = self._request("GET", url, timeout=30)
             if resp.status_code >= 300:
                 raise RuntimeError(f"Failed to list datasets: HTTP {resp.status_code} {resp.text}")
 
@@ -263,11 +377,10 @@ class PowerBIClient(DataSourceClient):
         """
         self.connect()
         url = f"{self.BASE_URL}/groups/{workspace_id}/reports"
-        headers = self._build_headers()
 
         results: List[Dict] = []
         while url:
-            resp = self._http.get(url, headers=headers, timeout=30)
+            resp = self._request("GET", url, timeout=30)
             if resp.status_code >= 300:
                 raise RuntimeError(f"Failed to list reports: HTTP {resp.status_code} {resp.text}")
 
@@ -806,14 +919,13 @@ class PowerBIClient(DataSourceClient):
             url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries"
         else:
             url = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
-        headers = self._build_headers()
 
         body = {
             "queries": [{"query": dax}],
             "serializerSettings": {"includeNulls": True},
         }
 
-        resp = self._http.post(url, json=body, headers=headers, timeout=120)
+        resp = self._request("POST", url, json_body=body, timeout=120)
         if resp.status_code >= 300:
             raise RuntimeError(f"DAX query failed: HTTP {resp.status_code} {resp.text}")
 
@@ -942,6 +1054,33 @@ TOPN(10,
             "Authorization": f"Bearer {self._access_token}",
             "Content-Type": "application/json",
         }
+
+    def _request(self, method: str, url: str, json_body: Optional[Dict] = None,
+                 timeout: int = 30, max_attempts: int = 3):
+        """
+        HTTP request with retry/backoff on 429 (throttling) and 5xx.
+        Respects Retry-After when Power BI provides it. Returns the final
+        response (does not raise on HTTP error status).
+        """
+        import time
+
+        resp = None
+        for attempt in range(1, max_attempts + 1):
+            resp = self._http.request(
+                method, url, json=json_body, headers=self._build_headers(), timeout=timeout
+            )
+            if resp.status_code != 429 and resp.status_code < 500:
+                return resp
+            if attempt >= max_attempts:
+                return resp
+            try:
+                delay = float(resp.headers.get("Retry-After") or 0)
+            except (TypeError, ValueError):
+                delay = 0
+            if delay <= 0:
+                delay = 2 ** attempt  # 2s, 4s
+            time.sleep(min(delay, 30))
+        return resp
 
 
 # Compatibility alias for dynamic resolver expecting 'PowerbiClient'
