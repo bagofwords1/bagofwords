@@ -159,19 +159,22 @@ class StepService:
         code = step.code
 
         # Pre-resolve any load_step()/load_entity() refs in the saved code.
-        from app.ai.code_execution.loadables import resolve_loadables_for_code
+        from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
         from app.models.organization import Organization
         org = organization
         if org is None and getattr(report, "organization_id", None):
             org = await db.get(Organization, str(report.organization_id))
-        loadables = await resolve_loadables_for_code(db, org, report, current_user, code)
 
-        # Pass organization_settings so format_df_for_widget honors the org's
-        # limit_row_count; without it the executor falls back to a hardcoded
+        # Resolve org settings first: they gate load_step and (below) the row
+        # limit. Without them format_df_for_widget falls back to a hardcoded
         # 1000-row cap regardless of the configured limit.
         org_settings = organization_settings
         if org_settings is None and org is not None:
             org_settings = await org.get_settings(db)
+        _ls_enabled, _ = load_step_settings(org_settings)
+        loadables = await resolve_loadables_for_code(
+            db, org, report, current_user, code, enable_load_step=_ls_enabled
+        )
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 

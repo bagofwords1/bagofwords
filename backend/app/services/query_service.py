@@ -258,14 +258,17 @@ class QueryService:
         excel_files = report.files
         # Pre-resolve any load_step()/load_entity() refs in the saved code so
         # reruns of code that reuses prior results keep working.
-        from app.ai.code_execution.loadables import resolve_loadables_for_code
+        from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
         from app.models.organization import Organization
         org = await db.get(Organization, str(organization_id or report.organization_id)) if (organization_id or getattr(report, "organization_id", None)) else None
-        loadables = await resolve_loadables_for_code(db, org, report, run_user, step.code)
         usage_context = self._usage_context(organization_id, user_id, source="query_run", source_ref_id=query_id)
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await org.get_settings(db) if org else None
+        _ls_enabled, _ = load_step_settings(org_settings)
+        loadables = await resolve_loadables_for_code(
+            db, org, report, run_user, step.code, enable_load_step=_ls_enabled
+        )
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(
