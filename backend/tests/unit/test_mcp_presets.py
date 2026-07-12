@@ -64,11 +64,18 @@ def test_oauth_app_presets_prefill_endpoints():
 
 def test_x_oauth_defaults_are_correct():
     d = mcp_preset("x").oauth_defaults
-    assert d.authorize_url == "https://twitter.com/i/oauth2/authorize"
+    assert d.authorize_url == "https://x.com/i/oauth2/authorize"
     assert d.token_url == "https://api.x.com/2/oauth2/token"
     # tweet.write (not the invalid twitter.write) is the X scope for posting.
     assert "tweet.write" in d.scopes
     assert "twitter.write" not in d.scopes
+    # X spells the refresh-token scope offline.access (dot), never
+    # offline_access (underscore) — the underscore makes X drop the refresh
+    # token. Guard both directions.
+    assert "offline.access" in d.scopes
+    assert "offline_access" not in d.scopes
+    # X is a confidential client: token exchange must use HTTP Basic auth.
+    assert d.token_endpoint_auth_method == "client_secret_basic"
 
 
 def test_dcr_presets_have_no_oauth_defaults():
@@ -101,7 +108,10 @@ def test_catalog_exposes_preset_form_spec():
     # The new fields must serialize through mcp_presets() → GET /connectors/catalog.
     x = next(p for p in mcp_presets() if p["key"] == "x")
     assert "allowed_auth" in x and "oauth_defaults" in x and "sample_tools" in x
-    assert x["oauth_defaults"]["authorize_url"] == "https://twitter.com/i/oauth2/authorize"
+    assert x["oauth_defaults"]["authorize_url"] == "https://x.com/i/oauth2/authorize"
+    # token_endpoint_auth_method must serialize through so the connect form can
+    # prefill it (X → client_secret_basic).
+    assert x["oauth_defaults"]["token_endpoint_auth_method"] == "client_secret_basic"
 
 
 def test_sample_tools_present():

@@ -109,7 +109,7 @@ def _clear_verifier_cookie(response) -> None:
 def _error_redirect(frontend_url: str, message: str) -> RedirectResponse:
     """Build a safe redirect back to the frontend with URL-encoded error details."""
     query = urlencode({"oauth": "error", "message": message or "oauth_failed"})
-    response = RedirectResponse(url=f"{frontend_url}/data?{query}")
+    response = RedirectResponse(url=f"{frontend_url}/agents?{query}")
     _clear_verifier_cookie(response)
     return response
 
@@ -308,7 +308,10 @@ async def oauth_callback(
         )
     except ValueError as e:
         logger.error(f"OAuth token exchange failed: {e}")
-        return _error_redirect(frontend_url, "Token exchange failed")
+        # Surface the provider's actual reason (e.g. "unauthorized_client —
+        # Missing valid authorization header") so a misconfigured client auth
+        # method / secret is diagnosable from the UI toast, not just the logs.
+        return _error_redirect(frontend_url, f"Token exchange failed: {e}")
 
     # Upsert UserConnectionCredentials, then verify the token actually works.
     # A failed test must NOT strand a non-working credential, so capture the prior
@@ -404,7 +407,7 @@ async def oauth_callback(
 
     # Redirect back to frontend
     response = RedirectResponse(
-        url=f"{frontend_url}/data?oauth=success&connection_id={connection_id}"
+        url=f"{frontend_url}/agents?oauth=success&connection_id={connection_id}"
     )
     _clear_verifier_cookie(response)
     return response

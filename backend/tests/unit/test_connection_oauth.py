@@ -251,6 +251,156 @@ class TestTokenRefresh:
 
 
 # ---------------------------------------------------------------------------
+# Client authentication at the token endpoint (client_secret_basic vs _post)
+# ---------------------------------------------------------------------------
+
+def _capturing_transport(monkeypatch, captured):
+    """Patch httpx.AsyncClient to a MockTransport that records the request."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth_header"] = request.headers.get("authorization")
+        captured["body"] = dict(urllib.parse.parse_qsl(request.content.decode()))
+        return httpx.Response(200, json={
+            "access_token": "at", "refresh_token": "rt",
+            "expires_in": 3600, "token_type": "Bearer",
+        })
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class _Patched(original):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Patched)
+
+
+class TestClientAuthMethods:
+    """X requires HTTP Basic auth; Microsoft/Google use client_secret in body."""
+
+    @pytest.mark.asyncio
+    async def test_exchange_basic_auth_sends_authorization_header(self, monkeypatch):
+        captured = {}
+        _capturing_transport(monkeypatch, captured)
+        oauth_params = {
+            "token_url": "https://api.x.com/2/oauth2/token",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "token_endpoint_auth_method": "client_secret_basic",
+        }
+        await exchange_code_for_tokens(
+            oauth_params, code="c", redirect_uri="https://app/callback",
+            code_verifier="v",
+        )
+        # Authorization: Basic base64(client_id:client_secret)
+        import base64
+        expected = "Basic " + base64.b64encode(b"cid:csecret").decode()
+        assert captured["auth_header"] == expected
+        # The secret must NOT also be in the body, and X authenticates client_id
+        # solely via the header — neither belongs in the form body.
+        assert "client_secret" not in captured["body"]
+        assert "client_id" not in captured["body"]
+        assert captured["body"]["code_verifier"] == "v"
+
+    @pytest.mark.asyncio
+    async def test_refresh_basic_auth_sends_authorization_header(self, monkeypatch):
+        captured = {}
+        _capturing_transport(monkeypatch, captured)
+        oauth_params = {
+            "token_url": "https://api.x.com/2/oauth2/token",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "token_endpoint_auth_method": "client_secret_basic",
+        }
+        await refresh_access_token(oauth_params, refresh_token="old_rt")
+        assert captured["auth_header"].startswith("Basic ")
+        assert "client_secret" not in captured["body"]
+        assert captured["body"]["grant_type"] == "refresh_token"
+
+    @pytest.mark.asyncio
+    async def test_exchange_post_auth_keeps_secret_in_body(self, monkeypatch):
+        captured = {}
+        _capturing_transport(monkeypatch, captured)
+        oauth_params = {
+            "token_url": "https://login.microsoftonline.com/t/oauth2/v2.0/token",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "token_endpoint_auth_method": "client_secret_post",
+        }
+        await exchange_code_for_tokens(oauth_params, code="c", redirect_uri="https://app/callback")
+        assert captured["auth_header"] is None
+        assert captured["body"]["client_secret"] == "csecret"
+        assert captured["body"]["client_id"] == "cid"
+
+    @pytest.mark.asyncio
+    async def test_exchange_default_infers_post_when_secret_present(self, monkeypatch):
+        # No explicit method → behaves as before (secret in body) for
+        # backward-compat with connections created before the field existed.
+        captured = {}
+        _capturing_transport(monkeypatch, captured)
+        oauth_params = {
+            "token_url": "https://login.example.com/token",
+            "client_id": "cid",
+            "client_secret": "csecret",
+        }
+        await exchange_code_for_tokens(oauth_params, code="c", redirect_uri="https://app/callback")
+        assert captured["auth_header"] is None
+        assert captured["body"]["client_secret"] == "csecret"
+
+    @pytest.mark.asyncio
+    async def test_exchange_none_public_client_sends_no_secret(self, monkeypatch):
+        captured = {}
+        _capturing_transport(monkeypatch, captured)
+        oauth_params = {
+            "token_url": "https://mcp.example.com/token",
+            "client_id": "cid",
+            "client_secret": None,
+            "token_endpoint_auth_method": "none",
+        }
+        await exchange_code_for_tokens(oauth_params, code="c", redirect_uri="https://app/callback")
+        assert captured["auth_header"] is None
+        assert "client_secret" not in captured["body"]
+
+    @pytest.mark.asyncio
+    async def test_basic_auth_requires_secret(self, monkeypatch):
+        captured = {}
+        _capturing_transport(monkeypatch, captured)
+        oauth_params = {
+            "token_url": "https://api.x.com/2/oauth2/token",
+            "client_id": "cid",
+            "client_secret": None,
+            "token_endpoint_auth_method": "client_secret_basic",
+        }
+        with pytest.raises(ValueError, match="client_secret_basic requires a client_secret"):
+            await exchange_code_for_tokens(oauth_params, code="c", redirect_uri="https://app/callback")
+
+    def test_get_oauth_params_infers_basic_for_x_host(self):
+        # An X connection created before token_endpoint_auth_method existed still
+        # gets Basic auth via the api.x.com host fallback.
+        conn = _make_connection(type="mcp", credentials={
+            "authorize_url": "https://x.com/i/oauth2/authorize",
+            "token_url": "https://api.x.com/2/oauth2/token",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "scopes": "tweet.read tweet.write offline.access",
+        })
+        params = get_oauth_params(conn)
+        assert params["token_endpoint_auth_method"] == "client_secret_basic"
+
+    def test_get_oauth_params_explicit_method_wins(self):
+        conn = _make_connection(type="mcp", credentials={
+            "authorize_url": "https://idp.example.com/authorize",
+            "token_url": "https://idp.example.com/token",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "token_endpoint_auth_method": "client_secret_post",
+        })
+        params = get_oauth_params(conn)
+        assert params["token_endpoint_auth_method"] == "client_secret_post"
+
+
+# ---------------------------------------------------------------------------
 # OBO Token Exchange Tests (Phase 2)
 # ---------------------------------------------------------------------------
 

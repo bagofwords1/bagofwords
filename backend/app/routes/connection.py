@@ -395,7 +395,7 @@ async def get_connection(
         if connection.credentials:
             try:
                 _creds = connection.decrypt_credentials()
-                _NON_SECRET = ("authorize_url", "token_url", "client_id", "scopes", "audience", "api_key_header")
+                _NON_SECRET = ("authorize_url", "token_url", "client_id", "scopes", "audience", "api_key_header", "token_endpoint_auth_method")
                 _meta = {k: _creds[k] for k in _NON_SECRET if _creds.get(k) not in (None, "")}
                 credentials_meta = _meta or None
             except Exception:

@@ -282,6 +282,15 @@ class McpAuthDefaults(BaseModel):
     token_url: Optional[str] = None
     scopes: Optional[str] = None
     audience: Optional[str] = None
+    # How the token endpoint authenticates the client on code-exchange/refresh:
+    #   client_secret_post  — client_id/client_secret in the form body (default,
+    #                          Microsoft/Google)
+    #   client_secret_basic — HTTP Basic auth header (X requires this for
+    #                          confidential clients; the secret must NOT also be
+    #                          in the body)
+    #   none                — public client, no secret (DCR/PKCE-only)
+    # None → treated as client_secret_post by the token exchange.
+    token_endpoint_auth_method: Optional[str] = None
 
 
 class McpPreset(BaseModel):
@@ -1478,9 +1487,16 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="x", title="X", server_url="https://api.x.com/mcp",
               auth="bearer", allowed_auth=["bearer", "oauth_app"],
               oauth_defaults=McpAuthDefaults(
-                  authorize_url="https://twitter.com/i/oauth2/authorize",
+                  authorize_url="https://x.com/i/oauth2/authorize",
                   token_url="https://api.x.com/2/oauth2/token",
-                  scopes="tweet.read, tweet.write, users.read, offline_access",
+                  # X spells the refresh-token scope `offline.access` (dot), NOT
+                  # the `offline_access` (underscore) used by Microsoft/Google.
+                  # Sending the underscore form makes X drop the refresh token.
+                  scopes="tweet.read, tweet.write, users.read, offline.access",
+                  # X is a confidential client: it requires HTTP Basic auth on
+                  # the token request and rejects client_secret in the body with
+                  # 401 unauthorized_client ("Missing valid authorization header").
+                  token_endpoint_auth_method="client_secret_basic",
               ),
               sample_tools=["get_users_by_username", "get_users_timeline", "search_posts", "get_trends"],
               description="Posts, users, search and trends from X (needs an X API bearer token)."),

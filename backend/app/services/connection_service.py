@@ -441,6 +441,21 @@ class ConnectionService:
         if "credentials" in updates:
             new_credentials = updates.pop("credentials")
             if new_credentials and not any(v is None for v in new_credentials.values()):
+                # The edit form never re-sends secret fields the admin left
+                # blank (client_secret / bearer token / api_key are write-only
+                # placeholders). Carry those forward from the stored blob so an
+                # endpoint/scope edit doesn't wipe the secret. This is the bug
+                # that broke X OAuth: editing the connection dropped
+                # client_secret, and the next token exchange failed with
+                # "client_secret_basic requires a client_secret".
+                _SECRET_KEYS = ("client_secret", "oauth_client_secret", "token", "api_key")
+                try:
+                    existing = connection.decrypt_credentials() or {}
+                except Exception:
+                    existing = {}
+                for k in _SECRET_KEYS:
+                    if k not in new_credentials and existing.get(k):
+                        new_credentials[k] = existing[k]
                 connection.encrypt_credentials(new_credentials)
                 connection_changed = True
 

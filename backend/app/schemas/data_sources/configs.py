@@ -2101,6 +2101,17 @@ class MCPOAuthAppCredentials(BaseModel):
         description="Optional RFC 8707 resource indicator — usually the MCP server's URL — to audience-bind the issued token.",
         json_schema_extra={"ui:type": "string"}
     )
+    token_endpoint_auth_method: Optional[str] = Field(
+        None,
+        title="Token Endpoint Auth Method",
+        description=(
+            "How the client authenticates to the token endpoint: "
+            "'client_secret_post' (secret in body, default), "
+            "'client_secret_basic' (HTTP Basic auth — required by X), or "
+            "'none' (public client)."
+        ),
+        json_schema_extra={"ui:type": "select", "options": ["client_secret_post", "client_secret_basic", "none"]}
+    )
 
 
 # Custom API
