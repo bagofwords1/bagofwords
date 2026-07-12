@@ -44,8 +44,11 @@ class ListFilesInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file-source connection to list (SharePoint, OneDrive, "
-            "Google Drive). The connection must be attached to the current agent."
+            "UUID of the file-source connection to list (network dir, S3, "
+            "SharePoint, OneDrive, Google Drive, …). Use the value from the "
+            "`id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. The connection must be attached to the "
+            "current agent."
         ),
     )
     folder_id: Optional[str] = Field(
@@ -86,10 +89,11 @@ class ReadFileInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file source attached to this agent. Either the "
-            "Connection ID or the DataSource (agent) ID is accepted — when "
-            "the agent has one file connection, passing the agent's own ID "
-            "is the simplest path."
+            "UUID of the file source attached to this agent. Use the value from "
+            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. Either the Connection ID or the DataSource "
+            "(agent) ID is accepted — when the agent has one file connection, "
+            "passing the agent's own ID is the simplest path."
         ),
     )
     file_id: str = Field(
@@ -193,10 +197,11 @@ class SearchFilesInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file source attached to this agent. Either the "
-            "Connection ID or the DataSource (agent) ID is accepted — when "
-            "the agent has one file connection, passing the agent's own ID "
-            "is the simplest path."
+            "UUID of the file source attached to this agent. Use the value from "
+            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. Either the Connection ID or the DataSource "
+            "(agent) ID is accepted — when the agent has one file connection, "
+            "passing the agent's own ID is the simplest path."
         ),
     )
     query: str = Field(..., description="Free-text search query — matches filename / content depending on the provider.")
@@ -228,9 +233,10 @@ class WriteFileInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of a WRITABLE file source attached to this agent (Connection ID "
-            "or the DataSource/agent ID). Only connections with writes enabled "
-            "accept this — a read-only source rejects the call."
+            "UUID of a WRITABLE file source attached to this agent — the value "
+            "from the `id=` attribute of the `<connection>` tag, NOT its display "
+            "name (Connection ID or the DataSource/agent ID). Only connections "
+            "with writes enabled accept this — a read-only source rejects the call."
         ),
     )
     filename: str = Field(
@@ -282,8 +288,9 @@ class AttachFileInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file source attached to this agent (Connection ID or the "
-            "DataSource/agent ID)."
+            "UUID of the file source attached to this agent — the value from the "
+            "`id=` attribute of the `<connection>` tag, NOT its display name "
+            "(Connection ID or the DataSource/agent ID)."
         ),
     )
     file_ids: List[str] = Field(
