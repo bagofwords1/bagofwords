@@ -274,9 +274,9 @@ const toolbarButtons = computed(() => {
 }
 :global(.dark) .bow-doc-editor :deep(.ProseMirror) { color: rgb(209 213 219); }
 
-.bow-doc-editor :deep(h1) { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 1.25rem; color: rgb(17 24 39); }
-.bow-doc-editor :deep(h2) { font-size: 1.25rem; font-weight: 600; margin: 2.25rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid rgb(243 244 246); color: rgb(17 24 39); }
-.bow-doc-editor :deep(h3) { font-size: 1.0625rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: rgb(31 41 55); }
+.bow-doc-editor :deep(h1) { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 1.25rem; color: rgb(17 24 39); }
+.bow-doc-editor :deep(h2) { font-size: 1.125rem; font-weight: 600; margin: 2rem 0 0.625rem; padding-bottom: 0.375rem; border-bottom: 1px solid rgb(243 244 246); color: rgb(17 24 39); }
+.bow-doc-editor :deep(h3) { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: rgb(31 41 55); }
 :global(.dark) .bow-doc-editor :deep(h1),
 :global(.dark) .bow-doc-editor :deep(h2) { color: rgb(243 244 246); border-color: rgb(31 41 55); }
 :global(.dark) .bow-doc-editor :deep(h3) { color: rgb(229 231 235); }
