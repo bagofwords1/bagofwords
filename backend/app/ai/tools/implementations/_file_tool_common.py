@@ -240,6 +240,13 @@ _ATTACHABLE_BY_EXT = {
     "txt": "text/plain",
     "md": "text/markdown",
     "pdf": "application/pdf",
+    # Rendered page images / picture files — materialized so they get a file id
+    # (referenceable in later turns and visible in the UI).
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
 }
 
 # Reverse map: MIME → extension. Used when materializing an MCP blob/resource
@@ -258,6 +265,71 @@ def ext_for_mime(mime: Optional[str]) -> Optional[str]:
     if not mime:
         return None
     return _EXT_BY_MIME.get(mime.strip().lower())
+
+
+# Picture files we can hand to a vision model as-is (normalized to PNG).
+_RENDERABLE_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"}
+
+
+def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 150):
+    """Turn a *binary* file payload into page images for a vision model.
+
+    - Picture files (png/jpg/…) pass through, normalized to PNG.
+    - PDFs are rasterized page-by-page via pdf2image (needs poppler at runtime).
+
+    Returns ``(images, total_pages)`` where ``images`` is a list of
+    ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
+    ``([], 0)`` when the payload isn't a renderable binary or the renderer is
+    unavailable, so the caller simply keeps the original (binary) result.
+    """
+    if not isinstance(payload, (bytes, bytearray)):
+        return [], 0
+    data = bytes(payload)
+    ext = file_id.rsplit(".", 1)[-1].lower() if "." in (file_id or "") else ""
+    import io
+    try:
+        if ext in _RENDERABLE_IMAGE_EXTS:
+            from PIL import Image
+            im = Image.open(io.BytesIO(data))
+            im.load()
+            if im.mode not in ("RGB", "RGBA", "L"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            return [(buf.getvalue(), "image/png")], 1
+        if ext == "pdf":
+            from pdf2image import convert_from_bytes
+            pages = convert_from_bytes(data, dpi=dpi)
+            total = len(pages)
+            out = []
+            for pg in pages[:max_pages]:
+                buf = io.BytesIO()
+                pg.save(buf, format="PNG")
+                out.append((buf.getvalue(), "image/png"))
+            return out, total
+    except Exception as e:  # missing poppler, corrupt file, unsupported image
+        logger.info("render_file_images: could not render %s: %s", file_id, e)
+    return [], 0
+
+
+def allow_llm_see_data(runtime_ctx: Dict[str, Any]) -> bool:
+    """Whether the org lets raw data/content reach the model. Defaults to True
+    when settings are unavailable, matching the other tool call sites."""
+    try:
+        org = runtime_ctx.get("organization")
+        settings = getattr(org, "settings", None)
+        if settings is None:
+            return True
+        try:
+            return bool(settings.get_config("allow_llm_see_data").value)
+        except Exception:
+            pass
+        cfg = getattr(settings, "config", None)
+        if isinstance(cfg, dict):
+            return bool(cfg.get("allow_llm_see_data", {}).get("value", True))
+    except Exception:
+        pass
+    return True
 
 # Hard cap on auto-attach size. Larger files still return content inline but
 # don't get persisted — the agent should reach for a more specific reader.
@@ -316,7 +388,12 @@ async def attach_drive_file_to_session(
         from app.models.report import Report
 
         os.makedirs("uploads/files", exist_ok=True)
-        unique_filename = f"{uuid.uuid4()}_{filename}"
+        # File ids from nested sources carry path separators (e.g.
+        # "docs/scan.png"); they must not leak into the on-disk path or the open
+        # fails on a missing subdir. Flatten for storage; keep `filename` (the
+        # display name) intact.
+        safe_name = filename.replace("/", "_").replace("\\", "_")
+        unique_filename = f"{uuid.uuid4()}_{safe_name}"
         path = f"uploads/files/{unique_filename}"
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content_bytes)

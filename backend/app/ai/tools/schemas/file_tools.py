@@ -148,7 +148,7 @@ class ReadFileOutput(BaseModel):
     file_name: Optional[str] = None
     content_type: str = Field(
         default="unknown",
-        description="One of: tabular, text, json, binary, unknown.",
+        description="One of: tabular, text, json, binary, images, unknown.",
     )
     csv: Optional[str] = None  # for tabular
     text: Optional[str] = None  # for text/json/document
@@ -186,6 +186,21 @@ class ReadFileOutput(BaseModel):
     encoding: Optional[str] = Field(
         default=None,
         description="For windowed reads: 'text' (content is utf-8 in `text`) or 'base64' (content is base64 in `text`).",
+    )
+    # Vision fallback — set when content_type == "images": the file couldn't be
+    # extracted to text so its pages were rendered and shown to the model as
+    # images (see the observation). Also materialized as session files.
+    image_count: Optional[int] = Field(
+        default=None,
+        description="Number of page images shown to the model (content_type='images').",
+    )
+    pages_total: Optional[int] = Field(
+        default=None,
+        description="Total pages in the source document (image_count may be capped below this).",
+    )
+    image_file_ids: Optional[list[str]] = Field(
+        default=None,
+        description="Session file ids of the rendered page images, in page order.",
     )
     error: Optional[str] = None
 

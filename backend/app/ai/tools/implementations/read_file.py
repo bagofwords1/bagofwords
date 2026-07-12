@@ -14,8 +14,10 @@ from app.data_sources.clients.base import Capability
 from app.data_sources.clients._file_source_common import GlobScopeError
 
 from ._file_tool_common import (
+    allow_llm_see_data,
     attach_drive_file_to_session,
     audit_file_access_denied,
+    render_file_images,
     render_file_payload,
     resolve_file_client,
 )
@@ -183,15 +185,64 @@ class ReadFileTool(Tool):
         if output.get("file_name") is None:
             output.pop("file_name", None)
 
+        # Vision fallback: when the file couldn't be turned into text (a scanned /
+        # image-based / CID-font PDF, or a genuine picture), the payload is raw
+        # bytes → content_type "binary". If the model supports vision and the org
+        # allows the model to see data, render the pages to images and hand those
+        # to the model instead of an opaque blob. The base64 rides the observation
+        # `images` side-channel (agent_v2 lifts it into the next planner turn); the
+        # pages are also materialized as session files so they get referenceable
+        # ids. Best-effort — never breaks a normal read.
+        observation_images = None
+        try:
+            if rendered.get("content_type") == "binary":
+                model = runtime_ctx.get("model")
+                supports_vision = bool(model and getattr(model, "supports_vision", False))
+                if supports_vision and allow_llm_see_data(runtime_ctx):
+                    images, total_pages = render_file_images(data.file_id, payload)
+                    if images:
+                        import base64
+                        blocks, file_ids = [], []
+                        for i, (png, mtype) in enumerate(images):
+                            blocks.append({
+                                "data": base64.b64encode(png).decode("utf-8"),
+                                "media_type": mtype,
+                                "source_type": "base64",
+                            })
+                            fid = await attach_drive_file_to_session(
+                                runtime_ctx, filename=f"{data.file_id}.p{i + 1}.png",
+                                content_bytes=png, mime_type="image/png",
+                            )
+                            if fid:
+                                file_ids.append(fid)
+                        output["content_type"] = "images"
+                        output.pop("size", None)
+                        output["image_count"] = len(blocks)
+                        output["pages_total"] = total_pages
+                        if file_ids:
+                            output["image_file_ids"] = file_ids
+                        rendered["content_type"] = "images"
+                        rendered["_pages"] = (len(blocks), total_pages)
+                        observation_images = blocks
+        except Exception:
+            # Rendering is a best-effort enhancement; fall back to the binary read.
+            observation_images = None
+
         summary_bits = [f"Read {data.file_id}", rendered.get("content_type", "?")]
         if rendered.get("content_type") == "tabular":
             summary_bits.append(f"{rendered.get('row_count')} rows × {rendered.get('col_count')} cols")
+        elif rendered.get("content_type") == "images":
+            shown, total = rendered.get("_pages", (output.get("image_count"), output.get("pages_total")))
+            summary_bits.append(f"rendered {shown} of {total} page(s) as image(s) for vision")
         if rendered.get("truncated"):
             summary_bits.append("(truncated)")
 
+        observation = {"summary": " — ".join(summary_bits), "success": True}
+        if observation_images:
+            observation["images"] = observation_images
         yield ToolEndEvent(type="tool.end", payload={
             "output": output,
-            "observation": {"summary": " — ".join(summary_bits), "success": True},
+            "observation": observation,
         })
 
 
