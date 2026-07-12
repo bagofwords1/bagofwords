@@ -235,6 +235,37 @@ async def create_artifact(
     return ArtifactSchema.model_validate(artifact)
 
 
+class DocEditPayload(PydanticBaseModel):
+    """User-initiated doc edit from the frontend editor (owner only)."""
+    markdown: str
+    title: Optional[str] = None
+
+
+@router.post("/{artifact_id}/doc_edit", response_model=ArtifactSchema)
+@requires_permission('update_reports', model=ArtifactModel, owner_only=True)
+async def edit_doc_content(
+    artifact_id: str,
+    payload: DocEditPayload,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Save a new version of a document artifact (mode='doc') edited by its owner.
+
+    Rejected while an agent run is in progress on the report (write conflict
+    guard) and when the markdown embeds invalid visualization placeholders.
+    """
+    artifact = await service.create_doc_version(
+        db,
+        artifact_id=artifact_id,
+        markdown=payload.markdown,
+        title=payload.title,
+        user_id=str(current_user.id),
+        organization_id=str(organization.id),
+    )
+    return ArtifactSchema.model_validate(artifact)
+
+
 @router.get("/{artifact_id}", response_model=ArtifactSchema)
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def get_artifact(

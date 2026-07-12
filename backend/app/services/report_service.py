@@ -775,7 +775,12 @@ class ReportService:
             .limit(1)
         )
         if artifact_id:
+            # Explicit target may be any mode — docs refresh their embedded vizs too.
             artifact_stmt = artifact_stmt.where(Artifact.id == str(artifact_id))
+        else:
+            # Default rerun follows the latest DASHBOARD; a newer doc must not
+            # silently change which queries a report rerun refreshes.
+            artifact_stmt = artifact_stmt.where(Artifact.mode.in_(("page", "slides")))
         artifact_row = (await db.execute(artifact_stmt)).first()
         content = artifact_row[0] if artifact_row else None
         viz_ids = list(dict.fromkeys(
@@ -1335,6 +1340,7 @@ class ReportService:
         mode: str | None = None,
         has_artifacts: str | None = None,
         view: str | None = None,
+        artifact_mode: str | None = None,
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
@@ -1457,6 +1463,18 @@ class ReportService:
                 base_conditions.append(
                     ~Report.id.in_(
                         select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                    )
+                )
+
+            # Optional filter by artifact mode ('page' / 'slides' / 'doc')
+            if artifact_mode in ("page", "slides", "doc"):
+                from app.models.artifact import Artifact
+                base_conditions.append(
+                    Report.id.in_(
+                        select(Artifact.report_id).where(
+                            Artifact.mode == artifact_mode,
+                            Artifact.deleted_at.is_(None),
+                        )
                     )
                 )
 
@@ -1694,6 +1712,7 @@ class ReportService:
                         use_llm_sync=ds.use_llm_sync,
                         publish_status=getattr(ds, "publish_status", "published") or "published",
                         reliability_status=getattr(ds, "reliability_status", "training") or "training",
+                        icon=getattr(ds, "icon", None),
                         # Compute type from first connection
                         type=ds.connections[0].type if ds.connections else None,
                     )

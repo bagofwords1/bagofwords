@@ -79,7 +79,7 @@
             <template v-else>
               <span class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
               <div class="flex items-center gap-1 mt-0.5">
-                <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-2.5" />
+                <DataSourceIcon v-if="item.dataSourceType || item.dataSourceIcon" :type="item.dataSourceType" :icon="item.dataSourceIcon" class="h-2.5" />
                 <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ item.dataSourceName }}</span>
               </div>
             </template>
@@ -121,6 +121,7 @@ interface MentionItem {
   dataSourceId: string | null
   dataSourceName: string | null
   dataSourceType: string | null
+  dataSourceIcon: string | null
 }
 
 const props = defineProps<{
@@ -287,6 +288,7 @@ async function fetchMentionSuggestions(query: string): Promise<MentionItem[]> {
       dataSourceId: item.data_source_id || null,
       dataSourceName: item.data_source_name || null,
       dataSourceType: item.data_source_type || null,
+      dataSourceIcon: item.data_source_icon ?? item.icon ?? null,
     }))
   } catch {
     return []

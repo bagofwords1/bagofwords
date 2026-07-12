@@ -22,6 +22,8 @@ from .read_report import (
     ReadReportArtifact,
 )
 from .edit_artifact import EditArtifactInput, EditArtifactOutput
+from .create_doc import CreateDocInput, CreateDocOutput
+from .edit_doc import EditDocInput, EditDocOutput, DocEditOp
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
 from .list_mcp_resources import ListMcpResourcesInput, ListMcpResourcesOutput

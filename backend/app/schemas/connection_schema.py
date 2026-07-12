@@ -34,6 +34,18 @@ class ConnectionUpdate(BaseModel):
     reindex_schedule_mode: Optional[str] = None  # "interval" | "time"
     reindex_interval_minutes: Optional[int] = None
     reindex_at_time: Optional[str] = None
+    # Per-connection request rate limit (enterprise `connection_rate_limit`).
+    # A per-window value of 0 (or null) means "no limit for that window".
+    rate_limit_enabled: Optional[bool] = None
+    rate_limit_per_minute: Optional[int] = None
+    rate_limit_per_hour: Optional[int] = None
+    rate_limit_per_day: Optional[int] = None
+
+    @validator("rate_limit_per_minute", "rate_limit_per_hour", "rate_limit_per_day")
+    def _validate_rate_limit(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("rate limit must be >= 0 (0 means no limit)")
+        return v
 
     @validator("reindex_schedule_mode")
     def _validate_mode(cls, v):
@@ -43,8 +55,8 @@ class ConnectionUpdate(BaseModel):
 
     @validator("reindex_interval_minutes")
     def _validate_minutes(cls, v):
-        if v is not None and v < 10:
-            raise ValueError("reindex_interval_minutes must be at least 10")
+        if v is not None and v < 1:
+            raise ValueError("reindex_interval_minutes must be at least 1")
         return v
 
     @validator("reindex_at_time")
@@ -81,6 +93,10 @@ class ConnectionSchema(BaseModel):
     # Per-user auth status for the requesting user (user_required connections):
     # has_user_credentials / effective_auth / uses_fallback / connection.
     user_status: Optional[Dict[str, Any]] = None
+    # Catalog key for a known connector (e.g. "notion", "monday") so the UI can
+    # render the provider's brand icon even though `type` is just "mcp". None for
+    # generic connections.
+    connector_key: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -102,6 +118,10 @@ class ConnectionDetailSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
+    # Non-secret credential fields, safe to send back so the edit form can
+    # pre-fill them (OAuth endpoints, client_id, scopes, api_key header). Secrets
+    # (client_secret, token, api_key, password) are NEVER included.
+    credentials_meta: Optional[dict] = None
     # Scheduled auto-reindex config (enterprise `scheduled_reindex` feature).
     auto_reindex_enabled: bool = True
     reindex_interval_hours: Optional[int] = None  # NULL -> default cadence
@@ -110,6 +130,11 @@ class ConnectionDetailSchema(BaseModel):
     reindex_at_time: Optional[str] = None  # "HH:MM" when mode == "time"
     next_retry_at: Optional[str] = None
     last_reindex_error: Optional[str] = None
+    # Per-connection request rate limit (enterprise `connection_rate_limit`).
+    rate_limit_enabled: bool = False
+    rate_limit_per_minute: Optional[int] = None
+    rate_limit_per_hour: Optional[int] = None
+    rate_limit_per_day: Optional[int] = None
 
     class Config:
         from_attributes = True

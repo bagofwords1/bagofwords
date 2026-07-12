@@ -766,6 +766,41 @@ class LLMService:
         )
         has_small_default_model = existing_small_default.scalar_one_or_none() is not None
 
+        def _catalog_details(model: dict) -> dict | None:
+            return next(
+                (
+                    catalog_model
+                    for catalog_model in LLM_MODEL_DETAILS
+                    if catalog_model["model_id"] == model["model_id"]
+                    and catalog_model["provider_type"] == provider.provider_type
+                ),
+                None
+            )
+
+        def _incoming_model_is_enabled(model: dict, model_details: dict | None) -> bool:
+            if provider.is_preset and model_details and not model.get("is_custom", False):
+                return model_details.get("is_enabled", True)
+            return model.get("is_enabled", True)
+
+        desired_default_model_id = None
+        desired_small_default_model_id = None
+        for model in models:
+            model_details = _catalog_details(model)
+            if not model_details or not _incoming_model_is_enabled(model, model_details):
+                continue
+            if (
+                desired_default_model_id is None
+                and not has_default_model
+                and model_details.get("is_default", False)
+            ):
+                desired_default_model_id = model["model_id"]
+            if (
+                desired_small_default_model_id is None
+                and not has_small_default_model
+                and model_details.get("is_small_default", False)
+            ):
+                desired_small_default_model_id = model["model_id"]
+
         for model in models:
             # For preset models: remove context_window_tokens and pricing from model dict (we only use preset values)
             # For custom models: allow these fields to be set by clients
@@ -780,34 +815,35 @@ class LLMService:
             db_model = LLMModel(**model_dict)
             db_model.organization_id = organization.id
             db_model.provider = provider
-            db_model.is_enabled = True
             db_model.is_custom = model.get("is_custom", False)
             
             # Check if this model would be default according to config
-            model_details = next(
-                (m for m in LLM_MODEL_DETAILS if m["model_id"] == model["model_id"] and m["provider_type"] == provider.provider_type),
-                None
-            )
+            model_details = _catalog_details(model)
+
+            if provider.is_preset and model_details and not db_model.is_custom:
+                db_model.is_enabled = model_details.get("is_enabled", True)
+            else:
+                db_model.is_enabled = model.get("is_enabled", True)
             
             # Only set as default if there's no existing default and this model should be default
-            if model_details and model_details.get("is_default", False) and not has_default_model:
+            if desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
                 db_model.is_default = True
                 # Only allow one default model
                 has_default_model = True
             # Fallback: if org still has no default and this is an enabled model, make it the default
             # This ensures custom/Azure providers (not in LLM_MODEL_DETAILS) get a default model
-            elif not has_default_model and db_model.is_enabled:
+            elif not desired_default_model_id and not has_default_model and db_model.is_enabled:
                 db_model.is_default = True
                 has_default_model = True
             else:
                 db_model.is_default = False
             
             # Only set as small default if there's no existing small default and this model should be small default
-            if model_details and model_details.get("is_small_default", False) and not has_small_default_model:
+            if desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
                 setattr(db_model, "is_small_default", True)
                 has_small_default_model = True
             # Fallback: if org still has no small default and this is an enabled model, make it the small default
-            elif not has_small_default_model and db_model.is_enabled:
+            elif not desired_small_default_model_id and not has_small_default_model and db_model.is_enabled:
                 setattr(db_model, "is_small_default", True)
                 has_small_default_model = True
             else:
@@ -819,6 +855,8 @@ class LLMService:
             if model_details and not db_model.is_custom:
                 if model_details.get("context_window_tokens") is not None:
                     db_model.context_window_tokens = model_details["context_window_tokens"]
+                if model_details.get("max_output_tokens") is not None:
+                    db_model.max_output_tokens = model_details["max_output_tokens"]
                 if model_details.get("input_cost_per_million_tokens_usd") is not None:
                     db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
                 if model_details.get("output_cost_per_million_tokens_usd") is not None:
@@ -831,6 +869,8 @@ class LLMService:
                         db_model.name = model_details["name"]
                     if db_model.context_window_tokens is None and model_details.get("context_window_tokens") is not None:
                         db_model.context_window_tokens = model_details["context_window_tokens"]
+                    if db_model.max_output_tokens is None and model_details.get("max_output_tokens") is not None:
+                        db_model.max_output_tokens = model_details["max_output_tokens"]
                     if db_model.input_cost_per_million_tokens_usd is None and model_details.get("input_cost_per_million_tokens_usd") is not None:
                         db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
                     if db_model.output_cost_per_million_tokens_usd is None and model_details.get("output_cost_per_million_tokens_usd") is not None:
@@ -1013,6 +1053,8 @@ class LLMService:
                     if catalog:
                         if catalog.get("context_window_tokens") is not None:
                             db_model.context_window_tokens = catalog["context_window_tokens"]
+                        if catalog.get("max_output_tokens") is not None:
+                            db_model.max_output_tokens = catalog["max_output_tokens"]
                         if catalog.get("input_cost_per_million_tokens_usd") is not None:
                             db_model.input_cost_per_million_tokens_usd = catalog["input_cost_per_million_tokens_usd"]
                         if catalog.get("output_cost_per_million_tokens_usd") is not None:
@@ -1024,6 +1066,10 @@ class LLMService:
                         db_model.context_window_tokens = model.context_window_tokens
                     elif catalog and catalog.get("context_window_tokens") is not None:
                         db_model.context_window_tokens = catalog["context_window_tokens"]
+                    if getattr(model, "max_output_tokens", None) is not None:
+                        db_model.max_output_tokens = model.max_output_tokens
+                    elif catalog and catalog.get("max_output_tokens") is not None:
+                        db_model.max_output_tokens = catalog["max_output_tokens"]
                     if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
                         db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
                     elif catalog and catalog.get("input_cost_per_million_tokens_usd") is not None:
@@ -1039,14 +1085,13 @@ class LLMService:
                     else:
                         db_model.supports_vision = False
                 
-                if getattr(model, "max_output_tokens", None) is not None:
-                    db_model.max_output_tokens = model.max_output_tokens
                 db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
                 # For preset models: get context_window_tokens, pricing, and vision from LLM_MODEL_DETAILS
                 # For custom models: allow clients to optionally set these values
                 context_window_tokens = None
+                max_output_tokens = None
                 input_cost = None
                 output_cost = None
                 supports_vision = False
@@ -1059,6 +1104,8 @@ class LLMService:
                     if catalog:
                         if catalog.get("context_window_tokens") is not None:
                             context_window_tokens = catalog["context_window_tokens"]
+                        if catalog.get("max_output_tokens") is not None:
+                            max_output_tokens = catalog["max_output_tokens"]
                         if catalog.get("input_cost_per_million_tokens_usd") is not None:
                             input_cost = catalog["input_cost_per_million_tokens_usd"]
                         if catalog.get("output_cost_per_million_tokens_usd") is not None:
@@ -1067,6 +1114,7 @@ class LLMService:
                 else:
                     # User values take precedence; fall back to catalog when model_id+provider_type match.
                     context_window_tokens = getattr(model, "context_window_tokens", None) or (catalog.get("context_window_tokens") if catalog else None)
+                    max_output_tokens = getattr(model, "max_output_tokens", None) or (catalog.get("max_output_tokens") if catalog else None)
                     input_cost = getattr(model, "input_cost_per_million_tokens_usd", None) or (catalog.get("input_cost_per_million_tokens_usd") if catalog else None)
                     output_cost = getattr(model, "output_cost_per_million_tokens_usd", None) or (catalog.get("output_cost_per_million_tokens_usd") if catalog else None)
                     supports_vision = getattr(model, "supports_vision", False) or (catalog.get("supports_vision", False) if catalog else False)
@@ -1087,7 +1135,7 @@ class LLMService:
                     is_small_default=should_be_small_default,
                     supports_vision=supports_vision,
                     context_window_tokens=context_window_tokens,
-                    max_output_tokens=getattr(model, "max_output_tokens", None),
+                    max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost,
                 )
@@ -1334,6 +1382,7 @@ class LLMService:
                     None
                 )
                 context_window_tokens = model_details.get("context_window_tokens") if model_details else None
+                max_output_tokens = model_details.get("max_output_tokens") if model_details else None
                 input_cost = model_details.get("input_cost_per_million_tokens_usd") if model_details else None
                 output_cost = model_details.get("output_cost_per_million_tokens_usd") if model_details else None
                 supports_vision = model_details.get("supports_vision", False) if model_details else False
@@ -1349,6 +1398,7 @@ class LLMService:
                     is_small_default=is_small_default,
                     supports_vision=supports_vision,
                     context_window_tokens=context_window_tokens,
+                    max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost
                 )
@@ -1356,6 +1406,19 @@ class LLMService:
 
         await db.commit()
         
+    @staticmethod
+    def _apply_catalog_model_details(model: LLMModel, model_data: dict, *, sync_enabled: bool = False) -> None:
+        model.name = model_data["name"]
+        model.is_preset = model_data.get("is_preset", True)
+        if sync_enabled:
+            model.is_enabled = model_data.get("is_enabled", True)
+        model.supports_vision = model_data.get("supports_vision", False)
+        model.context_window_tokens = model_data.get("context_window_tokens")
+        if "max_output_tokens" in model_data:
+            model.max_output_tokens = model_data.get("max_output_tokens")
+        model.input_cost_per_million_tokens_usd = model_data.get("input_cost_per_million_tokens_usd")
+        model.output_cost_per_million_tokens_usd = model_data.get("output_cost_per_million_tokens_usd")
+
     async def _sync_provider_with_latest_models(
         self,
         db: AsyncSession,
@@ -1363,29 +1426,38 @@ class LLMService:
         organization: Organization
     ):
         """Sync a provider with the latest models from LLM_MODEL_DETAILS"""
-        # Get available models for this provider type
         available_models = [
             model for model in LLM_MODEL_DETAILS 
             if model["provider_type"] == provider.provider_type
         ]
+        catalog_by_id = {model["model_id"]: model for model in available_models}
 
-        # Get existing model IDs for this provider
         existing_models = await db.execute(
-            select(LLMModel.model_id)
-            .filter(LLMModel.provider_id == provider.id)
-        )
-        existing_model_ids = {model[0] for model in existing_models}
-        # Determine if org already has a small default model
-        existing_small_default = await db.execute(
             select(LLMModel)
-            .filter(LLMModel.organization_id == organization.id)
-            .filter(LLMModel.is_small_default == True)
+            .filter(LLMModel.provider_id == provider.id)
+            .filter(LLMModel.deleted_at == None)
         )
-        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
+        provider_models = existing_models.unique().scalars().all()
+        existing_by_id = {model.model_id: model for model in provider_models}
+
+        provider_had_default = any(model.is_default for model in provider_models)
+        provider_had_small_default = any(model.is_small_default for model in provider_models)
+
+        for model in provider_models:
+            model_data = catalog_by_id.get(model.model_id)
+            if not model_data or not model.is_preset:
+                continue
+
+            self._apply_catalog_model_details(model, model_data, sync_enabled=True)
+            if not model_data.get("is_default", False) or not model.is_enabled:
+                model.is_default = False
+            if not model_data.get("is_small_default", False) or not model.is_enabled:
+                model.is_small_default = False
+            db.add(model)
 
         # Add any missing models
         for model_data in available_models:
-            if model_data["model_id"] not in existing_model_ids:
+            if model_data["model_id"] not in existing_by_id:
                 model = LLMModel(
                     name=model_data["name"],
                     model_id=model_data["model_id"],
@@ -1393,15 +1465,52 @@ class LLMService:
                     is_enabled=model_data["is_enabled"],
                     provider=provider,
                     organization_id=organization.id,
-                    is_small_default=(model_data.get("is_small_default", False) and not has_small_default_model),
+                    is_default=False,
+                    is_small_default=False,
                     supports_vision=model_data.get("supports_vision", False),
                     context_window_tokens=model_data.get("context_window_tokens"),
+                    max_output_tokens=model_data.get("max_output_tokens"),
                     input_cost_per_million_tokens_usd=model_data.get("input_cost_per_million_tokens_usd"),
                     output_cost_per_million_tokens_usd=model_data.get("output_cost_per_million_tokens_usd")
                 )
-                if model.is_small_default:
-                    has_small_default_model = True
                 db.add(model)
+                provider_models.append(model)
+                existing_by_id[model.model_id] = model
+
+        await db.flush()
+
+        org_models_result = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+        )
+        org_models = org_models_result.unique().scalars().all()
+
+        default_data = next(
+            (model for model in available_models if model.get("is_default") and model.get("is_enabled", True)),
+            None,
+        )
+        desired_default = existing_by_id.get(default_data["model_id"]) if default_data else None
+        has_enabled_default = any(model.is_default and model.is_enabled for model in org_models)
+        if desired_default and desired_default.is_enabled and (provider_had_default or not has_enabled_default):
+            for model in org_models:
+                model.is_default = False
+                db.add(model)
+            desired_default.is_default = True
+            db.add(desired_default)
+
+        small_default_data = next(
+            (model for model in available_models if model.get("is_small_default") and model.get("is_enabled", True)),
+            None,
+        )
+        desired_small_default = existing_by_id.get(small_default_data["model_id"]) if small_default_data else None
+        has_enabled_small_default = any(model.is_small_default and model.is_enabled for model in org_models)
+        if desired_small_default and desired_small_default.is_enabled and (provider_had_small_default or not has_enabled_small_default):
+            for model in org_models:
+                model.is_small_default = False
+                db.add(model)
+            desired_small_default.is_small_default = True
+            db.add(desired_small_default)
         
     async def test_connection(
         self,
@@ -1515,4 +1624,3 @@ class LLMService:
         else:
             logger.error("LLM connection test failed: provider_type=%s, model_id=%s, org_id=%s, message=%s", provider.provider_type, selected_model.model_id, organization.id, result.get("message"))
         return result
-

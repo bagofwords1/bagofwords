@@ -166,7 +166,12 @@ class ThumbnailService:
                 # Get the latest artifact for this report
                 stmt = (
                     select(Artifact)
-                    .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
+                    .where(
+                        Artifact.report_id == report_id,
+                        Artifact.deleted_at.is_(None),
+                        # Report thumbnails render the dashboard, not docs
+                        Artifact.mode.in_(("page", "slides")),
+                    )
                     .order_by(Artifact.created_at.desc())
                     .limit(1)
                 )

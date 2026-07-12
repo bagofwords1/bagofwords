@@ -4,6 +4,7 @@
       ref="inputRef"
       contenteditable="true"
       :dir="inputDir"
+      class="mention-input-field"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 dark:text-white placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
@@ -127,7 +128,7 @@
             <button @click="closeItemCard" class="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded p-1">
               <Icon name="heroicons-chevron-left" class="w-4 h-4" />
             </button>
-            <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" class="h-3.5 flex-shrink-0" />
+            <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" :icon="expandedItem?.icon" class="h-3.5 flex-shrink-0" />
             <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <div class="text-[13px] font-medium truncate">{{ expandedItem?.name }}</div>
@@ -244,6 +245,7 @@ interface MentionItem {
   name: string
   subtitle?: string
   icon_type?: string
+  icon?: string | null
   entity_type?: string
   description?: string
   columns?: string[]
@@ -1431,6 +1433,7 @@ async function fetchAvailableMentions() {
             description: ds.description,
             subtitle: ds.description || ds.type,
             icon_type: ds.type,
+            icon: ds.icon,
             // Per-agent connect state — mirrors DataSourceSelector's needs-connect logic.
             needs_connect: needsUserConnection(ds),
             raw: ds,
@@ -1590,6 +1593,17 @@ function scrollSelectedIntoView() {
 
 [contenteditable]:focus {
   outline: none;
+}
+
+/* Mobile Safari auto-zooms the page when a focused editable element has a
+ * font-size below 16px. The prompt field is `text-sm` (14px), so tapping it
+ * on iOS zooms the report in. Pin it to 16px on small screens to suppress the
+ * focus-zoom; desktop keeps the 14px design. The `[contenteditable]` prefix
+ * raises specificity above Tailwind's `.text-sm` so this wins. */
+@media (max-width: 640px) {
+  [contenteditable].mention-input-field {
+    font-size: 16px;
+  }
 }
 
 /* Style mentions - Cursor-style minimal design */

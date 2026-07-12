@@ -97,11 +97,12 @@ XMLA_INLINE_ERROR = (
 )
 
 
-def _make_response(body: bytes, status: int = 200):
+def _make_response(body: bytes, status: int = 200, headers: dict = None):
     resp = MagicMock()
     resp.status_code = status
     resp.content = body
     resp.text = body.decode("utf-8", errors="ignore")
+    resp.headers = headers or {}
     return resp
 
 
@@ -290,3 +291,163 @@ class TestTopLevel:
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class
         assert resolve_client_class("infor_olap") is InforOlapClient
+
+
+# ---------------------------------------------------------------------------
+# Manager discovery (documented DISCOVER_DATASOURCES bootstrap)
+# ---------------------------------------------------------------------------
+
+DATASOURCES_ONE = _discover_envelope(
+    "<row><DataSourceName>Planning</DataSourceName>"
+    "<URL>http://internal-worker-01:8210/BI/APP/SOAP/OLAPDB/Planning</URL></row>"
+)
+
+DATASOURCES_TWO = _discover_envelope(
+    "<row><DataSourceName>Planning</DataSourceName>"
+    "<URL>http://internal-worker-01:8210/BI/APP/SOAP/OLAPDB/Planning</URL></row>"
+    "<row><DataSourceName>Finance</DataSourceName>"
+    "<URL>http://internal-worker-02:8215/BI/APP/SOAP/OLAPDB/Finance</URL></row>"
+)
+
+
+def _manager_client(**kwargs):
+    return InforOlapClient(
+        host="http://203.0.113.5:8200/BI/APP/SOAP/OLAPDB",
+        username="u",
+        password="p",
+        manager_discovery=True,
+        **kwargs,
+    )
+
+
+class TestManagerDiscovery:
+    def test_resolves_and_rewrites_host(self):
+        client = _manager_client()
+        _install_post(client, [_make_response(DATASOURCES_ONE)])
+        client.connect()
+        # Path and port come from the response; hostname from the configured URL.
+        assert client.host == "http://203.0.113.5:8210/BI/APP/SOAP/OLAPDB/Planning"
+        assert client.resolved_worker_url == client.host
+        assert client.manager_url == "http://203.0.113.5:8200/BI/APP/SOAP/OLAPDB"
+
+    def test_rewrite_disabled_keeps_returned_host(self):
+        client = _manager_client(rewrite_worker_host=False)
+        _install_post(client, [_make_response(DATASOURCES_ONE)])
+        client.connect()
+        assert client.host == "http://internal-worker-01:8210/BI/APP/SOAP/OLAPDB/Planning"
+
+    def test_catalog_picks_matching_database(self):
+        client = _manager_client(catalog="Finance")
+        _install_post(client, [_make_response(DATASOURCES_TWO)])
+        client.connect()
+        assert client.host == "http://203.0.113.5:8215/BI/APP/SOAP/OLAPDB/Finance"
+
+    def test_multiple_databases_without_catalog_raises(self):
+        client = _manager_client()
+        _install_post(client, [_make_response(DATASOURCES_TWO)])
+        with pytest.raises(RuntimeError, match="Planning.*Finance|set Catalog"):
+            client.connect()
+
+    def test_unknown_catalog_lists_available(self):
+        client = _manager_client(catalog="Nope")
+        _install_post(client, [_make_response(DATASOURCES_TWO)])
+        with pytest.raises(RuntimeError, match="not found.*Planning"):
+            client.connect()
+
+    def test_discovery_request_carries_tenant_and_version_header(self):
+        client = _manager_client(catalog="Planning")
+        session = _install_post(client, [_make_response(DATASOURCES_ONE)])
+        client.connect()
+        sent = session.post.call_args.kwargs.get("data") or session.post.call_args.args[1]
+        body = sent.decode()
+        assert "DISCOVER_DATASOURCES" in body
+        assert "<Tenant>single</Tenant>" in body
+        assert 'Version Sequence="200"' in body
+        assert "<Databasename>Planning</Databasename>" in body
+
+    def test_bootstrap_runs_once(self):
+        client = _manager_client()
+        session = _install_post(client, [
+            _make_response(DATASOURCES_ONE),
+            _make_response(CATALOGS_TWO),
+        ])
+        client.connect()
+        client.connect()  # second call must not re-discover
+        client._list_catalogs()
+        assert session.post.call_count == 2  # one bootstrap + one DBSCHEMA_CATALOGS
+
+
+# ---------------------------------------------------------------------------
+# test_connection failure classification
+# ---------------------------------------------------------------------------
+
+class TestFailureClassification:
+    def test_dns_failure_reports_no_connectivity(self):
+        import requests as _requests
+        client = _client()
+        session = MagicMock()
+        session.post.side_effect = _requests.exceptions.ConnectionError(
+            "NameResolutionError: Temporary failure in name resolution"
+        )
+        client._http = session
+        result = client.test_connection()
+        assert result["success"] is False
+        assert result["connectivity"] is False
+        assert "DNS" in result["message"]
+
+    def test_404_with_httpapi_signature_includes_path_hint(self):
+        client = _client()
+        _install_post(client, [
+            _make_response(b"Not Found", status=404, headers={"Server": "Microsoft-HTTPAPI/2.0"}),
+        ])
+        result = client.test_connection()
+        assert result["success"] is False
+        assert result["connectivity"] is True
+        assert "BI/APP/SOAP/OLAPDB" in result["message"]
+
+    def test_404_without_signature_has_no_infor_hint(self):
+        client = _client()
+        _install_post(client, [_make_response(b"nope", status=404, headers={"Server": "nginx"})])
+        result = client.test_connection()
+        assert "HTTP 404" in result["message"] or "404" in result["message"]
+        assert "BI/APP/SOAP/OLAPDB" not in result["message"]
+
+    def test_401_reports_credentials(self):
+        client = _client()
+        _install_post(client, [_make_response(b"denied", status=401)])
+        result = client.test_connection()
+        assert result["success"] is False
+        assert "credentials" in result["message"].lower()
+
+    def test_missing_host_reports_configuration_error(self):
+        client = InforOlapClient(host="", username="u", password="p")
+        result = client.test_connection()
+        assert result["success"] is False
+        assert "Configuration error" in result["message"]
+
+    def test_manager_success_reports_worker_url(self):
+        client = _manager_client(catalog="Planning")
+        _install_post(client, [
+            _make_response(DATASOURCES_ONE),
+            _make_response(CATALOGS_TWO),
+        ])
+        result = client.test_connection()
+        assert result["success"] is True
+        assert result["worker_url"] == "http://203.0.113.5:8210/BI/APP/SOAP/OLAPDB/Planning"
+        assert "Worker URL" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# Catalog resolution shortcut (no network round trips per query)
+# ---------------------------------------------------------------------------
+
+class TestCatalogShortcut:
+    def test_catalog_from_table_name_prefix_without_discovery(self):
+        client = _client()
+        session = _install_post(client, [_make_response(EXECUTE_OK)])
+        df = client.execute_query("SELECT {} ON COLUMNS FROM [GL]", table_name="Finance/GL")
+        assert not df.empty
+        # Exactly one POST: the Execute itself — no schema re-discovery.
+        assert session.post.call_count == 1
+        body = (session.post.call_args.kwargs.get("data") or session.post.call_args.args[1]).decode()
+        assert "<Catalog>Finance</Catalog>" in body

@@ -27,6 +27,19 @@ _NS = {
 _MEASURE_DIMENSION_TYPE = "2"
 
 
+class XmlaHttpError(RuntimeError):
+    """Non-2xx HTTP response from the XMLA endpoint. Carries enough context
+    for test_connection to say *what kind* of failure this is (wrong path vs
+    rejected credentials vs server error) instead of one generic message."""
+
+    def __init__(self, method: str, status_code: int, server_header: str = "", body_snippet: str = ""):
+        self.method = method
+        self.status_code = status_code
+        self.server_header = server_header or ""
+        self.body_snippet = body_snippet or ""
+        super().__init__(f"XMLA {method} failed: HTTP {status_code} {self.body_snippet}")
+
+
 class XmlaClient(DataSourceClient):
     """
     Shared base for XML for Analysis (XMLA) data source clients.
@@ -56,6 +69,9 @@ class XmlaClient(DataSourceClient):
     EMPTY_NOTE: str = "No databases visible to this user — check permissions."
     # ValueError message when execute_query is called with an empty statement.
     QUERY_REQUIRED_MSG: str = "A query is required"
+    # Provider-specific hint appended when the endpoint answers HTTP 404 —
+    # i.e. the host is right but the URL path is not an XMLA service.
+    PATH_HINT: str = ""
 
     def __init__(
         self,
@@ -96,24 +112,76 @@ class XmlaClient(DataSourceClient):
         self._http = session
 
     def test_connection(self) -> Dict:
+        # connect() may do network I/O in subclasses (e.g. manager discovery),
+        # so both phases share the same failure classification.
         try:
             self.connect()
-        except Exception as e:
-            return {"success": False, "message": f"Authentication failed: {e}"}
-
-        try:
             catalogs = self._list_catalogs()
         except Exception as e:
-            return {
-                "success": False,
-                "connectivity": True,
-                "message": f"Reached the XMLA endpoint but discovery failed: {e}",
-            }
+            return self._classify_failure(e)
 
         msg = f"Connected to {self.PRODUCT_NAME}. Found {len(catalogs)} catalog(s)."
         if not catalogs:
             msg += f" ({self.EMPTY_NOTE})"
         return {"success": True, "message": msg, "catalogs": len(catalogs)}
+
+    def _classify_failure(self, e: Exception) -> Dict:
+        """Turn a connection/discovery exception into an actionable message.
+        The distinctions matter operationally: DNS vs wrong-path vs rejected
+        credentials each point at a different owner (network, endpoint URL,
+        account) — collapsing them into one sentence hides the next step."""
+        if isinstance(e, XmlaHttpError):
+            if e.status_code == 404:
+                msg = (
+                    "Endpoint reached, but nothing serves XMLA at this URL path "
+                    "(HTTP 404) — verify the path portion of the endpoint URL."
+                )
+                # Windows HTTP.sys answers unregistered paths itself; its
+                # signature server header means "right machine, wrong path".
+                if self.PATH_HINT and e.server_header.lower().startswith("microsoft-httpapi"):
+                    msg += f" {self.PATH_HINT}"
+                return {"success": False, "connectivity": True, "message": msg}
+            if e.status_code in (401, 403):
+                return {
+                    "success": False,
+                    "connectivity": True,
+                    "message": (
+                        f"Endpoint found, but the credentials or authentication "
+                        f"scheme were rejected (HTTP {e.status_code})."
+                    ),
+                }
+            return {
+                "success": False,
+                "connectivity": True,
+                "message": f"XMLA endpoint returned HTTP {e.status_code}: {e.body_snippet[:300]}",
+            }
+        if isinstance(e, requests.exceptions.ConnectionError):
+            detail = str(e)
+            if "NameResolutionError" in detail or "Temporary failure in name resolution" in detail:
+                msg = (
+                    "Could not resolve the endpoint hostname (DNS). Use an IP "
+                    "address or a resolvable FQDN in the endpoint URL."
+                )
+            else:
+                msg = f"Could not connect to the endpoint (refused or reset): {detail[:300]}"
+            return {"success": False, "connectivity": False, "message": msg}
+        if isinstance(e, requests.exceptions.Timeout):
+            return {
+                "success": False,
+                "connectivity": False,
+                "message": "Connection to the endpoint timed out — check firewall rules and the port.",
+            }
+        if isinstance(e, requests.exceptions.RequestException):
+            return {"success": False, "connectivity": False, "message": f"HTTP request failed: {e}"}
+        # connect()'s local validation ("host is required", "username and
+        # password are required") never touched the network.
+        if isinstance(e, RuntimeError) and "required" in str(e) and self._http is None:
+            return {"success": False, "message": f"Configuration error: {e}"}
+        return {
+            "success": False,
+            "connectivity": True,
+            "message": f"Reached the XMLA endpoint but discovery failed: {e}",
+        }
 
     # ------------------------------------------------------------------
     # Discovery
@@ -286,6 +354,11 @@ class XmlaClient(DataSourceClient):
 
     def _resolve_catalog(self, table_name: Optional[str], catalog: Optional[str]) -> Optional[str]:
         target = catalog or self.catalog
+        # Schema tables are named "Catalog/Cube" (get_schemas), so the catalog
+        # is the first path segment — resolving it locally avoids re-running
+        # full discovery (several XMLA round trips) on every query.
+        if not target and table_name and "/" in table_name:
+            target = table_name.split("/", 1)[0]
         if not target and table_name:
             try:
                 meta = (self.get_schema(table_name).metadata_json or {}).get(self.META_KEY) or {}
@@ -371,18 +444,27 @@ class XmlaClient(DataSourceClient):
             parts.append(f"<Catalog>{xml_escape(catalog)}</Catalog>")
         return "".join(parts)
 
-    def _soap_call(self, method: str, body_xml: str) -> Element:
+    def _soap_call(
+        self,
+        method: str,
+        body_xml: str,
+        url: Optional[str] = None,
+        header_xml: str = "",
+    ) -> Element:
         """
         POST an XMLA SOAP request (Discover/Execute) and return the parsed
         response root. Raises on HTTP errors, SOAP faults, and inline XMLA
-        error messages.
+        error messages. ``url`` overrides the target (used for manager
+        discovery); ``header_xml`` is injected as the SOAP Header body.
         """
         if not self._http:
             self.connect()
 
+        header = f"<soap:Header>{header_xml}</soap:Header>" if header_xml else ""
         envelope = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             f'<soap:Envelope xmlns:soap="{SOAP_ENV_NS}">'
+            f"{header}"
             "<soap:Body>"
             f"{body_xml}"
             "</soap:Body>"
@@ -393,15 +475,18 @@ class XmlaClient(DataSourceClient):
             "SOAPAction": f'"{XMLA_NS}:{method}"',
         }
         resp = self._http.post(
-            self.host,
+            url or self.host,
             data=envelope.encode("utf-8"),
             headers=headers,
             timeout=self.timeout_sec,
             verify=self.verify_ssl,
         )
         if resp.status_code >= 300:
-            raise RuntimeError(
-                f"{self.PRODUCT_NAME} XMLA {method} failed: HTTP {resp.status_code} {resp.text[:500]}"
+            raise XmlaHttpError(
+                f"{self.PRODUCT_NAME} {method}",
+                resp.status_code,
+                resp.headers.get("Server", ""),
+                resp.text[:500],
             )
 
         try:

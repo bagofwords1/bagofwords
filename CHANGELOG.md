@@ -1,5 +1,47 @@
 # Release Notes
 
+## Version 0.0.451 (July 12, 2026)
+- **Doc "Save as PDF" exports the full document** — the print stylesheet isolated the document with `position: fixed`, which clips output to a single viewport box and cut the PDF off after a couple of pages; it now uses `position: absolute` with a content-driven height so tall docs (and their charts) paginate across the whole export in both the viewer and the editor.
+- **Tighter default doc typography** — document body text is now 13px with a tighter 1.65 line-height (down from 15px / 1.75), and headings are scaled down a notch to match (h1 28→24px, h2 20→18px, h3 17→16px, h4 15→14px), for a compact, document-scale feel in both the viewer and editor.
+
+## Version 0.0.450 (July 12, 2026)
+- **Jaeger connector (#624)** — query distributed traces over the Jaeger Query HTTP API; each backend exposes `services`, `operations`, `spans`, and `dependencies` tables, and span search filters by service, operation, tags, latency, and errors.
+
+## Version 0.0.449 (July 12, 2026)
+- **`load_step` reuse is now opt-in (#620)** — the coder/planner feature that reuses a prior step's results via `load_step` is gated behind a new org setting `enable_load_step` (default **off**). Only steps built within a recent window (a fixed 300s) are advertised as reusable; re-running saved code that references older steps is unaffected. `load_entity` (published catalog entities) is independent and unchanged.
+- **`new`/`חדש` starts a fresh report on Teams and WhatsApp (#619)** — sending a message that is exactly `new` or `חדש` on Teams 1:1 or WhatsApp forces a brand-new conversation report instead of reusing the recent one, so users can explicitly start over mid-conversation.
+- **Power BI connector: workspace scoping and reliable connection test (#617)** — a new optional `workspaces` filter scopes discovery/indexing to named workspaces; the connection test now probes multiple datasets and classifies failures by layer (an engine-level error on an empty model passes with a warning), and listing/query calls gain Retry-After-aware backoff on 429/5xx.
+- **Dependency security fixes (#618)** — resolved Snyk-reported Critical/High/Medium vulnerabilities in frontend (esbuild, tar, dompurify, markdown-it, and other transitives) and backend (pillow, pypdf, httplib2, pydantic-settings, setuptools) dependencies; zero Critical/High findings remain.
+
+## Version 0.0.448 (July 11, 2026)
+- **Document creation (#613)** — the analyst can now write findings as markdown documents, a new artifact type alongside dashboards and slides. Docs carry live charts, mermaid diagrams, tables, and per-claim citations (built for root-cause analyses, deep-dive reports, and memos), render in the report panel and on shared links, export to Markdown/PDF, and are editable in place by the report owner — with full RTL (Hebrew/Arabic) support.
+
+## Version 0.0.447 (July 11, 2026)
+- **Reliable completion streaming (#612)** — SSE now survives page refreshes, network drops, and backgrounded mobile tabs: the client reconnects and resumes live (running tool cards and the stop button included) instead of degrading to polling or showing a false error.
+
+## Version 0.0.446 (July 11, 2026)
+- **OpenAI model presets** — add GPT-5.6 Sol, Terra, and Luna; keep GPT-5.5 available, make Terra the default model, and retire older GPT-5.4/5.2 presets.
+
+## Version 0.0.445 (July 11, 2026)
+- **MCP connectors** — cleaner connect experience: pre-filled provider auth, tool previews, and one-click public agents.
+- **Custom agent icons** — pin an emoji or connection icon per agent.
+
+## Version 0.0.444 (July 11, 2026)
+- **Elasticsearch connector** — query logs and metrics across indices, patterns, and data streams via the DSL (plus SQL/ES|QL); the index mapping is the schema, and rolling daily indices collapse into a single `<name>-*` pattern table.
+- **Splunk connector (enterprise)** — investigate events across indexes and sourcetypes with SPL; the `index::sourcetype` catalog is enumerated cheaply and fields are sampled for the highest-volume sourcetypes, with the rest discovered on demand.
+- **Thin-table field discovery** — `describe_tables` now samples a schema-on-read table's fields on inspection (so the agent stops treating "0 columns" as empty) and matches pattern/namespaced names (`security` → `security-*`, `web` → `web::access_combined`).
+
+## Version 0.0.443 (July 10, 2026)
+- **Prometheus connector (#595)** — query metrics with PromQL over the Prometheus HTTP API; each metric becomes a table.
+- **Concurrent multi-tool execution (#598)** — one planner decision can run its tool calls in parallel (e.g. `create_data` across several sources), controlled by the `ai_tool_concurrency` org setting (defaults to 4; set to 1 for serial).
+- **Per-connection request rate limit (#592)** — enterprise admins can cap requests per minute/hour/day on a connection, enforced as a hard block with audit logging.
+- **Model-authored tool-call titles (#593)** — connection/external tool calls show a short human-readable label (e.g. "Searching Notion for churned customers") that streams live.
+- **WhatsApp outbound images (#590)** — charts and image files are now sent to WhatsApp as native images with captions.
+- **RTL email auto-detection (#597)** — free-form emails with Hebrew/Arabic content are automatically rendered right-to-left.
+- **LLM selector shows the model's provider icon (#596)** — the prompt-box model button reflects the selected model's provider instead of a generic icon.
+- **Zabbix connector (enterprise) (#591)** — query hosts, metrics, triggers, active problems, events, and metric history via the JSON-RPC API.
+- **Fix iOS focus-zoom on the report prompt box (#600)** — the mobile prompt field is pinned to 16px so tapping it no longer zooms the viewport.
+
 ## Version 0.0.442 (July 9, 2026)
 - **Fix SSO login for invited users with mismatched email casing** — invite emails are now matched case-insensitively so members can sign in via Entra/OIDC regardless of the casing the identity provider returns, and the provider's actual error is surfaced on the sign-in page.
 

@@ -153,6 +153,7 @@
                                             <div class="flex items-center gap-1">
                                                 <DataSourceIcon
                                                     :type="getDataSourceType(instruction) as any"
+                                                    :icon="getDataSourceIcon(instruction)"
                                                     :class="compact ? 'h-3 w-3' : 'h-3.5 w-3.5'"
                                                     class="flex-shrink-0"
                                                 />
@@ -344,6 +345,11 @@ const getDataSourceType = (instruction: Instruction) => {
     const first = instruction.data_sources?.[0]
     if (!first) return null
     return first.type ?? dataSourceTypeById.value[first.id] ?? null
+}
+
+const getDataSourceIcon = (instruction: Instruction) => {
+    const first: any = instruction.data_sources?.[0]
+    return first?.icon ?? null
 }
 
 const toggleExpand = (id: string) => {

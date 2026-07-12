@@ -80,6 +80,23 @@ _SHAPE_NOUNS = {
 }
 
 
+# An MCP server answering an *unauthenticated* probe with one of these is
+# advertising "I require auth" (RFC 9728 / standard OAuth). For a per-user OAuth
+# connector (oauth_app / DCR) there is no token at admin-config time, so this is
+# the expected, healthy response — not a failure.
+_AUTH_CHALLENGE_MARKERS = (
+    "401", "403", "unauthorized", "forbidden",
+    "www-authenticate", "invalid_token", "invalid token",
+)
+
+
+def _looks_like_auth_challenge(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.lower()
+    return any(marker in lowered for marker in _AUTH_CHALLENGE_MARKERS)
+
+
 def _connected_message(connection_type: str, table_count: int) -> str:
     """Build the success message after a connection test.
 
@@ -355,12 +372,12 @@ class ConnectionService:
                     status_code=400,
                     detail="reindex_interval_hours must be between 1 and 168.",
                 )
-            # Interval minutes: 10 minute floor .. 7 days.
+            # Interval minutes: 1 minute floor .. 7 days.
             mins = updates.get("reindex_interval_minutes")
-            if mins is not None and (mins < 10 or mins > 24 * 7 * 60):
+            if mins is not None and (mins < 1 or mins > 24 * 7 * 60):
                 raise HTTPException(
                     status_code=400,
-                    detail="reindex_interval_minutes must be between 10 and 10080.",
+                    detail="reindex_interval_minutes must be between 1 and 10080.",
                 )
             mode = updates.get("reindex_schedule_mode")
             if mode is not None and mode not in ("interval", "time"):
@@ -368,6 +385,37 @@ class ConnectionService:
                     status_code=400,
                     detail="reindex_schedule_mode must be 'interval' or 'time'.",
                 )
+
+        # Per-connection request rate limit is an enterprise feature. Gate any
+        # attempt to toggle it or set a per-window cap. Handled explicitly (not
+        # via the generic setattr loop below) so a value of 0 / None correctly
+        # persists as "no limit" — the generic loop skips None.
+        _RATE_LIMIT_FIELDS = (
+            "rate_limit_enabled",
+            "rate_limit_per_minute",
+            "rate_limit_per_hour",
+            "rate_limit_per_day",
+        )
+        if any(f in updates for f in _RATE_LIMIT_FIELDS):
+            from app.ee.license import has_feature
+            if not has_feature("connection_rate_limit"):
+                raise HTTPException(
+                    status_code=402,
+                    detail="Per-connection rate limiting requires an enterprise license.",
+                )
+            _MAX_RATE_LIMIT = 10_000_000  # sanity ceiling; guards against absurd values
+            for field in ("rate_limit_per_minute", "rate_limit_per_hour", "rate_limit_per_day"):
+                if field in updates:
+                    val = updates.pop(field)
+                    if val is not None and (val < 0 or val > _MAX_RATE_LIMIT):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"{field} must be between 0 and {_MAX_RATE_LIMIT} (0 means no limit).",
+                        )
+                    # Persist explicitly so 0 / None (unlimited) is honored.
+                    setattr(connection, field, val)
+            if "rate_limit_enabled" in updates:
+                setattr(connection, "rate_limit_enabled", bool(updates.pop("rate_limit_enabled")))
 
         # Default allowed_user_auth_modes when switching to user_required (see create_connection)
         if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes"):
@@ -572,6 +620,17 @@ class ConnectionService:
         credentials: dict,
     ) -> dict:
         """Test connection with given parameters (before saving)."""
+        # Per-user OAuth MCP connectors (oauth_app / DCR) have NO token at
+        # admin-config time — the admin only registers the OAuth client; each
+        # user signs in later. So an authenticated tools/list is impossible here,
+        # and the server answering the unauthenticated probe with an auth
+        # challenge (401/403/WWW-Authenticate) is the *expected* healthy response.
+        # Treat "reachable but requires sign-in" as a pass; the real per-user auth
+        # is validated at the OAuth callback (test_user_connection).
+        oauth_user_mode = (
+            data_source_type == "mcp"
+            and (config or {}).get("auth_type") in ("oauth_app", "dcr")
+        )
         try:
             client = self._resolve_client_by_type(
                 data_source_type=data_source_type,
@@ -582,6 +641,14 @@ class ConnectionService:
             # Test basic connectivity
             connection_status = await client.atest_connection()
             if not connection_status.get("success"):
+                if oauth_user_mode and _looks_like_auth_challenge(connection_status.get("message")):
+                    return {
+                        "success": True,
+                        "message": "Server reachable — sign-in required (as configured). Tools load after each user signs in.",
+                        "connectivity": True,
+                        "schema_access": False,
+                        "requires_user_auth": True,
+                    }
                 return connection_status
 
             # For tool providers (MCP/API), list tools instead of schema access

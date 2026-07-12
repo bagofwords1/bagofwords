@@ -1,0 +1,35 @@
+# Massive-ish Prometheus stack for validating the BOW Prometheus connector.
+# Prometheus (:9090) + Alertmanager (:9093) + node-exporter (~600 metrics).
+# Publishes 9090/9093 on the host so BOW (running on the host) reaches
+# Prometheus at http://localhost:9090.
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prom-demo
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-lifecycle
+      - --storage.tsdb.retention.time=6h
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - ./recording.rules.yml:/etc/prometheus/recording.rules.yml:ro
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager-demo
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter-demo
+    # Standalone: reads the container's own /proc and /sys (no host rootfs
+    # bind mount — that needs shared mount propagation the sandbox lacks).
+    # Still exposes ~500 node_* series across cpu/memory/filesystem/network.

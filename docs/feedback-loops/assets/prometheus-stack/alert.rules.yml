@@ -1,0 +1,52 @@
+groups:
+  - name: availability
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 10s
+        labels: { severity: critical }
+        annotations:
+          summary: "Instance {{ $labels.instance }} of {{ $labels.app }} is down"
+          description: "{{ $labels.job }}/{{ $labels.instance }} has been unreachable for >10s."
+
+      - alert: TargetMissing
+        expr: absent(up{job="api"}) == 1
+        for: 10s
+        labels: { severity: warning }
+        annotations:
+          summary: "No metrics from job 'api'"
+
+  - name: saturation
+    rules:
+      # Deliberately low thresholds so these fire against real node metrics.
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.05
+        for: 10s
+        labels: { severity: warning, tier: infra }
+        annotations:
+          summary: "Memory usage above 5% on {{ $labels.instance }}"
+
+      - alert: FilesystemFillingUp
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) > 0.10
+        for: 10s
+        labels: { severity: warning, tier: infra }
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} over 10% full on {{ $labels.instance }}"
+
+  - name: synthetic
+    rules:
+      # Always-firing heartbeat alert so ALERTS{alertstate="firing"} is never
+      # empty in the demo, regardless of node state.
+      - alert: DemoHeartbeat
+        expr: vector(1) > 0
+        for: 0s
+        labels: { severity: info, team: platform }
+        annotations:
+          summary: "Demo heartbeat alert (always firing)"
+
+      - alert: HighRequestLatencyDemo
+        expr: histogram_quantile(0.95, sum by (le) (rate(prometheus_http_request_duration_seconds_bucket[1m]))) > 0
+        for: 10s
+        labels: { severity: warning, team: platform }
+        annotations:
+          summary: "p95 Prometheus HTTP latency is being tracked"

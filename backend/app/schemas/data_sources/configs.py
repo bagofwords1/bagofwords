@@ -261,6 +261,49 @@ class ServiceNowConfig(BaseModel):
     )
 
 
+# Zabbix
+class ZabbixTokenCredentials(BaseModel):
+    api_token: str = Field(
+        ...,
+        title="API Token",
+        description="A Zabbix API token (Users → API tokens). Recommended for Zabbix 5.4+, and the way to connect in SSO environments.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class ZabbixUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A Zabbix user with read access to the monitored hosts. Used for older installs without API tokens.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class ZabbixConfig(BaseModel):
+    url: str = Field(
+        ...,
+        title="Zabbix URL",
+        description="Your Zabbix frontend URL, e.g. https://zabbix.acme.com (the /api_jsonrpc.php endpoint is appended automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server's TLS certificate. Disable only for self-signed certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    history_window_days: int = Field(
+        7,
+        ge=1,
+        le=365,
+        title="History Window (days)",
+        description="Default lookback window applied when querying metric history/trends without an explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Service Demo
 class ServiceDemoCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="", json_schema_extra={"ui:type": "string"})
@@ -724,6 +767,130 @@ class OpenSearchConfig(BaseModel):
     )
 
 
+# Splunk
+class SplunkTokenCredentials(BaseModel):
+    api_token: str = Field(
+        ...,
+        title="Authentication Token",
+        description="A Splunk authentication token (Settings → Tokens). Recommended, and the way to connect to Splunk Cloud.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class SplunkUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A Splunk user with search access to the target indexes.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class SplunkConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Splunk host (e.g. splunk.acme.com) or full management URL (e.g. https://splunk.acme.com:8089).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    port: int = Field(
+        8089,
+        ge=1,
+        le=65535,
+        title="Management Port",
+        description="Splunk REST/management port (default: 8089). Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server's TLS certificate. Disable only for self-signed certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    discovery_window_days: int = Field(
+        7,
+        ge=1,
+        le=365,
+        title="Discovery Window (days)",
+        description="Default lookback window applied to schema discovery and to searches that omit an explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_sampled_sourcetypes: int = Field(
+        50,
+        ge=0,
+        le=1000,
+        title="Max Sampled Sourcetypes",
+        description="Cap on how many sourcetypes (ranked by event volume) get their fields sampled during indexing. The rest stay thin and are discovered on demand. Keeps reindexing cheap.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
+# Elasticsearch
+class ElasticsearchApiKeyCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="An Elasticsearch API key. Paste either the encoded key, or the raw 'id:api_key' pair (Stack Management → API keys). Recommended for Elasticsearch 8.x.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class ElasticsearchCredentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User",
+        description="Username for HTTP basic authentication (e.g. 'elastic' or a role user with read access).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP basic authentication.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class ElasticsearchNoAuthCredentials(BaseModel):
+    """Clusters with security disabled or network-gated access."""
+    pass
+
+
+class ElasticsearchConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Elasticsearch host (e.g. localhost) or full URL (e.g. https://es.example.com:9200)",
+        json_schema_extra={"ui:type": "string"},
+    )
+    port: int = Field(
+        9200,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="Elasticsearch REST port (default: 9200). Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    secure: bool = Field(
+        True,
+        title="Use HTTPS",
+        description="Connect over HTTPS. Elasticsearch 8.x uses TLS by default. Ignored when Host is a full URL.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    verify_certs: bool = Field(
+        True,
+        title="Verify TLS Certificates",
+        description="Disable only for clusters using self-signed demo certificates.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    index_pattern: Optional[str] = Field(
+        None,
+        title="Index Pattern",
+        description="Optional comma-separated index names or globs to expose (e.g. logs-*,metrics-*). Default: all non-system indices.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
 # Azure Data Explorer (Kusto)
 class AzureDataExplorerCredentials(BaseModel):
     client_id: str = Field(..., title="Client ID", description="Azure AD Application (Client) ID", json_schema_extra={"ui:type": "string"})
@@ -763,6 +930,122 @@ class PostHogConfig(BaseModel):
         title="Project ID",
         description="PostHog Project ID (found in project settings)",
         json_schema_extra={"ui:type": "string"}
+    )
+
+
+# Prometheus (time-series metrics via the HTTP API + PromQL)
+class PrometheusNoAuthCredentials(BaseModel):
+    # Network-gated Prometheus (VPN / internal :9090) needs no secret.
+    class Config:
+        extra = "allow"
+
+
+class PrometheusBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic auth (typically a reverse proxy in front of Prometheus).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic auth.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class PrometheusBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Sent as 'Authorization: Bearer <token>'. Used by most hosted/managed Prometheus offerings.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class PrometheusConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Prometheus server URL, including scheme and port. Example: http://prometheus:9090",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    org_id: Optional[str] = Field(
+        None,
+        title="Tenant / Org ID",
+        description="Optional 'X-Scope-OrgID' header for multi-tenant back-ends (Thanos, Cortex, Grafana Mimir).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    metric_prefix: Optional[str] = Field(
+        None,
+        title="Metric Name Filter",
+        description="Optional prefix to bound metric discovery on large instances (e.g. 'node_' or 'http_'). Leave blank to index all metrics.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+# Jaeger (distributed tracing via the Query JSON HTTP API)
+class JaegerNoAuthCredentials(BaseModel):
+    # Network-gated Jaeger (internal :16686 / behind a VPN) needs no secret.
+    class Config:
+        extra = "allow"
+
+
+class JaegerBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic auth (typically a reverse proxy in front of Jaeger Query).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic auth.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class JaegerBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Sent as 'Authorization: Bearer <token>'. Used when Jaeger Query sits behind an auth proxy or gateway.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class JaegerConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Jaeger Query URL, including scheme and port. Example: http://jaeger:16686",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    default_lookback: str = Field(
+        "1h",
+        title="Default Lookback",
+        description="Default search window when a query omits one (e.g. '1h', '6h', '2d').",
+        json_schema_extra={"ui:type": "string"},
+    )
+    default_limit: int = Field(
+        20,
+        title="Default Trace Limit",
+        description="Default maximum number of traces returned by a span search.",
+        json_schema_extra={"ui:type": "number"},
     )
 
 
@@ -902,8 +1185,13 @@ class PowerBICredentials(BaseModel):
 
 
 class PowerBIConfig(BaseModel):
-    """Auto-discovers all workspaces and datasets the service principal has access to."""
-    pass
+    """Auto-discovers workspaces and datasets the service principal has access to."""
+    workspaces: Optional[str] = Field(
+        None,
+        title="Workspaces",
+        description="Optional workspace name(s) or ID(s), comma-separated. If empty, all accessible workspaces will be discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 # Power BI Report Server (on-prem)
@@ -1173,6 +1461,96 @@ class NetworkDirConfig(BaseModel):
     )
 
 
+# Amazon S3 — a cloud object store exposed as a file catalog.
+# Credentials mirror the Athena idiom so boto3 session construction is shared:
+# static keys, keys + STS assume-role, or the default credential chain.
+class S3KeyCredentials(BaseModel):
+    access_key: str = Field(..., title="Access Key", description="AWS access key id.", json_schema_extra={"ui:type": "string"})
+    secret_key: str = Field(..., title="Secret Key", description="AWS secret access key.", json_schema_extra={"ui:type": "password"})
+    session_token: Optional[str] = Field(None, title="Session Token", description="Optional session token for temporary credentials.", json_schema_extra={"ui:type": "password"})
+
+
+class S3RoleCredentials(BaseModel):
+    role_arn: str = Field(..., title="Role ARN", description="ARN of the IAM role to assume (STS) for bucket access.", json_schema_extra={"ui:type": "string"})
+    # Static keys are optional: leave blank to assume the role using the
+    # deployment's ambient credentials (EC2 instance profile / EKS IRSA / env),
+    # mirroring the Athena connector.
+    access_key: Optional[str] = Field(None, title="Access Key", description="Optional — access key id used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "string"})
+    secret_key: Optional[str] = Field(None, title="Secret Key", description="Optional — secret access key used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "password"})
+
+
+class S3DefaultCredentials(BaseModel):
+    """No credentials required — boto3 resolves via its default chain (env vars,
+    shared config, instance profile, IRSA). Mirrors AWSAthenaDefaultCredentials."""
+    class Config:
+        extra = "allow"
+
+
+class S3Config(BaseModel):
+    bucket: str = Field(
+        ...,
+        title="Bucket",
+        description="S3 bucket name (e.g. 'my-company-reports').",
+        json_schema_extra={"ui:type": "string"},
+    )
+    prefix: Optional[str] = Field(
+        None,
+        title="Prefix",
+        description=(
+            "Key prefix to scope the connection (e.g. 'reports/2025/'). All "
+            "listing and reads are confined to this prefix. Leave blank for the "
+            "whole bucket."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    region: Optional[str] = Field(
+        None,
+        title="Region",
+        description="AWS region of the bucket (e.g. 'us-west-2'). Recommended — avoids a redirect on the first call.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    endpoint_url: Optional[str] = Field(
+        None,
+        title="Endpoint URL",
+        description="Custom S3 endpoint for S3-compatible stores (MinIO / Cloudflare R2 / Wasabi). Leave blank for AWS.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of extensions to include (e.g. 'csv,xlsx,pdf'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    recursive: bool = Field(
+        True,
+        title="Include Sub-prefixes",
+        description="Recursively enumerate keys under the prefix when listing / indexing.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_file_mb: int = Field(
+        100,
+        title="Max File Size (MB)",
+        description="Reject whole-object (structured) reads above this size. Windowed byte-range reads are exempt.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    index_content: bool = Field(
+        True,
+        title="Index File Contents",
+        description=(
+            "When indexing the bucket, extract keywords from each object's "
+            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
+            "files by topic. Turn off to index keys only."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Catalog Objects",
+        description="Cap on objects indexed into the catalog, so a huge bucket doesn't produce an unbounded catalog.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""
@@ -1425,8 +1803,9 @@ class InforOlapConfig(BaseModel):
         ...,
         title="XMLA Endpoint URL",
         description=(
-            "Full URL of the Infor OLAP XMLA Provider "
-            "(e.g., http://epm-server/<web_app>/<service_host_instance>)."
+            "URL of a Database Worker XMLA endpoint, or — with manager "
+            "auto-discovery enabled — the OLAP Service Manager endpoint "
+            "(http(s)://<server>:<manager_port>/BI/APP/SOAP/OLAPDB)."
         ),
         json_schema_extra={"ui:type": "string"},
     )
@@ -1434,6 +1813,33 @@ class InforOlapConfig(BaseModel):
         "",
         title="Catalog",
         description="Optional OLAP catalog/database to scope discovery to. Leave blank to list all accessible catalogs.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    manager_discovery: bool = Field(
+        False,
+        title="Manager auto-discovery",
+        description=(
+            "Treat the URL as the OLAP Service Manager endpoint and resolve the "
+            "database's worker URL via DISCOVER_DATASOURCES (Infor's documented "
+            "connection flow). Leave off when the URL already points at a worker."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    rewrite_worker_host: bool = Field(
+        True,
+        title="Use configured host for discovered URLs",
+        description=(
+            "Replace the hostname in discovered worker URLs with the host from "
+            "the endpoint URL. Farms usually advertise internal hostnames that "
+            "do not resolve from outside; disable only when workers run on "
+            "different machines and their hostnames are resolvable."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    tenant: str = Field(
+        "single",
+        title="Tenant",
+        description="XMLA Tenant property sent during manager discovery ('single' for on-premises single-tenant farms).",
         json_schema_extra={"ui:type": "string"},
     )
     verify_ssl: bool = Field(

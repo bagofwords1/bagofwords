@@ -1629,12 +1629,15 @@ Do not use generic placeholders like "value" unless that is the actual column na
         # Resolver for load_step()/load_entity() calls the generated code may
         # make — scoped to this report's steps and the user's accessible
         # entities.
-        from app.ai.code_execution.loadables import LoadablesResolver
+        from app.ai.code_execution.loadables import LoadablesResolver, load_step_settings
+        _ls_enabled, _ls_max_age = load_step_settings(organization_settings)
         _loadables_resolver = LoadablesResolver(
             db=runtime_ctx.get("db"),
             organization=runtime_ctx.get("organization"),
             report=runtime_ctx.get("report"),
             current_user=runtime_ctx.get("user"),
+            enable_load_step=_ls_enabled,
+            step_max_age_seconds=_ls_max_age,
         )
 
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:

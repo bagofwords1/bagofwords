@@ -1,19 +1,21 @@
 <template>
-  <div class="flex flex-col text-sm" :style="{ height: showTopBanner ? `calc(100vh - ${bannerHeight})` : '100vh' }">
+  <div class="flex flex-col text-sm ke-viewport" :style="{ '--ke-banner': showTopBanner ? bannerHeight : '0px' }">
     <!-- Header -->
-    <div class="flex items-center justify-between ps-3 pe-4 py-3 shrink-0">
-      <div>
+    <!-- flex-wrap + basis-60: on narrow (mobile) widths the actions drop to
+         their own row instead of crushing the title/subtitle column. -->
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 ps-3 pe-4 py-3 shrink-0">
+      <div class="min-w-0 grow basis-60">
         <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('agentsPage.title') }}</h1>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('agentsPage.subtitle') }}</p>
       </div>
-      <div class="flex items-center gap-2.5">
-        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
+      <div class="flex flex-wrap items-center gap-2.5 ms-auto">
+        <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors" :class="pendingView ? 'border-amber-300 dark:border-amber-500/50 bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/20'" :title="pendingView ? $t('agentsPage.pendingChangesExit') : $t('agentsPage.pendingChangesHint')" @click="pendingView ? exitPendingView() : enterPendingView()">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ $t('agentsPage.pendingChangesCount', { n: pendingCount }) }}
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
         <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
         <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-lg' }">
-          <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors">
+          <button class="inline-flex items-center gap-1.5 h-8 ps-2.5 pe-2 rounded-lg bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 transition-colors">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> {{ $t('agentsPage.new') }}
             <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-70" />
           </button>
@@ -34,7 +36,7 @@
     </div>
 
     <!-- Body: tree → detail → versions -->
-    <div class="flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
+    <div class="relative flex-1 min-h-0 flex border-t border-gray-200 dark:border-gray-800">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
       <!-- Desktop: fixed-width resizable pane. Mobile: full-width, and hidden
            once a detail is open (single-column master → detail). -->
@@ -82,7 +84,7 @@
           <template v-else>
             <div v-for="grp in pendingGroups" :key="grp.id">
               <div class="px-2 py-1 flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                <DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-3.5 h-3.5 shrink-0" />
+                <DataSourceIcon v-if="grp.type || grp.icon" :type="grp.type" :connector-key="grp.connector_key" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
                 <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 truncate">{{ grp.name }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ grp.rows.length }}</span>
@@ -109,7 +111,7 @@
             <div v-if="searchResults.agents.length">
               <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Agents</div>
               <button v-for="a in searchResults.agents" :key="a.id" type="button" class="w-full flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 px-2" @click="onAgentClick(a)">
-                <DataSourceIcon :type="a.type" class="w-4 h-4 shrink-0" />
+                <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="w-4 h-4 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ a.name }}</span>
               </button>
             </div>
@@ -155,11 +157,13 @@
             </UTooltip>
           </div>
 
+          <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+
           <template v-for="agent in agents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
-              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" class="w-4 h-4 shrink-0" /></template>
+              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? (activeTables(agent.id).length || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -228,10 +232,11 @@
              so overflow-hidden doesn't clip them. -->
         <div class="border-t border-gray-200 dark:border-gray-800 px-3 py-2 flex items-center gap-2">
           <span class="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 me-1">{{ $t('agentsPage.connections') }}</span>
-          <div class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
+          <Spinner v-if="!connectionsLoaded" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
+          <div v-else class="flex items-center gap-2 min-w-0 shrink-[9999] overflow-hidden py-1 -my-1 pe-1 -me-1">
             <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
               <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
-                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
+                <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />
                 <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
             </UTooltip>
@@ -245,7 +250,7 @@
             </button>
           </UTooltip>
           <!-- Empty state: explicit CTA so connecting data is discoverable even with no agents yet -->
-          <button v-if="canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
+          <button v-if="connectionsLoaded && canCreateDataSource && connections.length === 0" type="button" class="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-dashed border-gray-300 dark:border-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-700 dark:hover:text-gray-300" @click="connTargetAgentId = null; showAddConnection = true">
             <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('agentsPage.addConnection') }}
           </button>
@@ -278,11 +283,24 @@
         </div>
         <!-- Agent overview -->
         <template v-else-if="agentView">
-          <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100 dark:border-gray-800">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 min-w-0">
-                  <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" class="w-4 h-4 shrink-0" />
+          <div class="shrink-0 px-4 sm:px-6 pt-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+            <!-- flex-wrap + basis-64: on phones the actions cluster wraps below
+                 the title block instead of squeezing it into a sliver. -->
+            <div class="flex flex-wrap items-start justify-between gap-3 gap-y-2">
+              <div class="min-w-0 grow basis-64">
+                <div class="flex flex-wrap items-center gap-2 gap-y-1.5 min-w-0">
+                  <AgentIconPicker
+                    v-if="agentDetail && agentCanUpdate"
+                    :model-value="agentDetail.icon"
+                    :type="agentDetail.type"
+                    :connector-key="agentDetail.connector_key"
+                    :connections="agentDetail.connections || []"
+                    icon-only
+                    icon-class="w-4 h-4"
+                    class="shrink-0"
+                    @change="setAgentIcon"
+                  />
+                  <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon="agentDetail.icon" class="w-4 h-4 shrink-0" />
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? $t('agentsPage.active') : $t('agentsPage.inactive')"></span>
                   <h2 class="text-base font-semibold text-gray-900 dark:text-white truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
@@ -315,7 +333,7 @@
                   </div>
                 </div>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex flex-wrap items-center gap-2 ms-auto">
                 <!-- Per-agent activity sparkline + task total -->
                 <div v-if="activitySeries.length" class="flex items-center gap-2.5 pe-1" :title="$t('agentsPage.tasksTip')">
                   <span class="flex flex-col items-center leading-none">
@@ -327,13 +345,13 @@
                     <span class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.tasks') }}</span>
                   </span>
                 </div>
-                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
-                <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
+                <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
+                <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
           </div>
-          <div class="flex-1 overflow-y-auto px-6 py-5 max-w-3xl">
+          <div class="flex-1 overflow-y-auto px-4 sm:px-6 py-5 max-w-3xl">
             <div v-if="agentDetailLoading" class="flex items-center justify-center py-16 text-gray-400 dark:text-gray-500">
               <Spinner class="w-5 h-5 animate-spin" />
             </div>
@@ -341,7 +359,7 @@
             <!-- Connections / Connect -->
             <div class="flex flex-wrap items-center gap-1.5 mb-3">
               <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
-                <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />{{ c.name }}
+                <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />{{ c.name }}
                 <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
               </button>
               <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-[11px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />{{ $t('agentsPage.connect') }}</button>
@@ -352,7 +370,7 @@
 
             <!-- Counts (clean) -->
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-6 pb-5 border-b border-gray-100 dark:border-gray-800">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTables', { n: agentTableTotals[agentView.agentId] ?? agentTables[agentView.agentId]?.length ?? '–' }) }}</span>
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countTools', { n: agentTools[agentView.agentId]?.length ?? '–' }) }}</span>
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countFiles', { n: agentFiles[agentView.agentId]?.length ?? '–' }) }}</span>
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }) }}</span>
@@ -423,7 +441,7 @@
               </template>
               <template v-else>
                 <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipOpenAgent')" @click="openAgent(panelView.agentId)">
-                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" class="w-[18px] h-[18px] shrink-0" />
+                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" :icon="panelAgent?.icon" class="w-[18px] h-[18px] shrink-0" />
                   <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || $t('agentsPage.agent') }}</span>
                 </button>
                 <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
@@ -590,7 +608,7 @@
               </div>
             </div>
 
-            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+            <div ref="reviewScroll" class="flex-1 min-h-0 overflow-auto px-4 sm:px-8 py-6 max-w-3xl">
               <!-- Inline per-hunk review for suggestions. Clean tracked changes;
                    hover a change to reveal provenance + accept/reject. -->
               <template v-if="diff.buildId">
@@ -632,13 +650,13 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="!editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
               <span class="text-[12px] text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? $t('agentsPage.pendingOne') : $t('agentsPage.pendingMany', { n: pendingViews.length }) }}</span>
               <span class="ms-auto text-[11px] font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">{{ $t('agentsPage.review') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3 rtl:rotate-180" /></span>
             </button>
             <!-- Scrollable content: title + body -->
-            <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
+            <div class="flex-1 overflow-y-auto px-4 sm:px-8 py-6 w-full">
               <div class="max-w-3xl">
                 <input v-if="editing" v-model="draft.title" dir="auto" :placeholder="$t('agentsPage.untitledInstruction')" class="w-full text-lg font-semibold text-gray-900 dark:text-white bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-2" />
                 <h2 v-else dir="auto" class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ displayTitle(detail) }}</h2>
@@ -654,13 +672,13 @@
 
             <!-- Frozen bottom panel: Details (compact, horizontal) / Analyze tabs -->
             <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-800/40">
-              <div class="px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
+              <div class="px-4 sm:px-8 flex items-stretch gap-1 border-b border-gray-100/70 dark:border-gray-800">
                 <button type="button" class="flex items-center gap-1.5 py-2 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'details' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="bottomTab = 'details'"><UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5" />{{ $t('agentsPage.details') }}</button>
                 <button v-if="detail" type="button" class="flex items-center gap-1.5 py-2 ms-3 text-[11px] font-medium border-b-2 -mb-px transition-colors" :class="bottomTab === 'analyze' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white' : 'border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'" @click="openAnalyzeTab"><UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />{{ $t('agentsPage.analyze') }}</button>
               </div>
 
               <!-- Details: compact horizontal pills (inline-editable for admins) -->
-              <div v-if="bottomTab === 'details'" class="px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
+              <div v-if="bottomTab === 'details'" class="px-4 sm:px-8 py-3 w-full overflow-y-auto" style="max-height:34vh">
                 <div class="max-w-4xl flex flex-wrap items-center gap-1.5">
                   <!-- Status -->
                   <KSelect v-if="metaEditable" v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" />
@@ -678,7 +696,7 @@
                   <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                   <template v-else>
                     <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
-                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
+                    <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                   </template>
                   <!-- Primary: only when scoped to a single agent -->
                   <KSelect v-if="metaEditable && singleAgentId && !creating" v-model="primarySelectValue" :options="primaryOpts" icon="i-heroicons-star" />
@@ -773,7 +791,8 @@
       </section>
 
       <!-- ── Pane 3: version history only (hidden by default; toggle via clock) ── -->
-      <aside v-if="detail && !creating && !reviewView && showHistory" class="w-72 shrink-0 border-s border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+      <!-- Mobile: no room for a third column — overlay the detail pane instead. -->
+      <aside v-if="detail && !creating && !reviewView && showHistory" class="flex flex-col bg-white dark:bg-gray-900" :class="isMobile ? 'absolute inset-0 z-20' : 'w-72 shrink-0 border-s border-gray-200 dark:border-gray-800'">
         <div class="h-11 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
           <span class="text-[12px] font-medium text-gray-700 dark:text-gray-300">{{ $t('agentsPage.history') }}</span>
           <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipClose')" @click="showHistory = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
@@ -813,7 +832,7 @@
         <div class="max-h-[60vh] overflow-auto -mx-1 px-1 space-y-0.5">
           <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
             <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
-              <DataSourceIcon :type="c.type" class="w-4 h-4" />
+              <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-4 h-4" />
               <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
             </span>
             <span class="min-w-0 flex-1">
@@ -896,6 +915,7 @@ import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import AgentIconPicker from '~/components/AgentIconPicker.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
@@ -948,6 +968,9 @@ const loadingGroups = ref<Set<string>>(new Set())
 const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
 const searching = ref(false)
 const agents = ref<any[]>([])
+// Show a spinner in the agents tree until the first load completes. Stays true
+// through later refreshes, which update the list silently.
+const agentsLoaded = ref(false)
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
 function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearningSaved'), color: 'green' }) }
@@ -985,6 +1008,9 @@ const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSourc
 
 const expanded = ref<Set<string>>(new Set())
 const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
+// Active-table totals from the paginated response — the fetched rows are
+// capped at one page, so counts must not rely on array length.
+const agentTableTotals = ref<Record<string, number>>({})
 const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
@@ -1173,6 +1199,21 @@ const setAgentPublic = async (val: boolean) => {
     const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
     toast.add({ title: val ? t('agentsPage.toastMadePublic') : t('agentsPage.toastMadePrivate'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+}
+// Change the agent's custom icon from the agent-view header (manage access only).
+// `token` is an icon token ("emoji:…" | "type:…") or null to reset to default.
+const setAgentIcon = async (token: string | null) => {
+  const id = agentView.value?.agentId; if (!id) return
+  const prev = agentDetail.value?.icon ?? null
+  if (agentDetail.value) agentDetail.value.icon = token
+  try {
+    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { icon: token } })
+    const a = agents.value.find(x => x.id === id); if (a) { a.icon = token; agents.value = [...agents.value] }
+    toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
+  } catch (e: any) {
+    if (agentDetail.value) agentDetail.value.icon = prev
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  }
 }
 const openAgent = async (id: string) => {
   clearRightPane()
@@ -1453,7 +1494,7 @@ const pendingGroups = computed(() => {
       for (const ds of dss) {
         if (!map.has(ds.id)) {
           const agent = agents.value.find(a => a.id === ds.id)
-          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, connector_key: agent?.connector_key, rows: [] })
+          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, connector_key: agent?.connector_key, rows: [] })
         }
         map.get(ds.id)!.rows.push(ins)
       }
@@ -2052,8 +2093,10 @@ const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value
 // agent/data source) only exist in the org-wide /connections list — fetch that
 // too so they're visible and can be managed instead of being orphaned.
 const orgConnections = ref<any[]>([])
+// Parallel to agentsLoaded: gate the connections area's spinner on the first load.
+const connectionsLoaded = ref(false)
 const fetchConnections = async () => {
-  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any[]>('/connections', { method: 'GET' }); orgConnections.value = data.value || [] } catch (e) { console.error(e) } finally { connectionsLoaded.value = true }
 }
 const connections = computed(() => {
   const m = new Map<string, any>()
@@ -2155,8 +2198,8 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
-  } catch (e) { console.error(e) }
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+  } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
 // Group an agent's tools by their connection (MCP server / custom API), resolving
@@ -2188,7 +2231,16 @@ const onGitChanged = () => { fetchGitStatus(); fetchAll() }
 const loadAgentMeta = async (id: string) => {
   if (agentLoaded.value.has(id)) return
   agentLoaded.value.add(id)
-  try { const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema`, { method: 'GET' }); const items = Array.isArray(data.value) ? data.value : (data.value?.items || []); agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false })) } catch { agentTables.value[id] = [] }
+  try {
+    // Paginated + selected-only: the tree renders active tables only, and the
+    // unpaginated legacy branch hydrates the ENTIRE catalog (150k rows / ~200MB
+    // on a 50-connection agent — see docs/feedback-loops/agents-hub-agent-many-connections.md).
+    const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema?page=1&page_size=500&selected_state=selected&sort_by=name&sort_dir=asc`, { method: 'GET' })
+    const v: any = data.value
+    const items = Array.isArray(v) ? v : (v?.tables || v?.items || [])
+    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false }))
+    agentTableTotals.value[id] = typeof v?.total === 'number' ? v.total : agentTables.value[id].length
+  } catch { agentTables.value[id] = []; delete agentTableTotals.value[id] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
   agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }; agentFiles.value = { ...agentFiles.value }
@@ -2639,6 +2691,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* Full-height shell minus the optional top banner. 100dvh (where supported)
+   tracks the *visible* viewport on mobile, so the connections footer isn't
+   hidden behind the browser chrome; 100vh stays as the fallback. */
+.ke-viewport {
+  height: calc(100vh - var(--ke-banner, 0px));
+  height: calc(100dvh - var(--ke-banner, 0px));
+}
 .prose-instruction :deep(.tiptap-prose) { min-height: 80px; }
 /* Instruction body text size. */
 .prose-instruction :deep(.tiptap-prose),

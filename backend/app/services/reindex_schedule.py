@@ -6,7 +6,7 @@ in exactly one place.
 
 A connection's schedule is EITHER:
 
-  * ``interval`` — fire every ``effective_reindex_interval_minutes`` (10m floor).
+  * ``interval`` — fire every ``effective_reindex_interval_minutes`` (1m floor).
   * ``time``     — fire once per day at ``reindex_at_time`` ("HH:MM"), interpreted
                    in the org's configured timezone (UTC if unset / invalid).
 

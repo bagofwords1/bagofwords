@@ -227,7 +227,14 @@ class CreateDataMCPTool(MCPTool):
                 full_log = e["payload"].get("execution_log")
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
-        
+
+        # Persist buffered data-plane metering (queries/bytes are enqueued by
+        # the execute_query wrapper, not written synchronously).
+        try:
+            await usage_ctx.flush()
+        except Exception:
+            _logger.debug("mcp.create_data usage flush failed", exc_info=True)
+
         # Check for execution failure
         if generated_code is None or exec_df is None:
             error_msg = "Code execution failed"

@@ -75,6 +75,10 @@ class PromptRunForRequest(BaseModel):
     user_ids: Optional[List[str]] = None      # when principal_type == 'users'
     group_id: Optional[str] = None            # when principal_type == 'group'
     parameters: Optional[dict] = None
+    # Extra places to deliver each target's result, on top of the report +
+    # in-app inbox they always get. Currently 'teams' (the target's Teams DM)
+    # and 'email' (the target's account email). Unknown values are ignored.
+    delivery_channels: Optional[List[str]] = None
 
 
 class PromptRunForResponse(BaseModel):

@@ -439,6 +439,50 @@ class Coder:
         return ""
 
     @staticmethod
+    def _build_reuse_prompt_sections(load_step_enabled: bool) -> tuple[str, str]:
+        """Return (signature_hint, section_2a) for the reuse guidance.
+
+        When `load_step_enabled` is False the copy describes `load_entity` only,
+        so the model is never told about a call that would raise at runtime.
+        `load_entity` is org-independent and always documented.
+        """
+        if load_step_enabled:
+            signature_hint = (
+                "- You may also add `load_step` and/or `load_entity` parameters to reuse existing "
+                "results (see section 2a), e.g. `def generate_df(ds_clients, excel_files, load_step):`."
+            )
+            section = (
+                "2a. **Reusing existing results (load_step / load_entity)** — IMPORTANT:\n"
+                '               - When the user refers to data they already built (e.g. "the Customer Sales step", "the step you just built", "reuse ...") or asks you NOT to re-query, you MUST load that data with `load_step` rather than re-querying or inventing it. **NEVER fabricate, hardcode, or randomly generate rows** to stand in for real data — load the real step/entity instead.\n'
+                "               - To use them, add the parameters to your signature, e.g. `def generate_df(ds_clients, excel_files, load_step, load_entity):` (any subset, in any order after `excel_files`).\n"
+                "               - `load_step(\"<id or name>\")` returns a pandas DataFrame for a prior step in THIS report. Choose one from the `<available_steps>` section above (match its `id`, `slug`, or `title` exactly).\n"
+                "               - Do NOT reload a prior step's data with `pd.read_csv(...)` or by reading from `excel_files` — those are for user-uploaded files only. To reuse a previous step, use `load_step(...)`.\n"
+                "               - `load_entity(\"<id or name>\")` returns a pandas DataFrame for a published catalog entity from the `<entities>` section.\n"
+                "               - **The argument MUST be a string literal** (e.g. `load_step(\"Customer Sales\")`), not a variable — it is pre-resolved before your code runs.\n"
+                "               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; use `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining.\n"
+                "               - Example — add a column to a prior step without touching the database:\n"
+                '                 `def generate_df(ds_clients, excel_files, load_step):`\n'
+                '                 `    df = load_step("Customer Sales")`\n'
+                '                 `    df["tier"] = df["TotalSales"].astype(float).apply(lambda v: "High" if v >= 40 else "Low")`\n'
+                "                 `    return df`"
+            )
+            return signature_hint, section
+
+        signature_hint = (
+            "- You may also add a `load_entity` parameter to reuse a published catalog entity "
+            "(see section 2a), e.g. `def generate_df(ds_clients, excel_files, load_entity):`."
+        )
+        section = (
+            "2a. **Reusing a published entity (load_entity)** — IMPORTANT:\n"
+            "               - When the user refers to a published catalog entity from the `<entities>` section, you MUST load it with `load_entity` rather than re-querying or inventing it. **NEVER fabricate, hardcode, or randomly generate rows** to stand in for real data.\n"
+            "               - To use it, add the parameter to your signature, e.g. `def generate_df(ds_clients, excel_files, load_entity):`.\n"
+            "               - `load_entity(\"<id or name>\")` returns a pandas DataFrame for a published catalog entity from the `<entities>` section.\n"
+            "               - **The argument MUST be a string literal** (e.g. `load_entity(\"Monthly Revenue Model\")`), not a variable — it is pre-resolved before your code runs.\n"
+            "               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; use `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining."
+        )
+        return signature_hint, section
+
+    @staticmethod
     def _render_error_feedback(code_and_error_messages, limit: int = 2) -> str:
         """Render the failing (code, error) pairs of THIS request's earlier
         attempts for prompt inclusion, so a retry can actually correct the
@@ -526,6 +570,13 @@ class Coder:
                 f"{context.user_prompt or ''}\n{context.interpreted_prompt or ''}",
             )
             viz_directive = self._build_viz_directive(getattr(context, "target_visualization_type", None))
+            # load_step is org-gated (default off). When disabled we advertise
+            # neither the signature parameter nor its reuse section, so the model
+            # never reaches for a call that would raise at runtime. load_entity
+            # is independent and always described.
+            from app.ai.code_execution.loadables import load_step_settings
+            _load_step_enabled, _ = load_step_settings(self.organization_settings)
+            signature_reuse_hint, reuse_section = self._build_reuse_prompt_sections(_load_step_enabled)
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
@@ -644,7 +695,7 @@ class Coder:
             1. **Function Signature**: Implement either:
                `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
                `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
-               - You may also add `load_step` and/or `load_entity` parameters to reuse existing results (see section 2a), e.g. `def generate_df(ds_clients, excel_files, load_step):`.
+               {signature_reuse_hint}
                - The function should return the main dataframe that answers the user prompt.
 
             1a. **HTTP client (when the task involves URLs)**:
@@ -685,19 +736,7 @@ class Coder:
                - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
                - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
-            2a. **Reusing existing results (load_step / load_entity)** — IMPORTANT:
-               - When the user refers to data they already built (e.g. "the Customer Sales step", "the step you just built", "reuse ...") or asks you NOT to re-query, you MUST load that data with `load_step` rather than re-querying or inventing it. **NEVER fabricate, hardcode, or randomly generate rows** to stand in for real data — load the real step/entity instead.
-               - To use them, add the parameters to your signature, e.g. `def generate_df(ds_clients, excel_files, load_step, load_entity):` (any subset, in any order after `excel_files`).
-               - `load_step("<id or name>")` returns a pandas DataFrame for a prior step in THIS report. Choose one from the `<available_steps>` section above (match its `id`, `slug`, or `title` exactly).
-               - Do NOT reload a prior step's data with `pd.read_csv(...)` or by reading from `excel_files` — those are for user-uploaded files only. To reuse a previous step, use `load_step(...)`.
-               - `load_entity("<id or name>")` returns a pandas DataFrame for a published catalog entity from the `<entities>` section.
-               - **The argument MUST be a string literal** (e.g. `load_step("Customer Sales")`), not a variable — it is pre-resolved before your code runs.
-               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; use `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining.
-               - Example — add a column to a prior step without touching the database:
-                 `def generate_df(ds_clients, excel_files, load_step):`
-                 `    df = load_step("Customer Sales")`
-                 `    df["tier"] = df["TotalSales"].astype(float).apply(lambda v: "High" if v >= 40 else "Low")`
-                 `    return df`
+            {reuse_section}
 
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.

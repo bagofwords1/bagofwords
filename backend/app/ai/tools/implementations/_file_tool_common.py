@@ -22,7 +22,7 @@ from app.data_sources.clients.base import Capability, DataSourceClient
 logger = logging.getLogger(__name__)
 
 
-FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir"}
+FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir", "s3"}
 
 
 async def resolve_file_data_source(

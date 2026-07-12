@@ -55,6 +55,37 @@ Queries are subject to a per-connection timeout.
     def output_model(self) -> Type[BaseModel]:
         return InspectDataOutput
 
+    @staticmethod
+    def _scope_clients_to_resolved(
+        ds_clients: Dict[str, Any],
+        resolved_tables: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Narrow the report-wide client dict to the resolved data source(s).
+
+        Clients carry `_bow_data_source_id` (set in construct_clients), so we
+        filter by that rather than by the name-prefixed key. A client whose
+        provenance is unknown (no metadata) is kept — dropping it risks removing
+        the one the model actually needs. If resolution produced no data source
+        scope, or scoping would empty the set, fall back to the full dict so
+        inspection never loses its only clients.
+        """
+        resolved_ds_ids = {
+            str(g.get("data_source_id"))
+            for g in (resolved_tables or [])
+            if g.get("data_source_id")
+        }
+        if not resolved_ds_ids or not ds_clients:
+            return ds_clients
+
+        def _in_scope(client: Any) -> bool:
+            ds_id = getattr(client, "_bow_data_source_id", None)
+            if ds_id is None:
+                return True  # unknown provenance — don't drop
+            return str(ds_id) in resolved_ds_ids
+
+        scoped = {k: v for k, v in ds_clients.items() if _in_scope(v)}
+        return scoped or ds_clients
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = InspectDataInput(**tool_input)
         organization_settings = runtime_ctx.get("settings")
@@ -178,7 +209,20 @@ Queries are subject to a per-connection timeout.
             return await coder.generate_inspection_code(**kwargs)
 
         # 4. Execute
-        
+
+        # Scope the client set to the resolved data source(s). `ds_clients` in
+        # runtime_ctx is aggregated report-wide, but the schema we built above is
+        # narrowed to `resolved_tables`. Handing the full client dict to the
+        # generated code lets it query (or blindly "try each client" against) a
+        # data source whose tables were never resolved into this inspection —
+        # e.g. inspecting dbo.Employees on one source but hitting a stale
+        # `SBODemoIL:SBODemoIL` client that belongs to a different source. Keep
+        # the client set aligned with the schema the model was actually shown.
+        ds_clients_for_exec = self._scope_clients_to_resolved(
+            runtime_ctx.get("ds_clients", {}) or {},
+            resolved_tables,
+        )
+
         output_log = ""
         generated_code = ""
         success = False
@@ -195,7 +239,7 @@ Queries are subject to a per-connection timeout.
         # can self-correct (e.g. after a sandbox violation) while staying fast.
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=2),
-            ds_clients=runtime_ctx.get("ds_clients", {}),
+            ds_clients=ds_clients_for_exec,
             excel_files=runtime_ctx.get("excel_files", []),
             code_generator_fn=_inspection_generator_fn,
             sigkill_event=runtime_ctx.get("sigkill_event"),

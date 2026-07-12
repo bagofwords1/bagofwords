@@ -34,6 +34,19 @@ DATA_SOURCES = [
     "qvd",
     "teradata",
     "opensearch",
+    # Remote mode: Zabbix is a multi-container stack (server + web + db), so it
+    # doesn't fit the single-`container_cls` testcontainer pattern. Point
+    # integrations.json at a live instance — `tools/zabbix/docker-compose.yaml`
+    # + `seed_zabbix.py` stand one up locally with an API token.
+    "zabbix",
+    # Remote mode: `tools/elastic/docker-compose.yaml` + `seed_elastic.py` stand
+    # up a local Elasticsearch 8 with an API key. Not a bundled testcontainer to
+    # avoid pulling in elasticsearch-py's strict server-version handshake.
+    "elasticsearch",
+    # Remote mode: `tools/splunk/docker-compose.yaml` + `seed_splunk.py` stand up
+    # a local Splunk 9 with an auth token. Splunk's image is heavy and slow to
+    # boot, so it's driven from integrations.json rather than a testcontainer.
+    "splunk",
 ]
 
 

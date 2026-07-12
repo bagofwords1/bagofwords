@@ -35,10 +35,11 @@ class Reporter:
         {plan}
 
         Generate a title for the report. Should be concise and descriptive of the report. Not more than 5 words.
+        Write the title in the SAME language the user's messages above are written in — do not default to English. Keep code, table names, and identifiers as-is.
         {build_language_directive(self.organization_settings)}
         Your response should be just the title, nothing else. No quotes / markdown / etc.
 
-        For example:
+        For example (examples are in English only to show shape and length — your title must follow the conversation language):
         "Generate a report with a bar chart of the top 5 countries by population" -> Top 5 Countries by Population
         "Generate a report with a line chart of the stock price of Tesla" -> Tesla Stock Price
         "Generate a report with a scatter plot of the relationship between age and income" -> Age vs Income

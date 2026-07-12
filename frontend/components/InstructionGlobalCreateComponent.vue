@@ -283,7 +283,7 @@
                                 :key="ds.id"
                                 class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
                             >
-                                <DataSourceIcon :type="ds.type" class="h-3" />
+                                <DataSourceIcon :type="ds.type" :icon="ds.icon" class="h-3" />
                                 {{ ds.name }}
                             </div>
                         </div>
@@ -302,7 +302,7 @@
                             >
                                 <!-- DS icon for tables/tools (shows which agent) -->
                                 <template v-if="ref.data_source_type && (ref.type === 'datasource_table' || ref.type === 'connection_tool')">
-                                    <DataSourceIcon :type="ref.data_source_type" class="h-3 shrink-0" />
+                                    <DataSourceIcon :type="ref.data_source_type" :icon="ref.data_source_icon" class="h-3 shrink-0" />
                                     <!-- Wrench pip only when we have DS icon, to distinguish tools from tables -->
                                     <Icon v-if="ref.type === 'connection_tool'" name="heroicons:wrench-screwdriver" class="w-2.5 h-2.5 shrink-0 text-gray-400" />
                                 </template>
@@ -654,7 +654,7 @@
                             <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
                             <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">{{ $t('instructionGlobalCreate.fields.sources') }}</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
-                                <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" class="h-3" />
+                                <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" :icon="getSelectedDataSourceObjects[0]?.icon" class="h-3" />
                                 <span class="truncate max-w-[100px]">{{ getSelectedDataSourceObjects[0]?.name }}</span>
                                 <span v-if="getSelectedDataSourceObjects.length > 1" class="text-gray-500">{{ $t('instructionGlobalCreate.plusN', { n: getSelectedDataSourceObjects.length - 1 }) }}</span>
                             </div>
@@ -662,9 +662,9 @@
                         <template #option="{ option }">
                             <div class="flex items-center w-full py-0.5">
                                 <div v-if="option.id === 'all'" class="flex -space-x-1 me-1.5">
-                                    <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
+                                    <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" :icon="ds.icon" class="h-3 border border-white rounded" />
                                 </div>
-                                <DataSourceIcon v-else :type="option.type" class="h-3 me-1.5" />
+                                <DataSourceIcon v-else :type="option.type" :icon="option.icon" class="h-3 me-1.5" />
                                 <span class="text-xs">{{ option.name }}</span>
                             </div>
                         </template>
@@ -702,7 +702,7 @@
                                     <span class="text-[11px] font-medium text-gray-900 break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
                                 </div>
                                 <div v-if="option.data_source_name" class="flex items-center gap-1">
-                                    <DataSourceIcon :type="option.data_source_type" class="h-2.5 flex-shrink-0" />
+                                    <DataSourceIcon :type="option.data_source_type" :icon="option.data_source_icon" class="h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>
                                 <div v-else-if="option.type === 'instruction'" class="flex items-center gap-1">
@@ -856,6 +856,7 @@ interface DataSource {
     id: string
     name: string
     type: string
+    icon?: string | null
 }
 
 interface InstructionForm {
@@ -884,6 +885,7 @@ interface MentionableItem {
     data_source_id?: string
     data_source_name?: string
     data_source_type?: string
+    data_source_icon?: string | null
     column_name?: string | null
     text_preview?: string | null  // For instructions without title
 }
@@ -1156,6 +1158,7 @@ interface MentionItem {
     dataSourceId: string | null
     dataSourceName: string | null
     dataSourceType: string | null
+    dataSourceIcon: string | null
 }
 
 const handleEditorMentionSelected = (item: MentionItem) => {
@@ -1168,6 +1171,7 @@ const handleEditorMentionSelected = (item: MentionItem) => {
             data_source_id: item.dataSourceId || undefined,
             data_source_name: item.dataSourceName || undefined,
             data_source_type: item.dataSourceType || undefined,
+            data_source_icon: item.dataSourceIcon || undefined,
             text_preview: item.textPreview || undefined,
             column_name: null
         })
@@ -1253,7 +1257,8 @@ const dataSourceOptions = computed(() => {
     const allOption = {
         id: 'all',
         name: t('instructionGlobalCreate.allDataSources'),
-        type: 'all'
+        type: 'all',
+        icon: null as string | null
     }
     return [allOption, ...availableDataSources.value]
 })

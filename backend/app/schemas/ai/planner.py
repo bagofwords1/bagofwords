@@ -88,7 +88,9 @@ class PlannerInput(BaseModel):
     entities_context: Optional[str] = None
     # Loadable prior steps in this report (rendered <available_steps> block).
     # Signals to the planner that create_data can reuse these via load_step
-    # instead of re-deriving from scratch.
+    # instead of re-deriving from scratch. Empty when the org has load_step
+    # disabled (default) or no step is within the recency window — in which
+    # case the planner's <reuse_guidance> block is omitted too.
     available_steps_context: Optional[str] = None
     # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
     scheduled_tasks_context: Optional[str] = None
@@ -148,6 +150,13 @@ class PlannerInput(BaseModel):
     # filters.allowed_domains so the tool opens/reads those pages directly
     # instead of relying on snippet search.
     web_search_domains: List[str] = []
+
+    # Parallel tool emission. True when the org's ai_tool_concurrency setting
+    # is > 1: relaxes the one-tool-per-turn prompt rule and lifts the
+    # provider-level parallel_tool_calls restriction so the model MAY emit
+    # several independent tool_use blocks in one response (the dispatch layer
+    # then runs them concurrently under that same setting).
+    parallel_tools_enabled: bool = False
 
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None

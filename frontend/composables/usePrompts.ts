@@ -94,6 +94,7 @@ export function usePrompts() {
       user_ids?: string[]
       group_id?: string
       parameters?: Record<string, PromptParamValue>
+      delivery_channels?: string[]
     },
   ): Promise<{ ran: number; skipped: number; skipped_user_ids: string[] } | null> {
     const { data } = await useMyFetch<{ ran: number; skipped: number; skipped_user_ids: string[] }>(

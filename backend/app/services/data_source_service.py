@@ -806,6 +806,7 @@ class DataSourceService:
             is_public=final_data_source.is_public,
             publish_status=getattr(final_data_source, "publish_status", "published") or "published",
             reliability_status=getattr(final_data_source, "reliability_status", "training") or "training",
+            icon=getattr(final_data_source, "icon", None),
             use_llm_sync=final_data_source.use_llm_sync,
             channel_availability=getattr(final_data_source, "channel_availability", None),
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
@@ -964,12 +965,7 @@ class DataSourceService:
 
         return result
 
-    # TTL for connection test cache (5 minutes)
-    CONNECTION_TEST_TTL_SECONDS = 300
-
     async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
-        from datetime import datetime, timezone
-
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports → widgets/queries/completions/…). The detail schema does
         # surface git_repository and memberships, so keep those eager. We
@@ -994,61 +990,18 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # Check if any connection needs retesting (cache expired or never tested)
-        from app.services.connection_service import ConnectionService
-        conn_service = ConnectionService()
-        stale_connections = []
-        for conn in (data_source.connections or []):
-            needs_retest = True
-            if conn.last_connection_checked_at:
-                last_checked = conn.last_connection_checked_at
-                if last_checked.tzinfo is None:
-                    last_checked = last_checked.replace(tzinfo=timezone.utc)
-                age = (datetime.now(timezone.utc) - last_checked).total_seconds()
-                needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
-            if needs_retest:
-                stale_connections.append(conn)
-
-        # Retest stale connections
-        if stale_connections:
-            try:
-                for conn in stale_connections:
-                    try:
-                        await conn_service.test_connection(
-                            db=db,
-                            connection_id=str(conn.id),
-                            organization=organization,
-                            current_user=current_user or User(),
-                        )
-                    except Exception:
-                        pass
-                # After commits in tests, relationships may be expired; reload with eager options
-                try:
-                    stmt = (
-                        select(DataSource)
-                        .options(
-                            lazyload("*"),
-                            selectinload(DataSource.git_repository),
-                            selectinload(DataSource.data_source_memberships),
-                            selectinload(DataSource.connections).options(lazyload("*")),
-                            selectinload(DataSource.primary_instruction).selectinload(InstructionModel.references),
-                        )
-                        .where(DataSource.id == data_source.id)
-                    )
-                    refreshed_res = await db.execute(stmt)
-                    data_source = refreshed_res.scalar_one()
-                except Exception:
-                    pass
-            except Exception:
-                # Non-fatal: keep serving the resource even if the live check fails
-                pass
-
-        # Build connections list - always use cached status (live_test=False)
-        # since we already tested if needed above. Batch the indexing +
-        # table-count lookups: this endpoint is polled every ~2s while an
-        # indexing run is live, and per-connection COUNTs made each poll issue
-        # 2×N queries for agents with many connections. Events stay included —
-        # the connections modal renders the live indexing log from this payload.
+        # Build connections list from CACHED status only (live_test=False).
+        # This endpoint used to live-test every connection whose cached status
+        # was older than 5 minutes — sequentially, inside the request, with no
+        # connect timeout — so an agent with 50 connections stalled for minutes
+        # (and pinned its pooled DB connection the whole time) every TTL window.
+        # Freshness is now owned by the background sweeper
+        # (connection_status_sweep.sweep_stale_connection_status); reads never
+        # dial a warehouse. Batch the indexing + table-count lookups: this
+        # endpoint is polled every ~2s while an indexing run is live, and
+        # per-connection COUNTs made each poll issue 2×N queries for agents
+        # with many connections. Events stay included — the connections modal
+        # renders the live indexing log from this payload.
         indexing_by_conn, table_count_by_conn, legacy_count_by_ds = (
             await self._bulk_connection_aux(db, [data_source])
         )
@@ -1113,6 +1066,7 @@ class DataSourceService:
             is_public=data_source.is_public,
             publish_status=getattr(data_source, "publish_status", "published") or "published",
             reliability_status=getattr(data_source, "reliability_status", "training") or "training",
+            icon=getattr(data_source, "icon", None),
             use_llm_sync=data_source.use_llm_sync,
             channel_availability=getattr(data_source, "channel_availability", None),
             owner_user_id=data_source.owner_user_id,
@@ -1277,6 +1231,7 @@ class DataSourceService:
                 is_public=bool(d.is_public),
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
+                icon=getattr(d, "icon", None),
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
@@ -1434,6 +1389,7 @@ class DataSourceService:
                 is_public=bool(d.is_public),
                 publish_status=publish_status,
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
+                icon=getattr(d, "icon", None),
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
@@ -1530,6 +1486,7 @@ class DataSourceService:
                 status=("active" if bool(d.is_active) else "inactive"),
                 publish_status=getattr(d, "publish_status", "published") or "published",
                 reliability_status=getattr(d, "reliability_status", "training") or "training",
+                icon=getattr(d, "icon", None),
                 connections=connections_list,
                 is_connector=_ds_is_connector(d),
                 connector_key=_ds_connector_key(d),
@@ -2162,10 +2119,25 @@ class DataSourceService:
         if not data_source.connections:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
 
+        # Skip connections flagged unhealthy. Connection.is_active is a cached
+        # reachability flag, not a config toggle: a failed system_only connection
+        # test sets it False (ConnectionService.test_connection) and a later
+        # success flips it back. Building a client for a known-dead connection
+        # lets generated code "try each client" and fail on every run — e.g. a
+        # stale `SBODemoIL:SBODemoIL` whose login no longer works. Dropping it
+        # here (paired with the schema builder's matching connection filter)
+        # keeps both the client set and the model's context off dead
+        # connections. If every connection is inactive we return no clients;
+        # the data source then drops out downstream (AgentV2 `_has_client`).
+        active_connections = [
+            conn for conn in data_source.connections
+            if getattr(conn, "is_active", True)
+        ]
+
         clients: Dict[str, Any] = {}
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
 
-        for conn in data_source.connections:
+        for conn in active_connections:
             key = f"{data_source.name}:{conn.name}"
 
             # Resolve client class from registry
@@ -2204,7 +2176,7 @@ class DataSourceService:
             clients[key] = client
 
         # Backward compatibility: add legacy key aliases for single-connection domains
-        if len(data_source.connections) == 1:
+        if len(active_connections) == 1:
             first_key = next(iter(clients.keys()))
             first_client = clients[first_key]
             clients[data_source.name] = first_client
@@ -2346,6 +2318,11 @@ class DataSourceService:
         # Handle primary_instruction_id explicitly (allow None to clear it)
         if 'primary_instruction_id' in update_data:
             data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+
+        # Handle icon explicitly so an explicit null clears the custom-icon
+        # override (the generic loop below skips None values).
+        if 'icon' in update_data:
+            data_source_db.icon = update_data.pop('icon')
 
         # Update remaining domain-specific fields on DataSource
         for field, value in update_data.items():
