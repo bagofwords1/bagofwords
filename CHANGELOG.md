@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.451 (July 12, 2026)
+- **Doc "Save as PDF" exports the full document** — the print stylesheet isolated the document with `position: fixed`, which clips output to a single viewport box and cut the PDF off after a couple of pages; it now uses `position: absolute` with a content-driven height so tall docs (and their charts) paginate across the whole export in both the viewer and the editor.
+
 ## Version 0.0.450 (July 12, 2026)
 - **Jaeger connector (#624)** — query distributed traces over the Jaeger Query HTTP API; each backend exposes `services`, `operations`, `spans`, and `dependencies` tables, and span search filters by service, operation, tags, latency, and errors.
 
