@@ -1428,6 +1428,18 @@ class NetworkDirConfig(BaseModel):
         description="Comma-separated list of file extensions to include (e.g. 'csv,xlsx,pdf,png'). Leave blank for all files.",
         json_schema_extra={"ui:type": "string"}
     )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Comma-separated glob patterns, relative to the path, e.g. "
+            "'files/**/*.ppt, reports/**/*.csv'. When set, ONLY matching files "
+            "are visible AND readable — the agent is denied access to anything "
+            "outside these patterns. Leave blank to allow the whole directory. "
+            "Use '**' to cross subfolders, '*' for a single segment."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
     recursive: bool = Field(
         True,
         title="Include Subfolders",
@@ -1449,15 +1461,32 @@ class NetworkDirConfig(BaseModel):
         description="Skip files larger than this when reading. Guards against loading huge files into memory.",
         json_schema_extra={"ui:type": "number"}
     )
+    index_mode: str = Field(
+        "content",
+        title="Indexing",
+        description=(
+            "How much to cache from the source. 'none' → nothing cached; the "
+            "agent lists/reads live every time (freshest, best for volatile or "
+            "huge dirs). 'metadata' → cache the file list on a schedule "
+            "(fast listing, no content search). 'content' → also extract "
+            "keywords from PDF/Word/PowerPoint/Excel/CSV so the agent can find "
+            "files by topic. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata", "content"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+                "content": "Contents (searchable)",
+            },
+        },
+    )
     index_content: bool = Field(
         True,
-        title="Index File Contents",
-        description=(
-            "When indexing the directory, extract keywords from each file's "
-            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
-            "files by topic quickly. Turn off to index filenames only."
-        ),
-        json_schema_extra={"ui:type": "boolean"}
+        title="Index File Contents (legacy)",
+        description="Deprecated — use Indexing above. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True}
     )
 
 
@@ -1521,6 +1550,17 @@ class S3Config(BaseModel):
         description="Comma-separated list of extensions to include (e.g. 'csv,xlsx,pdf'). Leave blank for all files.",
         json_schema_extra={"ui:type": "string"},
     )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Comma-separated glob patterns relative to the prefix, e.g. "
+            "'docs/**/*.pdf, reports/**/*.csv'. When set, ONLY matching objects "
+            "are visible AND readable — access to anything else in the prefix is "
+            "denied. Leave blank to allow the whole prefix."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
     recursive: bool = Field(
         True,
         title="Include Sub-prefixes",
@@ -1533,15 +1573,30 @@ class S3Config(BaseModel):
         description="Reject whole-object (structured) reads above this size. Windowed byte-range reads are exempt.",
         json_schema_extra={"ui:type": "number"},
     )
+    index_mode: str = Field(
+        "content",
+        title="Indexing",
+        description=(
+            "How much to cache from the bucket. 'none' → nothing cached; list/"
+            "read go live (best for huge or volatile buckets). 'metadata' → "
+            "cache the object list only. 'content' → also extract keywords for "
+            "topic search. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata", "content"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "Object list",
+                "content": "Contents (searchable)",
+            },
+        },
+    )
     index_content: bool = Field(
         True,
-        title="Index File Contents",
-        description=(
-            "When indexing the bucket, extract keywords from each object's "
-            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
-            "files by topic. Turn off to index keys only."
-        ),
-        json_schema_extra={"ui:type": "boolean"},
+        title="Index File Contents (legacy)",
+        description="Deprecated — use Indexing above. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
     )
     max_catalog_objects: int = Field(
         5000,

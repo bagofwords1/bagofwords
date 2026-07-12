@@ -24,6 +24,9 @@
             <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.config[field.field_name]" size="xs" color="blue" />
             <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" rows="3" />
             <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+            <select v-else-if="uiType(field) === 'select' || (Array.isArray(field.enum) && field.enum.length)" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+              <option v-for="opt in (field.enum || [])" :key="opt" :value="opt">{{ (field['ui:enumLabels'] && field['ui:enumLabels'][opt]) || opt }}</option>
+            </select>
             <div v-else-if="uiType(field) === 'keyvalue'" class="space-y-1.5">
               <div v-for="(row, idx) in (kvRowsMap[field.field_name] || [])" :key="idx" class="flex items-center gap-2">
                 <input type="text" v-model="row.k" @input="kvSync(field.field_name)" placeholder="Parameter" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
@@ -324,7 +327,10 @@ const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== 
 
 const configFields = computed(() => {
   if (!fields.value?.config?.properties) return [] as any[]
-  return Object.entries(fields.value.config.properties).map(([field_name, schema]: any) => ({ field_name, ...schema }))
+  return Object.entries(fields.value.config.properties)
+    .map(([field_name, schema]: any) => ({ field_name, ...schema }))
+    // Hide fields explicitly marked ui:hidden (e.g. deprecated/back-compat).
+    .filter((f: any) => !(f['ui:hidden'] === true))
 })
 
 const authOptions = computed(() => {

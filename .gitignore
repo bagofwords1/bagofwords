@@ -61,3 +61,9 @@ backend/loadtest/smoke*.json
 
 # repo-root symlink to frontend/node_modules so tools/agent/*.mjs resolve @playwright/test
 /node_modules
+
+# Sandbox feedback loop — local secrets & runtime artifacts (never commit)
+.agents/sandbox-feedback-loop/secrets.env
+.agents/sandbox-feedback-loop/runtime/
+.agents/sandbox-feedback-loop/netdir/
+.agents/sandbox-feedback-loop/*.log
