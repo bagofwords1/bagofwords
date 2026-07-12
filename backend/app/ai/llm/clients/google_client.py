@@ -28,7 +28,11 @@ from app.ai.llm.types import (
 class Google(LLMClient):
     def __init__(self, api_key: str | None = None):
         super().__init__()
-        self.client = genai.Client(api_key=api_key)
+        # vertexai=False pins the Gemini Developer API. Without it, an ambient
+        # GOOGLE_GENAI_USE_VERTEXAI=true (common on dev machines with a work
+        # Vertex setup) silently reroutes the SDK to aiplatform.googleapis.com,
+        # which rejects API keys with 401 UNAUTHENTICATED.
+        self.client = genai.Client(api_key=api_key, vertexai=False)
         self.temperature = 0.3
 
     @staticmethod
