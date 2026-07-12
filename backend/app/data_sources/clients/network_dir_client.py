@@ -89,6 +89,7 @@ class NetworkDirClient(DataSourceClient):
         max_file_mb: int = 100,
         index_content: bool = True,
         index_mode: Optional[str] = None,
+        max_catalog_objects: int = 10000,
         max_keywords: int = 50,
         **_ignored,
     ):
@@ -106,6 +107,9 @@ class NetworkDirClient(DataSourceClient):
         # index_content boolean when index_mode isn't set.
         self.index_mode = normalize_index_mode(index_mode, index_content_legacy=index_content)
         self.index_content = self.index_mode == INDEX_CONTENT
+        # Hard cap on how many files we ever enumerate — guards indexing AND
+        # live listing from a directory with millions of files (OOM / DB blowup).
+        self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 10000
         self.max_keywords = int(max_keywords) if max_keywords else 50
 
         # Per-instance capability gating: a read-only connection must not expose
@@ -220,10 +224,15 @@ class NetworkDirClient(DataSourceClient):
             return True
         return name.lower() in {".ds_store", "thumbs.db", "desktop.ini"}
 
-    def _iter_files(self, base: Path, recursive: bool) -> List[Path]:
+    #: set True by the most recent _iter_files call when it hit the cap.
+    _last_walk_truncated: bool = False
+
+    def _iter_files(self, base: Path, recursive: bool, limit: Optional[int] = None) -> List[Path]:
         walker = base.rglob("*") if recursive else base.glob("*")
         root = self._root()
+        cap = limit if limit is not None else self.max_catalog_objects
         out: List[Path] = []
+        self._last_walk_truncated = False
         for p in walker:
             if not p.is_file():
                 continue
@@ -240,6 +249,11 @@ class NetworkDirClient(DataSourceClient):
                 if not path_matches_globs(rel, self.include_globs):
                     continue
             out.append(p)
+            # Stop early rather than materialize millions of paths — the walk
+            # itself is bounded, so a huge directory can't OOM us.
+            if cap and len(out) >= cap:
+                self._last_walk_truncated = True
+                break
         return out
 
     # ---------------------------------------------------- public capabilities
@@ -579,6 +593,13 @@ class NetworkDirClient(DataSourceClient):
                 fks=[],
                 metadata_json={"network_dir": meta},
             ))
+        if self._last_walk_truncated:
+            import logging
+            logging.getLogger(__name__).warning(
+                "network_dir: catalog capped at %d files (max_catalog_objects); "
+                "narrow the include-patterns to index more of %s.",
+                self.max_catalog_objects, self.root_path,
+            )
         return tables
 
     def get_schema(self, table_name: str) -> Optional[Table]:

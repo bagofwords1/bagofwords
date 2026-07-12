@@ -61,6 +61,7 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const props = defineProps<{ dsId: string; canUpdate?: boolean }>()
+const emit = defineEmits(['edit-connection'])
 const toast = useToast()
 
 const connections = ref<any[]>([])
@@ -114,6 +115,7 @@ async function removeFile(f: any) {
   try { await useMyFetch(`/data_sources/${props.dsId}/files/${f.id}`, { method: 'DELETE' }); files.value = files.value.filter((x) => x.id !== f.id) }
   catch { toast.add({ title: 'Failed to remove file', color: 'red' }) }
 }
-function editScope(conn: any) { navigateTo(`/integrations/${conn.id}/connection`) }
+// Scope lives on the connection — let the host open the ConnectionDetailModal.
+function editScope(conn: any) { emit('edit-connection', conn) }
 watch(() => props.dsId, loadAll, { immediate: true })
 </script>

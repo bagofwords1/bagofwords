@@ -1489,6 +1489,16 @@ class NetworkDirConfig(BaseModel):
         description="Deprecated — use Indexing above. Kept for back-compatibility.",
         json_schema_extra={"ui:type": "boolean", "ui:hidden": True}
     )
+    max_catalog_objects: int = Field(
+        10000,
+        title="Max Files",
+        description=(
+            "Safety cap on how many files are ever enumerated (indexed or listed "
+            "live). A directory with more than this is truncated to protect memory "
+            "and the catalog — narrow the include-patterns to scope large trees."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # Amazon S3 — a cloud object store exposed as a file catalog.

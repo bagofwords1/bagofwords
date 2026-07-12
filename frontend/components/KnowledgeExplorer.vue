@@ -501,6 +501,7 @@
                 :key="'files-' + panelView.agentId"
                 :ds-id="panelView.agentId"
                 :can-update="panelCanUpdate"
+                @edit-connection="openConnectionDetail"
               />
             </div>
           </div>
