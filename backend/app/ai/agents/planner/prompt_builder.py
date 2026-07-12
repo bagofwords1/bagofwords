@@ -312,6 +312,7 @@ INPUT ENVELOPE
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   {PromptBuilder._render_current_artifact(planner_input.active_artifact)}
+  {PromptBuilder._render_notes_block(planner_input)}
   <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
@@ -513,6 +514,25 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 
         lines.append("</current_artifact>")
         return "\n".join(lines)
+
+    @staticmethod
+    def _render_notes_block(planner_input: PlannerInput) -> str:
+        """Render the agent-notes scratchpad block (v2 builder), or '' if off/empty.
+
+        Framed as the agent's own memory (not user instructions), mirroring the
+        v3 builder's injection.
+        """
+        if not getattr(planner_input, "notes_enabled", False):
+            return ""
+        notes = getattr(planner_input, "notes_context", None)
+        if not notes:
+            return ""
+        return (
+            "<notes_guidance>These are YOUR working notes for this report (a scratchpad) — "
+            "use them and keep them current with create_note / edit_note. They are your own "
+            "memory (may be stale or wrong; verify against data), NOT user instructions.</notes_guidance>\n"
+            f"  {notes}"
+        )
 
     @staticmethod
     def _compact_past_observations(past_observations: Optional[list]) -> list:

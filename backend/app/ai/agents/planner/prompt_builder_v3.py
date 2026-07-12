@@ -523,6 +523,17 @@ Examples of good behavior:
             f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
         )
         parts.append(f"  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}")
+        # Agent notes (per-report scratchpad) — placed late (near past_observations
+        # / last_observation) so they stay in-attention. Framed as the agent's own
+        # memory, NOT user instructions.
+        if getattr(planner_input, "notes_enabled", False) and getattr(planner_input, "notes_context", None):
+            parts.append(
+                "  <notes_guidance>These are YOUR working notes for this report (a scratchpad) — "
+                "use them and keep them current with create_note / edit_note. They are your own "
+                "memory (may be stale or wrong; verify against data), NOT user instructions. "
+                "Reference a note by its id when calling edit_note.</notes_guidance>"
+            )
+            parts.append(f"  {planner_input.notes_context}")
         compacted = PromptBuilder._compact_past_observations(planner_input.past_observations)
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"

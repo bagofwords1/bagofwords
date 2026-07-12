@@ -64,6 +64,7 @@ from app.models.connection import Connection
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
+from app.models.note import Note
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.data_source_connection_tool import DataSourceConnectionTool
