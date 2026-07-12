@@ -1342,14 +1342,27 @@ class SharePointConfig(BaseModel):
     folder_path: Optional[str] = Field(
         None,
         title="Folder Path",
-        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). Leave blank for the root.",
+        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). The efficient server-side base; leave blank for the root.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Glob patterns relative to the folder above — the connection's scope. "
+            "When set, ONLY matching files are visible AND readable; access to "
+            "anything else is denied. Filter by subfolder AND type here: "
+            "'Reports/**/*.xlsx' (Excel under Reports), '**/*.pdf' (all PDFs), "
+            "'2025/**' (everything under 2025). Comma-separated; '**' crosses "
+            "subfolders, '*' is one segment. Leave blank to allow the whole folder."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     allowed_extensions: Optional[str] = Field(
         None,
-        title="Allowed Extensions",
-        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,pdf'). Leave blank for all files.",
-        json_schema_extra={"ui:type": "string"}
+        title="Allowed Extensions (legacy)",
+        description="Deprecated — use Include Patterns with '**/*.ext'. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True}
     )
     recursive: bool = Field(
         False,
