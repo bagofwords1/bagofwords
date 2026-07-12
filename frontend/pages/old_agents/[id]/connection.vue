@@ -206,7 +206,7 @@
                 <!-- No connections available -->
                 <div v-else class="text-center py-4 text-gray-500">
                     <p class="text-sm">No available connections to link.</p>
-                    <p class="text-xs mt-1">All organization connections are already linked to this agent.</p>
+                    <p class="text-xs mt-1">Connections you can build agents on and that aren't already linked will appear here.</p>
                 </div>
             </div>
 
@@ -320,10 +320,15 @@ const isAdmin = computed(() => {
   return org?.role === 'admin'
 })
 
-// Available connections (org connections not already linked)
+// Available connections: not already linked, and ones the caller may build
+// agents on (per-connection `create_data_sources` — the same permission the
+// link API enforces). See AgentConnectionsModal.vue.
 const availableConnections = computed(() => {
   const linkedIds = new Set(connections.value.map((c: any) => c.id))
-  return orgConnections.value.filter(c => !linkedIds.has(c.id))
+  return orgConnections.value.filter(c =>
+    !linkedIds.has(c.id) &&
+    useCan('create_data_sources', { type: 'connection', id: c.id })
+  )
 })
 
 // Status helpers — derived from the shared state machine.

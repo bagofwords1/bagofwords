@@ -111,7 +111,7 @@
                 <Spinner class="w-5 h-5" />
             </div>
             <div v-else-if="availableConnections.length === 0" class="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                All connections are already linked to this agent.
+                No connections available to link.
             </div>
             <div v-else class="space-y-2 max-h-64 overflow-y-auto">
                 <label
@@ -245,9 +245,15 @@ const loadingOrgConnections = ref(false)
 const orgConnections = ref<any[]>([])
 const isLinking = ref(false)
 
+// Offer only connections the caller (a) hasn't already linked and (b) may build
+// agents on — per-connection `create_data_sources`, the same permission the link
+// API enforces. Keeps the picker in sync with what the backend will accept.
 const availableConnections = computed(() => {
     const linked = new Set(connections.value.map((c: any) => c.id))
-    return orgConnections.value.filter((c) => !linked.has(c.id))
+    return orgConnections.value.filter((c) =>
+        !linked.has(c.id) &&
+        useCan('create_data_sources', { type: 'connection', id: c.id })
+    )
 })
 
 function getConnectionEffective(conn: any) {

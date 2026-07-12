@@ -497,16 +497,19 @@ async def add_connection_to_domain(
 ):
     """Add a connection to an agent (M:N relationship).
 
-    The `data_source:manage` decorator proves the caller can manage this agent.
-    We additionally require that they have access to the connection they're
-    attaching — mirroring the picker's `GET /connections` filtering — so the
-    endpoint can't be used to attach a connection the caller can't see by
-    passing its id directly.
+    Two independent capabilities are required, matching the "build an agent on a
+    connection" model:
+      - The `data_source:manage` decorator proves the caller owns/manages this
+        agent.
+      - Per-connection `create_data_sources` proves they may build agents on the
+        connection being attached — the SAME check `create_data_source` runs when
+        an agent is created directly on a connection. Connection admins /
+        `manage_connections` pass via implication.
     """
-    from app.services.connection_service import ConnectionService
-    from app.routes.connection import _ensure_can_read_connection
-    connection = await ConnectionService().get_connection(db, connection_id, organization)
-    await _ensure_can_read_connection(db, organization, current_user, connection)
+    await check_resource_permissions(
+        db, str(current_user.id), str(organization.id),
+        "connection", [connection_id], "create_data_sources",
+    )
 
     result = await data_source_service.add_connection_to_domain(
         db=db,
