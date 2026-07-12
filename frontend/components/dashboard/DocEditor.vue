@@ -267,8 +267,8 @@ const toolbarButtons = computed(() => {
   padding: 3rem 1.5rem 5rem;
 }
 .bow-doc-editor :deep(.ProseMirror) {
-  font-size: 0.875rem; /* 14px — match DocViewer's document-scale body text */
-  line-height: 1.75;
+  font-size: 0.8125rem; /* 13px — match DocViewer's compact document-scale body text */
+  line-height: 1.65;
   color: rgb(55 65 81);
   min-height: 50vh;
 }
