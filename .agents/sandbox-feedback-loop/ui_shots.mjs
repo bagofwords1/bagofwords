@@ -100,6 +100,11 @@ const run = async () => {
   await page.waitForTimeout(600);
   await shot(page, '07-s3-form');
 
+  // --- audit log page (should show the file.access_denied entries) ---
+  await page.goto(`${BASE}/settings/audit`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3500);
+  await shot(page, '11-audit-log');
+
   await browser.close();
   console.log('done');
 };

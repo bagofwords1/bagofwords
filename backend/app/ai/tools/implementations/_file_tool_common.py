@@ -25,6 +25,36 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir", "s3"}
 
 
+async def audit_file_access_denied(
+    runtime_ctx: Dict[str, Any], connection_id: str, file_id: str, reason: str
+) -> None:
+    """Record an audit-trail entry when a file tool is denied access to a path
+    outside the connection's include-globs. Best-effort — never raises, never
+    blocks the tool response. Viewing is license-gated at the API; logging is
+    always on so the trail is complete."""
+    try:
+        db = runtime_ctx.get("db")
+        organization = runtime_ctx.get("organization")
+        user = runtime_ctx.get("user")
+        if db is None or organization is None:
+            return
+        from app.ee.audit.service import audit_service
+        await audit_service.log(
+            db=db,
+            organization_id=str(organization.id),
+            action="file.access_denied",
+            user_id=str(user.id) if user is not None else None,
+            resource_type="connection",
+            resource_id=str(connection_id),
+            details={"file_id": file_id, "reason": reason,
+                     "report_id": str(getattr(runtime_ctx.get("report"), "id", "")) or None},
+            commit=True,
+        )
+        logger.warning("file.access_denied conn=%s file=%s: %s", connection_id, file_id, reason)
+    except Exception:
+        logger.debug("audit_file_access_denied failed", exc_info=True)
+
+
 async def resolve_file_data_source(
     runtime_ctx: Dict[str, Any],
     connection_id: str,

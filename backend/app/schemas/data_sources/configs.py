@@ -1424,19 +1424,20 @@ class NetworkDirConfig(BaseModel):
     )
     allowed_extensions: Optional[str] = Field(
         None,
-        title="Allowed Extensions",
-        description="Comma-separated list of file extensions to include (e.g. 'csv,xlsx,pdf,png'). Leave blank for all files.",
-        json_schema_extra={"ui:type": "string"}
+        title="Allowed Extensions (legacy)",
+        description="Deprecated — use Include Patterns with '**/*.ext'. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True}
     )
     include_globs: Optional[str] = Field(
         None,
         title="Include Patterns (globs)",
         description=(
-            "Comma-separated glob patterns, relative to the path, e.g. "
-            "'files/**/*.ppt, reports/**/*.csv'. When set, ONLY matching files "
-            "are visible AND readable — the agent is denied access to anything "
-            "outside these patterns. Leave blank to allow the whole directory. "
-            "Use '**' to cross subfolders, '*' for a single segment."
+            "Glob patterns relative to the path — the connection's scope. When "
+            "set, ONLY matching files are visible AND readable; access to "
+            "anything else is denied. Filter by folder AND type here: "
+            "'reports/**/*.csv' (CSVs under reports), '**/*.pdf' (all PDFs), "
+            "'files/**' (everything under files/). Comma-separated; '**' crosses "
+            "subfolders, '*' is one segment. Leave blank to allow the whole path."
         ),
         json_schema_extra={"ui:type": "string"}
     )
@@ -1546,18 +1547,21 @@ class S3Config(BaseModel):
     )
     allowed_extensions: Optional[str] = Field(
         None,
-        title="Allowed Extensions",
-        description="Comma-separated list of extensions to include (e.g. 'csv,xlsx,pdf'). Leave blank for all files.",
-        json_schema_extra={"ui:type": "string"},
+        title="Allowed Extensions (legacy)",
+        description="Deprecated — use Include Patterns with '**/*.ext'. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True},
     )
     include_globs: Optional[str] = Field(
         None,
         title="Include Patterns (globs)",
         description=(
-            "Comma-separated glob patterns relative to the prefix, e.g. "
-            "'docs/**/*.pdf, reports/**/*.csv'. When set, ONLY matching objects "
-            "are visible AND readable — access to anything else in the prefix is "
-            "denied. Leave blank to allow the whole prefix."
+            "Glob patterns relative to the prefix — the connection's scope. When "
+            "set, ONLY matching objects are visible AND readable; access to "
+            "anything else in the prefix is denied. Filter by folder AND type "
+            "here: 'docs/**/*.pdf', '**/*.csv', 'reports/**'. Comma-separated; "
+            "'**' crosses sub-prefixes, '*' is one segment. Blank = whole prefix. "
+            "(The Prefix above is the efficient server-side base; globs refine "
+            "within it.)"
         ),
         json_schema_extra={"ui:type": "string"},
     )

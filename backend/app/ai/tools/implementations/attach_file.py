@@ -27,7 +27,9 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import AttachedFile, AttachFileInput, AttachFileOutput
 from app.data_sources.clients.base import Capability
 
-from ._file_tool_common import resolve_file_client
+from app.data_sources.clients._file_source_common import GlobScopeError
+
+from ._file_tool_common import audit_file_access_denied, resolve_file_client
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,8 @@ class AttachFileTool(Tool):
                 else:
                     results.append(AttachedFile(file_id=fid, name=name, error="attach failed"))
             except Exception as e:
+                if isinstance(e, GlobScopeError):
+                    await audit_file_access_denied(runtime_ctx, data.connection_id, fid, str(e))
                 results.append(AttachedFile(file_id=fid, error=str(e)))
 
         ok = [r for r in results if r.session_file_id]

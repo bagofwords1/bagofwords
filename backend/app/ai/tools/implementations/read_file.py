@@ -11,8 +11,11 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import ReadFileInput, ReadFileOutput
 from app.data_sources.clients.base import Capability
 
+from app.data_sources.clients._file_source_common import GlobScopeError
+
 from ._file_tool_common import (
     attach_drive_file_to_session,
+    audit_file_access_denied,
     render_file_payload,
     resolve_file_client,
 )
@@ -83,7 +86,11 @@ class ReadFileTool(Tool):
                     data.file_id, offset=data.offset, length=data.length
                 )
             except Exception as e:
-                err = f"read_file (windowed) failed: {e}"
+                if isinstance(e, GlobScopeError):
+                    await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
+                    err = str(e)
+                else:
+                    err = f"read_file (windowed) failed: {e}"
                 yield ToolEndEvent(type="tool.end", payload={
                     "output": {
                         "success": False,
@@ -135,7 +142,11 @@ class ReadFileTool(Tool):
         try:
             payload = await client.aread_file(data.file_id, sheet=data.sheet)
         except Exception as e:
-            err = f"read_file failed: {e}"
+            if isinstance(e, GlobScopeError):
+                await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
+                err = str(e)
+            else:
+                err = f"read_file failed: {e}"
             yield ToolEndEvent(type="tool.end", payload={
                 "output": {
                     "success": False,
