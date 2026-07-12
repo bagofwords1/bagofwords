@@ -141,6 +141,8 @@ import DashboardComponent from '~/components/DashboardComponent.vue';
 const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
 const { organization, setOrganization } = useOrganization()
 const { isExcel } = useExcel()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const route = useRoute()
 const config = useRuntimeConfig()
 const wsURL = config.public.wsURL
@@ -169,7 +171,7 @@ const shareModalOpen = ref(false)
 const sigkill = async (completion: any) => {
     isStoppingGeneration.value = true;
     try {
-        await useMyFetch(`/api/completions/${completion.id}/sigkill`, {
+        await useMyFetchStrict(`/api/completions/${completion.id}/sigkill`, {
             method: 'POST'
         });
         // After successful sigkill, update the local completion state
@@ -187,7 +189,7 @@ const sigkill = async (completion: any) => {
             completion.sigkill = true;
         }
     } catch (error) {
-        console.error('Error updating sigkill:', error);
+        toast.add({ title: 'Failed to stop generation', description: getErrorMessage(error), color: 'red' });
     } finally {
         isStoppingGeneration.value = false;
     }
@@ -261,22 +263,25 @@ onUnmounted(() => {
     window.removeEventListener('message', handleExcelMessage)
 })
 
-function saveReportTitle() {
+async function saveReportTitle() {
     const requestBody = {
         title: report.value.title
     };
 
-    useMyFetch(`/api/reports/${report_id}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-    }).then(() => {
+    try {
+        await useMyFetchStrict(`/api/reports/${report_id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+        });
         if (reportTitleInput.value) {
             reportTitleInput.value.blur();
         }
-    });
+    } catch (error) {
+        toast.add({ title: 'Failed to save report title', description: getErrorMessage(error), color: 'red' });
+    }
 }
 
 
@@ -585,18 +590,21 @@ function toggleSplitScreen() {
 const selectedWidget = ref(null);
 
 async function removeWidget(widget: any) {
-    await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'draft', id: widget.id })
-    }).then(() => {
+    try {
+        await useMyFetchStrict(`/api/reports/${report_id}/widgets/${widget.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'draft', id: widget.id })
+        });
         widgets.value = widgets.value.map(w => {
             if (w.id === widget.id) {
                 return { ...w, status: 'draft' };
             }
             return w;
         });
-    })
+    } catch (e: any) {
+        toast.add({ title: 'Failed to remove widget', description: getErrorMessage(e), color: 'red' });
+    }
 }
 
 async function handleAddWidget(widget: any) {
@@ -665,20 +673,20 @@ function stopResize() {
 }
 
 const createNewReport = async () => {
-    const response = await useMyFetch('/reports', {
-        method: 'POST',
-        body: JSON.stringify({title: 'untitled report',
-         files: []})
-    });
+    try {
+        const response = await useMyFetchStrict('/reports', {
+            method: 'POST',
+            body: JSON.stringify({title: 'untitled report',
+             files: []})
+        });
 
-    if (!response.code === 200) {
-        throw new Error('Report creation failed');
+        const data = response.data.value;
+        router.push({
+            path: `/reports/${data.id}`
+        })
+    } catch (error) {
+        toast.add({ title: 'Failed to create report', description: getErrorMessage(error), color: 'red' });
     }
-
-    const data = await response.data.value;
-    router.push({
-        path: `/reports/${data.id}`
-    })
 }
 
 onUnmounted(() => {

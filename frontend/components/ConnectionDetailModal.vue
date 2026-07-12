@@ -879,12 +879,16 @@ async function reindex() {
   if (!props.connection?.id || reindexing.value) return
   reindexing.value = true
   try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}/reindex?force=true`, { method: 'POST' })
-    const result = (data as any).value
-    if (result?.indexing) {
-      indexingState.value = result.indexing as ConnectionIndexing
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/reindex?force=true`, { method: 'POST' })
+    if (error.value) {
+      toast.add({ title: 'Failed to restart indexing', description: (error.value as any)?.data?.detail || (error.value as any)?.message, color: 'red' })
+    } else {
+      const result = (data as any).value
+      if (result?.indexing) {
+        indexingState.value = result.indexing as ConnectionIndexing
+      }
+      startPollingIfActive()
     }
-    startPollingIfActive()
   } finally {
     reindexing.value = false
   }
@@ -1037,9 +1041,15 @@ async function disconnect() {
   if (!props.connection?.id || disconnecting.value) return
   disconnecting.value = true
   try {
-    await useMyFetch(`/connections/${props.connection.id}/my-credentials`, { method: 'DELETE' })
-    emit('updated')
-    isOpen.value = false
+    const { error } = await useMyFetch(`/connections/${props.connection.id}/my-credentials`, { method: 'DELETE' })
+    if (error.value) {
+      testResult.value = { success: false, message: error.value.message || 'Failed to disconnect' }
+    } else {
+      emit('updated')
+      isOpen.value = false
+    }
+  } catch (e: any) {
+    testResult.value = { success: false, message: e.message || 'Failed to disconnect' }
   } finally {
     disconnecting.value = false
   }

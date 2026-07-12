@@ -72,6 +72,7 @@ import { useCan } from '~/composables/usePermissions'
 const props = defineProps<{ agentId: string | null }>()
 const emit = defineEmits<{ (e: 'saved'): void }>()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const canManage = computed(() => props.agentId ? useCan('manage', { type: 'data_source', id: props.agentId }) : false)
 
 const defaultForm = () => ({
@@ -120,9 +121,9 @@ async function saveSettings() {
   if (!id) return
   savingSettings.value = true; savedOk.value = false
   try {
-    await useMyFetch(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value } })
+    await useMyFetchStrict(`/data_sources/${id}/automation`, { method: 'PATCH', body: { ...form.value } })
     savedOk.value = true; dirty.value = false; emit('saved'); await loadAutomation()
-  } catch (e) { toast.add({ title: 'Failed to save Self Learning settings', color: 'red' }) }
+  } catch (e) { toast.add({ title: 'Failed to save Self Learning settings', description: getErrorMessage(e), color: 'red' }) }
   finally { savingSettings.value = false }
 }
 

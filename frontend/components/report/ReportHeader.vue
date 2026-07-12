@@ -86,6 +86,7 @@ const mobileTabs = computed(() => [
 ])
 
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 const route = useRoute()
 const report_id = route.params.id
 const reportTitleInput = ref<HTMLInputElement | null>(null)
@@ -118,7 +119,7 @@ async function saveReportTitle() {
     }
 
     try {
-        await useMyFetch(`/api/reports/${report_id}`, {
+        await useMyFetchStrict(`/api/reports/${report_id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -152,6 +153,7 @@ async function saveReportTitle() {
         }
         toast.add({
             title: 'Failed to update report title',
+            description: getErrorMessage(error),
             color: 'red',
         })
     }

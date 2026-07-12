@@ -883,6 +883,8 @@ const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
@@ -3246,10 +3248,10 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         const widget = payload?.widget
         if (viz?.id) {
             const block = { type: 'visualization', visualization_id: viz.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
+            await useMyFetchStrict(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
         } else if (widget?.id) {
             const block = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
+            await useMyFetchStrict(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
         } else {
             return
         }
@@ -3283,6 +3285,7 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         safeScrollToBottom()
     } catch (e) {
         console.error('Failed to add widget from preview:', e)
+        toast.add({ title: 'Failed to add to dashboard', description: getErrorMessage(e), color: 'red' })
     }
 }
 
@@ -3304,7 +3307,7 @@ function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean })
 	}
 }
 
-function abortStream() {
+async function abortStream() {
 	if (currentController) {
 		currentController.abort()
 		currentController = null
@@ -3322,14 +3325,14 @@ function abortStream() {
 		const systemId = (sysMsg as any)?.system_completion_id
 			|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
 		if (systemId) {
-			useMyFetch(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
+			await useMyFetchStrict(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
 			// Mark locally as stopped for immediate UI feedback
 			const msgIndex = messages.value.findIndex(m => m.id === sysMsg?.id)
 			if (msgIndex !== -1) {
 				// Force Vue reactivity by replacing the entire array
 				const newMessages = [...messages.value]
 				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
-				
+
 				// Also update all completion blocks and their tool executions to stopped status
 				if (updatedMessage.completion_blocks) {
 					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
@@ -3339,17 +3342,17 @@ function abortStream() {
 						tool_execution: block.tool_execution?.status === 'running' ? { ...block.tool_execution, status: 'stopped' } : block.tool_execution
 					}))
 				}
-				
+
 				newMessages[msgIndex] = updatedMessage
 				messages.value = newMessages
-				
+
 				// Force a nextTick update
 				nextTick(() => {
 				})
 			}
 		}
 	} catch (e) {
-		console.error('Failed to send sigkill:', e)
+		toast.add({ title: 'Failed to stop generation', description: getErrorMessage(e), color: 'red' })
 	}
 	isStreaming.value = false
 	isCompletionInProgress.value = false

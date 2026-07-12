@@ -221,6 +221,7 @@ import { themes } from '@/components/dashboard/themes'
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
+    const { getErrorMessage } = useErrorMessage();
     const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const filterInstanceId = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'toggleArtifactView', 'editVisualization', 'visualizations-ready']);
@@ -1351,11 +1352,16 @@ import { themes } from '@/components/dashboard/themes'
             }
         } catch (e: any) {
             console.error('Failed to persist full layout', e)
+            throw e
         }
     }
     function schedulePersistFullLayout() {
         if (fullSaveTimer) window.clearTimeout(fullSaveTimer)
-        fullSaveTimer = window.setTimeout(() => { persistFullLayout() }, 180)
+        fullSaveTimer = window.setTimeout(() => {
+            persistFullLayout().catch((e: any) => {
+                toast.add({ title: 'Failed to save layout', description: getErrorMessage(e), color: 'red' });
+            });
+        }, 180)
     }
 
     const handleGridAdded = (event: Event, items: any[]) => {
@@ -1435,6 +1441,11 @@ import { themes } from '@/components/dashboard/themes'
                 window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: props.report.id, action: 'removed', widget_id: widget.id, source: instanceId } }))
             } catch {}
         } catch (error: any) {
+            // Reset the reload-suppression guard on the throw path: it is set
+            // true before the awaited persistFullLayout() in the else-branch and
+            // reset false only after it, so a persist failure would otherwise
+            // strand it true and permanently disable the grid-reload watcher.
+            suppressGridReload = false;
             console.error(`Failed to remove from dashboard ${widget.id}`, error);
             toast.add({ title: 'Error', description: `Failed to remove from dashboard. ${error.message || ''}`, color: 'red' });
         }
@@ -1600,6 +1611,8 @@ import { themes } from '@/components/dashboard/themes'
                     }
 
                     // Also patch active layout with the new text widget position
+                    let layoutSyncFailed = false;
+                    let layoutSyncError: any = null;
                     try {
                         const { error: layoutErr } = await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
                             method: 'PATCH',
@@ -1608,9 +1621,15 @@ import { themes } from '@/components/dashboard/themes'
                         if (layoutErr.value) throw layoutErr.value;
                     } catch (e: any) {
                         console.error('Failed to add new text widget to layout', e);
+                        layoutSyncFailed = true;
+                        layoutSyncError = e;
                     }
 
-                    toast.add({ title: 'Text Widget Added' });
+                    if (layoutSyncFailed) {
+                        toast.add({ title: 'Widget saved, but its position could not be saved', description: getErrorMessage(layoutSyncError), color: 'orange' });
+                    } else {
+                        toast.add({ title: 'Text Widget Added' });
+                    }
                  } else { throw new Error("No data returned for new text widget"); }
             } catch (error: any) {
                 console.error('Failed to save new text widget', error);
@@ -1638,13 +1657,25 @@ import { themes } from '@/components/dashboard/themes'
             });
             if (error.value) throw error.value;
             // Keep layout in sync with latest position
+            let layoutSyncFailed = false;
+            let layoutSyncError: any = null;
             try {
-                await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
+                const { error: layoutErr } = await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
                     method: 'PATCH',
                     body: { blocks: [{ type: 'text_widget', text_widget_id: widget.id, x: widget.x, y: widget.y, width: widget.width, height: widget.height }] }
                 });
-            } catch {}
-            toast.add({ title: 'Text Widget Saved' });
+                if (layoutErr.value) throw layoutErr.value;
+            } catch (e: any) {
+                console.error('Failed to sync text widget position to layout', e);
+                layoutSyncFailed = true;
+                layoutSyncError = e;
+            }
+
+            if (layoutSyncFailed) {
+                toast.add({ title: 'Widget saved, but its position could not be saved', description: getErrorMessage(layoutSyncError), color: 'orange' });
+            } else {
+                toast.add({ title: 'Text Widget Saved' });
+            }
         } catch (e: any) {
             console.error('Failed to update text widget', e);
             toast.add({ title: 'Error', description: `Failed to update text widget. ${e?.message || ''}`, color: 'red' });
@@ -1761,8 +1792,12 @@ import { themes } from '@/components/dashboard/themes'
                 delete editSnapshots.value[displayedWidgets.value[idx].id];
             }
             // Persist to layout
-            await persistFullLayout();
-            toast.add({ title: 'Text saved' });
+            try {
+                await persistFullLayout();
+                toast.add({ title: 'Text saved' });
+            } catch (e: any) {
+                toast.add({ title: 'Failed to save text', description: getErrorMessage(e), color: 'red' });
+            }
         } else {
             console.warn('Could not find widget to save:', widget.id);
             toast.add({ title: 'Error', description: 'Could not save text block', color: 'red' });

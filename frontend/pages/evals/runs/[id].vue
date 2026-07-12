@@ -221,6 +221,8 @@ import Spinner from '~/components/Spinner.vue'
 const { t } = useI18n()
 const route = useRoute()
 const runId = computed(() => String(route.params.id || ''))
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 type TestRun = {
   id: string
@@ -926,10 +928,11 @@ const mockLogs = (row: { result: TestResult, case: TestCase }): ConversationMess
 const stopRun = async () => {
   try {
     if (!run.value?.id || run.value.status !== 'in_progress') return
-    await useMyFetch(`/api/tests/runs/${run.value.id}/stop`, { method: 'POST' })
+    await useMyFetchStrict(`/api/tests/runs/${run.value.id}/stop`, { method: 'POST' })
     await load()
   } catch (e) {
     console.error('Failed to stop run', e)
+    toast.add({ title: 'Failed to stop run', description: getErrorMessage(e), color: 'red' })
   }
 }
 

@@ -204,6 +204,7 @@ import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const props = defineProps<{ agentId?: string; global?: boolean }>()
 const agentId = computed(() => props.agentId || '')
@@ -689,12 +690,12 @@ async function runAutomationNow() {
     if (!id) return
     triggering.value = true
     try {
-        await useMyFetch(`/data_sources/${id}/automation/run`, { method: 'POST' })
+        await useMyFetchStrict(`/data_sources/${id}/automation/run`, { method: 'POST' })
         toast.add({ title: 'Eval run started', color: 'green' })
         // Give the background loop a moment, then refresh history.
         setTimeout(() => { loadAutoRuns(); loadAutomation() }, 1500)
     } catch (e) {
-        toast.add({ title: 'Failed to start reliability check', color: 'red' })
+        toast.add({ title: 'Failed to start reliability check', description: getErrorMessage(e), color: 'red' })
     } finally { triggering.value = false }
 }
 

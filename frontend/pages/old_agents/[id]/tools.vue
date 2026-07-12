@@ -49,6 +49,7 @@ import type { Ref } from 'vue'
 
 const route = useRoute()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const id = computed(() => String(route.params.id || ''))
 
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
@@ -127,14 +128,14 @@ async function deleteConnection() {
     if (!deletingConnection.value) return
     deleting.value = true
     try {
-        await useMyFetch(`/data_sources/${id.value}/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
+        await useMyFetchStrict(`/data_sources/${id.value}/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
         toast.add({ title: 'Connection removed', color: 'green' })
         showDeleteModal.value = false
         deletingConnection.value = null
         await fetchIntegration()
         await fetchOrgToolConnections()
     } catch (e: any) {
-        toast.add({ title: 'Failed to remove connection', description: e?.data?.detail, color: 'red' })
+        toast.add({ title: 'Failed to remove connection', description: getErrorMessage(e), color: 'red' })
     } finally {
         deleting.value = false
     }

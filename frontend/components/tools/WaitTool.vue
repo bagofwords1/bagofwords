@@ -68,6 +68,9 @@ const props = withDefaults(
   { systemCompletionId: null }
 )
 
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
+
 const rj = computed(() => props.toolExecution?.result_json ?? {})
 const wakeAt = computed(() => (rj.value?.wake_at ? new Date(rj.value.wake_at).getTime() : 0))
 const reason = computed(() => rj.value?.reason || props.toolExecution?.arguments_json?.reason || '')
@@ -109,7 +112,10 @@ async function cancel() {
         { method: 'POST' }
       )
       if (res?.error?.value) {
-        console.warn('Failed to cancel wait', res.error.value)
+        // Revert the optimistic flag — the backend never confirmed the cancel,
+        // so the countdown must keep running instead of showing "Cancelled".
+        locallyCancelled.value = false
+        toast.add({ title: 'Failed to cancel wait', description: getErrorMessage(res.error.value), color: 'red' })
       }
     }
   } finally {

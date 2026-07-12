@@ -203,6 +203,7 @@ const isOpen = computed({
 
 const route = useRoute()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const canManageConnections = computed(() => useCan('manage_connections'))
 
 const integration = inject<Ref<any>>('integration', ref(null))
@@ -253,7 +254,13 @@ async function testConnection(connectionId: string) {
     testResults.value[connectionId] = null
     try {
         const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
-        testResults.value[connectionId] = (response.data as any)?.value || null
+        if (response.error.value) {
+            // The test request itself failed to run (network/server error) — distinct
+            // from a legitimate negative test result, which is rendered inline below.
+            toast.add({ title: 'Failed to test connection', description: getErrorMessage(response.error.value), color: 'red' })
+        } else {
+            testResults.value[connectionId] = (response.data as any)?.value || null
+        }
         await refresh()
     } finally {
         testingConnectionId.value = null
@@ -296,13 +303,13 @@ async function linkConnection() {
     if (!selectedConnectionId.value || isLinking.value) return
     isLinking.value = true
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
+        await useMyFetchStrict(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, { method: 'POST' })
         toast.add({ title: 'Connection linked', color: 'green' })
         showLinkModal.value = false
         selectedConnectionId.value = null
         await refresh()
     } catch (e: any) {
-        toast.add({ title: 'Failed to link connection', color: 'red' })
+        toast.add({ title: 'Failed to link connection', description: getErrorMessage(e), color: 'red' })
     } finally {
         isLinking.value = false
     }
@@ -311,11 +318,11 @@ async function linkConnection() {
 async function unlinkConnection(connectionId: string) {
     if (!confirm('Unlink this connection?')) return
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
+        await useMyFetchStrict(`/data_sources/${dsId.value}/connections/${connectionId}`, { method: 'DELETE' })
         toast.add({ title: 'Connection unlinked', color: 'green' })
         await refresh()
     } catch (e: any) {
-        toast.add({ title: 'Failed to unlink connection', color: 'red' })
+        toast.add({ title: 'Failed to unlink connection', description: getErrorMessage(e), color: 'red' })
     }
 }
 </script>

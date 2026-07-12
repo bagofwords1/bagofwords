@@ -272,6 +272,7 @@ import type { Ref } from 'vue'
 
 const route = useRoute()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const dsId = computed(() => String(route.params.id || ''))
 const canManageConnections = computed(() => useCan('manage_connections'))
 const { data: currentUser } = useAuth()
@@ -361,10 +362,10 @@ function connIndexingSummary(conn: any) {
 
 async function reindexConnection(connectionId: string) {
     try {
-        await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
+        await useMyFetchStrict(`/connections/${connectionId}/reindex`, { method: 'POST' })
         await injectedFetchIntegration()
     } catch (e: any) {
-        toast.add({ title: 'Failed to restart indexing', description: e?.message || '', color: 'red' })
+        toast.add({ title: 'Failed to restart indexing', description: getErrorMessage(e), color: 'red' })
     }
 }
 
@@ -468,7 +469,7 @@ async function linkConnection() {
     if (!selectedConnectionId.value || !dsId.value || isLinking.value) return
     isLinking.value = true
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, {
+        await useMyFetchStrict(`/data_sources/${dsId.value}/connections/${selectedConnectionId.value}`, {
             method: 'POST'
         })
         toast.add({ title: 'Connection linked', color: 'green' })
@@ -478,7 +479,7 @@ async function linkConnection() {
     } catch (e: any) {
         toast.add({
             title: 'Failed to link connection',
-            description: e?.message || 'An error occurred',
+            description: getErrorMessage(e),
             color: 'red'
         })
     } finally {
@@ -490,7 +491,7 @@ async function unlinkConnection(connectionId: string) {
     if (!dsId.value) return
     if (!confirm('Are you sure you want to unlink this connection?')) return
     try {
-        await useMyFetch(`/data_sources/${dsId.value}/connections/${connectionId}`, {
+        await useMyFetchStrict(`/data_sources/${dsId.value}/connections/${connectionId}`, {
             method: 'DELETE'
         })
         toast.add({ title: 'Connection unlinked', color: 'green' })
@@ -498,7 +499,7 @@ async function unlinkConnection(connectionId: string) {
     } catch (e: any) {
         toast.add({
             title: 'Failed to unlink connection',
-            description: e?.message || 'An error occurred',
+            description: getErrorMessage(e),
             color: 'red'
         })
     }

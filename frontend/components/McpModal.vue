@@ -178,6 +178,7 @@ const isOpen = computed({
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 interface ApiKey {
     id: string
@@ -270,11 +271,11 @@ async function createApiKey() {
 async function deleteApiKey(key: ApiKey) {
     if (!confirm(t('mcpServerModal.confirmDeleteKey'))) return
     try {
-        await useMyFetch(`/api/api_keys/${key.id}`, { method: 'DELETE' })
+        await useMyFetchStrict(`/api/api_keys/${key.id}`, { method: 'DELETE' })
         apiKeys.value = apiKeys.value.filter(k => k.id !== key.id)
         toast.add({ title: t('mcpServerModal.toastKeyDeleted'), icon: 'i-heroicons-check-circle', color: 'green' })
     } catch (e) {
-        toast.add({ title: t('mcpServerModal.toastKeyDeleteFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('mcpServerModal.toastKeyDeleteFailed'), description: getErrorMessage(e), icon: 'i-heroicons-x-circle', color: 'red' })
     }
 }
 

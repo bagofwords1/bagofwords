@@ -941,6 +941,7 @@ import { useOrgSettings } from '~/composables/useOrgSettings'
 const h = useInstructionHelpers()
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 // Training mode is the per-agent admin capability: gated on the org setting plus
 // manage_instructions on the currently-open agent (a per-DS `manage` grant
 // implies it; full_admin bypasses). Mirrors the backend gate.
@@ -1106,7 +1107,7 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
   if (!aid || !iid || settingPrimary.value) return
   settingPrimary.value = true
   try {
-    await useMyFetch(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: makePrimary ? iid : null } })
+    await useMyFetchStrict(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: makePrimary ? iid : null } })
     const d = detail.value as any
     if (makePrimary) {
       if (!(d.primary_for || []).some((x: any) => String(x.id) === String(aid))) {
@@ -1118,7 +1119,7 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
     // Keep the agent panel in sync if it's open for this agent.
     if (agentView.value?.agentId === aid) await refreshAgentDetail()
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { settingPrimary.value = false }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) } finally { settingPrimary.value = false }
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
@@ -1194,11 +1195,11 @@ const onAgentPublishUpdated = (val: { publish_status: string; reliability_status
 const setAgentPublic = async (val: boolean) => {
   const id = agentView.value?.agentId; if (!id) return
   try {
-    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { is_public: val } })
+    await useMyFetchStrict(`/data_sources/${id}`, { method: 'PUT', body: { is_public: val } })
     if (agentDetail.value) agentDetail.value.is_public = val
     const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
     toast.add({ title: val ? t('agentsPage.toastMadePublic') : t('agentsPage.toastMadePrivate'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
 }
 // Change the agent's custom icon from the agent-view header (manage access only).
 // `token` is an icon token ("emoji:…" | "type:…") or null to reset to default.
@@ -1262,7 +1263,7 @@ const saveDesc = async () => {
   const id = agentView.value?.agentId; if (!id) return
   const v = descForm.value
   if (v === (agentDetail.value?.description || '')) return
-  try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { description: v } }); if (agentDetail.value) agentDetail.value.description = v; toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }) } catch { toast.add({ title: t('agentsPage.toastSaveDescFailed'), color: 'red' }) }
+  try { await useMyFetchStrict(`/data_sources/${id}`, { method: 'PUT', body: { description: v } }); if (agentDetail.value) agentDetail.value.description = v; toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }) } catch (e: any) { toast.add({ title: t('agentsPage.toastSaveDescFailed'), description: getErrorMessage(e), color: 'red' }) }
 }
 // primary instruction inline edit (clean editor: title + body + save/cancel)
 const primaryDraft = reactive<{ title: string; text: string }>({ title: '', text: '' })
@@ -1272,10 +1273,10 @@ const onSelectExistingPrimary = async (instruction: any) => {
   const newId = instruction?.id; const aid = agentView.value?.agentId
   if (!newId || !aid) return
   try {
-    await useMyFetch(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: newId } })
+    await useMyFetchStrict(`/data_sources/${aid}`, { method: 'PUT', body: { primary_instruction_id: newId } })
     await refreshAgentDetail()
     toast?.add?.({ title: t('agentsPage.toastSaved'), description: t('agentsPage.toastPrimaryUpdated') })
-  } catch (e: any) { toast?.add?.({ title: t('agentsPage.toastError'), description: String(e?.message || e), color: 'red' }) }
+  } catch (e: any) { toast?.add?.({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
 }
 const startEditPrimary = () => { const p = agentDetail.value?.primary_instruction; primaryDraft.title = p?.title || ''; primaryDraft.text = p?.text || ''; editingPrimary.value = true; creatingPrimary.value = false }
 const cancelPrimary = () => { creatingPrimary.value = false; editingPrimary.value = false }
@@ -1286,16 +1287,16 @@ const savePrimary = async () => {
   try {
     if (editingPrimary.value && agentDetail.value?.primary_instruction?.id) {
       const piid = agentDetail.value.primary_instruction.id
-      await useMyFetch(`/api/instructions/${piid}`, { method: 'PUT', body: { title: primaryDraft.title || null, text: primaryDraft.text } })
+      await useMyFetchStrict(`/api/instructions/${piid}`, { method: 'PUT', body: { title: primaryDraft.title || null, text: primaryDraft.text } })
     } else {
-      const { data } = await useMyFetch<any>('/api/instructions', { method: 'POST', body: { title: primaryDraft.title || null, text: primaryDraft.text, status: 'published', load_mode: 'always', category: 'general', data_source_ids: id ? [id] : [] } })
+      const { data } = await useMyFetchStrict<any>('/api/instructions', { method: 'POST', body: { title: primaryDraft.title || null, text: primaryDraft.text, status: 'published', load_mode: 'always', category: 'general', data_source_ids: id ? [id] : [] } })
       const newId = (data.value as any)?.id
-      if (newId && id) await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { primary_instruction_id: newId } })
+      if (newId && id) await useMyFetchStrict(`/data_sources/${id}`, { method: 'PUT', body: { primary_instruction_id: newId } })
     }
     creatingPrimary.value = false; editingPrimary.value = false
     await Promise.all([refreshAgentDetail(), fetchAll()])
     toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { primarySaving.value = false }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) } finally { primarySaving.value = false }
 }
 // conversation starters edit
 const starterTitle = (cs: any) => typeof cs === 'string' ? (cs.split('\n')[0] || '') : (cs?.title || cs?.prompt || '')
@@ -1338,17 +1339,23 @@ const saveStarters = async () => {
     // Replace-all: drop this agent's existing starter prompts, recreate from the editor.
     const { data: existing } = await useMyFetch(`/prompts?data_source_id=${id}`)
     for (const p of ((existing.value as any)?.prompts || [])) {
-      await useMyFetch(`/prompts/${p.id}`, { method: 'DELETE' })
+      await useMyFetchStrict(`/prompts/${p.id}`, { method: 'DELETE' })
     }
     for (const text of conversation_starters) {
-      await useMyFetch(`/prompts`, { method: 'POST', body: {
+      await useMyFetchStrict(`/prompts`, { method: 'POST', body: {
         text, title: (text.split('\n')[0] || '').slice(0, 60),
         scope: 'agent', is_starter: true, data_source_ids: [id],
       } })
     }
     await refreshStarterPrompts(); showEditStarters.value = false; toast.add({ title: t('agentsPage.toastSaved'), color: 'green' })
   }
-  catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { savingStarters.value = false }
+  catch (e: any) {
+    // A failure partway through can leave the backend with some starters
+    // deleted/created already — resync the displayed list to the real state
+    // instead of leaving stale rows in `starterPrompts`.
+    await refreshStarterPrompts()
+    toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' })
+  } finally { savingStarters.value = false }
 }
 // reload tables / tools from the tree
 const tablesRefreshKey = ref(0)
@@ -1359,8 +1366,13 @@ const reloadTables = async (id: string) => {
   toast.add({ title: t('agentsPage.toastTablesReloaded'), color: 'green' })
 }
 const reloadTools = async (id: string) => {
-  for (const c of (agents.value.find(a => a.id === id)?.connections || [])) { try { await useMyFetch(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch {} }
-  agentLoaded.value.delete(id); await loadAgentMeta(id); toast.add({ title: t('agentsPage.toastToolsReloaded'), color: 'green' })
+  let lastError: any = null
+  for (const c of (agents.value.find(a => a.id === id)?.connections || [])) {
+    try { await useMyFetchStrict(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch (e: any) { lastError = e }
+  }
+  agentLoaded.value.delete(id); await loadAgentMeta(id)
+  if (lastError) toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(lastError), color: 'red' })
+  else toast.add({ title: t('agentsPage.toastToolsReloaded'), color: 'green' })
 }
 
 // ── File upload (per agent) ─────────────────────────────
@@ -1377,13 +1389,13 @@ const onUploadInput = async (e: Event) => {
   try {
     for (const file of files) {
       const fd = new FormData(); fd.append('file', file)
-      await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+      await useMyFetchStrict(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
     }
     toast.add({ title: t('agentsPage.toastUploaded', { n: files.length }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)
-  } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: err?.message, color: 'red' }) }
+  } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: getErrorMessage(err), color: 'red' }) }
   finally { uploadingAgent.value = null; if (input) input.value = '' }
 }
 
@@ -1596,8 +1608,10 @@ const customApiExistingConnections = computed(() => connections.value.filter((c:
 const onConnCreated = async (conn?: any) => {
   const aid = connTargetAgentId.value
   if (aid && conn?.id) {
-    try { await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' }) } catch {}
-    try { await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' }) } catch {}
+    try {
+      await useMyFetchStrict(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' })
+      await useMyFetchStrict(`/connections/${conn.id}/refresh-tools`, { method: 'POST' })
+    } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
   }
   showAddMCP.value = false; showAddCustomAPI.value = false; showAddConnection.value = false
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid); if (agentView.value?.agentId === aid) await refreshAgentDetail() }
@@ -1994,13 +2008,13 @@ const approveSuggestion = async (pb: any) => {
   if (!pb?.build_id) return
   approving.value = pb.build_id
   try {
-    await useMyFetch(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
+    await useMyFetchStrict(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
     toast.add({ title: t('agentsPage.toastApprovedPublished'), color: 'green' })
     closeDiff()
     await refreshLists()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) } finally { approving.value = null }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) } finally { approving.value = null }
 }
 const discardSuggestion = async (pb: any) => {
   if (!pb?.build_id || discarding.value) return
@@ -2266,12 +2280,12 @@ const deleteFile = async (agentId: string, f: any) => {
   if (!agentId || !f?.id) return
   if (!window.confirm(`Delete "${f.filename}"? This can't be undone.`)) return
   try {
-    await useMyFetch(`/data_sources/${agentId}/files/${f.id}`, { method: 'DELETE' })
+    await useMyFetchStrict(`/data_sources/${agentId}/files/${f.id}`, { method: 'DELETE' })
     agentFiles.value[agentId] = (agentFiles.value[agentId] || []).filter((x: any) => x.id !== f.id)
     agentFiles.value = { ...agentFiles.value }
     if (previewFile.value?.id === f.id) closePreview()
     toast.add({ title: t('agentsPage.toastFileDeleted'), color: 'green' })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
 }
 const openFile = async (f: any, agentId?: string) => {
   detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
@@ -2495,7 +2509,7 @@ const loadVersions = async (id: string) => {
 const restore = async (v: any) => {
   if (!detail.value) return
   if (!window.confirm(`Restore version v${v.version_number}? This creates a new version.`)) return
-  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: t('agentsPage.toastRestored', { n: v.version_number }), color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+  try { await useMyFetchStrict(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: t('agentsPage.toastRestored', { n: v.version_number }), color: 'green' }); await refreshLists(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: getErrorMessage(e), color: 'red' }) }
 }
 
 // ── Display helpers ─────────────────────────────────────

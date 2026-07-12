@@ -500,7 +500,7 @@ async function updateMemberPermissions(m: MemberGrant, newPerms: string[]) {
 async function removeMember(m: MemberGrant) {
     const dsId = route.params.id as string
     try {
-        await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, { method: 'DELETE' })
+        await useMyFetchStrict(`/data_sources/${dsId}/members/${m.principal_id}`, { method: 'DELETE' })
         members.value = members.value.filter(x => x.grant_id !== m.grant_id)
         toast?.add?.({ title: 'Member removed' })
     } catch {
@@ -574,7 +574,7 @@ async function addSelected() {
     try {
         await Promise.all(
             principals.map(p =>
-                useMyFetch(`/data_sources/${dsId}/members`, {
+                useMyFetchStrict(`/data_sources/${dsId}/members`, {
                     method: 'POST',
                     body: { ...p },
                 })

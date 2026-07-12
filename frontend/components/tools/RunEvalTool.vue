@@ -77,6 +77,8 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 interface ToolExecution {
   id: string
@@ -188,9 +190,10 @@ async function stopRun() {
   try {
     // Sigkill the parent system completion. Inside the agent, run_eval's
     // polling loop detects the parent stop and cascades a TestRun.stop.
-    await useMyFetch(`/api/completions/${props.systemCompletionId}/sigkill`, { method: 'POST' })
+    await useMyFetchStrict(`/api/completions/${props.systemCompletionId}/sigkill`, { method: 'POST' })
   } catch (e) {
     console.error('Failed to stop eval run via parent sigkill:', e)
+    toast.add({ title: 'Failed to stop eval run', description: getErrorMessage(e), color: 'red' })
   } finally {
     isStopping.value = false
   }

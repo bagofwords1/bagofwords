@@ -241,17 +241,17 @@ async function handleSubmit() {
     }
 
     if (isEditMode.value && props.editConnection) {
-      const response = await useMyFetch(`/connections/${props.editConnection.id}`, {
+      const response = await useMyFetchStrict(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
         body: { name: form.name, credentials },
       })
-      if (response.data.value) emit('saved', response.data.value)
+      emit('saved', response.data.value)
       return
     }
 
     // Create the connection first — it has to exist before we can link an
     // agent to it.
-    const connResponse = await useMyFetch('/connections', {
+    const connResponse = await useMyFetchStrict('/connections', {
       method: 'POST',
       body: {
         name: form.name,
@@ -266,7 +266,13 @@ async function handleSubmit() {
     })
     const connection = connResponse.data.value as any
     if (!connection?.id) {
-      emit('saved', connection)
+      // Request succeeded but the response body is missing the expected
+      // shape — treat as a failure rather than silently reporting success.
+      toast.add({
+        title: 'Failed to create integration',
+        description: 'Unexpected response from server',
+        color: 'red',
+      })
       return
     }
 

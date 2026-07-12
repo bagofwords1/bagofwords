@@ -120,6 +120,7 @@ import McpIcon from '~/components/icons/McpIcon.vue'
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
 const { t } = useI18n()
+const toast = useToast()
 
 // Which integration is shown in the right pane (null = empty state)
 const selectedKey = ref<string | null>(null)
@@ -294,10 +295,7 @@ async function fetchIntegrations() {
 
 async function loadMcpState() {
   await fetchSettings()
-  const mcpFeature = settings.value?.config?.mcp_enabled
-  if (mcpFeature) {
-    mcpEnabled.value = mcpFeature.state === 'enabled' || mcpFeature.value === true
-  }
+  applyMcpStateFromSettings()
   const excelFeature = settings.value?.config?.enable_excel_addin
   if (excelFeature) {
     excelAddinEnabled.value = excelFeature.state === 'enabled' || excelFeature.value === true
@@ -306,10 +304,17 @@ async function loadMcpState() {
   }
 }
 
+function applyMcpStateFromSettings() {
+  const mcpFeature = settings.value?.config?.mcp_enabled
+  if (mcpFeature) {
+    mcpEnabled.value = mcpFeature.state === 'enabled' || mcpFeature.value === true
+  }
+}
+
 async function toggleMcp(value: boolean) {
   mcpUpdating.value = true
   try {
-    await useMyFetch('/api/organization/settings', {
+    await useMyFetchStrict('/api/organization/settings', {
       method: 'PUT',
       body: JSON.stringify({
         config: {
@@ -320,10 +325,14 @@ async function toggleMcp(value: boolean) {
         }
       })
     })
+    // Re-derive from the refreshed settings rather than trusting the
+    // optimistic v-model flip, so the toggle reflects server truth.
     await fetchSettings()
+    applyMcpStateFromSettings()
   } catch (e) {
-    // Revert on error
+    // Revert the optimistic v-model flip on failure.
     mcpEnabled.value = !value
+    toast.add({ title: 'Failed to update MCP setting', color: 'red' })
   } finally {
     mcpUpdating.value = false
   }
