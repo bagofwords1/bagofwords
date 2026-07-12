@@ -88,7 +88,9 @@ class PlannerInput(BaseModel):
     entities_context: Optional[str] = None
     # Loadable prior steps in this report (rendered <available_steps> block).
     # Signals to the planner that create_data can reuse these via load_step
-    # instead of re-deriving from scratch.
+    # instead of re-deriving from scratch. Empty when the org has load_step
+    # disabled (default) or no step is within the recency window — in which
+    # case the planner's <reuse_guidance> block is omitted too.
     available_steps_context: Optional[str] = None
     # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
     scheduled_tasks_context: Optional[str] = None

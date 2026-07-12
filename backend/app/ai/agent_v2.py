@@ -555,16 +555,23 @@ class AgentV2:
 
         Mirrors the coder's <available_steps> so the planner knows create_data
         can reuse prior results via load_step instead of re-deriving them.
+
+        This is the sole feeder of ``available_steps_context``; when it returns
+        "" (load_step disabled, or no recent steps) the planner's
+        <reuse_guidance> block auto-drops too (see prompt_builder_v3.py:512).
         """
         if not self.report:
             return ""
         try:
-            from app.ai.code_execution.loadables import LoadablesResolver
+            from app.ai.code_execution.loadables import LoadablesResolver, load_step_settings
+            _ls_enabled, _ls_max_age = load_step_settings(self.organization_settings)
             resolver = LoadablesResolver(
                 self.db,
                 self.organization,
                 self.report,
                 getattr(self.head_completion, 'user', None) if self.head_completion else None,
+                enable_load_step=_ls_enabled,
+                step_max_age_seconds=_ls_max_age,
             )
             section = await resolver.list_for_discovery()
             return section.render() if section else ""

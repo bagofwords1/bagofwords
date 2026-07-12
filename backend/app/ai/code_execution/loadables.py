@@ -24,6 +24,7 @@ Scope:
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -40,6 +41,32 @@ from app.ai.context.sections.steps_section import StepItem, StepsSection
 # Names recognised in generated code.
 _STEP_FN = "load_step"
 _ENTITY_FN = "load_entity"
+
+
+def load_step_settings(organization_settings) -> Tuple[bool, Optional[int]]:
+    """Read the org's load_step config as ``(enabled, max_age_seconds)``.
+
+    Defaults to disabled with a 300s discovery window when settings are absent
+    or unreadable. ``max_age_seconds`` is None when the org set it to 0 (no
+    recency bound).
+    """
+    enabled = False
+    max_age: Optional[int] = 300
+    if organization_settings is None:
+        return enabled, max_age
+    try:
+        cfg = organization_settings.get_config("enable_load_step")
+        enabled = bool(getattr(cfg, "value", False))
+    except Exception:
+        enabled = False
+    try:
+        age_cfg = organization_settings.get_config("load_step_max_age_seconds")
+        raw = getattr(age_cfg, "value", 300)
+        raw = int(raw) if raw is not None else 0
+        max_age = raw if raw > 0 else None
+    except Exception:
+        max_age = 300
+    return enabled, max_age
 
 
 def extract_loadable_refs(code: str) -> Tuple[List[str], List[str]]:
@@ -94,7 +121,8 @@ def grid_to_df(data) -> pd.DataFrame:
 
 
 async def resolve_loadables_for_code(
-    db: AsyncSession, organization, report, current_user, code: str
+    db: AsyncSession, organization, report, current_user, code: str,
+    *, enable_load_step: bool = True,
 ) -> Optional[Dict]:
     """One-shot helper for non-streaming paths (step rerun / query run).
 
@@ -102,11 +130,16 @@ async def resolve_loadables_for_code(
     `{"steps": {...}, "entities": {...}}` registry — or None when the code uses
     neither. Resolution errors are left for the in-sandbox closures to raise at
     call time (surfacing as the step's error), keeping this helper drop-in.
+
+    `enable_load_step` gates the step half only; when off, `load_step` refs in
+    saved code are not resolved (they surface as the sandbox closure's error).
     """
     step_refs, entity_refs = extract_loadable_refs(code or "")
     if not step_refs and not entity_refs:
         return None
-    resolver = LoadablesResolver(db, organization, report, current_user)
+    resolver = LoadablesResolver(
+        db, organization, report, current_user, enable_load_step=enable_load_step
+    )
     resolved = await resolver.resolve(step_refs, entity_refs)
     return {"steps": resolved.get("steps", {}), "entities": resolved.get("entities", {})}
 
@@ -114,11 +147,21 @@ async def resolve_loadables_for_code(
 class LoadablesResolver:
     """Resolves load_step / load_entity references for a single report turn."""
 
-    def __init__(self, db: AsyncSession, organization, report=None, current_user=None):
+    def __init__(
+        self, db: AsyncSession, organization, report=None, current_user=None,
+        *, enable_load_step: bool = True, step_max_age_seconds: Optional[int] = None,
+    ):
         self.db = db
         self.organization = organization
         self.report = report
         self.current_user = current_user
+        # When False, load_step is disabled: no steps are advertised for
+        # discovery and none are resolved. load_entity is unaffected.
+        self.enable_load_step = enable_load_step
+        # Discovery-only recency bound (seconds). None/<=0 means no bound.
+        # Resolution is deliberately never bounded by this, so re-running saved
+        # code that references an older step keeps working.
+        self.step_max_age_seconds = step_max_age_seconds
 
     # ------------------------------------------------------------------ #
     # Discovery (bounded) — what the prompt advertises as loadable.        #
@@ -127,10 +170,15 @@ class LoadablesResolver:
         """Return a bounded `<available_steps>` section for the prompt.
 
         Lists the current report's successful default steps (most recent
-        first). Resolution is not limited to this list — `load_step` can load
-        any default step in the report by id or name.
+        first, within the recency window). Resolution is not limited to this
+        list — `load_step` can load any default step in the report by id or
+        name. Returns None when load_step is disabled.
         """
-        steps = await self._report_default_steps(limit=limit)
+        if not self.enable_load_step:
+            return None
+        steps = await self._report_default_steps(
+            limit=limit, max_age_seconds=self.step_max_age_seconds
+        )
         if not steps:
             return None
         items: List[StepItem] = []
@@ -163,7 +211,10 @@ class LoadablesResolver:
         """Resolve refs to DataFrames. Never raises; misses go in `errors`."""
         result: Dict = {"steps": {}, "entities": {}, "errors": []}
 
-        if step_refs:
+        # Resolution is never bounded by the discovery recency window — a
+        # reference in already-generated/saved code must resolve regardless of
+        # age. The enable flag, however, disables the step half entirely.
+        if step_refs and self.enable_load_step:
             steps = await self._report_default_steps()
             by_id: Dict[str, Step] = {}
             by_slug: Dict[str, Step] = {}
@@ -208,8 +259,15 @@ class LoadablesResolver:
     # ------------------------------------------------------------------ #
     # Internals                                                            #
     # ------------------------------------------------------------------ #
-    async def _report_default_steps(self, *, limit: Optional[int] = None) -> List[Step]:
-        """Successful default steps for the report (Report -> Query -> Step)."""
+    async def _report_default_steps(
+        self, *, limit: Optional[int] = None, max_age_seconds: Optional[int] = None,
+    ) -> List[Step]:
+        """Successful default steps for the report (Report -> Query -> Step).
+
+        `max_age_seconds` (>0) bounds by `Step.created_at` recency — used by
+        discovery only. Resolution passes it as None so any step remains
+        loadable by id/name regardless of age.
+        """
         if self.report is None:
             return []
         stmt = (
@@ -222,6 +280,11 @@ class LoadablesResolver:
             )
             .order_by(Step.created_at.desc())
         )
+        if max_age_seconds and max_age_seconds > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+            # Step.created_at is stored naive-UTC; compare against a naive cutoff
+            # to avoid tz-aware/naive mismatches across SQLite/Postgres.
+            stmt = stmt.where(Step.created_at >= cutoff.replace(tzinfo=None))
         if limit:
             stmt = stmt.limit(limit)
         res = await self.db.execute(stmt)

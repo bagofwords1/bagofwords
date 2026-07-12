@@ -94,16 +94,21 @@ async def build_codegen_context(
     except Exception:
         pass
 
-    # Loadable steps for this report (advertises load_step targets). Bounded;
-    # resolution can still load any default step by id/name.
+    # Loadable steps for this report (advertises load_step targets). Bounded by
+    # the org's recency window; resolution can still load any default step by
+    # id/name. Empty when load_step is disabled for the org.
     loadables_context = ""
     try:
-        from app.ai.code_execution.loadables import LoadablesResolver
+        from app.ai.code_execution.loadables import LoadablesResolver, load_step_settings
+        _settings = runtime_ctx.get("settings") if isinstance(runtime_ctx, dict) else None
+        _ls_enabled, _ls_max_age = load_step_settings(_settings)
         resolver = LoadablesResolver(
             db=runtime_ctx.get("db") if isinstance(runtime_ctx, dict) else None,
             organization=runtime_ctx.get("organization") if isinstance(runtime_ctx, dict) else None,
             report=runtime_ctx.get("report") if isinstance(runtime_ctx, dict) else None,
             current_user=runtime_ctx.get("user") if isinstance(runtime_ctx, dict) else None,
+            enable_load_step=_ls_enabled,
+            step_max_age_seconds=_ls_max_age,
         )
         if resolver.db is not None and resolver.report is not None:
             section = await resolver.list_for_discovery()

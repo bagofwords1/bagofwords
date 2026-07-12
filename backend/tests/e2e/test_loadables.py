@@ -136,6 +136,23 @@ async def _load(db, model, pk):
     return await db.get(model, pk)
 
 
+class _StubSettings:
+    """Minimal organization_settings stand-in exposing get_config for the two
+    load_step knobs (the real FeatureConfig shape)."""
+
+    def __init__(self, enable=True, max_age=300):
+        self._enable = enable
+        self._max_age = max_age
+
+    def get_config(self, key, default=None):
+        from app.schemas.organization_settings_schema import FeatureConfig
+        if key == "enable_load_step":
+            return FeatureConfig(value=self._enable, name="Reuse prior steps", description="x")
+        if key == "load_step_max_age_seconds":
+            return FeatureConfig(value=self._max_age, name="Recency", description="x")
+        return default
+
+
 # --------------------------------------------------------------------------- #
 # Pure (no DB)                                                                 #
 # --------------------------------------------------------------------------- #
@@ -198,6 +215,17 @@ def test_build_loadable_closures_hit_and_miss():
         load_step("missing")
     with pytest.raises(KeyError):
         load_entity("missing")
+
+
+def test_build_loadable_closures_disabled_load_step_raises():
+    """When load_step is disabled the closure raises; load_entity is unaffected."""
+    df = pd.DataFrame([{"k": 1}])
+    load_step, load_entity = StreamingCodeExecutor._build_loadable_closures(
+        {"steps": {"S": df}, "entities": {"E": df}}, enable_load_step=False
+    )
+    with pytest.raises(RuntimeError):
+        load_step("S")
+    assert load_entity("E").to_dict("records") == [{"k": 1}]
 
 
 def test_invoke_generate_df_name_based_binding():
@@ -322,7 +350,10 @@ def test_build_codegen_context_includes_loadables():
             report = await _load(db, Report, ids["report_id"])
             org = await _load(db, Organization, ids["org_id"])
             user = await _load(db, User, ids["user_id"])
-            runtime_ctx = {"db": db, "organization": org, "report": report, "user": user}
+            runtime_ctx = {
+                "db": db, "organization": org, "report": report, "user": user,
+                "settings": _StubSettings(enable=True),
+            }
             ctx = await build_codegen_context(
                 runtime_ctx=runtime_ctx,
                 user_prompt="reuse the customer sales step",
@@ -331,6 +362,84 @@ def test_build_codegen_context_includes_loadables():
             )
             assert "available_steps" in ctx.loadables_context
             assert "Customer Sales" in ctx.loadables_context
+    _run(go())
+
+
+def test_build_codegen_context_omits_loadables_when_disabled():
+    """With load_step disabled (or no settings), discovery must be empty."""
+    ids = _run(_seed())
+    from app.ai.prompt_formatters import build_codegen_context
+
+    async def go():
+        async with async_session_maker() as db:
+            report = await _load(db, Report, ids["report_id"])
+            org = await _load(db, Organization, ids["org_id"])
+            user = await _load(db, User, ids["user_id"])
+            # Explicitly disabled
+            ctx = await build_codegen_context(
+                runtime_ctx={
+                    "db": db, "organization": org, "report": report, "user": user,
+                    "settings": _StubSettings(enable=False),
+                },
+                user_prompt="reuse the customer sales step",
+                interpreted_prompt=None,
+                schemas_excerpt="",
+            )
+            assert ctx.loadables_context == ""
+            # No settings key at all -> default off -> still empty
+            ctx2 = await build_codegen_context(
+                runtime_ctx={"db": db, "organization": org, "report": report, "user": user},
+                user_prompt="reuse the customer sales step",
+                interpreted_prompt=None,
+                schemas_excerpt="",
+            )
+            assert ctx2.loadables_context == ""
+    _run(go())
+
+
+def test_resolve_and_discovery_disabled_skips_steps_keeps_entities():
+    """enable_load_step=False: no step resolution, no discovery, entities intact."""
+    ids = _run(_seed())
+
+    async def go():
+        async with async_session_maker() as db:
+            report = await _load(db, Report, ids["report_id"])
+            org = await _load(db, Organization, ids["org_id"])
+            user = await _load(db, User, ids["user_id"])
+            r = LoadablesResolver(db, org, report, user, enable_load_step=False)
+            res = await r.resolve(["Customer Sales"], ["Monthly Revenue Model"])
+            assert res["steps"] == {}
+            assert "Monthly Revenue Model" in res["entities"]
+            assert await r.list_for_discovery() is None
+    _run(go())
+
+
+def test_discovery_recency_window_hides_old_step_but_still_resolvable():
+    """A step outside the recency window is hidden from discovery but remains
+    resolvable (so re-running saved code never breaks)."""
+    ids = _run(_seed())
+
+    async def go():
+        from datetime import datetime, timedelta
+        async with async_session_maker() as db:
+            step = await db.get(Step, ids["step_id"])
+            step.created_at = datetime.utcnow() - timedelta(seconds=600)
+            db.add(step)
+            await db.commit()
+
+            report = await _load(db, Report, ids["report_id"])
+            org = await _load(db, Organization, ids["org_id"])
+            # 300s window -> the 600s-old step is not advertised
+            r = LoadablesResolver(db, org, report, None, step_max_age_seconds=300)
+            assert await r.list_for_discovery() is None
+            # ...but resolution is unbounded and still finds it
+            res = await r.resolve(["Customer Sales"], [])
+            assert "Customer Sales" in res["steps"]
+            assert not res["errors"], res["errors"]
+
+            # A generous window advertises it again
+            r2 = LoadablesResolver(db, org, report, None, step_max_age_seconds=3600)
+            assert (await r2.list_for_discovery()) is not None
     _run(go())
 
 
@@ -388,7 +497,7 @@ def test_stream_v2_agentic_path_resolves_and_injects_load_step():
             org = await _load(db, Organization, ids["org_id"])
             user = await _load(db, User, ids["user_id"])
             resolver = LoadablesResolver(db, org, report, user)
-            executor = StreamingCodeExecutor()
+            executor = StreamingCodeExecutor(organization_settings=_StubSettings(enable=True))
             ctx = CodeGenContext(user_prompt="x", schemas_excerpt="")
             done = None
             async for ev in executor.generate_and_execute_stream_v2(
@@ -468,7 +577,7 @@ def test_execute_code_end_to_end_load_step_and_entity():
             assert not resolved["errors"], resolved["errors"]
             loadables = {"steps": resolved["steps"], "entities": resolved["entities"]}
 
-        executor = StreamingCodeExecutor()
+        executor = StreamingCodeExecutor(organization_settings=_StubSettings(enable=True))
         df, _log, _q = await executor.execute_code_async(
             code=code, ds_clients={}, excel_files=[], loadables=loadables
         )
