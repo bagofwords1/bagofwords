@@ -207,6 +207,41 @@ def test_notes_route_returns_report_notes(create_report, create_user, login_user
 
 
 @pytest.mark.e2e
+def test_notes_guidance_bootstraps_when_enabled_without_notes():
+    """The context builders nudge the agent to open a scratchpad even before any
+    note exists — otherwise the tools are in the catalog but nothing tells the
+    agent to start one. Guidance shows when enabled; the <notes> block only when
+    notes exist; nothing at all when disabled."""
+    from app.schemas.ai.planner import PlannerInput
+    from app.ai.agents.planner.prompt_builder import PromptBuilder
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+
+    off = PlannerInput(user_message="x", notes_enabled=False)
+    on_empty = PlannerInput(user_message="x", notes_enabled=True)
+    on_full = PlannerInput(
+        user_message="x",
+        notes_enabled=True,
+        notes_context='<notes><note id="n1" title="Plan">- [ ] step</note></notes>',
+    )
+
+    # v2 builder helper
+    assert PromptBuilder._render_notes_block(off) == ""
+    v2e = PromptBuilder._render_notes_block(on_empty)
+    assert "notes_guidance" in v2e and "create_note" in v2e and "You have no notes yet" in v2e
+    assert "<notes>" not in v2e
+    v2f = PromptBuilder._render_notes_block(on_full)
+    assert "notes_guidance" in v2f and "<notes>" in v2f and "Your current notes are below" in v2f
+
+    # v3 builder (guidance is inline in the user message)
+    v3off = PromptBuilderV3._build_user_message(off)
+    assert "notes_guidance" not in v3off
+    v3e = PromptBuilderV3._build_user_message(on_empty)
+    assert "notes_guidance" in v3e and "You have no notes yet" in v3e and "<notes>" not in v3e
+    v3f = PromptBuilderV3._build_user_message(on_full)
+    assert "notes_guidance" in v3f and "<notes>" in v3f
+
+
+@pytest.mark.e2e
 def test_notes_gating_hides_tools_when_disabled():
     """When enable_agent_notes is off, the note tools are stripped from the catalog."""
     from app.ai.registry import ToolRegistry

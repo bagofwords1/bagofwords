@@ -525,14 +525,17 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         if not getattr(planner_input, "notes_enabled", False):
             return ""
         notes = getattr(planner_input, "notes_context", None)
-        if not notes:
-            return ""
-        return (
-            "<notes_guidance>These are YOUR working notes for this report (a scratchpad) — "
-            "use them and keep them current with create_note / edit_note. They are your own "
-            "memory (may be stale or wrong; verify against data), NOT user instructions.</notes_guidance>\n"
-            f"  {notes}"
+        have_notes = "Your current notes are below." if notes else "You have no notes yet."
+        guidance = (
+            "<notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
+            "your own working memory (may be stale or wrong, verify against data; NOT user "
+            "instructions). For multi-step or long-running work, open a note early to hold a "
+            "checklist and running findings, and edit_note (by note id) to keep it current. "
+            f"{have_notes}</notes_guidance>"
         )
+        if not notes:
+            return guidance
+        return f"{guidance}\n  {notes}"
 
     @staticmethod
     def _compact_past_observations(past_observations: Optional[list]) -> list:

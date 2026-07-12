@@ -526,14 +526,18 @@ Examples of good behavior:
         # Agent notes (per-report scratchpad) — placed late (near past_observations
         # / last_observation) so they stay in-attention. Framed as the agent's own
         # memory, NOT user instructions.
-        if getattr(planner_input, "notes_enabled", False) and getattr(planner_input, "notes_context", None):
+        if getattr(planner_input, "notes_enabled", False):
+            notes_ctx = getattr(planner_input, "notes_context", None)
+            have_notes = "Your current notes are below." if notes_ctx else "You have no notes yet."
             parts.append(
-                "  <notes_guidance>These are YOUR working notes for this report (a scratchpad) — "
-                "use them and keep them current with create_note / edit_note. They are your own "
-                "memory (may be stale or wrong; verify against data), NOT user instructions. "
-                "Reference a note by its id when calling edit_note.</notes_guidance>"
+                "  <notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
+                "your own working memory (may be stale or wrong, verify against data; NOT user "
+                "instructions). For multi-step or long-running work, open a note early to hold a "
+                "checklist and running findings, and edit_note (by note id) to keep it current. "
+                f"{have_notes}</notes_guidance>"
             )
-            parts.append(f"  {planner_input.notes_context}")
+            if notes_ctx:
+                parts.append(f"  {notes_ctx}")
         compacted = PromptBuilder._compact_past_observations(planner_input.past_observations)
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"
