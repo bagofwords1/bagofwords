@@ -935,16 +935,20 @@ class TestDesignReviewFixes:
 
 
 class TestRound5MaxReviewFixes:
-    def test_spill_root_rejects_symlink(self, tmp_path, monkeypatch):
-        import app.data_sources.clients.lazy_frame as lf_mod
-
+    def test_explicit_spill_root_may_be_a_symlink(self, tmp_path, monkeypatch):
+        """An operator-chosen BOW_LAZY_DIR is trusted (symlink onto a big
+        disk, root-owned volume mounts) — strict checks apply only to the
+        default root under the shared system tempdir."""
         real = tmp_path / "real"
         real.mkdir()
-        link = tmp_path / "sneaky"
+        link = tmp_path / "bigdisk"
         link.symlink_to(real)
         monkeypatch.setenv("BOW_LAZY_DIR", str(link))
-        with pytest.raises(RuntimeError, match="symlink"):
-            lf_mod.StreamConfig()
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+        try:
+            assert lf.row_count() == 1
+        finally:
+            lf.close()
 
     def test_spill_files_are_owner_only(self, tmp_path, monkeypatch):
         import stat
@@ -952,11 +956,46 @@ class TestRound5MaxReviewFixes:
         monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
         lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
         try:
-            root = lf._source_paths[0].parent
-            assert stat.S_IMODE(root.stat().st_mode) == 0o700
+            q_dir = lf._source_paths[0].parent
+            assert q_dir.name.startswith("q_")  # private per-query subdir
+            assert stat.S_IMODE(q_dir.stat().st_mode) == 0o700
             assert stat.S_IMODE(lf._source_paths[0].stat().st_mode) == 0o600
         finally:
             lf.close()
+        assert not q_dir.exists()  # close removes the whole private dir
+
+    def test_frames_cannot_read_each_others_spills(self, tmp_path, monkeypatch):
+        """Tenant isolation: sandboxed code holding one LazyFrame must not be
+        able to read another query's in-flight spill through lf.sql()."""
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        lf1 = lazy_from_dataframe(pd.DataFrame({"a": [1]}))
+        lf2 = lazy_from_dataframe(pd.DataFrame({"secret": ["s3cr3t"]}))
+        try:
+            other = str(lf2._source_paths[0]).replace("'", "''")
+            with pytest.raises(Exception, match="[Pp]ermission|disabled"):
+                lf1.sql(f"SELECT * FROM read_parquet('{other}')").to_df()
+            # glob over the shared root is blocked too
+            root_glob = str((tmp_path / "spill" / "q_*" / "*.parquet")).replace("'", "''")
+            with pytest.raises(Exception, match="[Pp]ermission|disabled"):
+                lf1.sql(f"SELECT * FROM read_parquet('{root_glob}')").to_df()
+        finally:
+            lf1.close()
+            lf2.close()
+
+    def test_stale_query_dirs_swept(self, tmp_path, monkeypatch):
+        import os
+        import app.data_sources.clients.lazy_frame as lf_mod
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+        stale_mtime = time.time() - 25 * 3600
+        q = tmp_path / "q_deadbeef"
+        q.mkdir()
+        (q / "lazy_x.parquet").write_bytes(b"x")
+        (q / "duckdb_tmp").mkdir()
+        os.utime(q, (stale_mtime, stale_mtime))
+        lf_mod._last_sweep.pop(tmp_path, None)
+        lf_mod.StreamConfig()
+        assert not q.exists()  # spill parts AND duckdb temp state reclaimed
 
     def test_default_spill_root_is_per_uid(self, monkeypatch):
         import os
@@ -1031,6 +1070,94 @@ class TestRound5MaxReviewFixes:
             assert calls == []  # the stale query never touched verticapy
         finally:
             lf_mod.set_cancel_event(None)
+
+    def test_vanished_spill_is_unmeterable_under_active_quota(self):
+        """spill_stats returns zeros (never raises) when files are gone; the
+        quota guard must key on zero DISK bytes, not on an exception."""
+        from types import SimpleNamespace
+        from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+        class VanishingClient(TinyClient):
+            def execute_query_lazy(self, sql):
+                lf = lazy_from_dataframe(pd.DataFrame({"x": [1, 2]}))
+                for p in lf._source_paths:
+                    p.unlink()  # spill vanishes before metering
+                return lf
+
+        wrapper = QueryCapturingClientWrapper(
+            VanishingClient(), [], [],
+            usage_context=SimpleNamespace(session_maker=object()),
+            lazy_enabled=True,
+        )
+        with pytest.raises(RuntimeError, match="unmetered"):
+            wrapper.execute_query_lazy("SELECT x")
+
+    def test_rejected_result_spill_is_reclaimed(self, monkeypatch):
+        """When metering/quota rejects a lazy result the caller never sees it —
+        the spill must be closed immediately, not left to GC."""
+        holder = {}
+
+        class Client(TinyClient):
+            def execute_query_lazy(self, sql):
+                holder["lf"] = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+                return holder["lf"]
+
+        wrapper, _, _ = _make_wrapper(Client())
+        monkeypatch.setattr(
+            wrapper, "_meter_result",
+            lambda result, lazy: (_ for _ in ()).throw(RuntimeError("meter boom")),
+        )
+        with pytest.raises(RuntimeError, match="meter boom"):
+            wrapper.execute_query_lazy("SELECT x")
+        assert all(not p.exists() for p in holder["lf"]._source_paths)
+
+    def test_exec_result_boundary_enforces_byte_cap(self, monkeypatch):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES", "10")
+        lf = lazy_from_dataframe(pd.DataFrame({"x": list(range(1000))}))
+        with pytest.raises(ValueError, match="too\\s+large"):
+            StreamingCodeExecutor._coerce_exec_result(lf)
+        assert all(not p.exists() for p in lf._source_paths)
+
+    def test_spill_cleaned_when_reader_open_fails(self, tmp_path, monkeypatch):
+        import app.data_sources.clients.lazy_frame as lf_mod
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
+        monkeypatch.setattr(lf_mod.LazyFrame, "from_parquet", classmethod(
+            lambda cls, path, owns_source=True: (_ for _ in ()).throw(RuntimeError("footer corrupt"))
+        ))
+        with pytest.raises(RuntimeError, match="footer corrupt"):
+            lf_mod.lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+        # the written spill and its private dir were reclaimed, not orphaned
+        assert list(tmp_path.glob("q_*")) == []
+
+    def test_duckdb_runtime_error_is_not_retried_bare(self):
+        import duckdb
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
+
+        executed = []
+
+        class CountingCon:
+            def __init__(self, con):
+                self._con = con
+
+            def execute(self, q):
+                executed.append(q)
+                return self._con.execute(q)
+
+        @contextmanager
+        def connect_cm():
+            con = duckdb.connect()
+            try:
+                yield CountingCon(con)
+            finally:
+                con.close()
+
+        # parses fine, fails at execution — must propagate, NOT re-run bare
+        with pytest.raises(Exception, match="[Cc]onversion"):
+            lazy_query_via_duckdb(connect_cm, "SELECT CAST('abc' AS INTEGER) AS x")
+        assert len(executed) == 1
 
     def test_metering_failure_raises_under_active_quota(self):
         from types import SimpleNamespace
@@ -1159,28 +1286,16 @@ class TestVerticaActivation:
         assert client.connect() == "vertica_conn_test"
         assert calls == []  # already active: no kill-and-redial
 
-    def test_lock_acquisition_times_out_instead_of_hanging_forever(self, monkeypatch):
-        """A hung (abandoned) query holding the global lock must fail later
-        queries with a clear error, not block them indefinitely."""
+    def test_no_process_wide_lock_serializes_queries(self):
+        """The global Vertica lock was reverted (round 6): it hard-failed
+        legitimately long concurrent queries and turned one hung query into a
+        process-wide outage. The verticapy single-global-connection limitation
+        is documented on the class instead, pending a dedicated PR."""
         import app.data_sources.clients.vertica_client as vc
 
-        monkeypatch.setattr(vc, "_VP_LOCK_TIMEOUT_SECONDS", 0.2)
-        release = threading.Event()
-
-        def hog():
-            with vc._VP_GLOBAL_LOCK:
-                release.wait(5)
-
-        t = threading.Thread(target=hog, daemon=True)
-        t.start()
-        time.sleep(0.1)  # let the hog acquire
-        try:
-            client = self._client()
-            with pytest.raises(RuntimeError, match="Vertica connection lock"):
-                client.connect()
-        finally:
-            release.set()
-            t.join(2)
+        assert not hasattr(vc, "_VP_GLOBAL_LOCK")
+        assert not hasattr(vc, "_vp_serialized")
+        assert "KNOWN LIMITATION" in (vc.VerticaClient.__doc__ or "")
 
 
 class TestWrapperMeteringRobustness:

@@ -1,7 +1,6 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
-import threading
 from contextlib import contextmanager
 from typing import List
 from app.ai.prompt_formatters import Table, TableColumn
@@ -13,47 +12,21 @@ try:
 except ImportError:
     vp = None
 
-# verticapy has exactly ONE process-global active connection, and vp.connect()
-# closes the previous one. Two VerticaClient instances (two data sources)
-# interleaving connect()+query would therefore kill each other's in-flight
-# queries. Query paths hold this lock across activate+execute so a competing
-# client can't switch the global connection mid-query. RLock because
-# execute_query() re-enters via self.connect().
-_VP_GLOBAL_LOCK = threading.RLock()
-
-# Acquisition is bounded: the code-exec wrapper abandons timed-out queries on
-# daemon threads that may sit inside a hung driver call *while holding this
-# lock*. Blocking forever behind one would turn a single hung query into a
-# process-wide Vertica outage; failing with a clear error keeps later queries
-# diagnosable and lets the pile-up clear when the hung call finally returns.
-# Kept close to (not 10x) the wrapper's per-query timeout so waiters fail in
-# a diagnosable way rather than queueing for many minutes.
-_VP_LOCK_TIMEOUT_SECONDS = 180
-
-
-@contextmanager
-def _vp_serialized():
-    acquired = _VP_GLOBAL_LOCK.acquire(timeout=_VP_LOCK_TIMEOUT_SECONDS)
-    if not acquired:
-        raise RuntimeError(
-            "Timed out waiting for the process-wide Vertica connection lock — "
-            "another (possibly hung or abandoned) Vertica query is still "
-            "holding verticapy's single global connection."
-        )
-    try:
-        # An abandoned (timed-out) daemon thread that finally wins the lock
-        # must NOT replay its long-canceled query against the database — that
-        # would extend one hang into a serial pile-up of stale executions.
-        from app.data_sources.clients.lazy_frame import QueryAbandonedError, _cancelled
-
-        if _cancelled():
-            raise QueryAbandonedError()
-        yield
-    finally:
-        _VP_GLOBAL_LOCK.release()
-
 
 class VerticaClient(DataSourceClient):
+    """Vertica client over verticapy.
+
+    KNOWN LIMITATION (inherited from verticapy, not introduced here):
+    verticapy holds exactly ONE process-global active connection, and
+    vp.connect() closes the previous one. With two or more Vertica data
+    sources queried concurrently in one process, one client's activation can
+    interrupt another client's in-flight query. connect() below minimizes the
+    window by re-activating only when a different connection is actually
+    active (_needs_activation), but full isolation needs per-client
+    vertica_python connections — a dedicated change, out of scope for the
+    lazy-query feature. (A process-wide lock was tried and reverted: it
+    traded rare interruptions for serialized throughput and hard failures on
+    legitimately long concurrent queries.)"""
     def __init__(self, host, port, database, user, password, schema="public", **kwargs):
         if vp is None:
             raise ImportError("verticapy is required for Vertica connections. Please install it with: pip install verticapy")
@@ -100,42 +73,44 @@ class VerticaClient(DataSourceClient):
 
     def connect(self):
         """Establish (and re-activate) this client's Vertica connection."""
-        with _vp_serialized():
-            try:
-                if not self._connected:
-                    # Create new connection in verticapy
-                    vp.new_connection(
-                        self.connection_params,
-                        name=self._connection_name
-                    )
-                    self._connected = True
-                # Re-activate THIS client's named connection as verticapy's
-                # global active connection — but only when it isn't already
-                # active. vp.connect() is not a no-op: it closes the previous
-                # global connection and dials a new one, so calling it
-                # unconditionally kills any in-flight query on the current
-                # connection and pays a full reconnect per call.
-                if self._needs_activation():
-                    vp.connect(self._connection_name)
-                return self._connection_name
-            except Exception as e:
-                raise RuntimeError(f"Failed to connect to Vertica: {e}")
+        # An abandoned (timed-out) daemon thread must NOT re-activate and
+        # replay its long-canceled query against the database.
+        from app.data_sources.clients.lazy_frame import QueryAbandonedError, _cancelled
+
+        if _cancelled():
+            raise QueryAbandonedError()
+        try:
+            if not self._connected:
+                # Create new connection in verticapy
+                vp.new_connection(
+                    self.connection_params,
+                    name=self._connection_name
+                )
+                self._connected = True
+            # Re-activate THIS client's named connection as verticapy's
+            # global active connection — but only when it isn't already
+            # active. vp.connect() is not a no-op: it closes the previous
+            # global connection and dials a new one, so calling it
+            # unconditionally kills any in-flight query on the current
+            # connection and pays a full reconnect per call.
+            if self._needs_activation():
+                vp.connect(self._connection_name)
+            return self._connection_name
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Vertica: {e}")
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
         try:
-            # Hold the lock across activate+execute: another client's
-            # connect() between the two would close our global connection
-            # mid-query (verticapy has only one).
-            with _vp_serialized():
-                self.connect()
+            # Connect to Vertica
+            self.connect()
 
-                # Execute query using verticapy vDataFrame
-                result = vp.vDataFrame(sql)
+            # Execute query using verticapy vDataFrame
+            result = vp.vDataFrame(sql)
 
-                # Convert to pandas DataFrame
-                df = result.to_pandas()
-                return df
+            # Convert to pandas DataFrame
+            df = result.to_pandas()
+            return df
         except Exception as e:
             print(f"Error executing SQL: {e}")
             raise
@@ -143,20 +118,14 @@ class VerticaClient(DataSourceClient):
     def execute_query_lazy(self, sql: str):
         """Out-of-core variant (v2): stream via the underlying vertica_python
         cursor (verticapy.current_cursor), which fetches rows server-side, and
-        spill to a LazyFrame. Bounds the ingest peak vs vDataFrame.to_pandas().
-
-        The global lock is held for the whole stream (the context manager wraps
-        the full spill): serialized throughput across Vertica clients, but no
-        competing connect() can kill the stream's connection mid-fetch."""
-        from contextlib import contextmanager
+        spill to a LazyFrame. Bounds the ingest peak vs vDataFrame.to_pandas()."""
         from app.data_sources.clients.lazy_frame import lazy_query_via_dbapi_cursor
 
         @contextmanager
         def conn_cm():
-            with _vp_serialized():
-                self.connect()
-                cursor = vp.current_cursor()
-                yield cursor.connection  # DBAPI Connection; .cursor() works for streaming
+            self.connect()
+            cursor = vp.current_cursor()
+            yield cursor.connection  # DBAPI Connection; .cursor() works for streaming
 
         return lazy_query_via_dbapi_cursor(conn_cm, sql)
 

@@ -70,11 +70,23 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _ensure_secure_root(root: Path) -> None:
-    """Create/verify the spill root safely. Spill files hold complete query
-    results, so the directory must be ours alone: created 0700, not a symlink
-    (squatting attack: another user pre-creates or symlinks the path and reads
-    every tenant's spills), and owned by the current uid."""
+def _ensure_secure_root(root: Path, strict: bool) -> None:
+    """Create/verify the spill root. Spill files hold complete query results.
+
+    strict=True (the DEFAULT root under the shared system tempdir): created
+    0700 and verified — not a symlink (squatting attack: another user
+    pre-creates or symlinks the path and reads every tenant's spills) and
+    owned by the current uid.
+
+    strict=False (an explicit BOW_LAZY_DIR): the operator chose the path, and
+    legitimate deployments break under the strict rules (root-owned k8s/docker
+    volume mount points, symlinks onto a big disk) — and chmod'ing an
+    operator-owned dir could strip access other processes rely on. Just create
+    it if missing; per-query subdirectories are still created 0700/owned by
+    us, which is what actually protects spill contents."""
+    if not strict:
+        root.mkdir(parents=True, exist_ok=True)
+        return
     try:
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
     except FileExistsError:
@@ -129,12 +141,22 @@ def _sweep_stale_files(root: Path) -> None:
         return
     _last_sweep[root] = now
 
+    import shutil
+
     cutoff = time.time() - _STALE_AFTER_SECONDS
     try:
-        for f in root.glob("lazy_*.parquet"):
+        for f in root.glob("lazy_*.parquet"):  # legacy flat spills
             try:
                 if f.stat().st_mtime < cutoff:
                     f.unlink(missing_ok=True)
+            except OSError:
+                continue
+        # Per-query q_* dirs hold spill parts AND DuckDB temp state; a
+        # crashed/killed process orphans the whole dir, so sweep it as a unit.
+        for d in root.glob("q_*"):
+            try:
+                if d.is_dir() and d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
             except OSError:
                 continue
     except Exception:
@@ -157,14 +179,29 @@ class StreamConfig:
         root = os.environ.get("BOW_LAZY_DIR")
         if root:
             self.root = Path(root)
+            _ensure_secure_root(self.root, strict=False)
         else:
             # Per-uid default: a fixed name under world-writable /tmp is the
             # classic shared-tempdir pitfall (pre-creation/symlink squatting,
             # other users reading spilled query results).
             suffix = f"_{os.getuid()}" if hasattr(os, "getuid") else ""
             self.root = Path(tempfile.gettempdir()) / f"bow_lazy{suffix}"
-        _ensure_secure_root(self.root)
+            _ensure_secure_root(self.root, strict=True)
         _sweep_stale_files(self.root)
+
+    def new_spill_path(self) -> Path:
+        """Reserve a spill location inside a PRIVATE per-query subdirectory
+        (root/q_<hex>/lazy_<hex>.parquet, dir mode 0700).
+
+        The subdirectory is the isolation boundary: the LazyFrame's DuckDB
+        connection is confined (allowed_directories) to it, so sandboxed code
+        holding one frame cannot glob-read or COPY-overwrite OTHER queries'
+        in-flight spills — which it could when every query spilled flat into
+        one shared root. DuckDB's own temp state lives here too, so releasing
+        the frame (or sweeping a crashed query's leftovers) is one rmtree."""
+        q_dir = self.root / f"q_{uuid.uuid4().hex}"
+        q_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return q_dir / f"lazy_{uuid.uuid4().hex}.parquet"
 
     def limit_desc(self) -> str:
         return f"max_rows={self.max_rows}, max_bytes={self.max_bytes}"
@@ -188,7 +225,7 @@ class StreamConfig:
         if not full:
             return
         try:
-            total = sum(f.stat().st_size for f in self.root.glob("lazy_*.parquet"))
+            total = sum(f.stat().st_size for f in self.root.rglob("lazy_*.parquet"))
         except Exception:
             return
         if total > self.dir_max_bytes:
@@ -297,19 +334,28 @@ def arrow_safe_cell(v):
 
 
 def _release_lazy_resources(con, paths) -> None:
-    """Close the DuckDB connection and unlink the spill file(s). Module-level
+    """Close the DuckDB connection and remove the spill file(s) plus their
+    private q_* directory (which also holds DuckDB's temp state). Module-level
     (not a method) so weakref.finalize doesn't hold a reference back to the
     LazyFrame, which would keep it alive forever."""
+    import shutil
+
     if con is not None:
         try:
             con.close()
         except Exception:
             logger.debug("LazyFrame: failed to close duckdb connection", exc_info=True)
+    parents = set()
     for p in paths:
+        p = Path(p)
         try:
-            Path(p).unlink(missing_ok=True)
+            p.unlink(missing_ok=True)
         except Exception:
             logger.debug("LazyFrame: failed to unlink %s", p, exc_info=True)
+        if p.parent.name.startswith("q_"):
+            parents.add(p.parent)
+    for d in parents:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 class LazyFrame:
@@ -385,13 +431,19 @@ class LazyFrame:
             # unknown. SELECT * exposes `_bow_empty` with zero rows.
             if self._con is None:
                 self._con = _open_duckdb({p.parent for p in self._source_paths})
-                # The finalizer snapshotted con=None at construction; re-register
-                # so close()/GC also closes this lazily-created connection.
-                if self._owns_source and self._finalizer is not None:
+                # The finalizer snapshotted con=None at construction (or was
+                # never registered, for a derived frame); re-register so
+                # close()/GC also closes this lazily-created connection. A
+                # derived frame gets a connection-only finalizer — the spill
+                # files still belong to the owning frame.
+                if self._finalizer is not None:
                     self._finalizer.detach()
-                    self._finalizer = weakref.finalize(
-                        self, _release_lazy_resources, self._con, list(self._source_paths)
-                    )
+                self._finalizer = weakref.finalize(
+                    self,
+                    _release_lazy_resources,
+                    self._con,
+                    list(self._source_paths) if self._owns_source else [],
+                )
             empty_rel = self._con.sql("SELECT NULL AS _bow_empty WHERE 1=0")
             new_rel = empty_rel.query(table_name, sql_query)
             return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False, parent=self)
@@ -487,7 +539,11 @@ class LazyFrame:
         # and backing file (owns_source=False). They must tear down neither, or a
         # `with lf.sql(...) as d:` block would close the connection the parent still
         # needs and any later parent.to_df() would fail on a closed connection.
+        # Exception: a derived schemaless-empty frame that lazily created its OWN
+        # connection in sql() registered a connection-only finalizer — run it.
         if not self._owns_source:
+            if self._finalizer is not None:
+                self._finalizer()
             return
         if self._finalizer is not None:
             self._finalizer()  # runs _release_lazy_resources at most once
@@ -692,11 +748,10 @@ def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None)
             rows=rows, byte_estimate=byte_estimate, limit_desc=config.limit_desc()
         )
     config.check_capacity(full=True)
-    config.root.mkdir(parents=True, exist_ok=True)
-    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    path = config.new_spill_path()
     _jsonify_nested_cells(_dedupe_columns(df)).to_parquet(path, index=False)
     _restrict_file(path)
-    return LazyFrame.from_parquet(path, owns_source=True)
+    return _from_parquet_or_cleanup(path)
 
 
 def lazy_query_via_sqlalchemy(
@@ -805,11 +860,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
             except Exception:
                 pass
             writer = None
-        for p in paths:
-            try:
-                p.unlink(missing_ok=True)
-            except Exception:
-                pass
+        _release_lazy_resources(None, paths)  # files + private q_ dir
         raise
     finally:
         if writer is not None:
@@ -896,6 +947,7 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     unescaped, so this is not an injection surface beyond what the eager query
     path already trusts.
     """
+    import duckdb
     import pyarrow as pa
 
     inner = _strip_sql_tail(sql)
@@ -908,11 +960,14 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
         bounded = f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT {row_cap + 1}"
         try:
             res = con.execute(bounded)
-        except Exception:
-            # Statements valid at top level but not as a subquery (SHOW
-            # TABLES, PRAGMA, some DESCRIBE forms) — the eager path accepts
-            # them, so run them bare. Their results are catalog-sized; the
-            # row/byte budgets below still apply per batch.
+        except duckdb.ParserException:
+            # ParserException ONLY: statements valid at top level but not as
+            # a subquery (SHOW TABLES, PRAGMA, some DESCRIBE forms) — the
+            # eager path accepts them, so run them bare; their results are
+            # catalog-sized and the budgets below still apply per batch. Any
+            # other failure (OOM, IO, binder) must propagate — retrying it
+            # bare would re-execute a genuinely failing query without the
+            # row LIMIT.
             res = con.execute(inner)
         # to_arrow_reader() replaced fetch_record_batch() in newer duckdb
         make_reader = getattr(res, "to_arrow_reader", None) or res.fetch_record_batch
@@ -931,11 +986,22 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     return path
 
 
+def _from_parquet_or_cleanup(paths) -> LazyFrame:
+    """Open the freshly-written spill as a LazyFrame; if opening fails
+    (corrupt footer, fs error), delete the spill instead of orphaning
+    a multi-GB file until the stale sweep."""
+    try:
+        return LazyFrame.from_parquet(paths, owns_source=True)
+    except BaseException:
+        _release_lazy_resources(None, paths if isinstance(paths, (list, tuple)) else [paths])
+        raise
+
+
 def _lazy_via(stream_fn, connect_cm, sql, config) -> LazyFrame:
     config = config or StreamConfig()
-    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    path = config.new_spill_path()
     written = stream_fn(connect_cm, sql, path, config)
-    return LazyFrame.from_parquet(written, owns_source=True)
+    return _from_parquet_or_cleanup(written)
 
 
 def lazy_query_via_dbapi_readsql(connect_cm, sql, config=None) -> LazyFrame:
@@ -1000,10 +1066,7 @@ def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> P
             except Exception:
                 pass
             writer = None
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        _release_lazy_resources(None, [path])  # file + private q_ dir
         raise
     finally:
         if writer is not None:
@@ -1017,17 +1080,17 @@ def consume_chunks_to_lazyframe(chunks, config: Optional[StreamConfig] = None, c
     chunksize iterator). `columns`, when known, preserves the schema even for a
     fully-empty iterable."""
     config = config or StreamConfig()
-    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    path = config.new_spill_path()
     paths = _consume_chunks_to_parquet(chunks, path, config, columns=columns)
-    return LazyFrame.from_parquet(paths, owns_source=True)
+    return _from_parquet_or_cleanup(paths)
 
 
 def consume_arrow_to_lazyframe(arrow_iter, config: Optional[StreamConfig] = None) -> LazyFrame:
     """Spill an iterable of pyarrow Tables/RecordBatches to a LazyFrame."""
     config = config or StreamConfig()
-    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
+    path = config.new_spill_path()
     _consume_arrow_to_parquet(arrow_iter, path, config)
-    return LazyFrame.from_parquet(path, owns_source=True)
+    return _from_parquet_or_cleanup(path)
 
 
 def consume_row_dicts_to_lazyframe(

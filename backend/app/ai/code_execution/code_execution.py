@@ -462,22 +462,30 @@ class QueryCapturingClientWrapper:
         if not lazy:
             rows = len(result) if hasattr(result, '__len__') else None
             return rows, estimate_result_size_bytes(result)
+        rows = None
+        result_bytes = 0
+        unmeterable = False
         try:
-            rows, result_bytes, _ = result.spill_stats()
-            return rows, result_bytes
+            rows, result_bytes, disk_bytes = result.spill_stats()
+            # spill_stats swallows per-file errors and returns zeros, so the
+            # sentinel for "unmeterable" is zero DISK bytes: even a genuinely
+            # empty result has a Parquet header on disk. Zero disk means the
+            # spill vanished or is unreadable — not an empty result.
+            unmeterable = disk_bytes <= 0
         except Exception:
             logger.warning(
                 "Could not read LazyFrame spill stats; metering piecewise", exc_info=True
             )
-        rows = None
-        result_bytes = 0
-        try:
-            rows = result.row_count()
-        except Exception:
-            logger.warning("Could not read LazyFrame row count for metering", exc_info=True)
-        try:
-            result_bytes = result.byte_size()
-        except Exception:
+            try:
+                rows = result.row_count()
+            except Exception:
+                logger.warning("Could not read LazyFrame row count for metering", exc_info=True)
+            try:
+                result_bytes = result.byte_size()
+                unmeterable = result_bytes <= 0
+            except Exception:
+                unmeterable = True
+        if unmeterable:
             # With quota enforcement active, an unmeterable result must not
             # pass for free — _consume_data_bytes_quota skips consumption at
             # result_bytes <= 0, which would let arbitrary data through an
@@ -485,11 +493,11 @@ class QueryCapturingClientWrapper:
             # continue.
             if self._usage_context is not None and self._usage_context.session_maker is not None:
                 raise RuntimeError(
-                    "Could not meter the lazy query result (spill metadata and "
-                    "file size both unreadable); refusing to return it unmetered "
-                    "while usage limits are enforced."
+                    "Could not meter the lazy query result (spill file missing or "
+                    "unreadable); refusing to return it unmetered while usage "
+                    "limits are enforced."
                 )
-            logger.warning("LazyFrame byte metering failed entirely; result is uncharged", exc_info=True)
+            logger.warning("LazyFrame byte metering failed; result is uncharged")
         return rows, result_bytes
 
     def _run_instrumented(self, query, args, kwargs, *, method: str, lazy: bool):
@@ -514,8 +522,21 @@ class QueryCapturingClientWrapper:
                 self._consume_query_quota(query)
                 result = self._call_with_timeout(query, args, kwargs, method=method)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                rows, result_bytes = self._meter_result(result, lazy)
-                self._consume_data_bytes_quota(query, result_bytes, rows)
+                try:
+                    rows, result_bytes = self._meter_result(result, lazy)
+                    self._consume_data_bytes_quota(query, result_bytes, rows)
+                except BaseException:
+                    # Metering failure or quota rejection: the caller never
+                    # receives the result, so reclaim its spill now rather
+                    # than leaving multi-GB files to GC / the stale sweep.
+                    if lazy:
+                        close = getattr(result, "close", None)
+                        if callable(close):
+                            try:
+                                close()
+                            except Exception:
+                                logger.debug("Failed to close rejected lazy result", exc_info=True)
+                    raise
                 if rows is not None:
                     span.set_attribute("datasource.result_rows", rows)
                 span.set_attribute("datasource.result_bytes", result_bytes)
@@ -885,15 +906,27 @@ class StreamingCodeExecutor:
         if not isinstance(df, LazyFrame):
             return df
         cap = int(os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_CAP") or 1_000_000)
+        # The hazard is bytes, not just rows: a wide frame under the row cap
+        # can still be multiple GB — the exact OOM the lazy path exists to
+        # prevent. Estimate from the spill's uncompressed columnar size (for
+        # a derived frame this reflects its SOURCE, i.e. an upper bound for
+        # plain filters/projections).
+        byte_cap = int(os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES") or 512 * 1024 * 1024)
         try:
             rows = df.row_count()
-            if rows <= cap:
+            est_bytes = None
+            try:
+                _, est_bytes, _ = df.spill_stats()
+            except Exception:
+                logger.debug("Could not estimate LazyFrame result bytes", exc_info=True)
+            if rows <= cap and (est_bytes is None or est_bytes <= byte_cap):
                 return df.to_df()
             raise ValueError(
-                f"generate_df returned a LazyFrame with {rows} rows — too large to "
-                "materialize into the result DataFrame. Reduce it before returning, "
-                "e.g. lf.sql('SELECT <aggregation> FROM data GROUP BY ...').to_df() "
-                f"or lf.limit(n).to_df() with n <= {cap}."
+                f"generate_df returned a LazyFrame with {rows} rows"
+                f"{f' (~{est_bytes} uncompressed bytes)' if est_bytes else ''} — too "
+                "large to materialize into the result DataFrame. Reduce it before "
+                "returning, e.g. lf.sql('SELECT <aggregation> FROM data GROUP BY "
+                f"...').to_df() or lf.limit(n).to_df() with n <= {cap}."
             )
         finally:
             df.close()

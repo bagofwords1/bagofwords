@@ -184,11 +184,9 @@ class MongodbClient(DataSourceClient):
                     # stream mid-flight.
                     yield {k: arrow_safe_cell(v) for k, v in doc.items()}
 
-        gen = docs()
-        try:
-            return consume_row_dicts_to_lazyframe(gen, config=cfg)
-        finally:
-            gen.close()  # deterministic connection cleanup on error paths
+        # consume_row_dicts_to_lazyframe closes the source generator
+        # deterministically on every exit path.
+        return consume_row_dicts_to_lazyframe(docs(), config=cfg)
 
     def _convert_bson_types(self, doc: dict, coerce_decimal128: bool = False) -> None:
         """Recursively convert BSON types to JSON-serializable types.
