@@ -1413,8 +1413,9 @@ class InforOlapConfig(BaseModel):
         ...,
         title="XMLA Endpoint URL",
         description=(
-            "Full URL of the Infor OLAP XMLA Provider "
-            "(e.g., http://epm-server/<web_app>/<service_host_instance>)."
+            "URL of a Database Worker XMLA endpoint, or — with manager "
+            "auto-discovery enabled — the OLAP Service Manager endpoint "
+            "(http(s)://<server>:<manager_port>/BI/APP/SOAP/OLAPDB)."
         ),
         json_schema_extra={"ui:type": "string"},
     )
@@ -1422,6 +1423,33 @@ class InforOlapConfig(BaseModel):
         "",
         title="Catalog",
         description="Optional OLAP catalog/database to scope discovery to. Leave blank to list all accessible catalogs.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    manager_discovery: bool = Field(
+        False,
+        title="Manager auto-discovery",
+        description=(
+            "Treat the URL as the OLAP Service Manager endpoint and resolve the "
+            "database's worker URL via DISCOVER_DATASOURCES (Infor's documented "
+            "connection flow). Leave off when the URL already points at a worker."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    rewrite_worker_host: bool = Field(
+        True,
+        title="Use configured host for discovered URLs",
+        description=(
+            "Replace the hostname in discovered worker URLs with the host from "
+            "the endpoint URL. Farms usually advertise internal hostnames that "
+            "do not resolve from outside; disable only when workers run on "
+            "different machines and their hostnames are resolvable."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    tenant: str = Field(
+        "single",
+        title="Tenant",
+        description="XMLA Tenant property sent during manager discovery ('single' for on-premises single-tenant farms).",
         json_schema_extra={"ui:type": "string"},
     )
     verify_ssl: bool = Field(

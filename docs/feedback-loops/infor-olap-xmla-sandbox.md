@@ -20,10 +20,14 @@ run in a sandbox (licensed, Windows-farm-only), so the loop uses Mondrian
   (`xmla_base.py:104-111`) — misleading when the endpoint was never reached
   (e.g. `NameResolutionError`). Candidate follow-up, intentionally **not**
   changed in this loop.
-- Infor EPM on-prem endpoint paths are farm-specific (self-hosted HTTP.sys
-  services); Infor does not document them publicly. Customer-side discovery:
-  `netsh http show servicestate view=requestq` on the OLAP app server, or the
-  service's target URL in ION API admin.
+- Infor EPM on-prem worker endpoint paths are farm-specific (self-hosted
+  HTTP.sys services). The documented entry point is the OLAP Service
+  **Manager** at `http(s)://host:manager_port/BI/APP/SOAP/OLAPDB` — send
+  DISCOVER_DATASOURCES there and read each database's worker URL from the
+  response ("Connecting to the XMLA Provider", Infor EPM OLAP XMLA Provider
+  guide, on-premise). The connector implements this as the
+  `manager_discovery` option; farm-side verification remains
+  `netsh http show servicestate view=requestq` on the OLAP app server.
 
 ## Loop A — full-stack reproduction (no external services, no credentials)
 
@@ -158,3 +162,64 @@ Gotchas worth keeping: report `data_sources` takes **DataSource (agent) ids,
 not connection ids**; agent tables start `is_active=0`; a soft-deleted LLM
 provider still occupies the unique (org, name) slot, so recreate under a new
 name.
+
+## Loop C — manager auto-discovery (documented Infor connection flow)
+
+The connector's `manager_discovery` option implements Infor's documented
+bootstrap: POST `DISCOVER_DATASOURCES` (with `Tenant`, and `Databasename`
+restriction from the Catalog field) to the OLAP Service Manager URL, read the
+database's worker URL from the response, substitute the configured host for
+the advertised internal hostname (`rewrite_worker_host`, default on), and send
+all subsequent XMLA traffic to the worker.
+
+Farms advertise internal machine names in worker URLs, so the live loop
+simulates exactly that: a mock manager on `:18200` answers with a worker URL
+pointing at an **unresolvable hostname** on the xmondrian port; the client
+must rewrite it to connect.
+
+```bash
+# Loop A prerequisites (xmondrian on :18080). Mock manager:
+python3 - <<'PY' &   # answers DISCOVER_DATASOURCES with an internal-hostname worker URL
+from http.server import BaseHTTPRequestHandler, HTTPServer
+R = ('<?xml version="1.0" encoding="UTF-8"?>'
+ '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>'
+ '<DiscoverResponse xmlns="urn:schemas-microsoft-com:xml-analysis"><return>'
+ '<root xmlns="urn:schemas-microsoft-com:xml-analysis:rowset">'
+ '<row><DataSourceName>FoodMart</DataSourceName>'
+ '<URL>http://internal-olap-worker-01:18080/xmondrian/xmla</URL></row>'
+ '</root></return></DiscoverResponse></soap:Body></soap:Envelope>').encode()
+class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        assert b'DISCOVER_DATASOURCES' in body and b'<Tenant>single</Tenant>' in body
+        self.send_response(200); self.send_header('Content-Type','text/xml'); self.end_headers()
+        self.wfile.write(R)
+    def log_message(self, *a): pass
+HTTPServer(('127.0.0.1', 18200), H).serve_forever()
+PY
+
+cd backend && uv run python - <<'PY'
+from app.data_sources.clients.infor_olap_client import InforOlapClient
+c = InforOlapClient(host="http://127.0.0.1:18200/BI/APP/SOAP/OLAPDB",
+                    username="demo", password="demo", manager_discovery=True)
+print(c.test_connection())
+PY
+```
+
+Observed (2026-07-12):
+
+```
+{'success': True, 'message': 'Connected to Infor OLAP. Found 1 catalog(s).
+ Worker URL: http://127.0.0.1:18080/xmondrian/xmla', 'catalogs': 1,
+ 'worker_url': 'http://127.0.0.1:18080/xmondrian/xmla'}
+```
+
+and a follow-up `execute_query` against `FoodMart/Sales` returns the same
+3-row result as Loop A — the full documented flow (manager → worker, host
+rewrite, MDX) verified live. Failure classification is covered the same way:
+a real 404 (Tomcat, wrong path) reports "nothing serves XMLA at this URL
+path"; a 404 with the `Microsoft-HTTPAPI/2.0` server signature appends the
+documented manager-endpoint hint; unresolvable hostnames report a DNS
+message with `connectivity: false`. Unit coverage lives in
+`backend/tests/unit/test_infor_olap_client.py` (`TestManagerDiscovery`,
+`TestFailureClassification`, `TestCatalogShortcut`).
