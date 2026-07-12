@@ -170,6 +170,11 @@ _EMPTY_ROW_SENTINEL_PREFIX = "__bow_internal_empty_row_"
 _EMPTY_ROW_METADATA_KEY = b"bow.empty_row_sentinel"
 _EMPTY_ROW_METADATA_VALUE = b"1"
 
+# Only trusted spill factories may create a frame whose finalizer can delete
+# source files. Generated code cannot import this module or access private
+# attributes, and an arbitrary object cannot satisfy identity comparison.
+_LAZYFRAME_OWNERSHIP_TOKEN = object()
+
 
 def _sweep_stale_files(root: Path) -> None:
     """Best-effort orphan cleanup for the lazy spill dir, at most once per
@@ -345,6 +350,95 @@ class QueryAbandonedError(RuntimeError):
         )
 
 
+_spill_reservation_lock = threading.Lock()
+_spill_reserved_bytes: dict[Path, int] = {}
+
+
+def _reserve_duckdb_temp(config: StreamConfig) -> tuple[Path, int]:
+    """Atomically reserve one connection's potential DuckDB spill growth.
+
+    A capacity snapshot alone races: several connections can all observe the
+    same remaining bytes and each configure DuckDB to consume the full amount.
+    Reservations make those live maxima disjoint within this server process.
+    The physical root scan still guards capacity shared with other processes.
+    """
+    root = config.root.resolve()
+    max_connections = max(
+        1,
+        _env_int("BOW_LAZY_MAX_CONCURRENT_COMPUTES", 8),
+    )
+    per_connection_limit = min(
+        max(0, int(config.max_bytes)),
+        max(0, int(config.dir_max_bytes)) // max_connections,
+    )
+    if per_connection_limit <= 0:
+        raise ResultTooLargeError(
+            rows=0,
+            byte_estimate=0,
+            limit_desc="DuckDB temp spill budget is zero",
+        )
+
+    with _spill_reservation_lock:
+        remaining = config.remaining_capacity_bytes()
+        already_reserved = _spill_reserved_bytes.get(root, 0)
+        available = remaining - already_reserved
+        budget = min(per_connection_limit, available)
+        if budget <= 0:
+            raise ResultTooLargeError(
+                rows=0,
+                byte_estimate=max(0, int(already_reserved)),
+                limit_desc=(
+                    "no unreserved DuckDB spill capacity remains "
+                    f"(dir_max_bytes={config.dir_max_bytes})"
+                ),
+            )
+        _spill_reserved_bytes[root] = already_reserved + int(budget)
+        return root, int(budget)
+
+
+def _release_duckdb_temp(root: Path, budget: int) -> None:
+    with _spill_reservation_lock:
+        remaining = _spill_reserved_bytes.get(root, 0) - int(budget)
+        if remaining > 0:
+            _spill_reserved_bytes[root] = remaining
+        else:
+            _spill_reserved_bytes.pop(root, None)
+
+
+class _ReservedDuckDBConnection:
+    """Connection proxy that releases its spill reservation exactly once."""
+
+    def __init__(self, inner, reservation_root: Path, reservation_bytes: int):
+        self._inner = inner
+        self._reservation_root = reservation_root
+        self._reservation_bytes = reservation_bytes
+        self._closed = False
+        self._close_lock = threading.Lock()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+        return False
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                self._inner.close()
+            finally:
+                _release_duckdb_temp(
+                    self._reservation_root,
+                    self._reservation_bytes,
+                )
+
+
 def _open_duckdb(allowed_dirs, config: Optional[StreamConfig] = None):
     """Hardened DuckDB connection for LazyFrame compute.
 
@@ -360,8 +454,12 @@ def _open_duckdb(allowed_dirs, config: Optional[StreamConfig] = None):
 
     config = config or StreamConfig()
     config.check_capacity(full=True)
-    temp_budget = config.remaining_capacity_bytes()
-    con = duckdb.connect(database=":memory:")
+    reservation_root, temp_budget = _reserve_duckdb_temp(config)
+    try:
+        con = duckdb.connect(database=":memory:")
+    except BaseException:
+        _release_duckdb_temp(reservation_root, temp_budget)
+        raise
 
     def _q(s) -> str:
         return str(s).replace("'", "''")
@@ -386,8 +484,9 @@ def _open_duckdb(allowed_dirs, config: Optional[StreamConfig] = None):
         # problem into a filesystem sandbox escape, so fail closed.
         with suppress(Exception):
             con.close()
+        _release_duckdb_temp(reservation_root, temp_budget)
         raise RuntimeError("DuckDB filesystem confinement could not be configured") from exc
-    return con
+    return _ReservedDuckDBConnection(con, reservation_root, temp_budget)
 
 
 def arrow_safe_cell(v):
@@ -456,7 +555,12 @@ class LazyFrame:
         hidden_columns=None,
         stream_config: Optional[StreamConfig] = None,
         compute_timeout_seconds: Optional[float] = None,
+        _ownership_token=None,
     ):
+        if owns_source and _ownership_token is not _LAZYFRAME_OWNERSHIP_TOKEN:
+            raise PermissionError(
+                "Owning LazyFrame construction is restricted to trusted factories"
+            )
         self._con = con
         # None when the backing file has zero columns (empty result from a
         # schemaless source): valid Parquet, but DuckDB can't read a file with
@@ -544,6 +648,7 @@ class LazyFrame:
                 owns_source=owns_source,
                 hidden_columns=hidden_columns,
                 stream_config=stream_config,
+                _ownership_token=_LAZYFRAME_OWNERSHIP_TOKEN,
             )
         # Hardened connection: file access confined to the spill dir(s),
         # bounded memory, config locked (see _open_duckdb). DuckDB spills its
@@ -566,6 +671,7 @@ class LazyFrame:
             owns_source=owns_source,
             hidden_columns=hidden_columns,
             stream_config=stream_config,
+            _ownership_token=_LAZYFRAME_OWNERSHIP_TOKEN,
         )
 
     def _set_compute_timeout(self, timeout_seconds: float) -> None:
@@ -790,6 +896,50 @@ class LazyFrame:
             relation=relation,
         )
 
+    @staticmethod
+    def _estimate_pandas_materialization_bytes(table) -> int:
+        """Conservatively estimate pandas allocation before conversion.
+
+        Arrow's compact buffers can expand sharply into Python objects for
+        strings, binary values, decimals, dates, and nested values. The Arrow
+        batch guard therefore cannot safely stand in for a pandas-memory guard.
+        """
+        import pyarrow as pa
+
+        rows = int(table.num_rows)
+        estimated = 1024 + len(table.schema) * 256
+        for field, column in zip(table.schema, table.columns):
+            column_bytes = int(column.nbytes)
+            estimated += column_bytes
+            data_type = field.type
+            if (
+                pa.types.is_string(data_type)
+                or pa.types.is_large_string(data_type)
+                or pa.types.is_binary(data_type)
+                or pa.types.is_large_binary(data_type)
+            ):
+                estimated += rows * 64
+            elif pa.types.is_decimal(data_type):
+                estimated += rows * 128
+            elif pa.types.is_date(data_type) or pa.types.is_time(data_type):
+                estimated += rows * 64
+            elif (
+                pa.types.is_list(data_type)
+                or pa.types.is_large_list(data_type)
+                or pa.types.is_fixed_size_list(data_type)
+                or pa.types.is_struct(data_type)
+                or pa.types.is_map(data_type)
+                or pa.types.is_union(data_type)
+            ):
+                estimated += max(rows * 128, column_bytes * 4)
+            elif pa.types.is_dictionary(data_type):
+                estimated += max(rows * 8, column_bytes * 2)
+            elif pa.types.is_null(data_type):
+                estimated += rows * 16
+            elif pa.types.is_boolean(data_type) and column.null_count:
+                estimated += rows * 40
+        return int(estimated)
+
     def to_df(self) -> pd.DataFrame:
         max_rows, max_bytes = _materialization_limits()
         return self.to_df_bounded(max_rows, max_bytes)
@@ -808,6 +958,13 @@ class LazyFrame:
             max_rows, max_bytes
         )
         table = self._arrow_table_bounded(max_rows, max_bytes)
+        estimated_pandas_bytes = self._estimate_pandas_materialization_bytes(table)
+        if estimated_pandas_bytes > max_bytes:
+            raise ValueError(
+                "LazyFrame result is too large to materialize "
+                f"(rows={table.num_rows}, bytes={estimated_pandas_bytes}, "
+                f"max_rows={max_rows}, max_bytes={max_bytes})"
+            )
         # DuckDB's .df() coerces DECIMAL to float64. Arrow -> pandas preserves
         # Python Decimal values and therefore exact financial precision.
         result = table.to_pandas()

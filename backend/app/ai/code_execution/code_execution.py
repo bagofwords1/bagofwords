@@ -252,6 +252,7 @@ FORBIDDEN_BUILTINS = frozenset({
     'eval', 'exec', 'compile', 'open', 'input',
     '__import__', 'globals', 'locals', 'vars',
     'getattr', 'setattr', 'delattr', 'hasattr',
+    'type',
     'breakpoint', 'exit', 'quit',
     'memoryview', 'bytearray',
 })

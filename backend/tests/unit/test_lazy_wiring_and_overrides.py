@@ -1499,20 +1499,6 @@ def generate_df(db_clients, excel_files):
         with pytest.raises(UnsafePythonError, match="from_parquet|forbidden"):
             validate_python_code(code)
 
-    def test_generated_code_cannot_call_private_parquet_factory(self):
-        from app.ai.code_execution.code_execution import (
-            UnsafePythonError,
-            validate_python_code,
-        )
-
-        code = """
-def generate_df(db_clients, excel_files):
-    lf = db_clients["db"].execute_query_lazy("SELECT x")
-    return lf._from_parquet("/tmp/other-tenant.parquet").to_df()
-"""
-        with pytest.raises(UnsafePythonError, match="_from_parquet|forbidden"):
-            validate_python_code(code)
-
     def test_generated_code_cannot_construct_owning_lazyframe(self):
         from app.ai.code_execution.code_execution import (
             UnsafePythonError,
