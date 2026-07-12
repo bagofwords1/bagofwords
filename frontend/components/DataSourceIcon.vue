@@ -93,6 +93,7 @@ const iconPath = computed(() => {
     const TYPE_ICON_FILE: Record<string, string> = {
         csv: 'csv.png',
         outlook_mail: 'outlook_mail.svg',
+        elasticsearch: 'elasticsearch.svg',
     };
     if (TYPE_ICON_FILE[t]) {
         return `/data_sources_icons/${TYPE_ICON_FILE[t]}`;
