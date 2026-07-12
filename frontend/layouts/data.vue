@@ -203,10 +203,11 @@ const allTabs = computed(() => {
     })()
     return [
         { name: '', label: 'Overview' },
+        // Unified "sources" tab — holds tables, file scopes AND tools per
+        // connection (the old separate Tools tab is merged in here).
         { name: 'tables', label: tablesLabel },
         { name: 'context', label: 'Instructions' },
         { name: 'queries', label: 'Queries' },
-        { name: 'tools', label: 'Tools' },
         { name: 'monitoring', label: 'Monitoring', gate: canViewMonitoring },
         { name: 'evals', label: 'Evals', gate: canManageEvals },
         { name: 'settings', label: 'Settings' },
@@ -215,7 +216,6 @@ const allTabs = computed(() => {
 
 const tabs = computed(() =>
     allTabs.value.filter(tab => {
-        if (tab.name === 'tools' && !isMcpToolsEnabled.value) return false
         if (tab.gate && !tab.gate.value) return false
         return true
     })

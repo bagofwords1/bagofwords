@@ -97,10 +97,37 @@
             </div>
 
             <div v-else class="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-                <TablesSelector :ds-id="id" :schema="schemaMode" :can-update="canUpdateDataSource" :show-refresh="true" :show-save="canUpdateDataSource" :show-header="true" :header-title="headerTitle" :header-subtitle="headerSubtitle" :save-label="t('agentPage.tables.save')" :show-stats="true" :item-noun="shapeNoun" @saved="onSaved" />
+                <CatalogSelector
+                    :ds-id="id"
+                    :connections="scopeConnections"
+                    :registry-by-type="registryByType"
+                    :can-update="canUpdateDataSource"
+                    @add-mcp="showMCPModal = true"
+                    @add-custom-api="showCustomAPIModal = true"
+                    @edit-connection="openEditModal"
+                    @delete-connection="confirmDelete"
+                    @saved="onSaved" />
             </div>
 
             <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedConnForSignIn" />
+
+            <!-- Tool (MCP / Custom API) management, merged from the old Tools tab -->
+            <AddMCPModal v-model="showMCPModal" :existing-connections="availableMcpConnections" @created="onConnectionCreated" />
+            <AddCustomAPIModal v-model="showCustomAPIModal" :existing-connections="availableCustomApiConnections" @created="onConnectionCreated" />
+            <AddMCPModal v-if="editingConnection?.type === 'mcp'" v-model="showEditModal" :edit-connection="editingConnection" @created="onConnectionUpdated" />
+            <AddCustomAPIModal v-else-if="editingConnection?.type === 'custom_api'" v-model="showEditModal" :edit-connection="editingConnection" @created="onConnectionUpdated" />
+            <UModal v-model="showDeleteModal" :ui="{ width: 'sm:max-w-sm' }">
+                <div class="p-6">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">Remove Connection</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                        Remove <strong>{{ deletingConnection?.name }}</strong> from this agent? The connection will remain available for other agents.
+                    </p>
+                    <div class="flex justify-end gap-2">
+                        <UButton color="gray" variant="ghost" size="xs" @click="showDeleteModal = false">Cancel</UButton>
+                        <UButton color="red" size="xs" :loading="deleting" @click="deleteConnection">Remove</UButton>
+                    </div>
+                </div>
+            </UModal>
         </div>
     </div>
 
@@ -108,10 +135,12 @@
 
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'data' })
-import TablesSelector from '@/components/datasources/TablesSelector.vue'
+import CatalogSelector from '@/components/datasources/CatalogSelector.vue'
 const { t } = useI18n()
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import AddMCPModal from '@/components/AddMCPModal.vue'
+import AddCustomAPIModal from '@/components/AddCustomAPIModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
 import { hasAnyActiveIndexing, getEffectiveStatus, statusDotClass } from '~/composables/useConnectionStatus'
@@ -124,8 +153,20 @@ const id = computed(() => String(route.params.id || ''))
 // Inject integration data from layout (avoid duplicate API calls)
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
 const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
+const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
 
 const showManageModal = ref(false)
+
+// Connections WITH config (for CatalogSelector's per-connection file scope).
+// injectedIntegration's connections don't carry config.
+const scopeConnections = ref<any[]>([])
+async function loadScopeConnections() {
+  if (!id.value) return
+  try {
+    const { data } = await useMyFetch(`/data_sources/${id.value}/connections`, { method: 'GET' })
+    scopeConnections.value = (data.value as any[]) || []
+  } catch { /* non-fatal */ }
+}
 
 const loading = ref(false)
 const schemaMode = ref<'full' | 'user'>('full')
@@ -279,7 +320,60 @@ async function removeFile(file: AgentFile) {
     }
 }
 
-watch(id, () => { loadFiles() }, { immediate: true })
+watch(id, () => { loadFiles(); loadScopeConnections() }, { immediate: true })
+
+// --- Tool (MCP / custom_api) management, merged from the old Tools tab ---
+const showMCPModal = ref(false)
+const showCustomAPIModal = ref(false)
+const showEditModal = ref(false)
+const editingConnection = ref<any>(null)
+const showDeleteModal = ref(false)
+const deletingConnection = ref<any>(null)
+const deleting = ref(false)
+const allOrgToolConnections = ref<any[]>([])
+
+const mcpConnections = computed(() =>
+  (connections.value as any[]).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
+)
+async function fetchOrgToolConnections() {
+  try {
+    const res = await useMyFetch('/connections', { method: 'GET' })
+    if (res.data.value) {
+      allOrgToolConnections.value = (res.data.value as any[]).filter(
+        (c: any) => c.type === 'mcp' || c.type === 'custom_api'
+      )
+    }
+  } catch {}
+}
+onMounted(fetchOrgToolConnections)
+const availableMcpConnections = computed(() => {
+  const linked = new Set(mcpConnections.value.map((c: any) => String(c.id)))
+  return allOrgToolConnections.value.filter((c: any) => c.type === 'mcp' && !linked.has(String(c.id)))
+})
+const availableCustomApiConnections = computed(() => {
+  const linked = new Set(mcpConnections.value.map((c: any) => String(c.id)))
+  return allOrgToolConnections.value.filter((c: any) => c.type === 'custom_api' && !linked.has(String(c.id)))
+})
+async function onConnectionCreated(conn: any) {
+  try { await useMyFetch(`/data_sources/${id.value}/connections/${conn.id}`, { method: 'POST' }) } catch {}
+  try { await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' }) } catch {}
+  await fetchIntegration(); await fetchOrgToolConnections(); await loadScopeConnections()
+}
+async function onConnectionUpdated() { editingConnection.value = null; await fetchIntegration() }
+function openEditModal(conn: any) { editingConnection.value = conn; showEditModal.value = true }
+function confirmDelete(conn: any) { deletingConnection.value = conn; showDeleteModal.value = true }
+async function deleteConnection() {
+  if (!deletingConnection.value) return
+  deleting.value = true
+  try {
+    await useMyFetch(`/data_sources/${id.value}/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
+    toast.add({ title: 'Connection removed', color: 'green' })
+    showDeleteModal.value = false; deletingConnection.value = null
+    await fetchIntegration(); await fetchOrgToolConnections(); await loadScopeConnections()
+  } catch (e: any) {
+    toast.add({ title: 'Failed to remove connection', description: e?.data?.detail, color: 'red' })
+  } finally { deleting.value = false }
+}
 
 // Set schema mode based on permissions - wait for permissions to load
 watch([injectedIntegration, permissionsLoaded], ([ds, loaded]) => {
