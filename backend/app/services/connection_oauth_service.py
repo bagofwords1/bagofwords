@@ -133,12 +133,13 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "google",
         }
 
-    if conn_type == "mcp":
-        # Pre-configured OAuth client for an MCP server. The admin registered an
-        # OAuth client at the identity provider (which may or may not be the MCP
-        # server itself); the per-user dance is standard authorization-code +
-        # PKCE. RFC 8707 resource indicator is optional but recommended so the
-        # issued token is audience-bound to the MCP server URL.
+    if conn_type in ("mcp", "custom_api"):
+        # Pre-configured OAuth client for an MCP server OR a Custom API (e.g. the
+        # "X Write" preset: POST /2/tweets with the user's X token). The admin
+        # registered an OAuth client at the identity provider (which may or may
+        # not be the server itself); the per-user dance is standard
+        # authorization-code + PKCE. RFC 8707 resource indicator is optional but
+        # recommended so the issued token is audience-bound to the server URL.
         # Endpoints + client may be admin-supplied OR obtained via Dynamic Client
         # Registration (mcp_dcr_service.ensure_mcp_oauth_config, run before this in
         # the authorize route). client_secret is OPTIONAL — DCR public clients

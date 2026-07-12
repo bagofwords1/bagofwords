@@ -45,6 +45,17 @@ async def get_connectors_catalog(
     from app.schemas.data_source_registry import mcp_presets
     return mcp_presets()
 
+@router.get("/connectors/custom-api-presets", response_model=list[dict])
+async def get_custom_api_presets(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Curated Custom API presets (X Write…) — ready-to-connect REST endpoints
+    exposed as tools. The connect form pre-fills base_url / endpoints / OAuth
+    defaults; the admin supplies the OAuth client id/secret."""
+    from app.schemas.data_source_registry import custom_api_presets
+    return custom_api_presets()
+
 @router.get("/data_sources", response_model=list[DataSourceListItemSchema])
 async def get_data_sources(
     show_all: bool = Query(False, description="Admin 'show all' view: include every data source in the org (private ones too). Only honored for callers with org-wide data-source governance (full_admin_access / manage_connections); ignored otherwise."),

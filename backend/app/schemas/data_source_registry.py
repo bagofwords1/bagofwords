@@ -166,6 +166,7 @@ from app.schemas.data_sources.configs import (
     CustomAPINoAuthCredentials,
     CustomAPIBearerCredentials,
     CustomAPIKeyCredentials,
+    CustomAPIOAuthAppCredentials,
     # OAuth Delegated
     OAuthDelegatedCredentials,
 )
@@ -1367,6 +1368,14 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=CustomAPIKeyCredentials,
                     scopes=["system", "user"],
                 ),
+                # Per-user OAuth (e.g. X write access): admin registers the
+                # OAuth client; each user signs in and their access_token is
+                # sent as Bearer on every endpoint call.
+                "oauth_app": AuthVariant(
+                    title="OAuth Client (admin-configured)",
+                    schema=CustomAPIOAuthAppCredentials,
+                    scopes=["system", "user"],
+                ),
             },
         ),
         client_path="app.data_sources.clients.custom_api_client.CustomApiClient",
@@ -1557,6 +1566,89 @@ def mcp_presets() -> list[dict]:
 
 def mcp_preset(key: str) -> Optional[McpPreset]:
     return next((p for p in MCP_PRESETS if p.key == key), None)
+
+
+# ---------------------------------------------------------------------------
+# Custom API presets — ready-to-connect REST endpoints exposed as tools.
+# These resolve to `type="custom_api"` (like MCP presets resolve to "mcp"):
+# a preset only pre-fills base_url / endpoints / OAuth defaults; the admin
+# supplies the OAuth client id/secret and each user signs in themselves.
+# ---------------------------------------------------------------------------
+
+class CustomApiPreset(BaseModel):
+    """A named, ready-to-connect Custom API preset (e.g. "X Write")."""
+    key: str
+    title: str
+    description: str = ""
+    category: str = "services"
+    base_url: str
+    # Auth mode the connect form defaults to (none | bearer | api_key |
+    # oauth_app). "oauth_app" → per-user OAuth (X write access).
+    auth: str = "oauth_app"
+    headers: dict = {}
+    # Endpoint definitions in the same shape CustomAPIConfig.endpoints uses:
+    # {name, description, method, path, parameters:[{name,in,type,required,description}], confirm}
+    endpoints: List[dict] = []
+    # Provider OAuth constants to pre-fill when `oauth_app` is chosen.
+    oauth_defaults: Optional[McpAuthDefaults] = None
+
+
+# X requires tweet.write for posting and offline.access (dot) for a refresh
+# token; it's a confidential client, so token exchange uses Basic auth. The
+# hosted X MCP server does NOT expose a "create post" tool (read/search only),
+# so posting is done via this Custom API preset calling POST /2/tweets directly
+# with the user's OAuth token. Write endpoints carry confirm:true → policy
+# "ask" at discovery so a post/delete requires confirmation.
+_X_WRITE_PRESET = CustomApiPreset(
+    key="x_write",
+    title="X (Write)",
+    description="Post and delete on X with your own account (POST /2/tweets). "
+                "Complements the read-only hosted X MCP connector.",
+    base_url="https://api.x.com",
+    auth="oauth_app",
+    endpoints=[
+        {
+            "name": "create_post",
+            "description": "Publish a post (tweet) to X on the signed-in user's behalf.",
+            "method": "POST",
+            "path": "/2/tweets",
+            "confirm": True,
+            "parameters": [
+                {"name": "text", "in": "body", "type": "string", "required": True,
+                 "description": "The text of the post (max 280 characters)."},
+            ],
+        },
+        {
+            "name": "delete_post",
+            "description": "Delete one of the signed-in user's posts by id.",
+            "method": "DELETE",
+            "path": "/2/tweets/{id}",
+            "confirm": True,
+            "parameters": [
+                {"name": "id", "in": "path", "type": "string", "required": True,
+                 "description": "The id of the post to delete."},
+            ],
+        },
+    ],
+    oauth_defaults=McpAuthDefaults(
+        authorize_url="https://x.com/i/oauth2/authorize",
+        token_url="https://api.x.com/2/oauth2/token",
+        scopes="tweet.read, tweet.write, users.read, offline.access",
+        token_endpoint_auth_method="client_secret_basic",
+    ),
+)
+
+CUSTOM_API_PRESETS: List[CustomApiPreset] = [_X_WRITE_PRESET]
+
+
+def custom_api_presets() -> list[dict]:
+    """Named Custom API presets (X Write…) as plain dicts. Powers the connector
+    tiles alongside `mcp_presets()`."""
+    return [p.model_dump() for p in CUSTOM_API_PRESETS]
+
+
+def custom_api_preset(key: str) -> Optional[CustomApiPreset]:
+    return next((p for p in CUSTOM_API_PRESETS if p.key == key), None)
 
 
 def allowed_dcr_hosts() -> set:

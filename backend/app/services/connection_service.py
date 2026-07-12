@@ -1484,6 +1484,10 @@ class ConnectionService:
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema"),
                     "output_schema": t.get("output_schema"),
+                    # Providers can hint the policy a newly-discovered tool
+                    # should default to (e.g. custom_api write endpoints → "ask"
+                    # so a post/delete requires confirmation). Absent → "allow".
+                    "default_policy": t.get("default_policy") if isinstance(t, dict) else None,
                 }
 
             # Get existing tools
@@ -1513,7 +1517,10 @@ class ConnectionService:
                         input_schema=payload["input_schema"],
                         output_schema=payload["output_schema"],
                         is_enabled=True,
-                        policy="allow",
+                        # Honor a provider-supplied default (write endpoints →
+                        # "ask"); otherwise allow. Existing tools keep whatever
+                        # policy an admin already set (only new rows are seeded).
+                        policy=payload.get("default_policy") or "allow",
                     )
                     db.add(tool)
                     created_count += 1

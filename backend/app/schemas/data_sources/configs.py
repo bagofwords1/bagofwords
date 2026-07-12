@@ -2165,6 +2165,17 @@ class CustomAPIKeyCredentials(BaseModel):
     )
 
 
+class CustomAPIOAuthAppCredentials(MCPOAuthAppCredentials):
+    """Pre-configured OAuth client for a Custom API (per-user OAuth).
+
+    Same shape as the MCP OAuth-app credentials — the admin registers an OAuth
+    client at the provider (e.g. X), each user signs in, and their per-user
+    access_token is sent as ``Authorization: Bearer`` on every endpoint call.
+    Used by the "X Write" preset (POST /2/tweets with the user's X token).
+    """
+    pass
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -2268,4 +2279,5 @@ __all__ = [
     "CustomAPINoAuthCredentials",
     "CustomAPIBearerCredentials",
     "CustomAPIKeyCredentials",
+    "CustomAPIOAuthAppCredentials",
 ]

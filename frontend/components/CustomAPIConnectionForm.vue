@@ -35,7 +35,41 @@
             <option value="none">No Auth</option>
             <option value="bearer">Bearer Token</option>
             <option value="api_key">API Key</option>
+            <option value="oauth_app">OAuth (per-user sign-in)</option>
           </select>
+        </div>
+
+        <!-- OAuth app: admin registers the client; each user signs in and their
+             access token is sent as Bearer on every call. Endpoints/base URL and
+             the OAuth constants are pre-filled by the preset (e.g. X Write). -->
+        <div v-if="form.auth_type === 'oauth_app'" class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client ID</label>
+              <input v-model="form.client_id" type="text" placeholder="OAuth client ID" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Client Secret</label>
+              <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? '(unchanged)' : 'OAuth client secret'" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+          </div>
+          <details class="text-xs">
+            <summary class="cursor-pointer text-gray-500 dark:text-gray-400">Advanced OAuth settings</summary>
+            <div class="mt-2 space-y-2">
+              <div>
+                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Authorize URL</label>
+                <input v-model="form.authorize_url" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Token URL</label>
+                <input v-model="form.token_url" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Scopes</label>
+                <input v-model="form.scopes" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+            </div>
+          </details>
         </div>
 
         <div v-if="form.auth_type === 'bearer'">
@@ -183,6 +217,15 @@ import Spinner from '~/components/Spinner.vue'
 const props = defineProps<{
   editConnection?: any
   existingConnections?: any[]
+  // Prefill from a Custom API preset (e.g. X Write): base_url + endpoints +
+  // OAuth defaults. The admin only supplies client id/secret.
+  prefill?: {
+    name?: string; base_url?: string; auth?: string
+    headers?: Record<string, string>
+    endpoints?: any[]
+    oauth_defaults?: { authorize_url?: string; token_url?: string; scopes?: string; audience?: string; token_endpoint_auth_method?: string } | null
+    description?: string
+  } | null
 }>()
 const emit = defineEmits<{
   (e: 'saved', connection: any): void
@@ -205,6 +248,13 @@ const form = reactive({
   api_key: '',
   api_key_header: 'X-API-Key',
   endpoints_json: '[]',
+  // OAuth app fields (auth_type === 'oauth_app')
+  client_id: '',
+  client_secret: '',
+  authorize_url: '',
+  token_url: '',
+  scopes: '',
+  token_endpoint_auth_method: '',
 })
 
 const customHeaders = reactive<{ key: string; value: string }[]>([])
@@ -301,6 +351,14 @@ watch(() => props.editConnection, async (conn) => {
         form.api_key_header = config.api_key_header || 'X-API-Key'
         setEndpoints(Array.isArray(config.endpoints) ? normalizeEndpoints(config.endpoints) : [])
         form.endpoints_json = config.endpoints ? JSON.stringify(config.endpoints, null, 2) : '[]'
+        // OAuth app meta (non-secret) round-trips via credentials_meta.
+        const meta = detail.credentials_meta || {}
+        form.client_id = meta.client_id || ''
+        form.client_secret = ''
+        form.authorize_url = meta.authorize_url || ''
+        form.token_url = meta.token_url || ''
+        form.scopes = meta.scopes || ''
+        form.token_endpoint_auth_method = meta.token_endpoint_auth_method || ''
         customHeaders.splice(0)
         const hdrs = config.headers || {}
         for (const [key, value] of Object.entries(hdrs)) {
@@ -311,6 +369,30 @@ watch(() => props.editConnection, async (conn) => {
     } catch {}
     form.name = conn.name || ''
     form.auth_type = 'none'
+  }
+}, { immediate: true })
+
+// Apply preset prefill in create mode (X Write etc). Runs immediately so the
+// form opens populated; the admin only adds client id/secret.
+watch(() => props.prefill, (p) => {
+  if (!p || props.editConnection) return
+  if (p.name && !form.name) form.name = p.name
+  if (p.base_url) form.base_url = p.base_url
+  if (p.auth) form.auth_type = p.auth
+  if (Array.isArray(p.endpoints)) {
+    setEndpoints(normalizeEndpoints(p.endpoints))
+    form.endpoints_json = JSON.stringify(p.endpoints, null, 2)
+  }
+  if (p.headers) {
+    customHeaders.splice(0)
+    for (const [key, value] of Object.entries(p.headers)) customHeaders.push({ key, value: String(value) })
+  }
+  const d = p.oauth_defaults
+  if (d) {
+    if (d.authorize_url) form.authorize_url = d.authorize_url
+    if (d.token_url) form.token_url = d.token_url
+    if (d.scopes) form.scopes = d.scopes
+    if (d.token_endpoint_auth_method) form.token_endpoint_auth_method = d.token_endpoint_auth_method
   }
 }, { immediate: true })
 
@@ -351,6 +433,18 @@ const endpointsError = computed(() => {
 function buildCredentials(): Record<string, any> | undefined {
   if (form.auth_type === 'bearer' && form.token) return { token: form.token }
   if (form.auth_type === 'api_key' && form.api_key) return { api_key: form.api_key, api_key_header: form.api_key_header }
+  if (form.auth_type === 'oauth_app') {
+    // Send only non-empty fields; on edit, a blank client_secret is preserved
+    // server-side (write-only placeholder).
+    const c: Record<string, any> = {}
+    if (form.authorize_url) c.authorize_url = form.authorize_url
+    if (form.token_url) c.token_url = form.token_url
+    if (form.client_id) c.client_id = form.client_id
+    if (form.client_secret) c.client_secret = form.client_secret
+    if (form.scopes) c.scopes = form.scopes
+    if (form.token_endpoint_auth_method) c.token_endpoint_auth_method = form.token_endpoint_auth_method
+    return Object.keys(c).length ? c : undefined
+  }
   return undefined
 }
 
@@ -411,9 +505,16 @@ async function handleSubmit() {
         body: { name: form.name, config, credentials },
       })
     } else {
+      // OAuth-app connections authenticate per user: each user signs in and
+      // their token runs the calls. Everything else uses the shared system creds.
+      const isOAuth = form.auth_type === 'oauth_app'
       response = await useMyFetch('/connections', {
         method: 'POST',
-        body: { name: form.name, type: 'custom_api', config, credentials, auth_policy: 'system_only' },
+        body: {
+          name: form.name, type: 'custom_api', config, credentials,
+          auth_policy: isOAuth ? 'user_required' : 'system_only',
+          ...(isOAuth ? { allowed_user_auth_modes: ['oauth'] } : {}),
+        },
       })
     }
 
