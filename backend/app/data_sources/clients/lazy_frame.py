@@ -352,6 +352,7 @@ class QueryAbandonedError(RuntimeError):
 
 _spill_reservation_lock = threading.Lock()
 _spill_reserved_bytes: dict[Path, int] = {}
+_spill_reservation_counts: dict[Path, int] = {}
 
 
 def _reserve_duckdb_temp(config: StreamConfig) -> tuple[Path, int]:
@@ -369,7 +370,7 @@ def _reserve_duckdb_temp(config: StreamConfig) -> tuple[Path, int]:
     )
     per_connection_limit = min(
         max(0, int(config.max_bytes)),
-        max(0, int(config.dir_max_bytes)) // max_connections,
+        max(0, int(config.dir_max_bytes)),
     )
     if per_connection_limit <= 0:
         raise ResultTooLargeError(
@@ -381,8 +382,10 @@ def _reserve_duckdb_temp(config: StreamConfig) -> tuple[Path, int]:
     with _spill_reservation_lock:
         remaining = config.remaining_capacity_bytes()
         already_reserved = _spill_reserved_bytes.get(root, 0)
+        active = _spill_reservation_counts.get(root, 0)
         available = remaining - already_reserved
-        budget = min(per_connection_limit, available)
+        slots = max(1, max_connections - active)
+        budget = min(per_connection_limit, available // slots)
         if budget <= 0:
             raise ResultTooLargeError(
                 rows=0,
@@ -393,6 +396,7 @@ def _reserve_duckdb_temp(config: StreamConfig) -> tuple[Path, int]:
                 ),
             )
         _spill_reserved_bytes[root] = already_reserved + int(budget)
+        _spill_reservation_counts[root] = active + 1
         return root, int(budget)
 
 
@@ -403,6 +407,11 @@ def _release_duckdb_temp(root: Path, budget: int) -> None:
             _spill_reserved_bytes[root] = remaining
         else:
             _spill_reserved_bytes.pop(root, None)
+        active = _spill_reservation_counts.get(root, 0) - 1
+        if active > 0:
+            _spill_reservation_counts[root] = active
+        else:
+            _spill_reservation_counts.pop(root, None)
 
 
 class _ReservedDuckDBConnection:
@@ -907,8 +916,11 @@ class LazyFrame:
         import pyarrow as pa
 
         rows = int(table.num_rows)
-        estimated = 1024 + len(table.schema) * 256
-        for field, column in zip(table.schema, table.columns):
+        # pandas' RangeIndex and manager metadata are small, but non-zero.
+        # Keep this proportional so a one-row numeric aggregate is not rejected
+        # solely because of an arbitrary fixed floor.
+        estimated = 128 + len(table.schema) * 64
+        for field, column in zip(table.schema, table.columns, strict=True):
             column_bytes = int(column.nbytes)
             estimated += column_bytes
             data_type = field.type
