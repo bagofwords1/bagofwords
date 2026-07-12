@@ -172,11 +172,18 @@ class Google(LLMClient):
                     result = {k: _resolve(v) for k, v in node.items() if k not in Google._GOOGLE_SCHEMA_STRIP and k != "const"}
                     result["enum"] = [node["const"]]
                     return result
-                result = {
-                    k: _resolve(v)
-                    for k, v in node.items()
-                    if k not in Google._GOOGLE_SCHEMA_STRIP
-                }
+                result = {}
+                for k, v in node.items():
+                    if k in Google._GOOGLE_SCHEMA_STRIP:
+                        continue
+                    # Property NAMES live under "properties" and are user data,
+                    # not schema keywords — never strip them (a field literally
+                    # named "title"/"default"/"examples" must survive). Only
+                    # their schema VALUES get sanitized.
+                    if k == "properties" and isinstance(v, dict):
+                        result[k] = {pk: _resolve(pv) for pk, pv in v.items()}
+                    else:
+                        result[k] = _resolve(v)
                 # Drop required entries that reference undefined properties
                 if "required" in result and "properties" in result:
                     defined = set(result["properties"].keys())
