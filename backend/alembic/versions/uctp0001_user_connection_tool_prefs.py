@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'uctp0001'
-down_revision: Union[str, Sequence[str], None] = 'dsicon0001'
+down_revision: Union[str, Sequence[str], None] = 'notes0001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
