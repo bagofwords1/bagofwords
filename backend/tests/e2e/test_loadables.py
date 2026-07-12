@@ -137,19 +137,16 @@ async def _load(db, model, pk):
 
 
 class _StubSettings:
-    """Minimal organization_settings stand-in exposing get_config for the two
-    load_step knobs (the real FeatureConfig shape)."""
+    """Minimal organization_settings stand-in exposing get_config for the
+    enable_load_step flag (the real FeatureConfig shape)."""
 
-    def __init__(self, enable=True, max_age=300):
+    def __init__(self, enable=True):
         self._enable = enable
-        self._max_age = max_age
 
     def get_config(self, key, default=None):
         from app.schemas.organization_settings_schema import FeatureConfig
         if key == "enable_load_step":
             return FeatureConfig(value=self._enable, name="Reuse prior steps", description="x")
-        if key == "load_step_max_age_seconds":
-            return FeatureConfig(value=self._max_age, name="Recency", description="x")
         return default
 
 

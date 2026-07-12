@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Unreleased
-- **`load_step` reuse is now opt-in** — the coder/planner feature that reuses a prior step's results via `load_step` is gated behind a new org setting `enable_load_step` (default **off**). A companion `load_step_max_age_seconds` setting (default 300s) bounds which recent steps are advertised as reusable; re-running saved code that references older steps is unaffected. `load_entity` (published catalog entities) is independent and unchanged.
+- **`load_step` reuse is now opt-in** — the coder/planner feature that reuses a prior step's results via `load_step` is gated behind a new org setting `enable_load_step` (default **off**). Only steps built within a recent window (a fixed 300s) are advertised as reusable; re-running saved code that references older steps is unaffected. `load_entity` (published catalog entities) is independent and unchanged.
 
 ## Version 0.0.448 (July 11, 2026)
 - **Document creation (#613)** — the analyst can now write findings as markdown documents, a new artifact type alongside dashboards and slides. Docs carry live charts, mermaid diagrams, tables, and per-claim citations (built for root-cause analyses, deep-dive reports, and memos), render in the report panel and on shared links, export to Markdown/PDF, and are editable in place by the report owner — with full RTL (Hebrew/Arabic) support.

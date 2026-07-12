@@ -43,30 +43,29 @@ _STEP_FN = "load_step"
 _ENTITY_FN = "load_entity"
 
 
-def load_step_settings(organization_settings) -> Tuple[bool, Optional[int]]:
-    """Read the org's load_step config as ``(enabled, max_age_seconds)``.
+# Discovery-only recency window for load_step (seconds). Deliberately a fixed
+# internal default rather than an org setting — it keeps the settings UI to a
+# single load_step toggle instead of an orphaned knob that only matters when the
+# toggle is on. Bounds what discovery advertises; resolution is never bounded by
+# it, so re-running saved code that references an older step keeps working.
+STEP_DISCOVERY_MAX_AGE_SECONDS = 300
 
-    Defaults to disabled with a 300s discovery window when settings are absent
-    or unreadable. ``max_age_seconds`` is None when the org set it to 0 (no
-    recency bound).
+
+def load_step_settings(organization_settings) -> Tuple[bool, Optional[int]]:
+    """Return ``(enabled, max_age_seconds)`` for load_step.
+
+    ``enabled`` comes from the org's ``enable_load_step`` setting (default off).
+    ``max_age_seconds`` is the fixed internal discovery window
+    (STEP_DISCOVERY_MAX_AGE_SECONDS) — not a user-facing setting.
     """
-    enabled = False
-    max_age: Optional[int] = 300
     if organization_settings is None:
-        return enabled, max_age
+        return False, STEP_DISCOVERY_MAX_AGE_SECONDS
     try:
         cfg = organization_settings.get_config("enable_load_step")
         enabled = bool(getattr(cfg, "value", False))
     except Exception:
         enabled = False
-    try:
-        age_cfg = organization_settings.get_config("load_step_max_age_seconds")
-        raw = getattr(age_cfg, "value", 300)
-        raw = int(raw) if raw is not None else 0
-        max_age = raw if raw > 0 else None
-    except Exception:
-        max_age = 300
-    return enabled, max_age
+    return enabled, STEP_DISCOVERY_MAX_AGE_SECONDS
 
 
 def extract_loadable_refs(code: str) -> Tuple[List[str], List[str]]:
