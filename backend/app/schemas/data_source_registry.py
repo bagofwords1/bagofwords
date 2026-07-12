@@ -242,6 +242,23 @@ class DataSourceRegistryEntry(BaseModel):
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
+    # ── UI grouping ─────────────────────────────────────────────────────────
+    # `category` buckets the entry in the add-connection modal. Purely
+    # presentational — it groups tiles by *what the source is* (a domain), not
+    # by *how it connects* (transport). MCP-backed presets are spread across
+    # these same domain buckets and flagged with an "MCP" badge instead of
+    # living in a transport-named category. The generic escape hatches (raw
+    # `mcp` and `custom_api`) use `custom`, which the frontend pins to a frozen
+    # footer rather than rendering as a scrollable category.
+    #
+    #   databases → operational DBs + warehouses (Postgres, Snowflake, …)
+    #   bi        → BI / semantic-layer / report tools (Tableau, Power BI, …)
+    #   infra     → observability / monitoring / cost (Splunk, Prometheus, …)
+    #   services  → SaaS apps (Salesforce, ServiceNow, NetSuite, …)
+    #   files     → file & object stores (SharePoint, Drive, CSV, …)
+    #   custom    → generic escape hatches (raw MCP, Custom API) → footer
+    category: str = "databases"
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -278,6 +295,11 @@ class McpPreset(BaseModel):
     transport: str = "streamable_http"   # streamable_http | sse
     auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer
     description: str = ""
+    # UI grouping bucket — same vocabulary as DataSourceRegistryEntry.category.
+    # Presets are branded MCP servers, so they slot into a domain category
+    # (services, infra, files, …) and render with an "MCP" badge — not into a
+    # transport-named "MCP" category.
+    category: str = "services"
     # Which auth modes the connect form offers for this tile, in form-vocabulary
     # (none | bearer | api_key | dcr | oauth_app). None → offer all (the generic
     # / arbitrary-URL case). E.g. X excludes `dcr` (its server has no DCR).
@@ -385,6 +407,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "netsuite": DataSourceRegistryEntry(
         type="netsuite",
+        category="services",
         title="NetSuite",
         description="Cloud-based enterprise resource planning (ERP) software suite.",
         config_schema=NetSuiteConfig,
@@ -429,6 +452,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "salesforce": DataSourceRegistryEntry(
         type="salesforce",
+        category="services",
         title="Salesforce",
         description="Cloud-based CRM platform for sales, service, marketing, and more.",
         config_schema=SalesforceConfig,
@@ -439,6 +463,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "servicenow": DataSourceRegistryEntry(
         type="servicenow",
+        category="services",
         title="ServiceNow",
         description="Cloud platform for IT service management, operations, and workflows.",
         config_schema=ServiceNowConfig,
@@ -451,6 +476,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "zabbix": DataSourceRegistryEntry(
         type="zabbix",
+        category="infra",
         title="Zabbix",
         description="Open-source monitoring platform. Query hosts, metrics, triggers, active problems, events, and metric history via the JSON-RPC API.",
         config_schema=ZabbixConfig,
@@ -466,6 +492,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "elasticsearch": DataSourceRegistryEntry(
         type="elasticsearch",
+        category="infra",
         title="Elasticsearch",
         description="Search & observability engine. Investigate logs and metrics across indices, patterns, and data streams with the query DSL, aggregations, SQL, or ES|QL.",
         config_schema=ElasticsearchConfig,
@@ -487,6 +514,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "splunk": DataSourceRegistryEntry(
         type="splunk",
+        category="infra",
         title="Splunk",
         description="Log & observability platform. Investigate events across indexes and sourcetypes with SPL — search, stats, and timechart over machine data.",
         config_schema=SplunkConfig,
@@ -576,6 +604,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "aws_cost": DataSourceRegistryEntry(
         type="aws_cost",
+        category="infra",
         title="AWS Cost Explorer",
         description="AWS Cost Explorer helps analyze and visualize your AWS spending and usage patterns over time.",
         config_schema=AWSCostConfig,
@@ -619,6 +648,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "tableau": DataSourceRegistryEntry(
         type="tableau",
+        category="bi",
         title="Tableau",
         description="Discover schemas via Metadata API and query published data sources via VizQL Data Service.",
         config_schema=TableauConfig,
@@ -662,6 +692,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "opensearch": DataSourceRegistryEntry(
         type="opensearch",
+        category="infra",
         title="OpenSearch",
         description="Search and analytics engine. Query indices with the native query DSL, aggregations, or SQL.",
         config_schema=OpenSearchConfig,
@@ -687,6 +718,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "posthog": DataSourceRegistryEntry(
         type="posthog",
+        category="services",
         title="PostHog",
         description="Product analytics platform - query events, users, sessions, and more with HogQL.",
         config_schema=PostHogConfig,
@@ -705,6 +737,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "prometheus": DataSourceRegistryEntry(
         type="prometheus",
+        category="infra",
         title="Prometheus",
         description="Time-series metrics database. Query metrics and alerts with PromQL; each metric is discovered as a table.",
         config_schema=PrometheusConfig,
@@ -733,6 +766,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "jaeger": DataSourceRegistryEntry(
         type="jaeger",
+        category="infra",
         title="Jaeger",
         description="Distributed tracing backend. Investigate traces and spans across services with the Query API — search by service, operation, tags, latency, and errors.",
         config_schema=JaegerConfig,
@@ -800,6 +834,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "powerbi": DataSourceRegistryEntry(
         type="powerbi",
+        category="bi",
         title="Power BI",
         description="Query Power BI semantic models via DAX. Auto-discovers workspaces, datasets, and reports.",
         config_schema=PowerBIConfig,
@@ -823,6 +858,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "powerbi_report_server": DataSourceRegistryEntry(
         type="powerbi_report_server",
+        category="bi",
         title="Power BI Report Server",
         description="On-prem Power BI Report Server. Discovers reports, paginated reports, shared datasets, KPIs, and upstream data-source lineage via NTLM-authenticated REST. PBIX semantic models are queryable via DuckDB over a cached Parquet snapshot (data reflects the last PBIX refresh, not live upstream — connect the upstream source directly for live data).",
         config_schema=PowerBIReportServerConfig,
@@ -841,6 +877,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "network_dir": DataSourceRegistryEntry(
         type="network_dir",
+        category="files",
         title="Files and Directories",
         description=(
             "Browse, search and read files from a directory — a local folder or "
@@ -869,6 +906,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
+        category="files",
         title="Qlik (QVD)",
         description="Query Qlik (.qvd) files.",
         config_schema=QVDConfig,
@@ -887,6 +925,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "csv": DataSourceRegistryEntry(
         type="csv",
+        category="files",
         title="CSV",
         description="Query CSV (.csv) files with SQL. Point at file paths or glob patterns; each file becomes a table.",
         config_schema=CSVConfig,
@@ -904,6 +943,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "qlik_sense": DataSourceRegistryEntry(
         type="qlik_sense",
+        category="bi",
         title="Qlik Sense",
         description=(
             "Live Qlik Sense Cloud connector: discover apps (models) via REST and "
@@ -930,6 +970,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "sharepoint": DataSourceRegistryEntry(
         type="sharepoint",
+        category="files",
         title="SharePoint",
         description="Read and analyze files from SharePoint document libraries — Excel, CSV, and documents become available to the agent.",
         config_schema=SharePointConfig,
@@ -962,6 +1003,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "onedrive": DataSourceRegistryEntry(
         type="onedrive",
+        category="files",
         title="OneDrive",
         description="Read and analyze files from your OneDrive — Excel, CSV, and documents become available to the agent.",
         config_schema=OneDriveConfig,
@@ -993,6 +1035,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "outlook_mail": DataSourceRegistryEntry(
         type="outlook_mail",
+        category="services",
         title="Outlook Mail",
         description="Read and search your Outlook / Microsoft 365 email — messages become available to the agent to search and read.",
         config_schema=OneDriveConfig,
@@ -1022,6 +1065,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
+        category="files",
         title="Google Drive",
         description="Read and analyze files from your Google Drive — Sheets, Excel, CSV, and documents become available to the agent.",
         config_schema=GoogleDriveConfig,
@@ -1053,6 +1097,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
+        category="bi",
         title="Microsoft Fabric",
         description="Microsoft Fabric Warehouse and Lakehouse SQL endpoints with Azure AD authentication.",
         config_schema=MSFabricConfig,
@@ -1086,6 +1131,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "timbr": DataSourceRegistryEntry(
         type="timbr",
+        category="bi",
         title="Timbr AI",
         description="Ontology-based semantic layer. Query concepts, properties, relationships, and measures via SQL.",
         config_schema=TimbrConfig,
@@ -1104,6 +1150,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "timbr_a2a": DataSourceRegistryEntry(
         type="timbr_a2a",
+        category="bi",
         title="Timbr A2A",
         description="Agent-to-Agent semantic layer. Send natural-language prompts and get structured results.",
         config_schema=TimbrA2AConfig,
@@ -1123,6 +1170,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "sisense": DataSourceRegistryEntry(
         type="sisense",
+        category="bi",
         title="Sisense",
         description="Query Sisense ElastiCubes and live models via SQL. Auto-discovers data models, tables, and dashboards.",
         config_schema=SisenseConfig,
@@ -1141,6 +1189,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "oracle_bi": DataSourceRegistryEntry(
         type="oracle_bi",
+        category="bi",
         title="Oracle BI",
         description="Query Oracle BI subject areas via Logical SQL. Works with OBIEE 11g/12c, Oracle Analytics Server, and Oracle Analytics Cloud.",
         config_schema=OracleBIConfig,
@@ -1159,6 +1208,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "infor_olap": DataSourceRegistryEntry(
         type="infor_olap",
+        category="bi",
         title="Infor OLAP",
         description="Query Infor d/EPM OLAP cubes via MDX over the XMLA Provider. Works with on-premise Infor OLAP / Infor BI (25.x).",
         config_schema=InforOlapConfig,
@@ -1177,6 +1227,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "analysis_services": DataSourceRegistryEntry(
         type="analysis_services",
+        category="bi",
         title="Microsoft Analysis Services",
         description="Query SSAS cubes and models via MDX or DAX over XMLA. Supports both Multidimensional (MDX) and Tabular (DAX/MDX) models.",
         config_schema=AnalysisServicesConfig,
@@ -1195,6 +1246,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "mcp": DataSourceRegistryEntry(
         type="mcp",
+        category="custom",
         title="MCP Server",
         description="Connect to a Model Context Protocol server to access external tools for discovery, knowledge, and data ingestion.",
         config_schema=MCPConfig,
@@ -1237,6 +1289,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",
+        category="custom",
         title="Custom API",
         description="Connect to any REST API by defining endpoint schemas. Endpoints are exposed as callable tools.",
         config_schema=CustomAPIConfig,
@@ -1342,7 +1395,7 @@ MCP_PRESETS: List[McpPreset] = [
               allowed_auth=["dcr"], sample_tools=_TOOLS_LINEAR,
               description="Issues, projects and cycles from Linear."),
     McpPreset(key="sentry", title="Sentry", server_url="https://mcp.sentry.dev/mcp",
-              allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY,
+              allowed_auth=["dcr"], sample_tools=_TOOLS_SENTRY, category="infra",
               description="Errors, issues and releases from Sentry."),
     McpPreset(key="github", title="GitHub", server_url="https://api.githubcopilot.com/mcp/",
               auth="oauth_app", allowed_auth=["oauth_app"],
@@ -1356,7 +1409,7 @@ MCP_PRESETS: List[McpPreset] = [
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.
     McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
-              auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GOOGLE_DRIVE,
+              auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GOOGLE_DRIVE, category="files",
               oauth_defaults=McpAuthDefaults(
                   authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
                   scopes="openid, email, https://www.googleapis.com/auth/drive.readonly",
@@ -1416,6 +1469,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "data_shape": e.data_shape,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
+            "category": e.category,
         }
         for e in REGISTRY.values()
         if (
