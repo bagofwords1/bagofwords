@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.452 (July 12, 2026)
+- **Per-user MCP tool policies with in-run approval** — every MCP / custom-API tool now carries an `allow` / `ask` / `deny` / `auto` policy resolved per user (personal preference → agent overlay → connection default, with admin `deny` absolute). `ask` pauses the report run with an approval card (Allow once / Always allow / Deny / Always deny — "always" is remembered for future runs), `deny` hides the tool from the agent entirely, and `auto` lets the org's small default model review each call and approve or decline it with a visible reason. Enabling/disabling tools and setting default policies stays admin-only; members see the tools read-only and control only their own preference. Also hardens tool re-discovery: an empty provider response no longer wipes existing tools (or the overlays and preferences attached to them).
+
 ## Version 0.0.451 (July 12, 2026)
 - **Doc "Save as PDF" exports the full document** — the print stylesheet isolated the document with `position: fixed`, which clips output to a single viewport box and cut the PDF off after a couple of pages; it now uses `position: absolute` with a content-driven height so tall docs (and their charts) paginate across the whole export in both the viewer and the editor.
 - **Tighter default doc typography** — document body text is now 13px with a tighter 1.65 line-height (down from 15px / 1.75), and headings are scaled down a notch to match (h1 28→24px, h2 20→18px, h3 17→16px, h4 15→14px), for a compact, document-scale feel in both the viewer and editor.
