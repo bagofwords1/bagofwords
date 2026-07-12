@@ -267,8 +267,8 @@ const toolbarButtons = computed(() => {
   padding: 3rem 1.5rem 5rem;
 }
 .bow-doc-editor :deep(.ProseMirror) {
-  font-size: 0.9375rem;
-  line-height: 1.75;
+  font-size: 0.8125rem; /* 13px — match DocViewer's compact document-scale body text */
+  line-height: 1.65;
   color: rgb(55 65 81);
   min-height: 50vh;
 }
@@ -309,8 +309,13 @@ const toolbarButtons = computed(() => {
   html.printing-doc-editor .bow-doc-editor,
   html.printing-doc-editor .bow-doc-editor * { visibility: visible !important; }
   html.printing-doc-editor .bow-doc-editor {
-    position: fixed !important;
-    inset: 0 !important;
+    /* `absolute` (not `fixed`) so the document flows across pages: a fixed
+       element is clipped to a single viewport box, cutting the PDF off after
+       a couple of pages. No `bottom`/`inset` so height follows the content. */
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
     overflow: visible !important;
     height: auto !important;
     padding: 0 !important;

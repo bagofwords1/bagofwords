@@ -212,8 +212,8 @@ const docDir = computed(() => detectDocDir(props.markdown))
   max-width: 46rem;
   margin: 0 auto;
   padding: 3rem 1.5rem 5rem;
-  font-size: 0.9375rem;
-  line-height: 1.75;
+  font-size: 0.8125rem; /* 13px — compact document-scale body text */
+  line-height: 1.65;
   color: rgb(55 65 81); /* gray-700 */
 }
 .bow-doc--compact { padding: 1.5rem 1rem 3rem; }
@@ -354,8 +354,13 @@ const docDir = computed(() => detectDocDir(props.markdown))
   html.printing-doc .doc-viewer,
   html.printing-doc .doc-viewer * { visibility: visible !important; }
   html.printing-doc .doc-viewer {
-    position: fixed !important;
-    inset: 0 !important;
+    /* `absolute` (not `fixed`) so the document flows across pages: a fixed
+       element is clipped to a single viewport box, cutting the PDF off after
+       a couple of pages. No `bottom`/`inset` so height follows the content. */
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
     overflow: visible !important;
     height: auto !important;
   }
