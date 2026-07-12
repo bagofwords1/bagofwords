@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table
-from app.data_sources.clients._document_text import DOC_EXTS, extract_document_text
+from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
@@ -325,7 +325,9 @@ class S3Client(DataSourceClient):
 
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(data, key)
-            return text if text else data
+            # Near-empty extraction on a rich doc (scanned / image-based / CID
+            # font) → return raw bytes so the tool can render it for vision.
+            return text if doc_text_is_usable(text) else data
 
         if ext == "csv":
             return pd.read_csv(io.BytesIO(data))

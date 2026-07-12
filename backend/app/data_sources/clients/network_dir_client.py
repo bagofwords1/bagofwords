@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients._document_text import DOC_EXTS, extract_document_text
+from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_METADATA,
@@ -301,9 +301,10 @@ class NetworkDirClient(DataSourceClient):
                     f"exceeds the {self.max_file_bytes / 1024 / 1024:.0f} MB limit."
                 )
             text = extract_document_text(str(path), path.name)
-            # Fall back to raw bytes if extraction yielded nothing (scanned PDF,
-            # unusual encoding) so the caller can still attach/inspect the file.
-            return text if text else path.read_bytes()
+            # Fall back to raw bytes when extraction yielded nothing OR only a
+            # stray glyph (scanned / image-based / CID-font PDF) so the caller
+            # can render it to images for a vision model instead of a junk read.
+            return text if doc_text_is_usable(text) else path.read_bytes()
 
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size

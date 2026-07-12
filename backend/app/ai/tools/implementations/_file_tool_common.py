@@ -275,7 +275,9 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
     """Turn a *binary* file payload into page images for a vision model.
 
     - Picture files (png/jpg/…) pass through, normalized to PNG.
-    - PDFs are rasterized page-by-page via pdf2image (needs poppler at runtime).
+    - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
+      Chromium uses for PDFs — as a self-contained wheel, so no system poppler
+      and no headless-browser launch).
 
     Returns ``(images, total_pages)`` where ``images`` is a list of
     ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
@@ -298,16 +300,23 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
             im.save(buf, format="PNG")
             return [(buf.getvalue(), "image/png")], 1
         if ext == "pdf":
-            from pdf2image import convert_from_bytes
-            pages = convert_from_bytes(data, dpi=dpi)
-            total = len(pages)
-            out = []
-            for pg in pages[:max_pages]:
-                buf = io.BytesIO()
-                pg.save(buf, format="PNG")
-                out.append((buf.getvalue(), "image/png"))
-            return out, total
-    except Exception as e:  # missing poppler, corrupt file, unsupported image
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(data)
+            try:
+                total = len(pdf)
+                out = []
+                for i in range(min(total, max_pages)):
+                    page = pdf[i]
+                    pil = page.render(scale=dpi / 72.0).to_pil()
+                    if pil.mode not in ("RGB", "L"):
+                        pil = pil.convert("RGB")
+                    buf = io.BytesIO()
+                    pil.save(buf, format="PNG")
+                    out.append((buf.getvalue(), "image/png"))
+                return out, total
+            finally:
+                pdf.close()
+    except Exception as e:  # corrupt/locked file, unsupported image
         logger.info("render_file_images: could not render %s: %s", file_id, e)
     return [], 0
 
