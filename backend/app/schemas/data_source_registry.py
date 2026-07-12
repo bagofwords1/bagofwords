@@ -757,7 +757,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.jaeger_client.JaegerClient",
-        dev_only=True,
+        version="beta",
     ),
     "databricks_sql": DataSourceRegistryEntry(
         type="databricks_sql",
