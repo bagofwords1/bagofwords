@@ -104,50 +104,87 @@ async def resolve_file_client(
     if not db or not organization:
         return None, "Missing database session or organization context."
 
-    # Build the agent's attached file-source connections from the report's
-    # data sources. Used both as an allow-list (security) and as the
-    # fallback when the LLM passes a data_source_id instead of a connection_id.
-    attached_conns: list = []
+    # The agent's attached file-source connections form the allow-list AND the
+    # resolution target. We only ever resolve to something on this list, so the
+    # forgiving fallbacks below can never reach a connection the current report
+    # isn't already built on. Restrict to ACTIVE connections on ACTIVE data
+    # sources — a disabled agent/connection is not a valid target.
+    attached: list = []  # (ds, conn)
     if report:
         for ds in (report.data_sources or []):
+            if not getattr(ds, "is_active", True):
+                continue
             for conn in (ds.connections or []):
-                if conn.type in FILE_SOURCE_TYPES:
-                    attached_conns.append((ds, conn))
+                if conn.type in FILE_SOURCE_TYPES and getattr(conn, "is_active", True):
+                    attached.append((ds, conn))
 
-    attached_conn_ids = {str(conn.id) for _, conn in attached_conns}
-    attached_ds_ids = {str(ds.id) for ds, _ in attached_conns}
-    sid = str(connection_id)
+    attached_conn_ids = {str(conn.id) for _, conn in attached}
+    sid = str(connection_id or "").strip()
+    sid_l = sid.lower()
 
     resolved_conn = None
+    resolved_ds = None
 
-    if sid in attached_conn_ids:
-        # Direct Connection ID match — happy path.
-        for _, conn in attached_conns:
+    if report:
+        # Resolve forgivingly — the model frequently passes the agent's name or
+        # its data_source id instead of the connection id. Order: exact
+        # connection id → data_source id → data_source NAME → (if the agent has
+        # exactly one file connection) that connection regardless of the guess.
+        for ds, conn in attached:
             if str(conn.id) == sid:
-                resolved_conn = conn
+                resolved_ds, resolved_conn = ds, conn
                 break
-    elif sid in attached_ds_ids:
-        # LLM passed the DataSource (agent) ID. Pick the first file-source
-        # connection on that data source.
-        for ds, conn in attached_conns:
-            if str(ds.id) == sid:
-                resolved_conn = conn
-                break
+        if resolved_conn is None:
+            for ds, conn in attached:
+                if str(ds.id) == sid:
+                    resolved_ds, resolved_conn = ds, conn
+                    break
+        if resolved_conn is None and sid_l:
+            for ds, conn in attached:
+                if (getattr(ds, "name", "") or "").strip().lower() == sid_l:
+                    resolved_ds, resolved_conn = ds, conn
+                    break
+        if resolved_conn is None and len(attached) == 1:
+            resolved_ds, resolved_conn = attached[0]
+            logger.info(
+                "resolve_file_client: '%s' matched no id/name; using the agent's "
+                "only file connection %s (%s).",
+                connection_id, resolved_conn.id, resolved_conn.name,
+            )
 
-    if resolved_conn is None:
-        if report and attached_conns:
+        if resolved_conn is None:
             return None, (
                 f"'{connection_id}' is not a file source attached to this agent. "
                 f"Attached file connections: {sorted(attached_conn_ids)}."
             )
-        # No report scope — fall through to direct DB lookup (used by
-        # standalone tool calls / tests).
+
+        # Access guard: never operate on a data source the current user can't
+        # access — not even via the forgiving fallbacks above. Skipped only when
+        # there's no user in context (standalone/system callers). Fail-open on a
+        # resolver error (matches the existing trust in report.data_sources); a
+        # definitive "no" blocks.
+        if current_user is not None and resolved_ds is not None:
+            try:
+                from app.core.permission_resolver import user_can_access_data_source
+                allowed = await user_can_access_data_source(
+                    db, str(current_user.id), str(organization.id), resolved_ds
+                )
+            except Exception:
+                allowed = True
+            if not allowed:
+                return None, (
+                    f"You do not have access to the data source "
+                    f"'{getattr(resolved_ds, 'name', '?')}'."
+                )
+    else:
+        # No report scope — direct DB lookup (standalone tool calls / tests).
         from app.models.connection import Connection
         result = await db.execute(
             select(Connection).where(
                 Connection.id == sid,
                 Connection.organization_id == str(organization.id),
                 Connection.type.in_(list(FILE_SOURCE_TYPES)),
+                Connection.is_active == True,  # noqa: E712
             )
         )
         resolved_conn = result.scalar_one_or_none()
