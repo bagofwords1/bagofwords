@@ -78,6 +78,13 @@ Unix file verbs split into two buckets. **Only the first is in scope.**
 Typed params on the three existing schemas in `file_tools.py`. Each is
 optional and backward-compatible.
 
+**File sources only.** These params ride on `list_files`/`read_file`/
+`search_files`, which are gated by the `LIST_FILES`/`READ_FILE`/
+`SEARCH_FILES` capabilities (`requires_capability` on each tool's metadata).
+Only file-based clients declare those capabilities, so the new params are
+inherently unavailable to SQL / MCP / other non-file connectors — no extra
+gating needed.
+
 **`ReadFileInput`** (`file_tools.py:65`)
 - `line_offset: int = 0`, `line_limit: int | None` — return lines
   `[offset, offset+limit)` (covers `head -n`, `sed -n`).
@@ -97,13 +104,12 @@ optional and backward-compatible.
   `context_before`/`context_after` window instead of file-level entries.
 - Runs over extracted text (so pdf/docx grep still works).
 
-## 5. Scalability note
+## 5. No consolidation — params on existing tools
 
-If the Bucket-A surface keeps growing, prefer consolidating into **one
-structured tool** — `inspect_files` with an `operation` enum
-(`list|stat|read|grep|du`) and typed args — over sprawling params across
-three tools. This keeps every op typed, `_resolve`-confined, and
-doc-extraction-aware while giving one extensible surface. Still not bash.
+**Decision:** add the Bucket-A capabilities as params on the three existing
+tools (`list_files`/`read_file`/`search_files`). Do **not** introduce a
+consolidated `inspect_files` tool. This keeps the tool surface stable and
+each op typed, `_resolve`-confined, and doc-extraction-aware. Still not bash.
 
 ## 6. Agent-level "auto-activate new files" flag
 
@@ -156,8 +162,8 @@ Existing files preserve `is_active` (`data_source_service.py:4345`).
 
 ## 8. Open questions
 
-1. Consolidate into one `inspect_files` tool now, or add params to the three
-   existing tools and consolidate later if it sprawls?
+1. ~~Consolidate into one `inspect_files` tool?~~ **Resolved: no — params on
+   the existing three tools (Section 5).**
 2. `du`/`wc` summaries — worth the extra fields, or defer?
 3. Auto-activate default — confirm ON-for-files / OFF-for-SQL, or make it an
    explicit choice at agent creation with no implicit default?
