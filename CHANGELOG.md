@@ -1,11 +1,8 @@
 # Release Notes
 
-## Version 0.0.452 (July 12, 2026)
-- **Compact doc headings** — document headings are scaled down a notch (h1 28→24px, h2 20→18px, h3 17→16px, h4 15→14px) in both the viewer and editor so they sit in proportion with the compact 13px body text.
-
 ## Version 0.0.451 (July 12, 2026)
 - **Doc "Save as PDF" exports the full document** — the print stylesheet isolated the document with `position: fixed`, which clips output to a single viewport box and cut the PDF off after a couple of pages; it now uses `position: absolute` with a content-driven height so tall docs (and their charts) paginate across the whole export in both the viewer and the editor.
-- **Tighter default doc body text** — document body text is now 13px with a tighter 1.65 line-height (down from 15px / 1.75) in both the viewer and editor, for a compact, document-scale feel; headings are unchanged.
+- **Tighter default doc typography** — document body text is now 13px with a tighter 1.65 line-height (down from 15px / 1.75), and headings are scaled down a notch to match (h1 28→24px, h2 20→18px, h3 17→16px, h4 15→14px), for a compact, document-scale feel in both the viewer and editor.
 
 ## Version 0.0.450 (July 12, 2026)
 - **Jaeger connector (#624)** — query distributed traces over the Jaeger Query HTTP API; each backend exposes `services`, `operations`, `spans`, and `dependencies` tables, and span search filters by service, operation, tags, latency, and errors.
