@@ -498,6 +498,50 @@ async def get_domain_connections(
     ]
 
 
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/files")
+@requires_resource_permission('data_source', 'view')
+async def list_connection_files(
+    data_source_id: str,
+    connection_id: str,
+    limit: int = 200,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Browse a file connection's files — the SAME live path the agent's
+    list_files tool uses (scoped by globs, bounded by the connection's cap).
+
+    This is the single source of truth for "what files does this connection
+    expose", so the UI browse never diverges from what the agent sees. It's
+    live for cheap-to-list sources (network_dir/S3) and reflects the real
+    source — so `none`-mode connections show their files (not an empty cache).
+    """
+    from app.models.connection import Connection
+    from app.services.connection_service import ConnectionService
+    conns = await data_source_service.get_domain_connections(db, data_source_id, organization)
+    conn = next((c for c in conns if str(c.id) == str(connection_id)), None)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not attached to this agent")
+    try:
+        client = await ConnectionService().construct_client(db, conn, current_user)
+        entries = await client.alist_files(recursive=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to list files: {e}")
+    files = [e for e in (entries or []) if not e.get("is_folder")]
+    total = len(files)
+    page = files[max(0, offset): max(0, offset) + max(1, min(limit, 500))]
+    return {
+        "connection_id": str(connection_id),
+        "files": [{"id": f.get("id"), "name": f.get("name"), "size": f.get("size"),
+                   "modified_at": f.get("modified_at"), "mime_type": f.get("mime_type")} for f in page],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(page) < total,
+    }
+
+
 @router.post("/data_sources/{data_source_id}/connections/{connection_id}")
 @requires_resource_permission('data_source', 'manage')
 async def add_connection_to_domain(

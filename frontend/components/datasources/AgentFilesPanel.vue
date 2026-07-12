@@ -91,9 +91,11 @@ async function loadAll() {
   files.value = (ups.data.value as any[]) || []
   for (const c of fileConnections.value) {
     try {
-      const res = await useMyFetch(`/data_sources/${props.dsId}/full_schema?page=1&page_size=30&connection_filter=${c.id}`, { method: 'GET' })
+      // Live list — same path the agent's list_files uses (source of truth),
+      // so browse never diverges and none-mode connections show their files.
+      const res = await useMyFetch(`/data_sources/${props.dsId}/connections/${c.id}/files?limit=30`, { method: 'GET' })
       const d: any = res.data.value || {}
-      browse.value[c.id] = { names: (d.tables || []).map((t: any) => t.name), total: d.total ?? (d.tables || []).length }
+      browse.value[c.id] = { names: (d.files || []).map((f: any) => f.id || f.name), total: d.total ?? (d.files || []).length }
     } catch { browse.value[c.id] = { names: [], total: 0 } }
   }
 }
