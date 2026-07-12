@@ -28,7 +28,7 @@ from app.data_sources.clients.base import Capability
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
-_FILE_METADATA_KEYS = ("network_dir", "graph", "google_drive")
+_FILE_METADATA_KEYS = ("network_dir", "graph", "google_drive", "s3")
 _WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
 
 

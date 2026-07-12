@@ -54,15 +54,15 @@ everyone — same ownership model as `network_dir` and a SharePoint library). Th
 `backend/app/schemas/data_source_registry.py`:
 
 ```python
-"object_store": DataSourceRegistryEntry(
-    type="object_store",
-    title="Object Store",
+"s3": DataSourceRegistryEntry(
+    type="s3",
+    title="Amazon S3",
     description=(
         "Browse and read files from a cloud object store (Amazon S3). "
         "Reads inside PDF, Word, PowerPoint, Excel and CSV, and can attach "
         "objects to a report. Large objects can be read in byte-range windows."
     ),
-    config_schema=ObjectStoreConfig,
+    config_schema=S3Config,
     credentials_auth=AuthOptions(
         default="aws_keys",
         by_auth={
@@ -73,7 +73,7 @@ everyone — same ownership model as `network_dir` and a SharePoint library). Th
             "aws_default": AuthVariant(title="AWS Default Chain",     schema=S3DefaultCredentials, scopes=["system"]),
         },
     ),
-    client_path="app.data_sources.clients.object_store_client.ObjectStoreClient",
+    client_path="app.data_sources.clients.s3_client.S3Client",
     is_document_based=True,
     data_shape="files",
     catalog_ownership="shared",
@@ -107,7 +107,7 @@ class S3DefaultCredentials(BaseModel):
     class Config:
         extra = "allow"
 
-class ObjectStoreConfig(BaseModel):
+class S3Config(BaseModel):
     bucket: str = Field(..., title="Bucket",
         description="S3 bucket name.", json_schema_extra={"ui:type": "string"})
     prefix: Optional[str] = Field(None, title="Prefix",
@@ -134,8 +134,8 @@ class ObjectStoreConfig(BaseModel):
 
 ## Client
 
-`backend/app/data_sources/clients/object_store_client.py` — new
-`ObjectStoreClient(DataSourceClient)`. Structurally a sibling of
+`backend/app/data_sources/clients/s3_client.py` — new
+`S3Client(DataSourceClient)`. Structurally a sibling of
 `network_dir_client.py`; the filesystem primitives are swapped for boto3 calls,
 and **all the document/tabular/keyword machinery is reused verbatim** via the
 existing shared helpers (`_document_text`, `_keywords`) and pandas parsing.
@@ -160,7 +160,7 @@ lazily in `connect()` / on first use so a bad bucket surfaces in
 | `list_files(folder_id, recursive)` | `list_objects_v2` paginator, `Prefix=` (prefix + folder_id), `Delimiter="/"` when not recursive; `Contents[]`→ entries, `CommonPrefixes[]`→ folder entries |
 | `read_file(file_id, sheet, offset, length, max_bytes)` | ranged or whole `get_object`; parse identically to `network_dir` (csv/tsv/xlsx→DataFrame, doc→extracted text, text→str) |
 | `read_raw_bytes(file_id)` | `get_object` → `(bytes, name, mime)` for `attach_file` |
-| `get_schemas()` | `list_files` → `Table` rows, `metadata_json={"object_store": {...}}`, keyword-index each object (bounded by `max_catalog_objects`) |
+| `get_schemas()` | `list_files` → `Table` rows, `metadata_json={"s3": {...}}`, keyword-index each object (bounded by `max_catalog_objects`) |
 | `get_schema` / `prompt_schema` / `execute_query` | same thin wrappers as `network_dir` |
 
 ### Entry shape mapping
@@ -284,7 +284,7 @@ so cataloging isn't dominated by the Athena results.
 
 ## Testing plan
 
-- **Unit** (`backend/tests/unit/test_object_store_client.py`): stub boto3 with
+- **Unit** (`backend/tests/unit/test_s3_client.py`): stub boto3 with
   `botocore.stub.Stubber` (or `moto`) — list mapping, entry fields, prefix
   confinement / traversal rejection, structured vs windowed read, newline
   snapping, `eof`/`next_cursor` math, oversize rejection.
@@ -307,15 +307,15 @@ the cursor design against a real bucket, then add the other two.
 
 ## File-by-file change list
 
-1. `backend/app/schemas/data_sources/configs.py` — `ObjectStoreConfig`,
+1. `backend/app/schemas/data_sources/configs.py` — `S3Config`,
    `S3KeyCredentials`, `S3RoleCredentials`, `S3DefaultCredentials`.
-2. `backend/app/schemas/data_source_registry.py` — `"object_store"` entry.
-3. `backend/app/data_sources/clients/object_store_client.py` — `ObjectStoreClient`.
+2. `backend/app/schemas/data_source_registry.py` — `"s3"` entry.
+3. `backend/app/data_sources/clients/s3_client.py` — `S3Client`.
 4. `backend/app/ai/tools/schemas/file_tools.py` — optional cursor fields on
    `ReadFileInput` / `ReadFileOutput`.
 5. `backend/app/ai/tools/implementations/read_file.py` — windowed-read branch
    (pass through offset/length; skip parse + attach).
-6. `backend/tests/unit/test_object_store_client.py` — unit tests.
+6. `backend/tests/unit/test_s3_client.py` — unit tests.
 7. Frontend: `object_store` picks up the generic `data_source` create form via
    the registry (config + credential schemas render automatically); confirm the
    auth-variant dropdown renders the provider/credential options. No bespoke UI

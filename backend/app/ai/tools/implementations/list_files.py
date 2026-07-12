@@ -26,7 +26,7 @@ _MAX_RESULTS = 500
 # Connector-specific metadata keys on the cached Table's metadata_json.
 # Keep both so a future ds_type doesn't need a code change — just stash
 # under a new sub-key and add it here.
-_FILE_METADATA_KEYS = ("graph", "google_drive", "network_dir")
+_FILE_METADATA_KEYS = ("graph", "google_drive", "network_dir", "s3")
 
 
 class ListFilesTool(Tool):
