@@ -24,6 +24,12 @@ from app.models.data_source import DataSource
 from app.models.data_source_connection_tool import DataSourceConnectionTool
 from app.models.organization import Organization
 from app.models.user import User
+from app.services.tool_policy_service import (
+    ToolPolicyService,
+    VALID_TOOL_POLICIES,
+    normalize_tool_policy,
+    resolve_effective_policy,
+)
 
 
 router = APIRouter(tags=["data_source_tools"])
@@ -35,7 +41,7 @@ class AgentToolSchema(BaseModel):
     connection_name: str
     name: str
     description: Optional[str] = None
-    # Effective state (overlay if present, else ConnectionTool default)
+    # Admin state (overlay if present, else ConnectionTool default)
     is_enabled: bool
     policy: str
     # True when a per-agent overlay row exists
@@ -43,6 +49,10 @@ class AgentToolSchema(BaseModel):
     # The connection-level defaults (so the UI can show "(default)" badges)
     default_is_enabled: bool
     default_policy: str
+    # The requesting user's own preference (null = inherit admin policy) and
+    # the policy that would actually apply to THEIR runs.
+    user_policy: Optional[str] = None
+    effective_policy: str = "allow"
 
     class Config:
         from_attributes = True
@@ -50,7 +60,11 @@ class AgentToolSchema(BaseModel):
 
 class AgentToolUpdate(BaseModel):
     is_enabled: Optional[bool] = None
-    policy: Optional[str] = None  # allow | confirm | deny
+    policy: Optional[str] = None  # allow | ask | deny | auto
+
+
+class MyToolPolicyUpdate(BaseModel):
+    policy: str  # allow | ask | deny | auto
 
 
 async def _load_agent(db: AsyncSession, data_source_id: str, organization: Organization) -> DataSource:
@@ -94,6 +108,10 @@ async def list_agent_tools(
     )
     overlay = {str(o.connection_tool_id): o for o in overlay_q.scalars().all()}
 
+    user_prefs = await ToolPolicyService().get_user_preferences(
+        db, str(current_user.id), [str(t.id) for t in tools]
+    )
+
     out: List[AgentToolSchema] = []
     for t in tools:
         ov = overlay.get(str(t.id))
@@ -106,6 +124,7 @@ async def list_agent_tools(
             eff_policy = t.policy
             has_overlay = False
         conn = conn_by_id.get(str(t.connection_id))
+        user_policy = user_prefs.get(str(t.id))
         out.append(
             AgentToolSchema(
                 id=str(t.id),
@@ -114,10 +133,12 @@ async def list_agent_tools(
                 name=t.name,
                 description=t.description,
                 is_enabled=eff_enabled,
-                policy=eff_policy,
+                policy=normalize_tool_policy(eff_policy),
                 has_overlay=has_overlay,
                 default_is_enabled=t.is_enabled,
-                default_policy=t.policy,
+                default_policy=normalize_tool_policy(t.policy),
+                user_policy=user_policy,
+                effective_policy=resolve_effective_policy(eff_policy, user_policy),
             )
         )
     return out
@@ -148,8 +169,14 @@ async def update_agent_tool(
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not linked to this agent")
 
-    if data.policy is not None and data.policy not in {"allow", "confirm", "deny"}:
-        raise HTTPException(status_code=400, detail="policy must be allow, confirm, or deny")
+    if data.policy is not None:
+        normalized = normalize_tool_policy(data.policy, default=None)
+        if normalized is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
+            )
+        data.policy = normalized
 
     # Upsert overlay
     ov_q = await db.execute(
@@ -187,6 +214,8 @@ async def update_agent_tool(
         pass
 
     conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
+    user_prefs = await ToolPolicyService().get_user_preferences(db, str(current_user.id), [str(tool.id)])
+    user_policy = user_prefs.get(str(tool.id))
     return AgentToolSchema(
         id=str(tool.id),
         connection_id=str(tool.connection_id),
@@ -194,10 +223,12 @@ async def update_agent_tool(
         name=tool.name,
         description=tool.description,
         is_enabled=overlay.is_enabled,
-        policy=overlay.policy,
+        policy=normalize_tool_policy(overlay.policy),
         has_overlay=True,
         default_is_enabled=tool.is_enabled,
-        default_policy=tool.policy,
+        default_policy=normalize_tool_policy(tool.policy),
+        user_policy=user_policy,
+        effective_policy=resolve_effective_policy(overlay.policy, user_policy),
     )
 
 
@@ -246,6 +277,8 @@ async def reset_agent_tool(
         pass
 
     conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
+    user_prefs = await ToolPolicyService().get_user_preferences(db, str(current_user.id), [str(tool.id)])
+    user_policy = user_prefs.get(str(tool.id))
     return AgentToolSchema(
         id=str(tool.id),
         connection_id=str(tool.connection_id),
@@ -253,8 +286,131 @@ async def reset_agent_tool(
         name=tool.name,
         description=tool.description,
         is_enabled=tool.is_enabled,
-        policy=tool.policy,
+        policy=normalize_tool_policy(tool.policy),
         has_overlay=False,
         default_is_enabled=tool.is_enabled,
-        default_policy=tool.policy,
+        default_policy=normalize_tool_policy(tool.policy),
+        user_policy=user_policy,
+        effective_policy=resolve_effective_policy(tool.policy, user_policy),
     )
+
+
+async def _load_agent_tool(
+    db: AsyncSession, ds: DataSource, tool_id: str
+) -> ConnectionTool:
+    conn_ids = [str(c.id) for c in (ds.connections or [])]
+    t_q = await db.execute(
+        select(ConnectionTool).where(
+            ConnectionTool.id == tool_id,
+            ConnectionTool.connection_id.in_(conn_ids),
+        )
+    )
+    tool = t_q.scalar_one_or_none()
+    if tool is None:
+        raise HTTPException(status_code=404, detail="Tool not linked to this agent")
+    return tool
+
+
+async def _my_policy_response(
+    db: AsyncSession, ds: DataSource, tool: ConnectionTool, current_user: User
+) -> AgentToolSchema:
+    """Build the AgentToolSchema for a tool after a my-policy change."""
+    ov_q = await db.execute(
+        select(DataSourceConnectionTool).where(
+            DataSourceConnectionTool.data_source_id == str(ds.id),
+            DataSourceConnectionTool.connection_tool_id == str(tool.id),
+        )
+    )
+    overlay = ov_q.scalar_one_or_none()
+    admin_enabled = overlay.is_enabled if overlay else tool.is_enabled
+    admin_policy = overlay.policy if overlay else tool.policy
+    user_prefs = await ToolPolicyService().get_user_preferences(db, str(current_user.id), [str(tool.id)])
+    user_policy = user_prefs.get(str(tool.id))
+    conn = next((c for c in ds.connections if str(c.id) == str(tool.connection_id)), None)
+    return AgentToolSchema(
+        id=str(tool.id),
+        connection_id=str(tool.connection_id),
+        connection_name=conn.name if conn else "",
+        name=tool.name,
+        description=tool.description,
+        is_enabled=admin_enabled,
+        policy=normalize_tool_policy(admin_policy),
+        has_overlay=overlay is not None,
+        default_is_enabled=tool.is_enabled,
+        default_policy=normalize_tool_policy(tool.policy),
+        user_policy=user_policy,
+        effective_policy=resolve_effective_policy(admin_policy, user_policy),
+    )
+
+
+@router.put("/data_sources/{data_source_id}/tools/{tool_id}/my_policy", response_model=AgentToolSchema)
+@requires_resource_permission('data_source', 'view')
+async def set_my_tool_policy(
+    data_source_id: str,
+    tool_id: str,
+    data: MyToolPolicyUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+) -> AgentToolSchema:
+    """Set the requesting user's own policy for a tool (allow | ask | deny | auto).
+
+    Any member who can view the agent may set their personal preference; it
+    only affects their own runs and can never relax an admin 'deny'.
+    """
+    ds = await _load_agent(db, data_source_id, organization)
+    tool = await _load_agent_tool(db, ds, tool_id)
+
+    normalized = normalize_tool_policy(data.policy, default=None)
+    if normalized is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
+        )
+
+    await ToolPolicyService().set_user_preference(db, str(current_user.id), str(tool.id), normalized)
+    await db.commit()
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tool_user_policy_updated",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"tool_id": str(tool_id), "policy": normalized},
+            request=request,
+        )
+    except Exception:
+        pass
+
+    return await _my_policy_response(db, ds, tool, current_user)
+
+
+@router.delete("/data_sources/{data_source_id}/tools/{tool_id}/my_policy", response_model=AgentToolSchema)
+@requires_resource_permission('data_source', 'view')
+async def reset_my_tool_policy(
+    data_source_id: str,
+    tool_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+) -> AgentToolSchema:
+    """Remove the requesting user's own policy; their runs revert to the admin policy."""
+    ds = await _load_agent(db, data_source_id, organization)
+    tool = await _load_agent_tool(db, ds, tool_id)
+
+    removed = await ToolPolicyService().clear_user_preference(db, str(current_user.id), str(tool.id))
+    if removed:
+        await db.commit()
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="data_source.tool_user_policy_reset",
+            user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
+            details={"tool_id": str(tool_id)},
+            request=request,
+        )
+    except Exception:
+        pass
+
+    return await _my_policy_response(db, ds, tool, current_user)

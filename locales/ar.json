@@ -224,7 +224,8 @@
     "toastCreated": "تم الإنشاء",
     "toastSaveFailed": "تعذّر الحفظ",
     "toastRestored": "تمت استعادة الإصدار {n}",
-    "toastPrimaryUpdated": "تم تحديث التعليمة الأساسية."
+    "toastPrimaryUpdated": "تم تحديث التعليمة الأساسية.",
+    "toolPolicyYours": "سياستك الشخصية"
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -811,7 +812,19 @@
       "running": "جارٍ تشغيل أداة MCP…",
       "foundTools": "تم العثور على {count} أداة",
       "csvSuccess": "{name} ← CSV",
-      "failed": "{name} (فشل)"
+      "failed": "{name} (فشل)",
+      "awaitingApproval": "في انتظار موافقتك لتشغيل {name}…",
+      "autoReviewing": "مراجعة {name} وفقًا للسياسة…",
+      "approvalHint": "تُحفظ خيارات “دائمًا” كتفضيلك للتشغيلات المستقبلية.",
+      "allowOnce": "السماح مرة واحدة",
+      "alwaysAllow": "السماح دائمًا",
+      "denyOnce": "رفض",
+      "alwaysDeny": "الرفض دائمًا",
+      "declined": "{name} (مرفوض)",
+      "blockedByPolicy": "{name} (محظور بموجب السياسة)",
+      "autoDeclinedLabel": "{name} (مرفوض تلقائيًا)",
+      "autoApproved": "تمت الموافقة تلقائيًا بمراجعة السياسة",
+      "autoDenied": "مرفوض بمراجعة السياسة"
     },
     "answerQuestion": {
       "thought": "فكّر في الإجابة"
@@ -3021,5 +3034,19 @@
     "byAgent": "الوكيل",
     "byYou": "أنت",
     "updated": "آخر تحديث"
+  },
+  "toolsSelector": {
+    "adminPolicy": "المسؤول",
+    "adminPolicyTip": "السياسة التي يحددها مسؤولو الوكيل — الافتراضية لجميع المستخدمين",
+    "myPolicy": "أنا",
+    "myPolicyTip": "سياستك الشخصية لهذه الأداة — تنطبق فقط على تشغيلاتك",
+    "myPolicyFailed": "فشل تحديث سياسة الأداة الخاصة بك",
+    "policyAllow": "سماح",
+    "policyAsk": "سؤال",
+    "policyAuto": "تلقائي",
+    "policyDeny": "رفض",
+    "policyInherit": "وراثة ({policy})",
+    "reset": "إعادة تعيين",
+    "resetTip": "إعادة التعيين إلى إعداد الاتصال الافتراضي"
   }
 }

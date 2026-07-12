@@ -178,11 +178,21 @@ def test_custom_api_tool_policy_update(
     updated = update_connection_tool(
         connection_id=conn["id"],
         tool_id=tool["id"],
+        payload={"policy": "ask"},
+        user_token=token,
+        org_id=org_id,
+    )
+    assert updated["policy"] == "ask"
+
+    # The legacy 'confirm' value is still accepted and normalized to 'ask'.
+    updated = update_connection_tool(
+        connection_id=conn["id"],
+        tool_id=tool["id"],
         payload={"policy": "confirm"},
         user_token=token,
         org_id=org_id,
     )
-    assert updated["policy"] == "confirm"
+    assert updated["policy"] == "ask"
 
 
 @pytest.mark.e2e

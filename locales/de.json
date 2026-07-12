@@ -224,7 +224,8 @@
     "toastCreated": "Erstellt",
     "toastSaveFailed": "Konnte nicht gespeichert werden",
     "toastRestored": "v{n} wiederhergestellt",
-    "toastPrimaryUpdated": "Primäre Anweisung aktualisiert."
+    "toastPrimaryUpdated": "Primäre Anweisung aktualisiert.",
+    "toolPolicyYours": "Deine persönliche Richtlinie"
   },
   "smoke": {
     "hello": "Hallo",
@@ -811,7 +812,19 @@
       "running": "MCP-Werkzeug wird ausgeführt …",
       "foundTools": "{count} Werkzeug(e) gefunden",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (fehlgeschlagen)"
+      "failed": "{name} (fehlgeschlagen)",
+      "awaitingApproval": "Warte auf deine Freigabe zur Ausführung von {name}…",
+      "autoReviewing": "Prüfe {name} gegen die Richtlinie…",
+      "approvalHint": "“Immer”-Entscheidungen werden als deine Präferenz für künftige Läufe gespeichert.",
+      "allowOnce": "Einmal erlauben",
+      "alwaysAllow": "Immer erlauben",
+      "denyOnce": "Ablehnen",
+      "alwaysDeny": "Immer ablehnen",
+      "declined": "{name} (abgelehnt)",
+      "blockedByPolicy": "{name} (durch Richtlinie blockiert)",
+      "autoDeclinedLabel": "{name} (automatisch abgelehnt)",
+      "autoApproved": "Automatisch durch Richtlinienprüfung genehmigt",
+      "autoDenied": "Durch Richtlinienprüfung abgelehnt"
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
@@ -3021,5 +3034,19 @@
     "byAgent": "Agent",
     "byYou": "du",
     "updated": "Aktualisiert"
+  },
+  "toolsSelector": {
+    "adminPolicy": "Admin",
+    "adminPolicyTip": "Von Agent-Admins festgelegte Richtlinie — Standard für alle Benutzer",
+    "myPolicy": "Ich",
+    "myPolicyTip": "Deine persönliche Richtlinie für dieses Tool — gilt nur für deine Läufe",
+    "myPolicyFailed": "Deine Tool-Richtlinie konnte nicht aktualisiert werden",
+    "policyAllow": "erlauben",
+    "policyAsk": "fragen",
+    "policyAuto": "auto",
+    "policyDeny": "ablehnen",
+    "policyInherit": "erben ({policy})",
+    "reset": "zurücksetzen",
+    "resetTip": "Auf Verbindungsstandard zurücksetzen"
   }
 }

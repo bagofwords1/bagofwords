@@ -62,9 +62,8 @@
             <span class="text-[10px] text-gray-400 dark:text-gray-600 me-1">
               {{ getEnabledCount(conn.id) }}/{{ getToolCount(conn.id) }} enabled
             </span>
-            <UTooltip text="Refresh tools">
+            <UTooltip v-if="canUpdate" text="Refresh tools">
               <button
-                v-if="canUpdate"
                 @click="refreshTools(conn.id)"
                 :disabled="refreshingConn === conn.id"
                 class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
@@ -73,18 +72,16 @@
                 <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600" />
               </button>
             </UTooltip>
-            <UTooltip text="Edit connection">
+            <UTooltip v-if="canUpdate" text="Edit connection">
               <button
-                v-if="canUpdate"
                 @click="$emit('edit-connection', conn)"
                 class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
               >
                 <UIcon name="heroicons-pencil-square" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600" />
               </button>
             </UTooltip>
-            <UTooltip text="Remove connection">
+            <UTooltip v-if="canUpdate" text="Remove connection">
               <button
-                v-if="canUpdate"
                 @click="$emit('delete-connection', conn)"
                 class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950"
               >
@@ -129,26 +126,53 @@
                 />
                 <code class="text-[13px] text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap">{{ tool.name }}</code>
                 <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600">off</span>
-                <span v-if="!tool.has_overlay" class="text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500" title="Inherits connection default">default</span>
+                <span v-if="canUpdate && !tool.has_overlay" class="text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500" title="Inherits connection default">default</span>
               </button>
               <span class="text-[11px] text-gray-400 dark:text-gray-600 truncate min-w-0">{{ tool.description }}</span>
-              <div v-if="canUpdate" class="flex items-center gap-1 ms-auto flex-shrink-0">
-                <select
-                  :value="tool.policy"
-                  @change="(e: Event) => setToolPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
-                  class="text-[10px] border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400"
-                  title="Tool policy"
-                >
-                  <option value="allow">allow</option>
-                  <option value="confirm">confirm</option>
-                  <option value="deny">deny</option>
-                </select>
+              <div class="flex items-center gap-2 ms-auto flex-shrink-0">
+                <!-- Admin policy: editable for agent admins, read-only badge otherwise -->
+                <div class="flex items-center gap-1" :title="$t('toolsSelector.adminPolicyTip')">
+                  <span class="text-[9px] uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
+                  <select
+                    v-if="canUpdate"
+                    :value="tool.policy"
+                    @change="(e: Event) => setToolPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
+                    class="text-[10px] border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400"
+                  >
+                    <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
+                    <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
+                    <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+                    <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+                  </select>
+                  <span
+                    v-else
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                    data-testid="admin-policy-readonly"
+                  >{{ policyLabel(tool.policy) }}</span>
+                </div>
                 <button
-                  v-if="tool.has_overlay"
+                  v-if="canUpdate && tool.has_overlay"
                   @click="resetTool(conn.id, tool.id)"
-                  class="text-[10px] text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 px-1"
-                  title="Reset to connection default"
-                >reset</button>
+                  class="text-[10px] text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
+                  :title="$t('toolsSelector.resetTip')"
+                >{{ $t('toolsSelector.reset') }}</button>
+                <!-- Per-user policy: every member controls their own -->
+                <div v-if="tool.policy !== 'deny'" class="flex items-center gap-1" :title="$t('toolsSelector.myPolicyTip')">
+                  <span class="text-[9px] uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.myPolicy') }}</span>
+                  <select
+                    :value="tool.user_policy || ''"
+                    @change="(e: Event) => setMyPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
+                    class="text-[10px] border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 focus:outline-none focus:border-blue-400"
+                    :class="tool.user_policy ? 'text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800' : 'text-gray-600 dark:text-gray-400'"
+                    data-testid="my-policy-select"
+                  >
+                    <option value="">{{ $t('toolsSelector.policyInherit', { policy: policyLabel(tool.policy) }) }}</option>
+                    <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
+                    <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
+                    <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+                    <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -200,6 +224,7 @@ const props = defineProps<{
 defineEmits(['add-mcp', 'add-custom-api', 'edit-connection', 'delete-connection'])
 
 const toast = useToast()
+const { t } = useI18n()
 
 const loading = ref(false)
 const refreshingConn = ref<string | null>(null)
@@ -310,6 +335,36 @@ async function setToolPolicy(connectionId: string, toolId: string, policy: strin
   } catch (e) {
     toast.add({ title: 'Failed to update tool policy', color: 'red' })
   }
+}
+
+async function setMyPolicy(connectionId: string, toolId: string, policy: string) {
+  // Empty value = inherit the admin policy (delete the personal preference).
+  try {
+    const response = await useMyFetch(`/data_sources/${props.dsId}/tools/${toolId}/my_policy`, {
+      method: policy ? 'PUT' : 'DELETE',
+      ...(policy ? { body: { policy } } : {}),
+    })
+    if (response.data.value) {
+      const tools = toolsByConnection.value[connectionId] || []
+      const idx = tools.findIndex((t: any) => t.id === toolId)
+      if (idx !== -1) {
+        tools[idx] = response.data.value
+      }
+    }
+  } catch (e) {
+    toast.add({ title: t('toolsSelector.myPolicyFailed'), color: 'red' })
+  }
+}
+
+function policyLabel(policy: string): string {
+  const map: Record<string, string> = {
+    allow: t('toolsSelector.policyAllow'),
+    ask: t('toolsSelector.policyAsk'),
+    confirm: t('toolsSelector.policyAsk'),
+    auto: t('toolsSelector.policyAuto'),
+    deny: t('toolsSelector.policyDeny'),
+  }
+  return map[policy] || policy
 }
 
 function toggleExpand(toolId: string) {

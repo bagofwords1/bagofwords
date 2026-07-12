@@ -224,7 +224,8 @@
     "toastCreated": "Créé",
     "toastSaveFailed": "Impossible d’enregistrer",
     "toastRestored": "Version v{n} restaurée",
-    "toastPrimaryUpdated": "Instruction principale mise à jour."
+    "toastPrimaryUpdated": "Instruction principale mise à jour.",
+    "toolPolicyYours": "Votre politique personnelle"
   },
   "smoke": {
     "hello": "Bonjour",
@@ -811,7 +812,19 @@
       "running": "Exécution de l'outil MCP…",
       "foundTools": "{count} outil(s) trouvé(s)",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (échec)"
+      "failed": "{name} (échec)",
+      "awaitingApproval": "En attente de votre approbation pour exécuter {name}…",
+      "autoReviewing": "Examen de {name} selon la politique…",
+      "approvalHint": "Les choix “Toujours” sont enregistrés comme préférence pour les prochaines exécutions.",
+      "allowOnce": "Autoriser une fois",
+      "alwaysAllow": "Toujours autoriser",
+      "denyOnce": "Refuser",
+      "alwaysDeny": "Toujours refuser",
+      "declined": "{name} (refusé)",
+      "blockedByPolicy": "{name} (bloqué par la politique)",
+      "autoDeclinedLabel": "{name} (refusé automatiquement)",
+      "autoApproved": "Approuvé automatiquement par l'examen de politique",
+      "autoDenied": "Refusé par l'examen de politique"
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"
@@ -3021,5 +3034,19 @@
     "byAgent": "agent",
     "byYou": "vous",
     "updated": "Mis à jour"
+  },
+  "toolsSelector": {
+    "adminPolicy": "admin",
+    "adminPolicyTip": "Politique définie par les administrateurs de l'agent — valeur par défaut pour tous les utilisateurs",
+    "myPolicy": "moi",
+    "myPolicyTip": "Votre politique personnelle pour cet outil — s'applique uniquement à vos exécutions",
+    "myPolicyFailed": "Échec de la mise à jour de votre politique d'outil",
+    "policyAllow": "autoriser",
+    "policyAsk": "demander",
+    "policyAuto": "auto",
+    "policyDeny": "refuser",
+    "policyInherit": "hériter ({policy})",
+    "reset": "réinitialiser",
+    "resetTip": "Réinitialiser à la valeur par défaut de la connexion"
   }
 }

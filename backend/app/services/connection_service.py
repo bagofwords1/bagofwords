@@ -1503,12 +1503,21 @@ class ConnectionService:
                     db.add(tool)
                     created_count += 1
 
-            # Delete stale tools
+            # Delete stale tools — but never on an empty discovery result. A
+            # flaky/misconfigured server returning zero tools would otherwise
+            # wipe every ConnectionTool row and cascade-delete the per-agent
+            # overlays and per-user policy preferences hanging off them.
             deleted_count = 0
-            for existing_name, existing_tool in existing_tools.items():
-                if existing_name not in incoming:
-                    await db.delete(existing_tool)
-                    deleted_count += 1
+            if incoming:
+                for existing_name, existing_tool in existing_tools.items():
+                    if existing_name not in incoming:
+                        await db.delete(existing_tool)
+                        deleted_count += 1
+            elif existing_tools:
+                logger.warning(
+                    f"refresh_tools: provider returned no tools for connection {connection.id}; "
+                    f"keeping {len(existing_tools)} existing tool records (skipping delete pass)"
+                )
             if deleted_count > 0:
                 logger.info(f"refresh_tools: Deleted {deleted_count} ConnectionTool records for tools no longer available")
 
@@ -1581,7 +1590,14 @@ class ConnectionService:
         if is_enabled is not None:
             tool.is_enabled = is_enabled
         if policy is not None:
-            tool.policy = policy
+            from app.services.tool_policy_service import normalize_tool_policy, VALID_TOOL_POLICIES
+            normalized = normalize_tool_policy(policy, default=None)
+            if normalized is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
+                )
+            tool.policy = normalized
 
         await db.commit()
         await db.refresh(tool)

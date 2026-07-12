@@ -2300,6 +2300,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
+						// Capture the 'auto' policy verdict for execute_mcp so MCPTool can show it.
+						// Stored on the tool_execution (not result_json) so the final
+						// tool.finished payload doesn't overwrite it.
+						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'auto_policy_decided') {
+							;(lastBlock.tool_execution as any).auto_policy = {
+								approved: !!payload.payload.approved,
+								reason: payload.payload.reason || ''
+							}
+						}
 
 						// Capture code, attempt, and errors for create_data / inspect_data
 						if ((payload.tool_name === 'create_data' || payload.tool_name === 'inspect_data') && payload.payload) {
