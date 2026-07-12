@@ -473,12 +473,26 @@ async def get_domain_connections(
 ):
     """Get all connections linked to an agent."""
     connections = await data_source_service.get_domain_connections(db, data_source_id, organization)
+    # Expose the non-secret config (credentials live encrypted + separate) so
+    # the agent UI can show a file connection's scope (path/prefix, globs,
+    # indexing) without a second round-trip. This endpoint already requires the
+    # 'manage' permission on the data source.
+    def _safe_config(conn):
+        cfg = conn.config
+        if isinstance(cfg, str):
+            try:
+                import json as _json
+                cfg = _json.loads(cfg)
+            except Exception:
+                cfg = {}
+        return cfg if isinstance(cfg, dict) else {}
     return [
         {
             "id": str(conn.id),
             "name": conn.name,
             "type": conn.type,
             "is_active": conn.is_active,
+            "config": _safe_config(conn),
         }
         for conn in connections
     ]
