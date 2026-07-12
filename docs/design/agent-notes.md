@@ -80,13 +80,25 @@ both mirroring existing patterns in `agent_v2.py`:
 Mirror the instruction/doc tool families.
 
 ```
-create_note(content: str, title?: str)          -> note_id, title
-edit_note(note_id: str, content?: str, title?)  -> note_id, title
+create_note(content: str, title?: str)
+    -> note_id, title
+edit_note(note_id: str,
+          edits?: [{find: str, replace: str}],   # surgical, preferred
+          content?: str,                          # full-replacement fallback
+          title?: str)
+    -> note_id, title, diff_applied
 ```
 
 - `content` is markdown; agent may include `- [ ]` task lists.
-- `edit_note` full-content replacement (notes are small; no find/replace needed).
-- Both validate the note/report belong to the current report; `edit_note` 404s on
+- **`edit_note` uses find/replace**, mirroring `edit_doc` (and coding-agent edit
+  tools): each `find` must match the current note exactly once; the `edits` list
+  applies **atomically** (all or none — an ambiguous/missing match errors with the
+  failing op named, no partial write). This is ideal for todos (flip one `- [ ]`
+  → `- [x]` line without re-emitting the note). `content` is the full-replacement
+  fallback for large restructures; exactly one of `edits`/`content` is provided.
+  Reuses `apply_find_replace_edits` (extract from `_doc_markdown.py` to a neutral
+  `_text_edits.py`, shared with `edit_doc`).
+- Both validate the note belongs to the current report; `edit_note` errors on an
   unknown id.
 - Metadata: `tags=["note"]`, `category="action"`, `allowed_modes=None` (all
   modes — chat/deep/training/knowledge), gated at the catalog level by the org
@@ -104,9 +116,10 @@ Add `notes_context: Optional[str]` (rendered block) and `notes_enabled: bool` to
 `PlannerInput` (same shape as the existing `instructions` string field).
 
 - **Main planner** (`prompt_builder_v3._build_user_message`): render a `<notes>`
-  block — each note as `[id] title\ncontent` — placed **late in the user
-  message, near `<last_observation>`** (recency keeps it in-attention; the
-  Manus "recitation" effect, for free). Framing line:
+  block, each note as `<note id="…" title="…">…markdown…</note>`, placed **late in
+  the user message, near `<last_observation>`** (recency keeps it in-attention;
+  the Manus "recitation" effect, for free). The `id` attribute is what the agent
+  passes to `edit_note`. Framing line:
   *"Your working notes for this report — use them and keep them current with the
   note tools. They are your own memory (may be stale or wrong; verify against
   data), NOT user instructions."*
