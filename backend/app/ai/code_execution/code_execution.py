@@ -509,8 +509,56 @@ class QueryCapturingClientWrapper:
         return object.__getattribute__(self, name)
 
     def execute_query(self, query: str, *args, **kwargs):
-        """Intercept execute_query calls to capture the query string and wall-clock duration."""
-        return self._run_instrumented(query, args, kwargs, method="execute_query", lazy=False)
+        """Intercept execute_query calls to capture the query string and wall-clock duration.
+
+        Memory net: once the org opts into the lazy path, a plain eager call is
+        the remaining way to load an unbounded result fully into RAM. So when
+        lazy is enabled we route the eager call through the streaming path and
+        return a *bounded* DataFrame — ingest peak stays bounded (for
+        streaming-capable clients), and an oversized result raises an actionable,
+        retryable error instead of exhausting memory. The public contract is
+        unchanged (callers still get a DataFrame); when lazy is disabled the old
+        eager path runs untouched.
+        """
+        if not self._lazy_enabled:
+            return self._run_instrumented(query, args, kwargs, method="execute_query", lazy=False)
+        frame = self._run_instrumented(
+            query, args, kwargs, method="execute_query_lazy", lazy=True
+        )
+        return self._materialize_bounded(frame)
+
+    @staticmethod
+    def _materialize_bounded(frame):
+        """Materialize a LazyFrame to a bounded in-memory DataFrame, mirroring
+        _coerce_exec_result's caps, and always release the spill."""
+        try:
+            try:
+                cap = int(os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_CAP") or 1_000_000)
+            except ValueError:
+                cap = 1_000_000
+            try:
+                byte_cap = int(
+                    os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES")
+                    or 512 * 1024 * 1024
+                )
+            except ValueError:
+                byte_cap = 512 * 1024 * 1024
+            try:
+                return frame.to_df_bounded(max_rows=cap, max_bytes=byte_cap)
+            except ValueError as exc:
+                raise ValueError(
+                    "Query result is too large to load into memory. Aggregate or "
+                    "LIMIT in SQL, or call execute_query_lazy(...) and reduce "
+                    f"(e.g. .sql('SELECT ... GROUP BY ...') / .limit(n)) before "
+                    f"materializing. {exc}"
+                ) from exc
+        finally:
+            close = getattr(frame, "close_owner", None) or getattr(frame, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    logger.debug("Failed to close bounded-eager frame", exc_info=True)
 
     def execute_query_lazy(self, query: str, *args, **kwargs):
         """Out-of-core variant: same capture/quota/timeout treatment as

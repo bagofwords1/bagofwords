@@ -216,6 +216,40 @@ class TestWrapperLazyPassthrough:
         assert resolve_lazy_enabled(_FakeOrgSettings(enable_lazy_queries=_Flag(False))) is False
 
 
+class TestWrapperEagerMemoryNet:
+    """When lazy is enabled, the eager execute_query is routed through the
+    streaming path and materialized bounded, so a plain eager call cannot load
+    an unbounded result into RAM."""
+
+    def test_eager_routes_through_lazy_and_returns_dataframe(self):
+        client = TinyClient({"SELECT x": pd.DataFrame({"a": [1, 2, 3]})})
+        wrapper, queries, timings = _make_wrapper(client, lazy_enabled=True)
+
+        out = wrapper.execute_query("SELECT x")
+        assert isinstance(out, pd.DataFrame)           # public contract unchanged
+        assert out["a"].tolist() == [1, 2, 3]
+        assert queries == ["SELECT x"]
+        assert timings[0]["lazy"] is True              # routed through the spill path
+
+    def test_eager_over_cap_raises_actionable_error(self, monkeypatch):
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_CAP", "2")
+        client = TinyClient({"SELECT big": pd.DataFrame({"a": [1, 2, 3]})})
+        wrapper, _, _ = _make_wrapper(client, lazy_enabled=True)
+
+        with pytest.raises(ValueError, match="too large to load into memory"):
+            wrapper.execute_query("SELECT big")
+
+    def test_eager_unchanged_when_lazy_disabled(self):
+        client = TinyClient({"SELECT x": pd.DataFrame({"a": [1, 2, 3]})})
+        wrapper, queries, timings = _make_wrapper(client, lazy_enabled=False)
+
+        out = wrapper.execute_query("SELECT x")
+        assert isinstance(out, pd.DataFrame)
+        assert out["a"].tolist() == [1, 2, 3]
+        assert not timings[0].get("lazy")              # plain eager path (no lazy marker)
+        assert client.calls == ["SELECT x"]            # raw eager query ran directly
+
+
 # =============================================================================
 # NetSuite: offset pagination, nested-cell encoding, raise-at-cap
 # =============================================================================
