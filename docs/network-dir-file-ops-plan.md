@@ -6,10 +6,50 @@ new files" flag. **No implementation yet — this is scope + approach for
 review.**
 
 Anchors: `backend/app/data_sources/clients/network_dir_client.py`,
+`backend/app/data_sources/clients/s3_client.py`,
 `backend/app/ai/tools/schemas/file_tools.py`,
 `backend/app/ai/tools/implementations/{list_files,read_file,search_files}.py`,
 `backend/app/services/data_source_service.py`,
 `backend/app/services/connection_indexing_service.py`.
+
+---
+
+## 0. Alignment with the S3 connector (the object-store sibling)
+
+`s3_client.py` is `network_dir`'s sibling: same file-source abstraction, same
+shared helpers (`_document_text`, `_keywords`), same `_entry` shape, same
+confinement pattern (`_resolve_key` ↔ `_resolve`), same `get_schemas` keyword
+indexing. **The right approach is whatever keeps these two aligned**, because
+they've already drifted and that drift is the source of the gaps below.
+
+**Key finding: the large-file read primitive already exists — S3 shipped it,
+`network_dir` doesn't implement it.** The shared `read_file` tool now carries a
+**windowed byte-range contract**: `offset`/`length` in →
+`next_cursor`/`total_size`/`eof`/`encoding` out (`ReadFileInput`/
+`ReadFileOutput` in `file_tools.py`), cursor-paged with newline-snapping.
+S3 fulfills it (`_read_window`, `s3_client.py:332`); `network_dir.read_file`
+still has no `offset` (`network_dir_client.py:214`), so the tool returns
+*"This connection does not support windowed (offset/length) reads"*
+(`read_file.py:98`) for a network dir.
+
+So the tail/range work below is **not a new design** — it's making
+`network_dir` conform to the shipped windowed contract (trivial: local
+`seek`+`read` with the same newline-snap, cheaper than S3's ranged GET).
+
+| Concern | S3 | network_dir | Standard |
+|---|---|---|---|
+| Large-file read | ✅ windowed | ❌ missing | network_dir implements the **same** windowed contract (byte-window covers range/head/tail via offset math — `total_size` is returned). No separate line-oriented API. |
+| List / sort / filter | live `list_objects_v2`, cached at tool layer | live FS walk, cached | Filters on the **shared** `list_files` tool → benefit both. |
+| Content search / grep | SEARCH_FILES **not declared** (GET-per-object too costly); cache index only | SEARCH_FILES + `deep=True` live scan | Cache-backed keyword search for all; **live/deep scan an optional capability only cheap sources declare.** grep-line-context is network_dir-only. |
+| Catalog scale cap | `max_catalog_objects=5000` | none | network_dir should adopt a cap too. |
+| Auto-activate flag | file source, `is_active` on DataSourceTable | same | Connector-agnostic — on `DataSource`, applies to both. |
+| Write | out of scope | WRITE_FILE | Acceptable divergence. |
+
+**Deeper fix:** the two clients are near-duplicate code that only share the
+doc/keyword helpers, and have already diverged (S3 has windowing + parquet +
+ndjson; network_dir has none). A **shared file-source base/mixin** owning the
+read-parse-window-index logic would make a new primitive land once for every
+file connector instead of being copied — or forgotten, as windowing was.
 
 ---
 
@@ -65,9 +105,9 @@ Unix file verbs split into two buckets. **Only the first is in scope.**
 | `du -sh` | folder total | size/count summary on `list_files` output | **add** (optional) |
 | `stat` | per-file metadata | `_entry` (size, mtime, mime) | **exists** (`network_dir_client.py:158`) |
 | `cat` | read whole file | `read_file` | **exists** (`network_dir_client.py:214`) |
-| `head` (bytes) | leading slice | `read_file.max_chars` | **exists** (`file_tools.py:94`) |
-| `head -n` / `sed -n a,b` | line range | `read_file.line_offset`+`line_limit` | **add** |
-| `tail -n` | trailing lines | `read_file.tail_lines` | **add** |
+| `head` (bytes) | leading slice | `read_file.max_chars` (whole-file) or windowed `offset=0` | **exists** |
+| `sed -n a,b` / range | byte window | `read_file.offset`+`length` (windowed contract) | **contract exists; network_dir must implement** (`_read_window`) |
+| `tail -n` | trailing bytes | windowed `offset = total_size − window` | **contract exists; network_dir must implement** |
 | `wc -l` | line count | field on `read_file`/`stat` output | **add** (optional) |
 | `grep -ril` | file-level content search | `search_files` | **exists** (`network_dir_client.py:309`) |
 | `grep -n -C` | matched lines + context | `search_files` line-level mode | **add** |
@@ -85,12 +125,18 @@ Only file-based clients declare those capabilities, so the new params are
 inherently unavailable to SQL / MCP / other non-file connectors — no extra
 gating needed.
 
-**`ReadFileInput`** (`file_tools.py:65`)
-- `line_offset: int = 0`, `line_limit: int | None` — return lines
-  `[offset, offset+limit)` (covers `head -n`, `sed -n`).
-- `tail_lines: int | None` — return the last N lines (covers `tail`).
-- Applies to the text/extracted-text branch only; tabular/doc semantics
-  unchanged. Mutually exclusive with each other; validate.
+**`read_file` — implement the already-shipped windowed contract**
+- The `offset`/`length` → `next_cursor`/`total_size`/`eof`/`encoding` contract
+  already exists on the shared tool (added for S3). **network_dir just needs a
+  `_read_window` equivalent** — `open(path,"rb").seek(offset).read(length)` with
+  the same newline-snap S3 does (`s3_client.py:332-391`).
+- This one byte-window primitive covers **range** (offset+length), **head**
+  (offset 0), and **tail** (offset = `total_size − window`; do a cheap first
+  read or `stat` to get `total_size`). No separate `line_offset`/`tail_lines`
+  API — that would fork network_dir from S3.
+- Open: whether to add a line-oriented *convenience* (last-N-*lines*) on top.
+  Only network_dir could do it cheaply; it diverges from S3, so default is
+  **no** unless there's a concrete need.
 
 **`ListFilesInput`** (`file_tools.py:24`)
 - `sort_by: name|size|modified = name`, `order: asc|desc = asc`.
@@ -169,3 +215,9 @@ Existing files preserve `is_active` (`data_source_service.py:4345`).
    explicit choice at agent creation with no implicit default?
 4. Does auto-activate need a cap (activate up to N new files per reindex) to
    avoid a huge folder flooding an agent's active set in one sync?
+5. **Extract a shared file-source base/mixin** (S3 + network_dir + Graph/Drive)
+   now, so windowing/parsing/indexing land once — or keep implementing
+   per-client and accept drift? (Recommend: extract; the windowing gap is
+   exactly what drift costs.)
+6. Line-oriented convenience read (last-N-*lines*) on top of the byte window —
+   add for network_dir, or keep strictly byte-windowed to match S3?
