@@ -24,6 +24,8 @@ one of these tasks:
   credentials schemas, registry entry, tests) with verification steps.
 - **add-llm-provider-or-model** — extend the LLM catalog; model id, pricing,
   and context window must be verified against official docs first.
+- **release-notes** — bump `VERSION` and write a minimal, user-facing
+  `CHANGELOG.md` entry after a user-facing change ships.
 
 Shared setup scripts (usable by humans too): `tools/agent/boot_stack.sh`
 (run the full stack like CI), `tools/agent/seed_org.py` (seed org/users/demo
