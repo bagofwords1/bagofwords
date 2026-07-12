@@ -1871,15 +1871,18 @@
       "colModel": "Model",
       "colProvider": "Provider",
       "colStatus": "Status",
+      "colVision": "Vision",
       "colActions": "Actions",
       "badgeDefault": "Default",
       "badgeSmallDefault": "Small default",
+      "badgeVision": "Vision",
       "emptyTitle": "No LLMs Integrated",
       "emptyHint": "Get started by integrating your LLM provider and models",
       "makeDefault": "Make Default",
       "makeSmallDefault": "Make Small Default",
       "manageProvider": "Manage Provider",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
+      "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
       "modelIdLabel": "Model ID"
     },
     "licensePage": {

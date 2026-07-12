@@ -27,6 +27,9 @@
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colModel') }}</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colProvider') }}</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colStatus') }}</th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            <UTooltip :text="$t('settings.llms.visionTooltip')">{{ $t('settings.llms.colVision') }}</UTooltip>
+                        </th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="canManageAccess">Access</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
                     </tr>
@@ -63,6 +66,15 @@
                                 @change="toggleModel(model.id, $event)"
                                 :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default"
                             />
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                            <UTooltip :text="$t('settings.llms.visionTooltip')">
+                                <UToggle
+                                    v-model="model.supports_vision"
+                                    @change="toggleVision(model.id, $event)"
+                                    :disabled="!useCan('manage_llm_settings')"
+                                />
+                            </UTooltip>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="canManageAccess">
                             <button
@@ -142,6 +154,8 @@ type Model = {
   is_default: boolean;
   is_small_default: boolean;
   is_enabled: boolean;
+  supports_vision: boolean;
+  supports_vision_override?: boolean | null;
   is_restricted?: boolean;
   provider: Provider;
 };
@@ -246,6 +260,31 @@ const toggleModel = async (modelId: string, enabled: boolean) => {
         toast.add({
             title: 'Error',
             description: 'Could not update model',
+            color: 'red'
+        });
+    }
+};
+
+const toggleVision = async (modelId: string, enabled: boolean) => {
+    const response = await useMyFetch(`/llm/models/${modelId}/toggle_vision`, {
+        method: 'POST',
+        query: { enabled }
+    });
+    if (response.status.value === 'success') {
+        await getModels();
+        toast.add({
+            title: 'Model updated',
+            description: enabled ? 'Vision enabled for this model' : 'Vision disabled for this model',
+            color: 'green'
+        });
+    }
+    else {
+        // Revert optimistic toggle on failure
+        const model = models.value.find(m => m.id === modelId);
+        if (model) model.supports_vision = !enabled;
+        toast.add({
+            title: 'Error',
+            description: 'Could not update vision setting',
             color: 'red'
         });
     }

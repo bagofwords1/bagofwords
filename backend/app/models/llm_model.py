@@ -205,7 +205,10 @@ class LLMModel(BaseSchema):
     is_default = Column(Boolean, default=False, nullable=False)  # If True, this is the default model for the organization
     is_small_default = Column(Boolean, default=False, nullable=False)  # Optional small default model per organization
     is_restricted = Column(Boolean, default=False, nullable=False)  # If True, usable only by granted principals (plus admins/org defaults). EE feature.
-    supports_vision = Column(Boolean, default=False, nullable=False)  # Whether model accepts image inputs
+    supports_vision = Column(Boolean, default=False, nullable=False)  # Effective flag: whether model accepts image inputs
+    # Manual admin override for vision. NULL = follow the catalog (LLM_MODEL_DETAILS); True/False = admin-set,
+    # persisted across catalog re-syncs. `supports_vision` above is the resolved value inference reads.
+    supports_vision_override = Column(Boolean, nullable=True)
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
     max_output_tokens = Column(Integer, nullable=True)  # Max model output tokens
