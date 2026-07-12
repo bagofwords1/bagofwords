@@ -497,6 +497,8 @@ import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import SendEmailTool from '../tools/SendEmailTool.vue'
 import ListAgentExecutionsTool from '../tools/ListAgentExecutionsTool.vue'
+import CreateNoteTool from '../tools/CreateNoteTool.vue'
+import EditNoteTool from '../tools/EditNoteTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
@@ -1148,6 +1150,10 @@ function getToolComponent(toolName: string) {
             return SendEmailTool
         case 'list_agent_executions':
             return ListAgentExecutionsTool
+        case 'create_note':
+            return CreateNoteTool
+        case 'edit_note':
+            return EditNoteTool
         default:
             return null
     }

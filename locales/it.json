@@ -979,6 +979,19 @@
       "diff": "diff",
       "rewrite": "riscrittura",
       "editsCount": "{n} modifiche mirate"
+    },
+    "createNote": {
+      "writing": "Scrittura di una nota...",
+      "wrotePrefix": "Nota scritta: {text}",
+      "untitled": "Nota senza titolo",
+      "failed": "Nota non riuscita"
+    },
+    "editNote": {
+      "editing": "Modifica della nota...",
+      "editedPrefix": "Nota modificata: {text}",
+      "diff": "diff",
+      "rewrite": "riscrittura",
+      "failed": "Modifica non riuscita"
     }
   },
   "entityCreate": {
@@ -3002,5 +3015,11 @@
     "cancel": "Annulla",
     "saved": "Documento salvato",
     "saveFailed": "Impossibile salvare il documento"
+  },
+  "notes": {
+    "heading": "Note",
+    "byAgent": "agente",
+    "byYou": "tu",
+    "updated": "Aggiornato"
   }
 }
