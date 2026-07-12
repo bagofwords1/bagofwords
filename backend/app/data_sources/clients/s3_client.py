@@ -349,6 +349,21 @@ class S3Client(DataSourceClient):
         except UnicodeDecodeError:
             return data
 
+    def file_version(self, file_id: str) -> Optional[str]:
+        """ETag (falls back to size:last-modified) as the cache key. `_resolve_key`
+        enforces the glob scope, so an off-scope id raises — a cache hit stays
+        access-checked. One cheap HEAD, no object download."""
+        key = self._resolve_key(file_id, enforce_scope=True)  # raises GlobScopeError off-glob
+        try:
+            head = self._client().head_object(Bucket=self.bucket, Key=key)
+            etag = (head.get("ETag") or "").strip('"')
+            if etag:
+                return etag
+            lm = head.get("LastModified")
+            return f"{int(head.get('ContentLength', 0))}:{lm.timestamp() if lm else ''}"
+        except Exception:
+            return None
+
     def _get_bytes(self, key: str) -> Tuple[bytes, int]:
         """Fetch a whole object's bytes, enforcing the size cap via a HEAD first
         so we never stream a giant object into memory just to reject it."""

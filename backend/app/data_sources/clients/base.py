@@ -178,6 +178,17 @@ class DataSourceClient(ABC):
         """Free-text search over the connection's accessible files."""
         raise NotImplementedError("search_files not supported by this client")
 
+    def file_version(self, file_id: str) -> Optional[str]:
+        """A cheap, stable version token for a file (mtime+size, ETag, …) used to
+        key a content cache and detect staleness — without downloading the file.
+
+        Returning None means "no cheap version available"; callers then skip
+        caching and read live. Implementations that DO support it MUST enforce
+        the connection's access scope (raise on an out-of-scope id) so a cache
+        hit is still access-checked. Default: unsupported.
+        """
+        return None
+
     def write_file(
         self,
         filename: str,
@@ -212,6 +223,9 @@ class DataSourceClient(ABC):
 
     async def asearch_files(self, query: str, **kwargs) -> list:
         return await asyncio.to_thread(self.search_files, query, **kwargs)
+
+    async def afile_version(self, file_id: str) -> Optional[str]:
+        return await asyncio.to_thread(self.file_version, file_id)
 
     async def awrite_file(
         self,

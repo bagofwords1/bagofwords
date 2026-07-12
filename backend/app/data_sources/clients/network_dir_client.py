@@ -146,6 +146,18 @@ class NetworkDirClient(DataSourceClient):
             raise ValueError(f"Path is not a directory: {self.root_path}")
         return root
 
+    def file_version(self, file_id: str) -> Optional[str]:
+        """mtime+size as the cache key. `_resolve` enforces the glob scope, so an
+        off-scope id raises here too — a cache hit stays access-checked."""
+        try:
+            path = self._resolve(file_id, enforce_scope=True)
+            st = path.stat()
+            return f"{int(st.st_mtime)}:{st.st_size}"
+        except (GlobScopeError, ValueError):
+            raise
+        except Exception:
+            return None
+
     def _resolve(
         self, rel_or_id: str, *, must_exist: bool = True, enforce_scope: bool = True
     ) -> Path:
