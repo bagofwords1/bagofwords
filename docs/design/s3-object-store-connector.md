@@ -97,9 +97,11 @@ class S3KeyCredentials(BaseModel):
     session_token: Optional[str] = Field(None, title="Session Token", json_schema_extra={"ui:type": "password"})
 
 class S3RoleCredentials(BaseModel):
-    access_key: str = Field(..., title="Access Key", json_schema_extra={"ui:type": "string"})
-    secret_key: str = Field(..., title="Secret Key", json_schema_extra={"ui:type": "password"})
     role_arn:   str = Field(..., title="Role ARN",   json_schema_extra={"ui:type": "string"})
+    # Static keys OPTIONAL — blank ⇒ assume the role via the deployment's
+    # ambient chain (instance profile / IRSA / env), mirroring Athena.
+    access_key: Optional[str] = Field(None, title="Access Key", json_schema_extra={"ui:type": "string"})
+    secret_key: Optional[str] = Field(None, title="Secret Key", json_schema_extra={"ui:type": "password"})
 
 class S3DefaultCredentials(BaseModel):
     """No credentials — boto3 resolves via its default chain (env, instance

@@ -1471,9 +1471,12 @@ class S3KeyCredentials(BaseModel):
 
 
 class S3RoleCredentials(BaseModel):
-    access_key: str = Field(..., title="Access Key", description="AWS access key id used to assume the role.", json_schema_extra={"ui:type": "string"})
-    secret_key: str = Field(..., title="Secret Key", description="AWS secret access key used to assume the role.", json_schema_extra={"ui:type": "password"})
     role_arn: str = Field(..., title="Role ARN", description="ARN of the IAM role to assume (STS) for bucket access.", json_schema_extra={"ui:type": "string"})
+    # Static keys are optional: leave blank to assume the role using the
+    # deployment's ambient credentials (EC2 instance profile / EKS IRSA / env),
+    # mirroring the Athena connector.
+    access_key: Optional[str] = Field(None, title="Access Key", description="Optional — access key id used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "string"})
+    secret_key: Optional[str] = Field(None, title="Secret Key", description="Optional — secret access key used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "password"})
 
 
 class S3DefaultCredentials(BaseModel):

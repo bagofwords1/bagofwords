@@ -198,13 +198,16 @@ class S3Client(DataSourceClient):
 
         if self.role_arn:
             # Assume-role: mint short-lived creds via STS, then build a session.
-            sts = boto3.client(
-                "sts",
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                region_name=self.region,
-            )
-            resp = sts.assume_role(RoleArn=self.role_arn, RoleSessionName="bow-object-store")
+            # Static keys are OPTIONAL here — when absent, the STS client itself
+            # resolves via the default chain (instance profile / IRSA / env), so
+            # a deployment role can assume the target role with no stored secrets.
+            # Mirrors AWSAthenaClient._renew_session.
+            sts_kwargs: Dict[str, Any] = {"region_name": self.region}
+            if self.access_key and self.secret_key:
+                sts_kwargs["aws_access_key_id"] = self.access_key
+                sts_kwargs["aws_secret_access_key"] = self.secret_key
+            sts = boto3.client("sts", **sts_kwargs)
+            resp = sts.assume_role(RoleArn=self.role_arn, RoleSessionName="bow-s3")
             c = resp["Credentials"]
             session = boto3.Session(
                 aws_access_key_id=c["AccessKeyId"],

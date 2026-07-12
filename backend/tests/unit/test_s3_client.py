@@ -275,3 +275,95 @@ class TestConnection:
         res = client.test_connection()
         assert res["success"] is False
         assert "bucket" in res["message"].lower()
+
+
+# ------------------------------------------------------------------- auth
+
+
+class _FakeSTS:
+    def __init__(self, calls):
+        self._calls = calls
+
+    def assume_role(self, RoleArn, RoleSessionName):
+        self._calls["assumed_role_arn"] = RoleArn
+        return {
+            "Credentials": {
+                "AccessKeyId": "TMPAK",
+                "SecretAccessKey": "TMPSK",
+                "SessionToken": "TMPTOK",
+            }
+        }
+
+
+class _FakeSession:
+    def __init__(self, calls, **kwargs):
+        self._calls = calls
+        calls["session_kwargs"] = kwargs
+
+    def client(self, service, **kwargs):
+        self._calls[f"{service}_client_kwargs"] = kwargs
+        return f"{service}-client"
+
+
+def _patch_boto(monkeypatch, calls):
+    import boto3
+
+    def fake_client(service, **kwargs):
+        calls.setdefault("sts_kwargs", kwargs)
+        assert service == "sts"
+        return _FakeSTS(calls)
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+    monkeypatch.setattr(boto3, "Session", lambda **kw: _FakeSession(calls, **kw))
+
+
+class TestAuth:
+    def test_role_variant_schema_makes_keys_optional(self):
+        from app.schemas.data_sources.configs import S3RoleCredentials
+
+        fields = S3RoleCredentials.model_fields
+        assert fields["role_arn"].is_required()
+        assert not fields["access_key"].is_required()
+        assert not fields["secret_key"].is_required()
+        # role_arn alone must validate (assume-role via instance profile / IRSA)
+        S3RoleCredentials(role_arn="arn:aws:iam::123:role/reader")
+
+    def test_assume_role_without_static_keys(self, monkeypatch):
+        """role_arn but no keys → STS resolves via the ambient default chain
+        (no keys passed), then the session uses the assumed temp creds."""
+        calls: dict = {}
+        _patch_boto(monkeypatch, calls)
+        c = S3Client(
+            bucket="b", prefix="", region="us-east-1",
+            role_arn="arn:aws:iam::123:role/reader",
+        )
+        s3 = c._client()
+        assert s3 == "s3-client"
+        assert calls["assumed_role_arn"] == "arn:aws:iam::123:role/reader"
+        # No static keys were handed to the STS client → default chain.
+        assert "aws_access_key_id" not in calls["sts_kwargs"]
+        # The working session is built from the assumed short-lived creds.
+        assert calls["session_kwargs"]["aws_access_key_id"] == "TMPAK"
+        assert calls["session_kwargs"]["aws_session_token"] == "TMPTOK"
+
+    def test_assume_role_with_static_keys_passes_them_to_sts(self, monkeypatch):
+        calls: dict = {}
+        _patch_boto(monkeypatch, calls)
+        c = S3Client(
+            bucket="b", prefix="", region="us-east-1",
+            role_arn="arn:aws:iam::123:role/reader",
+            access_key="AKIA", secret_key="secret",
+        )
+        c._client()
+        assert calls["sts_kwargs"]["aws_access_key_id"] == "AKIA"
+        assert calls["sts_kwargs"]["aws_secret_access_key"] == "secret"
+
+    def test_default_chain_no_role_no_keys(self, monkeypatch):
+        """aws_default variant: no role, no keys → a plain region-only session
+        that resolves via the instance profile / IRSA / env chain."""
+        calls: dict = {}
+        _patch_boto(monkeypatch, calls)
+        c = S3Client(bucket="b", prefix="", region="us-east-1")
+        c._client()
+        assert calls["session_kwargs"] == {"region_name": "us-east-1"}
+        assert "assumed_role_arn" not in calls  # nothing assumed
