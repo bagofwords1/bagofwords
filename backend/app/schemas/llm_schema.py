@@ -171,6 +171,8 @@ class LLMModelBase(BaseModel):
     is_default: bool = False
     is_small_default: bool = False
     supports_vision: bool = False
+    # Manual admin override for vision. None = follow the catalog; True/False = explicit, survives catalog re-syncs.
+    supports_vision_override: Optional[bool] = None
     context_window_tokens: Optional[int] = None
     max_output_tokens: Optional[int] = None
     input_cost_per_million_tokens_usd: Optional[float] = None
