@@ -488,6 +488,27 @@ async def schedule_report(
 
 # --- Report Summary ---
 
+@router.get("/reports/{report_id}/notes")
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def get_report_notes(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Return the agent's working notes for this report (read-only), newest last."""
+    from sqlalchemy import select
+    from app.models.note import Note
+    from app.schemas.note_schema import NoteSchema
+    result = await db.execute(
+        select(Note)
+        .where(Note.report_id == report_id, Note.deleted_at.is_(None))
+        .order_by(Note.created_at.asc())
+    )
+    notes = result.scalars().all()
+    return [NoteSchema.model_validate(n) for n in notes]
+
+
 @router.get("/reports/{report_id}/summary")
 @requires_permission('view_reports', model=Report, owner_only=True)
 async def get_report_summary(

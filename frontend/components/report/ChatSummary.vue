@@ -59,6 +59,25 @@
         </button>
       </section>
 
+      <!-- Notes (agent scratchpad) -->
+      <section v-if="notes.length > 0">
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('notes.heading') }}</h3>
+        <ul class="space-y-1.5">
+          <li
+            v-for="note in notes"
+            :key="note.id"
+            class="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow cursor-pointer transition-all"
+            @click="openNote(note)"
+          >
+            <Icon name="heroicons:pencil-square" class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ note.title || $t('tools.createNote.untitled') }}</div>
+              <div dir="auto" class="text-[11px] text-gray-400 mt-0.5 line-clamp-2 whitespace-pre-line">{{ notePreview(note.content) }}</div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
       <!-- Queries -->
       <section v-if="queryExecutions.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Queries</h3>
@@ -153,6 +172,8 @@
       :report-id="reportId"
       @changed="loadWebhooks"
     />
+
+    <NoteDetailsModal v-model="showNoteModal" :note="selectedNote" />
   </div>
 </template>
 
@@ -160,6 +181,7 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import WebhookConfigModal from '~/components/report/WebhookConfigModal.vue'
+import NoteDetailsModal from '~/components/report/NoteDetailsModal.vue'
 
 const props = defineProps<{
   scheduledPrompts: any[]
@@ -201,6 +223,35 @@ async function loadWebhooks() {
 
 onMounted(loadWebhooks)
 watch(() => props.reportId, loadWebhooks)
+
+// ---- Notes (agent scratchpad) ----
+const notes = ref<any[]>([])
+const showNoteModal = ref(false)
+const selectedNote = ref<any>(null)
+
+async function loadNotes() {
+  if (!props.reportId) { notes.value = []; return }
+  try {
+    const { data } = await useMyFetch(`/reports/${props.reportId}/notes`)
+    notes.value = (data.value as any[]) || []
+  } catch { notes.value = [] }
+}
+
+function openNote(note: any) {
+  selectedNote.value = note
+  showNoteModal.value = true
+}
+
+function notePreview(content: string): string {
+  return (content || '').replace(/[#*`>_-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
+}
+
+onMounted(loadNotes)
+watch(() => props.reportId, loadNotes)
+// Reload notes when the report's activity changes (a run created/edited notes) —
+// query executions / artifacts update as tools complete, so they proxy "activity".
+watch(() => [props.queryExecutions.length, props.artifactList.length], loadNotes)
+defineExpose({ reloadNotes: loadNotes })
 
 const showAllArtifacts = ref(false)
 const visibleArtifacts = computed(() =>
@@ -248,6 +299,7 @@ const hasAnything = computed(() =>
   props.scheduledPrompts.length > 0 ||
   props.artifactList.length > 0 ||
   props.queryExecutions.length > 0 ||
+  notes.value.length > 0 ||
   instructionsList.value.length > 0
 )
 

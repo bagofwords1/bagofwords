@@ -1084,6 +1084,19 @@
       "diff": "diff",
       "rewrite": "rewrite",
       "editsCount": "{n} surgical edits"
+    },
+    "createNote": {
+      "writing": "Writing a note...",
+      "wrotePrefix": "Wrote note: {text}",
+      "untitled": "Untitled note",
+      "failed": "Note failed"
+    },
+    "editNote": {
+      "editing": "Editing note...",
+      "editedPrefix": "Edited note: {text}",
+      "diff": "diff",
+      "rewrite": "rewrite",
+      "failed": "Edit failed"
     }
   },
   "entityCreate": {
@@ -3340,5 +3353,11 @@
     "cancel": "Cancel",
     "saved": "Document saved",
     "saveFailed": "Failed to save document"
+  },
+  "notes": {
+    "heading": "Notes",
+    "byAgent": "agent",
+    "byYou": "you",
+    "updated": "Updated"
   }
 }

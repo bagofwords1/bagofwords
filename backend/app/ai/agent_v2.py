@@ -181,6 +181,7 @@ def _resolve_reasoning_effort(
 
 
 from app.ai.agents.planner import PlannerV2, PlannerV3
+from app.ai.agents.notes_context import build_notes_context
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
@@ -459,6 +460,13 @@ class AgentV2:
         allow_llm_see_data = getattr(allow_llm_see_data_cfg, "value", True) if allow_llm_see_data_cfg is not None else True
         if not allow_llm_see_data:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'inspect_data']
+
+        # Agent notes (per-report scratchpad) are gated by the org setting.
+        # When off, hide create_note/edit_note so the planner never attempts them.
+        notes_enabled_cfg = self.organization_settings.get_config("enable_agent_notes") if self.organization_settings else None
+        self._notes_enabled = bool(getattr(notes_enabled_cfg, "value", False)) if notes_enabled_cfg is not None else False
+        if not self._notes_enabled:
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -962,6 +970,12 @@ class AgentV2:
                 if t['name'] not in seen:
                     unique.append(t)
                     seen.add(t['name'])
+            # Notes gating (the harness reads notes as evidence; write tools are
+            # hidden when the org setting is off, same as the main loop).
+            _notes_cfg = self.organization_settings.get_config("enable_agent_notes") if self.organization_settings else None
+            harness_notes_enabled = bool(getattr(_notes_cfg, "value", False)) if _notes_cfg is not None else False
+            if not harness_notes_enabled:
+                unique = [t for t in unique if t['name'] not in ('create_note', 'edit_note')]
             knowledge_tool_catalog = [ToolDescriptor(**t) for t in unique]
 
             if not knowledge_tool_catalog:
@@ -1019,6 +1033,8 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
+                    notes_enabled=harness_notes_enabled,
+                    notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
                 )
 
                 # Run the planner and capture the final decision
@@ -2657,6 +2673,8 @@ class AgentV2:
                         allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                         web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                        notes_enabled=getattr(self, "_notes_enabled", False),
+                        notes_context=(await build_notes_context(self.db, str(self.report.id)) if getattr(self, "_notes_enabled", False) and self.report else None),
                         web_search_enabled=self._web_search_enabled(),
                         web_search_domains=self._web_search_domains(),
                         scheduled_context=await self._build_scheduled_context(),
@@ -4293,6 +4311,8 @@ class AgentV2:
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
         available_steps_context = await self._build_available_steps_context()
+        _notes_cfg2 = self.organization_settings.get_config("enable_agent_notes") if self.organization_settings else None
+        _notes_on = bool(getattr(_notes_cfg2, "value", False)) if _notes_cfg2 is not None else False
 
         user_message = (self.head_completion.prompt or {}).get("content", "")
 
@@ -4329,6 +4349,8 @@ class AgentV2:
             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+            notes_enabled=_notes_on,
+            notes_context=(await build_notes_context(self.db, str(self.report.id)) if _notes_on and self.report else None),
             web_search_enabled=self._web_search_enabled(),
             web_search_domains=self._web_search_domains(),
             scheduled_context=await self._build_scheduled_context(),

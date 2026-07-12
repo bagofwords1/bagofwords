@@ -1001,6 +1001,19 @@
       "diff": "diff",
       "rewrite": "שכתוב",
       "editsCount": "{n} עריכות נקודתיות"
+    },
+    "createNote": {
+      "writing": "כותב הערה...",
+      "wrotePrefix": "נכתבה הערה: {text}",
+      "untitled": "הערה ללא כותרת",
+      "failed": "יצירת ההערה נכשלה"
+    },
+    "editNote": {
+      "editing": "עורך הערה...",
+      "editedPrefix": "הערה נערכה: {text}",
+      "diff": "diff",
+      "rewrite": "שכתוב",
+      "failed": "העריכה נכשלה"
     }
   },
   "entityCreate": {
@@ -3109,5 +3122,11 @@
     "cancel": "ביטול",
     "saved": "המסמך נשמר",
     "saveFailed": "שמירת המסמך נכשלה"
+  },
+  "notes": {
+    "heading": "הערות",
+    "byAgent": "סוכן",
+    "byYou": "אתה",
+    "updated": "עודכן"
   }
 }

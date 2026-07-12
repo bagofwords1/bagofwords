@@ -1001,6 +1001,19 @@
       "diff": "diff",
       "rewrite": "reescritura",
       "editsCount": "{n} ediciones quirúrgicas"
+    },
+    "createNote": {
+      "writing": "Escribiendo una nota...",
+      "wrotePrefix": "Nota escrita: {text}",
+      "untitled": "Nota sin título",
+      "failed": "Error en la nota"
+    },
+    "editNote": {
+      "editing": "Editando nota...",
+      "editedPrefix": "Nota editada: {text}",
+      "diff": "diff",
+      "rewrite": "reescritura",
+      "failed": "Error al editar"
     }
   },
   "entityCreate": {
@@ -3109,5 +3122,11 @@
     "cancel": "Cancelar",
     "saved": "Documento guardado",
     "saveFailed": "No se pudo guardar el documento"
+  },
+  "notes": {
+    "heading": "Notas",
+    "byAgent": "agente",
+    "byYou": "tú",
+    "updated": "Actualizado"
   }
 }

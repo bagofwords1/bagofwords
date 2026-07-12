@@ -94,6 +94,9 @@ class PlannerInput(BaseModel):
     available_steps_context: Optional[str] = None
     # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
     scheduled_tasks_context: Optional[str] = None
+    # Rendered <notes> block (per-report agent scratchpad), injected near
+    # last_observation. Populated in both the main loop and the knowledge harness.
+    notes_context: Optional[str] = None
     # A compact dictionary describing the most recent tool observation (if any)
     last_observation: Optional[Dict[str, Any]] = None
     # Full list of recorded tool observations in execution order
@@ -141,6 +144,9 @@ class PlannerInput(BaseModel):
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False
+    # Agent notes (per-report scratchpad). When enabled, the <notes> block is
+    # injected and the create_note/edit_note tools are available.
+    notes_enabled: bool = False
     # Native, provider-executed web search (OpenAI/Azure-OpenAI Responses tool).
     # Gated by the org `enable_web_fetch` master switch AND a per-provider
     # `enable_web_search` opt-in. Distinct from `web_fetch_enabled` (which is the
