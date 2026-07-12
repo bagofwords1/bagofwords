@@ -495,7 +495,19 @@ async def add_connection_to_domain(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    """Add a connection to an agent (M:N relationship)."""
+    """Add a connection to an agent (M:N relationship).
+
+    The `data_source:manage` decorator proves the caller can manage this agent.
+    We additionally require that they have access to the connection they're
+    attaching — mirroring the picker's `GET /connections` filtering — so the
+    endpoint can't be used to attach a connection the caller can't see by
+    passing its id directly.
+    """
+    from app.services.connection_service import ConnectionService
+    from app.routes.connection import _ensure_can_read_connection
+    connection = await ConnectionService().get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+
     result = await data_source_service.add_connection_to_domain(
         db=db,
         data_source_id=data_source_id,
