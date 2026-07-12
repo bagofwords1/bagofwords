@@ -168,6 +168,8 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 raise HTTPException(status_code=403, detail="Permission denied")
 
             return await func(*args, **kwargs)
+        # Expose the required permission for introspection (tests, tooling).
+        wrapper._required_permission = permission
         return wrapper
     return decorator
 

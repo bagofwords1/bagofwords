@@ -515,9 +515,20 @@ class SchemaContextBuilder:
         return scopes, remaining
 
     async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
-        """Query enabled MCP/custom_api tools for a data source's connections."""
+        """Query effective MCP/custom_api tools for a data source's connections.
+
+        Enablement + policy are resolved through all three layers (per-agent
+        overlay > connection default, then the run user's own preference).
+        Tools whose effective policy is 'deny' — or which are disabled at
+        either admin layer — are excluded so the planner never plans around
+        tools it cannot call; 'ask'/'auto' tools are annotated instead.
+        """
         from app.models.connection_tool import ConnectionTool
         from app.models.connection import Connection
+        from app.models.data_source_connection_tool import DataSourceConnectionTool
+        from app.services.tool_policy_service import (
+            ToolPolicyService, resolve_effective_policy, normalize_tool_policy,
+        )
 
         mcp_conn_ids = []
         for conn in (getattr(ds, 'connections', None) or []):
@@ -530,21 +541,43 @@ class SchemaContextBuilder:
             result = await self.db.execute(
                 select(ConnectionTool)
                 .options(selectinload(ConnectionTool.connection))
-                .where(
-                    ConnectionTool.connection_id.in_(mcp_conn_ids),
-                    ConnectionTool.is_enabled == True,
-                )
+                .where(ConnectionTool.connection_id.in_(mcp_conn_ids))
             )
             tools = result.scalars().all()
-            return [
-                MCPToolItem(
-                    name=t.name,
-                    description=t.description,
-                    connection_id=str(t.connection_id),
-                    connection_name=getattr(t.connection, 'name', None),
+
+            overlay_rows = await self.db.execute(
+                select(DataSourceConnectionTool).where(
+                    DataSourceConnectionTool.data_source_id == str(ds.id)
                 )
-                for t in tools
-            ]
+            )
+            overlays = {str(o.connection_tool_id): o for o in overlay_rows.scalars().all()}
+
+            user_prefs = {}
+            if self.user is not None and tools:
+                user_prefs = await ToolPolicyService().get_user_preferences(
+                    self.db, str(self.user.id), [str(t.id) for t in tools]
+                )
+
+            items: List[MCPToolItem] = []
+            for t in tools:
+                overlay = overlays.get(str(t.id))
+                is_enabled = overlay.is_enabled if overlay else t.is_enabled
+                if not is_enabled:
+                    continue
+                admin_policy = overlay.policy if overlay else t.policy
+                effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
+                if effective == "deny":
+                    continue
+                items.append(
+                    MCPToolItem(
+                        name=t.name,
+                        description=t.description,
+                        connection_id=str(t.connection_id),
+                        connection_name=getattr(t.connection, 'name', None),
+                        policy=effective,
+                    )
+                )
+            return items
         except Exception:
             return []
 

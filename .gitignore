@@ -68,3 +68,11 @@ backend/loadtest/smoke*.json
 .agents/sandbox-feedback-loop/netdir/
 .agents/sandbox-feedback-loop/*.log
 .agents/sandbox-feedback-loop/
+
+# Playwright throwaway auth state / capture helpers (never commit)
+frontend/state.json
+frontend/shot*.mjs
+frontend/shots*.mjs
+frontend/login*.mjs
+frontend/evidence*.mjs
+frontend/diag*.mjs

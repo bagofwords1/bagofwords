@@ -174,6 +174,12 @@
                                         <div class="text-sm font-medium text-gray-900 dark:text-white">{{ model.name }}</div>
                                         <div class="text-xs text-gray-500 dark:text-gray-400">Model ID: {{ model.model_id }}</div>
                                     </div>
+                                    <UTooltip :text="$t('settings.llms.visionTooltip')">
+                                        <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                                            <UToggle size="xs" v-model="model.supports_vision" @change="onVisionChange(model)" />
+                                            <span>{{ $t('settings.llms.colVision') }}</span>
+                                        </label>
+                                    </UTooltip>
                                     <button
                                         v-if="model.is_custom"
                                         type="button"
@@ -195,6 +201,12 @@
                                             class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
+                                    <UTooltip :text="$t('settings.llms.visionTooltip')">
+                                        <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                                            <UToggle size="xs" v-model="customModel.supports_vision" />
+                                            <span>{{ $t('settings.llms.colVision') }}</span>
+                                        </label>
+                                    </UTooltip>
                                     <button
                                         type="button"
                                         @click="removeExistingProviderCustomModel(index)"
@@ -362,6 +374,12 @@
                                             <div class="text-sm font-medium text-gray-900 dark:text-white">{{ model.name }}</div>
                                             <div class="text-xs text-gray-500 dark:text-gray-400">Model ID: {{ model.model_id }}</div>
                                         </div>
+                                        <UTooltip :text="$t('settings.llms.visionTooltip')">
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                                                <UToggle size="xs" v-model="model.supports_vision" @change="onVisionChange(model)" />
+                                                <span>{{ $t('settings.llms.colVision') }}</span>
+                                            </label>
+                                        </UTooltip>
                                     </div>
                                 </template>
                                 <template v-else>
@@ -379,6 +397,12 @@
                                             class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
+                                    <UTooltip :text="$t('settings.llms.visionTooltip')">
+                                        <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                                            <UToggle size="xs" v-model="customModel.supports_vision" />
+                                            <span>{{ $t('settings.llms.colVision') }}</span>
+                                        </label>
+                                    </UTooltip>
                                     <button
                                         type="button"
                                         @click="removeCustomModel(index)"
@@ -467,7 +491,7 @@ type OrgProvider = {
   models: any[];
 };
 type AvailableProvider = { type: string; name: string; credentials?: { properties?: Record<string, { title: string; description?: string }>} };
-type AvailableModel = { id?: string; name: string; model_id: string; provider_type: string; is_preset?: boolean; is_enabled?: boolean; selected?: boolean };
+type AvailableModel = { id?: string; name: string; model_id: string; provider_type: string; is_preset?: boolean; is_enabled?: boolean; selected?: boolean; supports_vision?: boolean; supports_vision_override?: boolean | null };
 
 type CredentialField = { key: string; title: string; description?: string; required?: boolean };
 const providers = ref<AvailableProvider[]>([]);
@@ -495,8 +519,15 @@ onMounted(async () => {
 
 const selectedProvider = ref<any | null>(null);
 const selectedModel = ref<any | null>(null);
-const customModels = ref<{ model_id: string; is_enabled: boolean }[]>([]);
-const existingProviderCustomModels = ref<{ model_id: string; is_enabled: boolean }[]>([]);
+const customModels = ref<{ model_id: string; is_enabled: boolean; supports_vision: boolean }[]>([]);
+const existingProviderCustomModels = ref<{ model_id: string; is_enabled: boolean; supports_vision: boolean }[]>([]);
+
+// A model's vision toggle in the modal is an explicit admin override: mirror the
+// current supports_vision into supports_vision_override so it persists across
+// catalog re-syncs. Untouched models keep their existing (usually null) override.
+function onVisionChange(model: any) {
+    model.supports_vision_override = !!model.supports_vision;
+}
 const providerForm = ref<{ name: string; provider_type: string; credentials: Record<string, any>; models?: any[]}>({
     name: '',
     provider_type: '',
@@ -795,7 +826,10 @@ async function createProvider() {
             name: model.name,
             is_custom: false,
             is_enabled: true,
-            is_preset: true
+            is_preset: true,
+            supports_vision: !!model.supports_vision,
+            // Only send an explicit override when the admin toggled vision for this model.
+            supports_vision_override: model.supports_vision_override ?? null
         }));
 
     // Gather selected custom models
@@ -806,7 +840,9 @@ async function createProvider() {
             name: model.model_id, // Use model_id as the name for custom models
             is_custom: true,
             is_enabled: true,
-            is_preset: false
+            is_preset: false,
+            supports_vision: !!model.supports_vision,
+            supports_vision_override: !!model.supports_vision
         }));
 
     // Combine all selected models
@@ -841,13 +877,15 @@ async function updateProvider() {
     // Prepare new custom models for creation (no ID means create new)
     const newCustomModels = existingProviderCustomModels.value
         .filter((model: { model_id: string; is_enabled: boolean }) => model.is_enabled && model.model_id.trim() !== '')
-        .map((model: { model_id: string; is_enabled: boolean }) => ({
+        .map((model: { model_id: string; is_enabled: boolean; supports_vision: boolean }) => ({
             // No id field - this signals to backend to create new model
             model_id: model.model_id,
             name: model.model_id,
             is_custom: true,
             is_enabled: true,
-            is_preset: false
+            is_preset: false,
+            supports_vision: !!model.supports_vision,
+            supports_vision_override: !!model.supports_vision
         }));
 
     // Existing models keep their IDs for updates
@@ -858,7 +896,10 @@ async function updateProvider() {
         name: model.name,
         is_custom: model.is_custom,
         is_enabled: model.is_enabled,
-        is_preset: model.is_preset
+        is_preset: model.is_preset,
+        supports_vision: !!model.supports_vision,
+        // Preserve any existing override; onVisionChange sets it when the admin toggles vision.
+        supports_vision_override: model.supports_vision_override ?? null
     }));
 
     // Prepare update payload with existing models + new custom models
@@ -1005,7 +1046,8 @@ async function deleteProvider(providerId: string) {
 function addCustomModel() {
     customModels.value.push({
         model_id: '',
-        is_enabled: true
+        is_enabled: true,
+        supports_vision: false
     });
 }
 
@@ -1016,7 +1058,8 @@ function removeCustomModel(index: number) {
 function addExistingProviderCustomModel() {
     existingProviderCustomModels.value.push({
         model_id: '',
-        is_enabled: true
+        is_enabled: true,
+        supports_vision: false
     });
 }
 

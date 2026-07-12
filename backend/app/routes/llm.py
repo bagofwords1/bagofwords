@@ -208,6 +208,18 @@ async def toggle_model(
     """Enable/disable a model"""
     return await llm_service.toggle_model(db, organization, current_user, model_id, enabled)
 
+@router.post("/llm/models/{model_id}/toggle_vision")
+@requires_permission('manage_llm')
+async def toggle_model_vision(
+    model_id: str,
+    enabled: bool,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Manually enable/disable image (vision) support for a model."""
+    return await llm_service.toggle_vision(db, organization, current_user, model_id, enabled)
+
 @router.post("/llm/models/{model_id}/set_default")
 @requires_permission('manage_llm')
 async def set_default_model(

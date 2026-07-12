@@ -12,6 +12,35 @@ logger = logging.getLogger(__name__)
 
 PENDING_CONFIRMATIONS: Dict[str, asyncio.Future] = {}
 
+# Server-side context for pending confirmations (who may respond, what tool it
+# is for). Written by the tool that pauses, read by the resolve endpoint so it
+# can authorize the responder and persist a remembered preference.
+PENDING_CONFIRMATION_META: Dict[str, dict] = {}
+
+
+def register_confirmation(confirmation_id: str, meta: dict | None = None) -> asyncio.Future:
+    """Create (but don't await) a pending confirmation future.
+
+    Use with ``resolve_confirmation`` and ``discard_confirmation``. Unlike
+    ``wait_for_confirmation`` this never auto-approves — the caller owns the
+    wait loop and the timeout semantics.
+    """
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    PENDING_CONFIRMATIONS[confirmation_id] = future
+    PENDING_CONFIRMATION_META[confirmation_id] = dict(meta or {})
+    logger.info(f"Confirmation {confirmation_id}: registered (pending={len(PENDING_CONFIRMATIONS)})")
+    return future
+
+
+def get_confirmation_meta(confirmation_id: str) -> dict | None:
+    return PENDING_CONFIRMATION_META.get(confirmation_id)
+
+
+def discard_confirmation(confirmation_id: str) -> None:
+    PENDING_CONFIRMATIONS.pop(confirmation_id, None)
+    PENDING_CONFIRMATION_META.pop(confirmation_id, None)
+
 
 async def wait_for_confirmation(confirmation_id: str, timeout: float = 5.0) -> dict:
     """Wait for a user confirmation response, auto-approving on timeout."""

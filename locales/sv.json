@@ -224,7 +224,8 @@
     "toastCreated": "Skapad",
     "toastSaveFailed": "Kunde inte spara",
     "toastRestored": "Återställde v{n}",
-    "toastPrimaryUpdated": "Primär instruktion uppdaterad."
+    "toastPrimaryUpdated": "Primär instruktion uppdaterad.",
+    "toolPolicyYours": "Din personliga policy"
   },
   "smoke": {
     "hello": "Hej",
@@ -811,7 +812,19 @@
       "running": "Kör MCP-verktyg…",
       "foundTools": "{count} verktyg hittade",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (misslyckades)"
+      "failed": "{name} (misslyckades)",
+      "awaitingApproval": "Väntar på ditt godkännande för att köra {name}…",
+      "autoReviewing": "Granskar {name} mot policyn…",
+      "approvalHint": "“Alltid”-val sparas som din preferens för framtida körningar.",
+      "allowOnce": "Tillåt en gång",
+      "alwaysAllow": "Tillåt alltid",
+      "denyOnce": "Neka",
+      "alwaysDeny": "Neka alltid",
+      "declined": "{name} (nekad)",
+      "blockedByPolicy": "{name} (blockerad av policy)",
+      "autoDeclinedLabel": "{name} (auto-nekad)",
+      "autoApproved": "Auto-godkänd av policygranskning",
+      "autoDenied": "Nekad av policygranskning"
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"
@@ -979,6 +992,19 @@
       "diff": "diff",
       "rewrite": "omskrivning",
       "editsCount": "{n} riktade ändringar"
+    },
+    "createNote": {
+      "writing": "Skriver en anteckning...",
+      "wrotePrefix": "Skrev anteckning: {text}",
+      "untitled": "Namnlös anteckning",
+      "failed": "Anteckningen misslyckades"
+    },
+    "editNote": {
+      "editing": "Redigerar anteckning...",
+      "editedPrefix": "Redigerade anteckning: {text}",
+      "diff": "diff",
+      "rewrite": "omskrivning",
+      "failed": "Redigeringen misslyckades"
     }
   },
   "entityCreate": {
@@ -3002,5 +3028,25 @@
     "cancel": "Avbryt",
     "saved": "Dokument sparat",
     "saveFailed": "Det gick inte att spara dokumentet"
+  },
+  "notes": {
+    "heading": "Anteckningar",
+    "byAgent": "agent",
+    "byYou": "du",
+    "updated": "Uppdaterad"
+  },
+  "toolsSelector": {
+    "adminPolicy": "admin",
+    "adminPolicyTip": "Policy som anges av agentadministratörer — standard för alla användare",
+    "myPolicy": "jag",
+    "myPolicyTip": "Din personliga policy för det här verktyget — gäller endast dina körningar",
+    "myPolicyFailed": "Det gick inte att uppdatera din verktygspolicy",
+    "policyAllow": "tillåt",
+    "policyAsk": "fråga",
+    "policyAuto": "auto",
+    "policyDeny": "neka",
+    "policyInherit": "ärv ({policy})",
+    "reset": "återställ",
+    "resetTip": "Återställ till anslutningens standard"
   }
 }

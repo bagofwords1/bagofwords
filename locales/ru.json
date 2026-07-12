@@ -224,7 +224,8 @@
     "toastCreated": "Создано",
     "toastSaveFailed": "Не удалось сохранить",
     "toastRestored": "Восстановлена версия v{n}",
-    "toastPrimaryUpdated": "Основная инструкция обновлена."
+    "toastPrimaryUpdated": "Основная инструкция обновлена.",
+    "toolPolicyYours": "Ваша личная политика"
   },
   "smoke": {
     "hello": "Привет",
@@ -811,7 +812,19 @@
       "running": "Запуск инструмента MCP…",
       "foundTools": "Найдено {count} инструмент(ов)",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (ошибка)"
+      "failed": "{name} (ошибка)",
+      "awaitingApproval": "Ожидание вашего одобрения для запуска {name}…",
+      "autoReviewing": "Проверка {name} по политике…",
+      "approvalHint": "Выбор “Всегда” сохраняется как ваше предпочтение для будущих запусков.",
+      "allowOnce": "Разрешить один раз",
+      "alwaysAllow": "Всегда разрешать",
+      "denyOnce": "Отклонить",
+      "alwaysDeny": "Всегда отклонять",
+      "declined": "{name} (отклонено)",
+      "blockedByPolicy": "{name} (заблокировано политикой)",
+      "autoDeclinedLabel": "{name} (автоматически отклонено)",
+      "autoApproved": "Автоматически одобрено проверкой политики",
+      "autoDenied": "Отклонено проверкой политики"
     },
     "answerQuestion": {
       "thought": "Размышление об ответе"
@@ -979,6 +992,19 @@
       "diff": "diff",
       "rewrite": "переписан",
       "editsCount": "{n} точечных правок"
+    },
+    "createNote": {
+      "writing": "Пишу заметку...",
+      "wrotePrefix": "Заметка создана: {text}",
+      "untitled": "Заметка без названия",
+      "failed": "Ошибка заметки"
+    },
+    "editNote": {
+      "editing": "Редактирую заметку...",
+      "editedPrefix": "Заметка изменена: {text}",
+      "diff": "diff",
+      "rewrite": "переписана",
+      "failed": "Ошибка редактирования"
     }
   },
   "entityCreate": {
@@ -3002,5 +3028,25 @@
     "cancel": "Отмена",
     "saved": "Документ сохранён",
     "saveFailed": "Не удалось сохранить документ"
+  },
+  "notes": {
+    "heading": "Заметки",
+    "byAgent": "агент",
+    "byYou": "вы",
+    "updated": "Обновлено"
+  },
+  "toolsSelector": {
+    "adminPolicy": "админ",
+    "adminPolicyTip": "Политика, заданная администраторами агента — по умолчанию для всех пользователей",
+    "myPolicy": "я",
+    "myPolicyTip": "Ваша личная политика для этого инструмента — применяется только к вашим запускам",
+    "myPolicyFailed": "Не удалось обновить вашу политику инструмента",
+    "policyAllow": "разрешить",
+    "policyAsk": "спрашивать",
+    "policyAuto": "авто",
+    "policyDeny": "запретить",
+    "policyInherit": "наследовать ({policy})",
+    "reset": "сбросить",
+    "resetTip": "Сбросить к значению по умолчанию подключения"
   }
 }

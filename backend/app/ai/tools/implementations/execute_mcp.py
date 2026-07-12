@@ -165,6 +165,20 @@ Do not use when:
             )
             return
 
+        # Enforce the effective tool policy (user pref > agent overlay > default).
+        # deny blocks, ask pauses the run for user approval, auto delegates the
+        # decision to a small-model judge. Only applies to discovered
+        # ConnectionTool rows (i.e. real MCP / custom API tools).
+        if tool_record:
+            policy_gate = self._enforce_policy(
+                db, connection, tool_record, data, runtime_ctx, report
+            )
+            async for ev in policy_gate:
+                if isinstance(ev, ToolEndEvent):
+                    yield ev
+                    return
+                yield ev
+
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
@@ -210,6 +224,14 @@ Do not use when:
             "preview": None,
             "error_message": None,
         }
+        # Persist policy outcomes with the result so the UI (after rehydration)
+        # and the planner's conversation digest can see them.
+        policy_verdict = runtime_ctx.pop("_mcp_policy_verdict", None)
+        if policy_verdict:
+            output["policy_verdict"] = policy_verdict
+        approval = runtime_ctx.pop("_mcp_policy_approval", None)
+        if approval:
+            output["approval"] = approval
 
         if content_type == "tabular" and isinstance(result_data, list):
             # Auto-materialize tabular data to CSV
@@ -312,6 +334,307 @@ Do not use when:
                     "preview": output.get("preview"),
                     "row_count": output.get("row_count"),
                     "success": True,
+                },
+            },
+        )
+
+    async def _enforce_policy(
+        self, db, connection, tool_record, data, runtime_ctx: Dict[str, Any], report
+    ) -> AsyncIterator[ToolEvent]:
+        """Yield policy events for one call; a ToolEndEvent means 'blocked'.
+
+        Completing without a ToolEndEvent means the call is approved and the
+        caller proceeds to execute the tool.
+        """
+        import asyncio
+        from uuid import uuid4
+        from app.services.tool_policy_service import (
+            ToolPolicyService,
+            TOOL_POLICY_ALLOW,
+            TOOL_POLICY_ASK,
+            TOOL_POLICY_DENY,
+            TOOL_POLICY_AUTO,
+        )
+        from app.ai.tools.schemas import ToolConfirmationEvent
+
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+        # Agents in this run that own the connection — their overlay applies.
+        ds_ids = [
+            str(ds.id)
+            for ds in (getattr(report, "data_sources", None) or [])
+            if any(str(c.id) == str(connection.id) for c in (ds.connections or []))
+        ]
+        policy_svc = ToolPolicyService()
+        resolution = await policy_svc.resolve_for_run(
+            db, tool=tool_record, data_source_ids=ds_ids, user=user
+        )
+
+        if not resolution.is_enabled:
+            yield self._policy_end_event(
+                data.tool_name,
+                f"Tool '{data.tool_name}' is disabled for this agent.",
+                blocked_by="disabled",
+            )
+            return
+
+        effective = resolution.effective
+        if effective == TOOL_POLICY_ALLOW:
+            return
+
+        if effective == TOOL_POLICY_DENY:
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.access_blocked_by_policy",
+                resource_type="report",
+                resource_id=str(report.id) if report else None,
+                details={
+                    "tool": "execute_mcp", "tool_name": data.tool_name,
+                    "connection_id": str(connection.id), "policy": "deny",
+                    "user_policy": resolution.user_policy,
+                },
+            )
+            yield self._policy_end_event(
+                data.tool_name,
+                f"Tool '{data.tool_name}' is denied by policy and cannot be executed. "
+                "Continue the task without it.",
+                blocked_by="deny",
+            )
+            return
+
+        if effective == TOOL_POLICY_AUTO:
+            yield ToolProgressEvent(type="tool.progress", payload={
+                "stage": "auto_policy_review", "tool_name": data.tool_name,
+            })
+            # Release the session's transaction before the (multi-second) judge
+            # LLM call — same reasoning as agent_v2._release_db_between_steps:
+            # holding it starves the pool and, on SQLite, blocks all writers.
+            await self._release_db(db)
+            verdict = await self._auto_judge(db, connection, tool_record, data, runtime_ctx, report)
+            yield ToolProgressEvent(type="tool.progress", payload={
+                "stage": "auto_policy_decided",
+                "approved": bool(verdict.approve),
+                "reason": verdict.reason,
+                "timing": False,
+            })
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.auto_policy_decision",
+                resource_type="report",
+                resource_id=str(report.id) if report else None,
+                details={
+                    "tool": "execute_mcp", "tool_name": data.tool_name,
+                    "connection_id": str(connection.id),
+                    "approved": bool(verdict.approve), "reason": verdict.reason,
+                },
+            )
+            # Stash the verdict so run_stream persists it on the final tool
+            # output (result_json) — the live progress event alone is lost when
+            # the UI rehydrates the run from the DB.
+            runtime_ctx["_mcp_policy_verdict"] = {
+                "approved": bool(verdict.approve), "reason": verdict.reason or "",
+            }
+            if not verdict.approve:
+                yield self._policy_end_event(
+                    data.tool_name,
+                    f"Automatic policy review declined this call: {verdict.reason or 'not approved'}. "
+                    "You may ask the user to run it manually or continue without it.",
+                    blocked_by="auto",
+                    extra_output={
+                        "policy_reason": verdict.reason,
+                        "policy_verdict": {"approved": False, "reason": verdict.reason or ""},
+                    },
+                )
+            return
+
+        if effective == TOOL_POLICY_ASK:
+            if not ToolPolicyService.is_interactive_run(runtime_ctx):
+                await log_tool_audit(
+                    runtime_ctx,
+                    action="tool.access_blocked_by_policy",
+                    resource_type="report",
+                    resource_id=str(report.id) if report else None,
+                    details={
+                        "tool": "execute_mcp", "tool_name": data.tool_name,
+                        "connection_id": str(connection.id), "policy": "ask",
+                        "reason": "non_interactive_run",
+                    },
+                )
+                yield self._policy_end_event(
+                    data.tool_name,
+                    f"Tool '{data.tool_name}' requires user approval, which is not "
+                    "available in this context (scheduled/background run). Continue without it.",
+                    blocked_by="ask",
+                )
+                return
+
+            from app.ai.tools.confirmation import (
+                register_confirmation,
+                discard_confirmation,
+            )
+
+            confirmation_id = str(uuid4())
+            head = runtime_ctx.get("head_completion")
+            system = runtime_ctx.get("system_completion")
+            future = register_confirmation(confirmation_id, meta={
+                "kind": "mcp_tool_policy",
+                "user_id": str(user.id) if user else None,
+                "connection_tool_id": str(tool_record.id),
+                "completion_ids": [
+                    str(c.id) for c in (head, system) if c is not None
+                ],
+                "tool_name": data.tool_name,
+            })
+            # Release the session's transaction before blocking on the user —
+            # the approval endpoint needs the DB writer (to persist a
+            # remembered preference), and on SQLite an open transaction here
+            # would deadlock it into a 500. Mirrors _release_db_between_steps.
+            await self._release_db(db)
+            try:
+                yield ToolConfirmationEvent(type="tool.confirmation", payload={
+                    "kind": "mcp_tool_policy",
+                    "confirmation_id": confirmation_id,
+                    "tool_name": data.tool_name,
+                    "connection_id": str(connection.id),
+                    "connection_name": connection.name,
+                    "connection_tool_id": str(tool_record.id),
+                    "arguments": data.arguments or {},
+                    "timeout_seconds": self._ASK_TIMEOUT_S,
+                })
+                sigkill = runtime_ctx.get("sigkill_event")
+                waited = 0.0
+                response: Dict[str, Any] | None = None
+                while waited < self._ASK_TIMEOUT_S:
+                    if sigkill is not None and sigkill.is_set():
+                        break
+                    try:
+                        response = await asyncio.wait_for(
+                            asyncio.shield(future), timeout=self._ASK_KEEPALIVE_S
+                        )
+                        break
+                    except asyncio.TimeoutError:
+                        waited += self._ASK_KEEPALIVE_S
+                        # Keepalive so the ToolRunner idle watchdog doesn't kill
+                        # the run while we wait for the user (timing=False keeps
+                        # it out of the stage timings).
+                        yield ToolProgressEvent(type="tool.progress", payload={
+                            "stage": "awaiting_approval", "timing": False,
+                            "remaining_seconds": max(0, int(self._ASK_TIMEOUT_S - waited)),
+                        })
+            finally:
+                discard_confirmation(confirmation_id)
+
+            approved = bool(response and response.get("approved"))
+            # Persist the user's decision on the tool output so the planner's
+            # conversation digest (and the rehydrated UI) can see what the
+            # user chose, not just that the call failed.
+            runtime_ctx["_mcp_policy_approval"] = {
+                "approved": approved,
+                "remember": bool(response and response.get("remember")),
+                "timed_out": response is None,
+            }
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.approval_decision",
+                resource_type="report",
+                resource_id=str(report.id) if report else None,
+                details={
+                    "tool": "execute_mcp", "tool_name": data.tool_name,
+                    "connection_id": str(connection.id),
+                    "approved": approved,
+                    "remembered": bool(response and response.get("remember")),
+                    "timed_out": response is None,
+                },
+            )
+            if not approved:
+                reason = (
+                    "the approval request timed out"
+                    if response is None else "the user declined it"
+                )
+                yield self._policy_end_event(
+                    data.tool_name,
+                    f"Tool '{data.tool_name}' was not executed because {reason}. "
+                    "Do not retry the same call; continue the task without it or adjust your approach.",
+                    blocked_by="ask",
+                    extra_output={"approval": runtime_ctx.get("_mcp_policy_approval")},
+                )
+                return
+            yield ToolProgressEvent(type="tool.progress", payload={
+                "stage": "approval_granted", "timing": False,
+            })
+            return
+
+    _ASK_TIMEOUT_S: float = 240.0
+    _ASK_KEEPALIVE_S: float = 15.0
+
+    @staticmethod
+    async def _release_db(db) -> None:
+        """Commit the shared agent session so its connection (and SQLite's
+        writer lock) is released while this tool blocks on a long await.
+        expire_on_commit=False keeps loaded ORM objects usable afterwards."""
+        try:
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"execute_mcp: releasing db before policy wait failed: {e!r}")
+
+    async def _auto_judge(self, db, connection, tool_record, data, runtime_ctx, report):
+        """Run the small-model judge for an 'auto' policy call."""
+        from app.ai.classifiers.tool_call_judge import ToolCallJudge, ToolCallVerdict
+
+        organization = runtime_ctx.get("organization")
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+        try:
+            from app.services.llm_service import LLMService
+
+            small_model = await LLMService().get_default_model(
+                db, organization, user, is_small=True
+            )
+        except Exception as e:
+            logger.error(f"execute_mcp: failed to resolve small model for auto policy: {e}")
+            small_model = None
+        if small_model is None:
+            return ToolCallVerdict(
+                approve=False, confidence=0.0,
+                reason="no LLM model available for automatic policy review",
+            )
+
+        task_context = None
+        try:
+            head = runtime_ctx.get("head_completion")
+            prompt = getattr(head, "prompt", None)
+            content = prompt.get("content") if isinstance(prompt, dict) else None
+            title = getattr(report, "title", None)
+            parts = [p for p in (title, content) if p]
+            task_context = "\n".join(str(p) for p in parts) or None
+        except Exception:
+            pass
+
+        judge = ToolCallJudge(small_model)
+        return await judge.judge(
+            tool_name=data.tool_name,
+            tool_description=tool_record.description,
+            connection_name=connection.name,
+            arguments=data.arguments or {},
+            task_context=task_context,
+        )
+
+    @staticmethod
+    def _policy_end_event(tool_name: str, message: str, *, blocked_by: str,
+                          extra_output: Dict[str, Any] | None = None) -> ToolEndEvent:
+        output = {
+            "success": False,
+            "error_message": message,
+            "blocked_by_policy": blocked_by,
+        }
+        if extra_output:
+            output.update(extra_output)
+        return ToolEndEvent(
+            type="tool.end",
+            payload={
+                "output": output,
+                "observation": {
+                    "summary": message,
+                    "success": False,
+                    "blocked_by_policy": blocked_by,
                 },
             },
         )

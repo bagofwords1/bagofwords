@@ -742,7 +742,53 @@ class LLMService:
             pass
 
         return {"success": True}
-    
+
+    async def toggle_vision(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        enabled: bool
+    ):
+        """Manually enable/disable image (vision) support for a model.
+
+        Sets an explicit override so the choice survives catalog re-syncs, and
+        updates the effective `supports_vision` flag that inference reads.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id
+            )
+        )
+        model = model.scalar_one_or_none()
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model.supports_vision_override = enabled
+        model.supports_vision = enabled
+        await db.commit()
+
+        logger.info("LLM model vision toggled: id=%s, name=%s, model_id=%s, supports_vision=%s, org_id=%s", model.id, model.name, model.model_id, enabled, organization.id)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.vision_toggled",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "supports_vision": enabled},
+            )
+        except Exception:
+            pass
+
+        return {"success": True}
+
     async def _create_models(
         self, 
         db: AsyncSession,
@@ -852,6 +898,9 @@ class LLMService:
             # Set context_window_tokens, pricing, and supports_vision
             # For preset models: use values from LLM_MODEL_DETAILS
             # For custom models: use values from model dict if provided (already set via LLMModel(**model_dict))
+            # A non-null supports_vision_override always wins over the catalog default (see _resolve_supports_vision).
+            vision_override = model.get("supports_vision_override")
+            db_model.supports_vision_override = vision_override
             if model_details and not db_model.is_custom:
                 if model_details.get("context_window_tokens") is not None:
                     db_model.context_window_tokens = model_details["context_window_tokens"]
@@ -861,7 +910,9 @@ class LLMService:
                     db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
                 if model_details.get("output_cost_per_million_tokens_usd") is not None:
                     db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
-                db_model.supports_vision = model_details.get("supports_vision", False)
+                db_model.supports_vision = self._resolve_supports_vision(
+                    vision_override, model_details.get("supports_vision", False)
+                )
             elif db_model.is_custom:
                 # Inherit catalog fields when model_id+provider_type match; user values take precedence.
                 if model_details:
@@ -875,12 +926,16 @@ class LLMService:
                         db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
                     if db_model.output_cost_per_million_tokens_usd is None and model_details.get("output_cost_per_million_tokens_usd") is not None:
                         db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
-                    if not model.get("supports_vision"):
-                        db_model.supports_vision = model_details.get("supports_vision", False)
-                    else:
-                        db_model.supports_vision = True
+                    base_vision = bool(model.get("supports_vision")) or model_details.get("supports_vision", False)
+                    db_model.supports_vision = self._resolve_supports_vision(vision_override, base_vision)
                 else:
-                    db_model.supports_vision = model.get("supports_vision", False)
+                    db_model.supports_vision = self._resolve_supports_vision(
+                        vision_override, model.get("supports_vision", False)
+                    )
+            else:
+                db_model.supports_vision = self._resolve_supports_vision(
+                    vision_override, db_model.supports_vision
+                )
 
             db.add(db_model)
 
@@ -1049,6 +1104,9 @@ class LLMService:
                     (m for m in LLM_MODEL_DETAILS if m["model_id"] == db_model.model_id and m["provider_type"] == provider.provider_type),
                     None
                 )
+                # A non-null vision override from the client is honored for both preset and custom models.
+                if getattr(model, "supports_vision_override", None) is not None:
+                    db_model.supports_vision_override = model.supports_vision_override
                 if db_model.is_preset:
                     if catalog:
                         if catalog.get("context_window_tokens") is not None:
@@ -1059,7 +1117,10 @@ class LLMService:
                             db_model.input_cost_per_million_tokens_usd = catalog["input_cost_per_million_tokens_usd"]
                         if catalog.get("output_cost_per_million_tokens_usd") is not None:
                             db_model.output_cost_per_million_tokens_usd = catalog["output_cost_per_million_tokens_usd"]
-                        db_model.supports_vision = catalog.get("supports_vision", False)
+                    catalog_vision = catalog.get("supports_vision", False) if catalog else db_model.supports_vision
+                    db_model.supports_vision = self._resolve_supports_vision(
+                        db_model.supports_vision_override, catalog_vision
+                    )
                 else:
                     # Custom models: user values take precedence; fall back to catalog when model_id+provider_type match.
                     if getattr(model, "context_window_tokens", None) is not None:
@@ -1078,12 +1139,12 @@ class LLMService:
                         db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
                     elif catalog and catalog.get("output_cost_per_million_tokens_usd") is not None:
                         db_model.output_cost_per_million_tokens_usd = catalog["output_cost_per_million_tokens_usd"]
-                    if getattr(model, "supports_vision", False):
-                        db_model.supports_vision = True
-                    elif catalog:
-                        db_model.supports_vision = catalog.get("supports_vision", False)
-                    else:
-                        db_model.supports_vision = False
+                    base_vision = bool(getattr(model, "supports_vision", False)) or (
+                        catalog.get("supports_vision", False) if catalog else False
+                    )
+                    db_model.supports_vision = self._resolve_supports_vision(
+                        db_model.supports_vision_override, base_vision
+                    )
                 
                 db.add(db_model)
             else:
@@ -1119,6 +1180,10 @@ class LLMService:
                     output_cost = getattr(model, "output_cost_per_million_tokens_usd", None) or (catalog.get("output_cost_per_million_tokens_usd") if catalog else None)
                     supports_vision = getattr(model, "supports_vision", False) or (catalog.get("supports_vision", False) if catalog else False)
 
+                # A non-null vision override from the client wins over the catalog default.
+                supports_vision_override = getattr(model, "supports_vision_override", None)
+                supports_vision = self._resolve_supports_vision(supports_vision_override, supports_vision)
+
                 # Set as default if org has no default and this model is enabled
                 should_be_default = not has_default_model and model.is_enabled
                 should_be_small_default = not has_small_default_model and model.is_enabled
@@ -1134,6 +1199,7 @@ class LLMService:
                     is_default=should_be_default,
                     is_small_default=should_be_small_default,
                     supports_vision=supports_vision,
+                    supports_vision_override=supports_vision_override,
                     context_window_tokens=context_window_tokens,
                     max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
@@ -1407,12 +1473,23 @@ class LLMService:
         await db.commit()
         
     @staticmethod
+    def _resolve_supports_vision(override, catalog_value) -> bool:
+        """Effective vision flag: a non-null admin override always wins over the catalog."""
+        if override is not None:
+            return bool(override)
+        return bool(catalog_value)
+
+    @staticmethod
     def _apply_catalog_model_details(model: LLMModel, model_data: dict, *, sync_enabled: bool = False) -> None:
         model.name = model_data["name"]
         model.is_preset = model_data.get("is_preset", True)
         if sync_enabled:
             model.is_enabled = model_data.get("is_enabled", True)
-        model.supports_vision = model_data.get("supports_vision", False)
+        # Respect an admin's manual vision override so it survives catalog re-syncs.
+        model.supports_vision = LLMService._resolve_supports_vision(
+            getattr(model, "supports_vision_override", None),
+            model_data.get("supports_vision", False),
+        )
         model.context_window_tokens = model_data.get("context_window_tokens")
         if "max_output_tokens" in model_data:
             model.max_output_tokens = model_data.get("max_output_tokens")

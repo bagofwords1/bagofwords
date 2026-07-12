@@ -36,6 +36,9 @@ class MCPToolItem(BaseModel):
     description: Optional[str] = None
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
+    # Effective execution policy for the run's user (allow | ask | auto).
+    # deny tools are excluded from context entirely.
+    policy: Optional[str] = None
 
 
 class FileScopeItem(BaseModel):
@@ -209,11 +212,17 @@ class TablesSchemaContext(ContextSection):
                 groups[key].append(tool)
 
             conn_parts = []
+            has_gated = False
             for conn_id, tools in groups.items():
                 tool_xmls = []
                 for t in tools:
                     desc = xml_escape(t.description or "")
-                    tool_xmls.append(f'<tool name="{xml_escape(t.name)}">{desc}</tool>')
+                    policy = getattr(t, 'policy', None)
+                    policy_attr = ""
+                    if policy and policy != "allow":
+                        policy_attr = f' policy="{xml_escape(policy)}"'
+                        has_gated = True
+                    tool_xmls.append(f'<tool name="{xml_escape(t.name)}"{policy_attr}>{desc}</tool>')
                 conn_name = tools[0].connection_name or 'unknown'
                 conn_attrs = {"name": conn_name, "type": "mcp"}
                 if conn_id != 'default':
@@ -227,6 +236,12 @@ class TablesSchemaContext(ContextSection):
                 "Call search_mcps to get a tool's full input schema (exact argument names and types) "
                 "before calling execute_mcp — do not guess arguments.</note>"
             )
+            if has_gated:
+                conn_parts.append(
+                    '<note>Tools marked policy="ask" pause the run for the user to approve the call '
+                    '(they may decline — continue without the tool if so). Tools marked policy="auto" '
+                    'are reviewed automatically before running and may be declined.</note>'
+                )
             return xml_tag("mcp_tools", "\n".join(conn_parts))
 
         def _render_file_scope_xml(self, fs: "FileScopeItem") -> str:

@@ -236,7 +236,8 @@
     "toastCreated": "Created",
     "toastSaveFailed": "Couldn’t save",
     "toastRestored": "Restored v{n}",
-    "toastPrimaryUpdated": "Primary instruction updated."
+    "toastPrimaryUpdated": "Primary instruction updated.",
+    "toolPolicyYours": "Your personal policy"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -916,7 +917,19 @@
       "running": "Running MCP tool…",
       "foundTools": "Found {count} tool(s)",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (failed)"
+      "failed": "{name} (failed)",
+      "awaitingApproval": "Waiting for your approval to run {name}…",
+      "autoReviewing": "Reviewing {name} against policy…",
+      "approvalHint": "“Always” choices are saved as your preference for future runs.",
+      "allowOnce": "Allow once",
+      "alwaysAllow": "Always allow",
+      "denyOnce": "Deny",
+      "alwaysDeny": "Always deny",
+      "declined": "{name} (declined)",
+      "blockedByPolicy": "{name} (blocked by policy)",
+      "autoDeclinedLabel": "{name} (auto-declined)",
+      "autoApproved": "Auto-approved by policy review",
+      "autoDenied": "Declined by policy review"
     },
     "answerQuestion": {
       "thought": "Thought about answer"
@@ -1084,6 +1097,19 @@
       "diff": "diff",
       "rewrite": "rewrite",
       "editsCount": "{n} surgical edits"
+    },
+    "createNote": {
+      "writing": "Writing a note...",
+      "wrotePrefix": "Wrote note: {text}",
+      "untitled": "Untitled note",
+      "failed": "Note failed"
+    },
+    "editNote": {
+      "editing": "Editing note...",
+      "editedPrefix": "Edited note: {text}",
+      "diff": "diff",
+      "rewrite": "rewrite",
+      "failed": "Edit failed"
     }
   },
   "entityCreate": {
@@ -1858,15 +1884,18 @@
       "colModel": "Model",
       "colProvider": "Provider",
       "colStatus": "Status",
+      "colVision": "Vision",
       "colActions": "Actions",
       "badgeDefault": "Default",
       "badgeSmallDefault": "Small default",
+      "badgeVision": "Vision",
       "emptyTitle": "No LLMs Integrated",
       "emptyHint": "Get started by integrating your LLM provider and models",
       "makeDefault": "Make Default",
       "makeSmallDefault": "Make Small Default",
       "manageProvider": "Manage Provider",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
+      "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
       "modelIdLabel": "Model ID"
     },
     "licensePage": {
@@ -3340,5 +3369,25 @@
     "cancel": "Cancel",
     "saved": "Document saved",
     "saveFailed": "Failed to save document"
+  },
+  "notes": {
+    "heading": "Notes",
+    "byAgent": "agent",
+    "byYou": "you",
+    "updated": "Updated"
+  },
+  "toolsSelector": {
+    "adminPolicy": "admin",
+    "adminPolicyTip": "Policy set by agent admins — the default for all users",
+    "myPolicy": "me",
+    "myPolicyTip": "Your personal policy for this tool — applies only to your runs",
+    "myPolicyFailed": "Failed to update your tool policy",
+    "policyAllow": "allow",
+    "policyAsk": "ask",
+    "policyAuto": "auto",
+    "policyDeny": "deny",
+    "policyInherit": "inherit ({policy})",
+    "reset": "reset",
+    "resetTip": "Reset to connection default"
   }
 }

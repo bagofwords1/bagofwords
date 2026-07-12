@@ -132,13 +132,67 @@ Use when:
             )
             return
 
-        # Query enabled tools
+        # Query tools and resolve their effective policy for this run's user
+        # (agent overlay > connection default, then user preference). Tools
+        # that are disabled at either admin layer, or effectively denied, are
+        # hidden from discovery — the agent must not plan around them.
+        from app.models.data_source_connection_tool import DataSourceConnectionTool
+        from app.services.tool_policy_service import (
+            ToolPolicyService, resolve_effective_policy,
+        )
+
         stmt = select(ConnectionTool).where(
             ConnectionTool.connection_id.in_(list(mcp_connection_ids)),
-            ConnectionTool.is_enabled == True,
         )
         result = await db.execute(stmt)
-        tools = result.scalars().all()
+        all_tools = result.scalars().all()
+
+        # Overlays from this report's agents only — another agent's overlay on a
+        # shared connection must not leak into this run.
+        ds_ids_result = await db.execute(
+            select(domain_connection.c.data_source_id)
+            .join(
+                report_data_source_association,
+                report_data_source_association.c.data_source_id == domain_connection.c.data_source_id,
+            )
+            .where(
+                report_data_source_association.c.report_id == str(report.id),
+                domain_connection.c.connection_id.in_(list(mcp_connection_ids)),
+            )
+        )
+        ds_ids = [str(r[0]) for r in ds_ids_result.all()]
+        overlays = {}
+        if ds_ids and all_tools:
+            overlay_rows = await db.execute(
+                select(DataSourceConnectionTool).where(
+                    DataSourceConnectionTool.data_source_id.in_(ds_ids),
+                    DataSourceConnectionTool.connection_tool_id.in_(
+                        [str(t.id) for t in all_tools]
+                    ),
+                )
+            )
+            overlays = {str(o.connection_tool_id): o for o in overlay_rows.scalars().all()}
+
+        run_user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
+        user_prefs = {}
+        if run_user is not None and all_tools:
+            user_prefs = await ToolPolicyService().get_user_preferences(
+                db, str(run_user.id), [str(t.id) for t in all_tools]
+            )
+
+        tools = []
+        tool_policies = {}
+        for t in all_tools:
+            overlay = overlays.get(str(t.id))
+            is_enabled = overlay.is_enabled if overlay else t.is_enabled
+            if not is_enabled:
+                continue
+            admin_policy = overlay.policy if overlay else t.policy
+            effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
+            if effective == "deny":
+                continue
+            tool_policies[str(t.id)] = effective
+            tools.append(t)
 
         # Filter by query if provided.
         #
@@ -161,6 +215,7 @@ Use when:
                 "connection_name": ci.get("name", ""),
                 "connection_type": ci.get("type", ""),
                 "input_schema": t.input_schema,
+                "policy": tool_policies.get(str(t.id), "allow"),
             })
 
         summary = f"Found {len(tool_previews)} tool(s) across {len(mcp_connection_ids)} MCP/API connection(s)."

@@ -224,7 +224,8 @@
     "toastCreated": "Criado",
     "toastSaveFailed": "Não foi possível salvar",
     "toastRestored": "Restaurado v{n}",
-    "toastPrimaryUpdated": "Instrução principal atualizada."
+    "toastPrimaryUpdated": "Instrução principal atualizada.",
+    "toolPolicyYours": "Sua política pessoal"
   },
   "smoke": {
     "hello": "Olá",
@@ -811,7 +812,19 @@
       "running": "Executando ferramenta MCP…",
       "foundTools": "{count} ferramenta(s) encontrada(s)",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (falhou)"
+      "failed": "{name} (falhou)",
+      "awaitingApproval": "Aguardando sua aprovação para executar {name}…",
+      "autoReviewing": "Revisando {name} conforme a política…",
+      "approvalHint": "As escolhas “Sempre” são salvas como sua preferência para execuções futuras.",
+      "allowOnce": "Permitir uma vez",
+      "alwaysAllow": "Sempre permitir",
+      "denyOnce": "Negar",
+      "alwaysDeny": "Sempre negar",
+      "declined": "{name} (negado)",
+      "blockedByPolicy": "{name} (bloqueado por política)",
+      "autoDeclinedLabel": "{name} (negado automaticamente)",
+      "autoApproved": "Aprovado automaticamente pela revisão de política",
+      "autoDenied": "Negado pela revisão de política"
     },
     "answerQuestion": {
       "thought": "Pensou na resposta"
@@ -979,6 +992,19 @@
       "diff": "diff",
       "rewrite": "reescrita",
       "editsCount": "{n} edições cirúrgicas"
+    },
+    "createNote": {
+      "writing": "Escrevendo uma nota...",
+      "wrotePrefix": "Nota escrita: {text}",
+      "untitled": "Nota sem título",
+      "failed": "Falha na nota"
+    },
+    "editNote": {
+      "editing": "Editando nota...",
+      "editedPrefix": "Nota editada: {text}",
+      "diff": "diff",
+      "rewrite": "reescrita",
+      "failed": "Falha na edição"
     }
   },
   "entityCreate": {
@@ -3002,5 +3028,25 @@
     "cancel": "Cancelar",
     "saved": "Documento salvo",
     "saveFailed": "Falha ao salvar o documento"
+  },
+  "notes": {
+    "heading": "Notas",
+    "byAgent": "agente",
+    "byYou": "você",
+    "updated": "Atualizado"
+  },
+  "toolsSelector": {
+    "adminPolicy": "admin",
+    "adminPolicyTip": "Política definida pelos administradores do agente — padrão para todos os usuários",
+    "myPolicy": "eu",
+    "myPolicyTip": "Sua política pessoal para esta ferramenta — aplica-se apenas às suas execuções",
+    "myPolicyFailed": "Falha ao atualizar sua política de ferramenta",
+    "policyAllow": "permitir",
+    "policyAsk": "perguntar",
+    "policyAuto": "auto",
+    "policyDeny": "negar",
+    "policyInherit": "herdar ({policy})",
+    "reset": "redefinir",
+    "resetTip": "Redefinir para o padrão da conexão"
   }
 }

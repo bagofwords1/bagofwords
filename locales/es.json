@@ -236,7 +236,8 @@
     "toastCreated": "Creado",
     "toastSaveFailed": "No se pudo guardar",
     "toastRestored": "Restaurado v{n}",
-    "toastPrimaryUpdated": "Instrucción principal actualizada."
+    "toastPrimaryUpdated": "Instrucción principal actualizada.",
+    "toolPolicyYours": "Tu política personal"
   },
   "smoke": {
     "hello": "Hola",
@@ -833,7 +834,19 @@
       "running": "Ejecutando herramienta MCP…",
       "foundTools": "Se encontraron {count} herramientas",
       "csvSuccess": "{name} → CSV",
-      "failed": "{name} (falló)"
+      "failed": "{name} (falló)",
+      "awaitingApproval": "Esperando tu aprobación para ejecutar {name}…",
+      "autoReviewing": "Revisando {name} según la política…",
+      "approvalHint": "Las opciones “Siempre” se guardan como tu preferencia para futuras ejecuciones.",
+      "allowOnce": "Permitir una vez",
+      "alwaysAllow": "Permitir siempre",
+      "denyOnce": "Denegar",
+      "alwaysDeny": "Denegar siempre",
+      "declined": "{name} (rechazado)",
+      "blockedByPolicy": "{name} (bloqueado por política)",
+      "autoDeclinedLabel": "{name} (rechazado automáticamente)",
+      "autoApproved": "Aprobado automáticamente por revisión de política",
+      "autoDenied": "Rechazado por revisión de política"
     },
     "answerQuestion": {
       "thought": "Pensó la respuesta"
@@ -1001,6 +1014,19 @@
       "diff": "diff",
       "rewrite": "reescritura",
       "editsCount": "{n} ediciones quirúrgicas"
+    },
+    "createNote": {
+      "writing": "Escribiendo una nota...",
+      "wrotePrefix": "Nota escrita: {text}",
+      "untitled": "Nota sin título",
+      "failed": "Error en la nota"
+    },
+    "editNote": {
+      "editing": "Editando nota...",
+      "editedPrefix": "Nota editada: {text}",
+      "diff": "diff",
+      "rewrite": "reescritura",
+      "failed": "Error al editar"
     }
   },
   "entityCreate": {
@@ -3109,5 +3135,25 @@
     "cancel": "Cancelar",
     "saved": "Documento guardado",
     "saveFailed": "No se pudo guardar el documento"
+  },
+  "notes": {
+    "heading": "Notas",
+    "byAgent": "agente",
+    "byYou": "tú",
+    "updated": "Actualizado"
+  },
+  "toolsSelector": {
+    "adminPolicy": "admin",
+    "adminPolicyTip": "Política definida por los administradores del agente — predeterminada para todos los usuarios",
+    "myPolicy": "yo",
+    "myPolicyTip": "Tu política personal para esta herramienta — solo se aplica a tus ejecuciones",
+    "myPolicyFailed": "No se pudo actualizar tu política de herramienta",
+    "policyAllow": "permitir",
+    "policyAsk": "preguntar",
+    "policyAuto": "auto",
+    "policyDeny": "denegar",
+    "policyInherit": "heredar ({policy})",
+    "reset": "restablecer",
+    "resetTip": "Restablecer al valor predeterminado de la conexión"
   }
 }

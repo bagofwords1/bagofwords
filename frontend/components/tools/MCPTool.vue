@@ -24,6 +24,57 @@
       </div>
     </Transition>
 
+    <!-- Approval prompt ('ask' policy): the run is paused on this call.
+         Deliberately quiet — an indented block under the status line, a
+         one-line argument echo, and a row of small actions. -->
+    <div
+      v-if="showApprovalCard"
+      class="mt-1.5 ms-1 border-s-2 border-amber-300/70 dark:border-amber-600/50 ps-2.5 py-0.5 space-y-1.5"
+      data-testid="mcp-approval-card"
+    >
+      <button
+        v-if="argsOneLine"
+        type="button"
+        class="block max-w-full truncate text-start text-[11px] font-mono text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+        :title="showArgs ? '' : argsOneLine"
+        @click="showArgs = !showArgs"
+      >{{ argsOneLine }}</button>
+      <pre
+        v-if="showArgs"
+        class="max-h-32 overflow-auto rounded bg-gray-50 dark:bg-gray-900 text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono"
+      >{{ confirmationArgs }}</pre>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs">
+        <button
+          class="px-2 py-0.5 rounded font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
+          :disabled="responding" @click="respond(true, false)"
+        >{{ $t('tools.mcp.allowOnce') }}</button>
+        <button
+          class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+          :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(true, true)"
+        >{{ $t('tools.mcp.alwaysAllow') }}</button>
+        <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
+        <button
+          class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+          :disabled="responding" @click="respond(false, false)"
+        >{{ $t('tools.mcp.denyOnce') }}</button>
+        <button
+          class="px-2 py-0.5 rounded text-gray-400 dark:text-gray-500 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+          :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(false, true)"
+        >{{ $t('tools.mcp.alwaysDeny') }}</button>
+      </div>
+    </div>
+
+    <!-- Auto policy verdict ('auto' policy): small-model review outcome -->
+    <div
+      v-if="autoPolicy"
+      class="mt-1 flex items-center gap-1 text-[10px]"
+      :class="autoPolicy.approved ? 'text-gray-400 dark:text-gray-500' : 'text-amber-600 dark:text-amber-500'"
+      data-testid="mcp-auto-policy"
+    >
+      <Icon :name="autoPolicy.approved ? 'heroicons-shield-check' : 'heroicons-shield-exclamation'" class="w-3 h-3 shrink-0" />
+      <span class="truncate">{{ autoPolicy.approved ? $t('tools.mcp.autoApproved') : $t('tools.mcp.autoDenied') }}<template v-if="autoPolicy.reason"> — {{ autoPolicy.reason }}</template></span>
+    </div>
+
     <!-- Expandable content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
@@ -91,6 +142,7 @@ interface ToolExecution {
 const props = defineProps<{
   toolExecution: ToolExecution
   dataSources?: any[]
+  systemCompletionId?: string | null
 }>()
 
 const isExpanded = ref(false)
@@ -98,6 +150,67 @@ const showPreview = ref(true)
 const showCommand = ref(true)
 
 const status = computed(() => props.toolExecution?.status || '')
+
+// ── 'ask' policy: mid-run approval card ─────────────────────────────
+const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
+const progressStage = computed(() => (props.toolExecution as any).progress_stage || '')
+const answered = ref(false)
+const responding = ref(false)
+
+const showApprovalCard = computed(() =>
+  !!confirmation.value?.confirmation_id &&
+  !answered.value &&
+  status.value === 'running' &&
+  ['awaiting_confirmation', 'awaiting_approval'].includes(progressStage.value)
+)
+
+const confirmationArgs = computed(() => {
+  const a = confirmation.value?.arguments
+  if (!a || !Object.keys(a).length) return ''
+  try { return JSON.stringify(a, null, 2) } catch { return String(a) }
+})
+
+// Compact one-line call echo, e.g. create_item({"board_id": 1, …}); click to expand.
+const showArgs = ref(false)
+const argsOneLine = computed(() => {
+  if (!confirmation.value) return ''
+  const name = confirmation.value.tool_name || 'tool'
+  const a = confirmation.value.arguments
+  if (!a || !Object.keys(a).length) return `${name}()`
+  try { return `${name}(${JSON.stringify(a)})` } catch { return `${name}(…)` }
+})
+
+async function respond(approved: boolean, remember: boolean) {
+  if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
+  responding.value = true
+  try {
+    const res = await useMyFetch(
+      `/completions/${props.systemCompletionId}/mcp_tool_confirmations/${confirmation.value.confirmation_id}`,
+      { method: 'POST', body: { approved, remember } }
+    )
+    if (res?.error?.value) {
+      console.warn('Failed to respond to tool approval', res.error.value)
+    } else {
+      answered.value = true
+    }
+  } finally {
+    responding.value = false
+  }
+}
+
+// ── 'auto' policy: small-model review verdict ──────────────────────
+// Live runs carry it on the tool_execution (SSE handler); rehydrated runs
+// read the persisted copy from result_json.
+const autoPolicy = computed(() => {
+  const live = (props.toolExecution as any).auto_policy
+  if (live) return live
+  const rj = resultJson.value as any
+  if (rj.policy_verdict) return rj.policy_verdict
+  if (rj.blocked_by_policy === 'auto') {
+    return { approved: false, reason: rj.policy_reason || '' }
+  }
+  return null
+})
 const toolName = computed(() => props.toolExecution?.tool_name || '')
 const args = computed(() => props.toolExecution?.arguments_json || {})
 const resultJson = computed(() => props.toolExecution?.result_json || {})
@@ -142,6 +255,14 @@ const modelTitle = computed<string>(() => {
 })
 
 const runningLabel = computed(() => {
+  if (toolName.value === 'execute_mcp' && ['awaiting_confirmation', 'awaiting_approval'].includes(progressStage.value)) {
+    const label = t('tools.mcp.awaitingApproval', { name: args.value.tool_name || 'tool' })
+    const conn = confirmation.value?.connection_name
+    return conn ? `${label} · ${conn}` : label
+  }
+  if (toolName.value === 'execute_mcp' && progressStage.value === 'auto_policy_review') {
+    return t('tools.mcp.autoReviewing', { name: args.value.tool_name || 'tool' })
+  }
   if (modelTitle.value) return modelTitle.value
   if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
@@ -167,6 +288,10 @@ const doneLabel = computed(() => {
     // On failure always surface the failed state; otherwise prefer the label.
     if (resultJson.value.success === false) {
       const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
+      const blocked = resultJson.value.blocked_by_policy
+      if (blocked === 'ask') return t('tools.mcp.declined', { name: args.value.tool_name || connName })
+      if (blocked === 'auto') return t('tools.mcp.autoDeclinedLabel', { name: args.value.tool_name || connName })
+      if (blocked) return t('tools.mcp.blockedByPolicy', { name: args.value.tool_name || connName })
       return t('tools.mcp.failed', { name: connName })
     }
     if (modelTitle.value) return modelTitle.value

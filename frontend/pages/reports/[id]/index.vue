@@ -751,6 +751,8 @@ import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
 import EditDocTool from '~/components/tools/EditDocTool.vue'
+import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import EditNoteTool from '~/components/tools/EditNoteTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
@@ -1612,6 +1614,10 @@ function getToolComponent(toolName: string) {
 			return CreateDocTool
 		case 'edit_doc':
 			return EditDocTool
+		case 'create_note':
+			return CreateNoteTool
+		case 'edit_note':
+			return EditNoteTool
 		case 'read_resources':
 			return ReadResourcesTool
 		case 'inspect_data':
@@ -2293,6 +2299,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'connection_resolved' && payload.payload.connection_name) {
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
+						}
+						// Capture the 'auto' policy verdict for execute_mcp so MCPTool can show it.
+						// Stored on the tool_execution (not result_json) so the final
+						// tool.finished payload doesn't overwrite it.
+						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'auto_policy_decided') {
+							;(lastBlock.tool_execution as any).auto_policy = {
+								approved: !!payload.payload.approved,
+								reason: payload.payload.reason || ''
+							}
 						}
 
 						// Capture code, attempt, and errors for create_data / inspect_data
