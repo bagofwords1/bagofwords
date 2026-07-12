@@ -128,7 +128,11 @@ class ListFilesTool(Tool):
             if data.folder_id:
                 raw = await client.alist_files(folder_id=data.folder_id, recursive=bool(data.recursive))
             else:
-                raw = await client.alist_files(recursive=bool(data.recursive))
+                # No folder given: list the WHOLE scope recursively. The include-
+                # globs already bound the result, and for nested layouts (S3
+                # prefixes, subfoldered shares) a non-recursive root listing
+                # would surface only folders and read as "empty".
+                raw = await client.alist_files(recursive=True)
             return self._apply([e for e in raw if not e.get("is_folder")], data.name_pattern)
 
         if live_listing:
