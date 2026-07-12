@@ -1922,7 +1922,8 @@
     "integration.not_found": "האינטגרציה לא נמצאה",
     "resource.conflict": "המשאב כבר קיים או סותר את המצב הקיים",
     "resource.duplicate": "משאב כפול",
-    "setting.update_failed": "עדכון ההגדרה נכשל"
+    "setting.update_failed": "עדכון ההגדרה נכשל",
+    "query.result_too_large": "תוצאת השאילתה גדולה מדי"
   },
   "email": {
     "dashboardShare": {

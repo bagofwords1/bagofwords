@@ -1830,7 +1830,8 @@
     "integration.not_found": "Integrazione non trovata",
     "resource.conflict": "La risorsa esiste già o è in conflitto con lo stato attuale",
     "resource.duplicate": "Risorsa duplicata",
-    "setting.update_failed": "Impossibile aggiornare l'impostazione"
+    "setting.update_failed": "Impossibile aggiornare l'impostazione",
+    "query.result_too_large": "Il risultato della query è troppo grande"
   },
   "email": {
     "dashboardShare": {

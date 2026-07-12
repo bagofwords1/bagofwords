@@ -175,6 +175,8 @@ FORBIDDEN_MODULES = frozenset({
     'multiprocessing', 'threading', 'concurrent', 'asyncio',
     'ctypes', 'cffi', 'pickle', 'shelve', 'marshal',
     'tempfile', 'pathlib', 'glob', 'fnmatch',
+    'operator', 'inspect', 'gc', 'weakref',
+    'app', 'tests',
     'signal', 'resource', 'sysconfig', 'platform',
     'webbrowser', 'antigravity', 'this',
 })
@@ -231,8 +233,11 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute):
-        # Check for direct access to forbidden attributes like obj.__class__
-        if node.attr in FORBIDDEN_ATTRIBUTES:
+        # Generated code never needs implementation-private attributes. Blocking
+        # every leading underscore closes proxy escape hatches such as
+        # db_client._original and db_client.__getattr__(...), not just today's
+        # enumerated dunder set.
+        if node.attr.startswith('_') or node.attr in FORBIDDEN_ATTRIBUTES:
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
 
@@ -308,6 +313,7 @@ FORBIDDEN_SQL_PATTERNS = [
     r'\bCALL\b',
     r'\bREPLACE\b',
     r'\bLOAD\b',
+    r'\bCOPY\b',
     r'\bINTO\s+OUTFILE\b',
     r'\bINTO\s+DUMPFILE\b',
 ]
@@ -338,6 +344,7 @@ _FORBIDDEN_SQL_IN_STRING_PATTERNS = [
     r'\bEXEC(UTE)?\s+(\w+\.)*\w+',
     r'\bCALL\s+\w+\s*\(',
     r'\bLOAD\s+DATA\b',
+    r'\bCOPY\s+(\([^)]*\)|[\w.`"\[\]]+)\s+(TO|FROM)\b',
     r'\bINTO\s+OUTFILE\b',
     r'\bINTO\s+DUMPFILE\b',
 ]
@@ -417,9 +424,19 @@ class QueryCapturingClientWrapper:
         self._lazy_enabled = bool(lazy_enabled)
         self._query_timeout_seconds = (
             int(query_timeout_seconds)
-            if isinstance(query_timeout_seconds, (int, float)) and query_timeout_seconds > 0
+            if isinstance(query_timeout_seconds, (int, float))
+            and query_timeout_seconds > 0
             else DEFAULT_QUERY_TIMEOUT_SECONDS
         )
+
+    def __getattribute__(self, name):
+        # The wrapper is injected into generated code. Its raw client is an
+        # internal capability: exposing it lets reflection bypass the org gate,
+        # capture, quotas, and timeout. Internal methods use
+        # object.__getattribute__ explicitly; sandbox-visible lookups fail.
+        if name in {"_original", "__getattr__"}:
+            raise AttributeError(name)
+        return object.__getattribute__(self, name)
 
     def execute_query(self, query: str, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration."""
@@ -473,6 +490,10 @@ class QueryCapturingClientWrapper:
             # spill vanished or is unreadable — not an empty result.
             unmeterable = disk_bytes <= 0
         except Exception:
+            # Any failure of the authoritative multi-part metadata pass is
+            # unmeterable even when a fallback can still see one surviving
+            # file. Otherwise deleting one part silently undercharges it.
+            unmeterable = True
             logger.warning(
                 "Could not read LazyFrame spill stats; metering piecewise", exc_info=True
             )
@@ -482,7 +503,6 @@ class QueryCapturingClientWrapper:
                 logger.warning("Could not read LazyFrame row count for metering", exc_info=True)
             try:
                 result_bytes = result.byte_size()
-                unmeterable = result_bytes <= 0
             except Exception:
                 unmeterable = True
         if unmeterable:
@@ -516,7 +536,8 @@ class QueryCapturingClientWrapper:
         }
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span(f"datasource.{method}") as span:
-            span.set_attribute("datasource.type", type(self._original).__name__)
+            original = object.__getattribute__(self, "_original")
+            span.set_attribute("datasource.type", type(original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
                 self._consume_query_quota(query)
@@ -611,7 +632,8 @@ class QueryCapturingClientWrapper:
             except Exception:
                 pass
             try:
-                value = getattr(self._original, method)(query, *args, **kwargs)
+                original = object.__getattribute__(self, "_original")
+                value = getattr(original, method)(query, *args, **kwargs)
             except BaseException as exc:
                 if not abandoned.is_set():
                     holder["exc"] = exc
@@ -709,15 +731,17 @@ class QueryCapturingClientWrapper:
             logger.debug("Skipping data-bytes quota write; SQLite is locked")
 
     def _connection_id(self) -> Optional[str]:
-        connection_id = getattr(self._original, "_bow_connection_id", None)
+        original = object.__getattribute__(self, "_original")
+        connection_id = getattr(original, "_bow_connection_id", None)
         return str(connection_id) if connection_id else None
 
     def _usage_metadata(self, query: str) -> dict:
+        original = object.__getattribute__(self, "_original")
         return {
-            "client_key": self._client_key or getattr(self._original, "_bow_client_key", None),
-            "connection_name": getattr(self._original, "_bow_connection_name", None),
-            "data_source_id": getattr(self._original, "_bow_data_source_id", None),
-            "data_source_name": getattr(self._original, "_bow_data_source_name", None),
+            "client_key": self._client_key or getattr(original, "_bow_client_key", None),
+            "connection_name": getattr(original, "_bow_connection_name", None),
+            "data_source_id": getattr(original, "_bow_data_source_id", None),
+            "data_source_name": getattr(original, "_bow_data_source_name", None),
             "sql": query[:500] if isinstance(query, str) else None,
         }
 
@@ -733,7 +757,10 @@ class QueryCapturingClientWrapper:
 
     def __getattr__(self, name):
         """Delegate all other attributes to the original client."""
-        return getattr(self._original, name)
+        if name.startswith('_'):
+            raise AttributeError(name)
+        original = object.__getattribute__(self, "_original")
+        return getattr(original, name)
 
 
 def wrap_clients_for_capture(
@@ -905,31 +932,40 @@ class StreamingCodeExecutor:
 
         if not isinstance(df, LazyFrame):
             return df
-        cap = int(os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_CAP") or 1_000_000)
-        # The hazard is bytes, not just rows: a wide frame under the row cap
-        # can still be multiple GB — the exact OOM the lazy path exists to
-        # prevent. Estimate from the spill's uncompressed columnar size (for
-        # a derived frame this reflects its SOURCE, i.e. an upper bound for
-        # plain filters/projections).
-        byte_cap = int(os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES") or 512 * 1024 * 1024)
         try:
-            rows = df.row_count()
-            est_bytes = None
             try:
-                _, est_bytes, _ = df.spill_stats()
-            except Exception:
-                logger.debug("Could not estimate LazyFrame result bytes", exc_info=True)
-            if rows <= cap and (est_bytes is None or est_bytes <= byte_cap):
-                return df.to_df()
-            raise ValueError(
-                f"generate_df returned a LazyFrame with {rows} rows"
-                f"{f' (~{est_bytes} uncompressed bytes)' if est_bytes else ''} — too "
-                "large to materialize into the result DataFrame. Reduce it before "
-                "returning, e.g. lf.sql('SELECT <aggregation> FROM data GROUP BY "
-                f"...').to_df() or lf.limit(n).to_df() with n <= {cap}."
-            )
+                cap = int(
+                    os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_CAP") or 1_000_000
+                )
+            except ValueError:
+                cap = 1_000_000
+            # The hazard is bytes, not just rows: a wide frame under the row cap
+            # can still be multiple GB. Materialize the CURRENT relation in
+            # bounded Arrow batches; source-spill stats are wrong for tiny
+            # derived aggregations and can reject a one-row result because its
+            # input was big.
+            try:
+                byte_cap = int(
+                    os.environ.get("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES")
+                    or 512 * 1024 * 1024
+                )
+            except ValueError:
+                byte_cap = 512 * 1024 * 1024
+            try:
+                return df.to_df_bounded(max_rows=cap, max_bytes=byte_cap)
+            except ValueError as exc:
+                raise ValueError(
+                    "generate_df returned a LazyFrame that is too large to "
+                    "materialize into the result DataFrame. Reduce it before "
+                    "returning, e.g. lf.sql('SELECT <aggregation> FROM data "
+                    f"GROUP BY ...').to_df() or lf.limit(n).to_df() with n <= {cap}. "
+                    f"{exc}"
+                ) from exc
         finally:
-            df.close()
+            # A returned frame may be derived from an owning source frame; its
+            # normal close() is intentionally non-owning. The execution boundary
+            # is finished with the whole chain and must reclaim the source spill.
+            df.close_owner()
 
     def _build_http_client(self) -> Optional[SafeHttpClient]:
         """Return a SafeHttpClient when `enable_web_fetch` is on, else None."""

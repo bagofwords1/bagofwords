@@ -143,6 +143,7 @@ class DuckDBClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con: duckdb.DuckDBPyConnection | None = None
+        yielded = False
         try:
             local_db = self._find_local_duckdb_file()
 
@@ -157,9 +158,12 @@ class DuckDBClient(DataSourceClient):
                 con = duckdb.connect(database=":memory:")
                 self._configure_httpfs(con)
                 self._create_views(con)
+            yielded = True
             yield con
         except Exception as e:
-            raise RuntimeError(f"Error while connecting to DuckDB: {e}")
+            if yielded:
+                raise
+            raise RuntimeError(f"Error while connecting to DuckDB: {e}") from e
         finally:
             try:
                 if con is not None:
@@ -302,5 +306,4 @@ class DuckDBClient(DataSourceClient):
 
 # Compatibility alias for dynamic resolver expecting 'DuckdbClient'
 DuckdbClient = DuckDBClient
-
 

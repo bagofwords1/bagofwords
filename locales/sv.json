@@ -1830,7 +1830,8 @@
     "integration.not_found": "Integrationen hittades inte",
     "resource.conflict": "Resursen finns redan eller står i konflikt med befintligt tillstånd",
     "resource.duplicate": "Duplicerad resurs",
-    "setting.update_failed": "Det gick inte att uppdatera inställningen"
+    "setting.update_failed": "Det gick inte att uppdatera inställningen",
+    "query.result_too_large": "Frågeresultatet är för stort"
   },
   "email": {
     "dashboardShare": {

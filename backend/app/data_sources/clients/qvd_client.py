@@ -566,6 +566,7 @@ class QVDClient(DataSourceClient):
             extra={"qvd_patterns": self.patterns, "qvd_files_found": len(files)},
         )
         con: duckdb.DuckDBPyConnection | None = None
+        yielded = False
         try:
             con = duckdb.connect(database=":memory:")
             used: set[str] = set()
@@ -616,13 +617,16 @@ class QVDClient(DataSourceClient):
                     "qvd_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
+            yielded = True
             yield con
         except Exception as e:
+            if yielded:
+                raise
             logger.error(
                 "qvd.connect.error",
                 extra={"qvd_error": str(e), "qvd_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
-            raise RuntimeError(f"Error connecting to QVD files: {e}")
+            raise RuntimeError(f"Error connecting to QVD files: {e}") from e
         finally:
             if con is not None:
                 con.close()

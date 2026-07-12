@@ -112,6 +112,7 @@ class CSVClient(DataSourceClient):
             extra={"csv_patterns": self.patterns, "csv_files_found": len(files)},
         )
         con: duckdb.DuckDBPyConnection | None = None
+        yielded = False
         try:
             con = duckdb.connect(database=":memory:")
             used: set[str] = set()
@@ -131,13 +132,19 @@ class CSVClient(DataSourceClient):
                     "csv_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
+            yielded = True
             yield con
         except Exception as e:
+            # Exceptions thrown by work inside the context belong to the query
+            # layer (not connection setup). Preserve typed domain errors such as
+            # ResultTooLargeError instead of wrapping them as connection errors.
+            if yielded:
+                raise
             logger.error(
                 "csv.connect.error",
                 extra={"csv_error": str(e), "csv_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
-            raise RuntimeError(f"Error connecting to CSV files: {e}")
+            raise RuntimeError(f"Error connecting to CSV files: {e}") from e
         finally:
             if con is not None:
                 con.close()

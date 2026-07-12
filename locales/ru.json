@@ -1830,7 +1830,8 @@
     "integration.not_found": "Интеграция не найдена",
     "resource.conflict": "Ресурс уже существует или конфликтует с текущим состоянием",
     "resource.duplicate": "Дублирующийся ресурс",
-    "setting.update_failed": "Не удалось обновить настройку"
+    "setting.update_failed": "Не удалось обновить настройку",
+    "query.result_too_large": "Результат запроса слишком велик"
   },
   "email": {
     "dashboardShare": {

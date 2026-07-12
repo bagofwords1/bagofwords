@@ -1016,7 +1016,7 @@ class TestRound5MaxReviewFixes:
         assert arrow_safe_cell(ts) is ts        # stays a timestamp, not str
         assert arrow_safe_cell(d) is d
         assert arrow_safe_cell(b"raw") == b"raw"
-        assert arrow_safe_cell(Decimal("3.70")) == 3.7  # documented divergence
+        assert arrow_safe_cell(Decimal("3.70")) == Decimal("3.70")
 
     def test_temporal_cells_stay_queryable_in_spill(self):
         """SUM/date arithmetic must keep working on lazy row-dict results —
@@ -1352,3 +1352,100 @@ class TestWrapperMeteringRobustness:
                 break
             time.sleep(0.1)
         assert all(not p.exists() for p in holder["lf"]._source_paths)
+
+
+class TestRound7SecurityAndAccountingRegressions:
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "db_clients['db']._original.execute_query_lazy('SELECT secret')",
+            "db_clients['db'].__getattr__('execute_query_lazy')('SELECT secret')",
+            "__import__('operator').attrgetter('_original')(db_clients['db']).execute_query_lazy('SELECT secret')",
+        ],
+    )
+    def test_generated_code_cannot_reach_private_wrapper_attributes(self, expression):
+        from app.ai.code_execution.code_execution import UnsafePythonError, validate_python_code
+
+        code = f"def generate_df(db_clients):\n    return {expression}\n"
+        with pytest.raises(UnsafePythonError, match="forbidden"):
+            validate_python_code(code)
+
+    def test_wrapper_denies_reflective_raw_client_lookup_at_runtime(self):
+        import operator
+
+        wrapper, _, _ = _make_wrapper(TinyClient(), lazy_enabled=False)
+        with pytest.raises(AttributeError):
+            operator.attrgetter("_original")(wrapper)
+        with pytest.raises(AttributeError):
+            operator.attrgetter("__getattr__")(wrapper)
+
+    def test_partial_multi_part_loss_is_unmeterable_under_quota(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+        from app.data_sources.clients.lazy_frame import consume_chunks_to_lazyframe
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        lf = consume_chunks_to_lazyframe(
+            iter(
+                [
+                    pd.DataFrame({"value": [1, 2]}),
+                    pd.DataFrame({"value": ["schema drift"]}),
+                ]
+            )
+        )
+        assert len(lf._source_paths) == 2
+        lf._source_paths[0].unlink()
+
+        class Client(TinyClient):
+            def execute_query_lazy(self, sql):
+                return lf
+
+        wrapper = QueryCapturingClientWrapper(
+            Client(), [], [],
+            usage_context=SimpleNamespace(session_maker=object()),
+            lazy_enabled=True,
+        )
+        with pytest.raises(RuntimeError, match="unmetered"):
+            wrapper.execute_query_lazy("SELECT value")
+
+    def test_small_derived_result_uses_derived_bytes_and_reclaims_owner(self, tmp_path, monkeypatch):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_MAX_BYTES", "500")
+        owner = lazy_from_dataframe(pd.DataFrame({"x": list(range(10_000))}))
+        source_paths = list(owner._source_paths)
+        derived = owner.sql("SELECT SUM(x) AS total FROM data")
+
+        result = StreamingCodeExecutor._coerce_exec_result(derived)
+
+        assert int(result["total"].iloc[0]) == sum(range(10_000))
+        assert all(not path.exists() for path in source_paths)
+
+    def test_invalid_materialization_env_still_reclaims_owner(self, tmp_path, monkeypatch):
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        monkeypatch.setenv("BOW_LAZY_RESULT_MATERIALIZE_CAP", "not-an-int")
+        owner = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+        source_paths = list(owner._source_paths)
+
+        result = StreamingCodeExecutor._coerce_exec_result(owner)
+
+        assert result["x"].tolist() == [1]
+        assert all(not path.exists() for path in source_paths)
+
+    def test_decimal_values_keep_precision_through_row_dict_spill(self):
+        from decimal import Decimal
+
+        from app.data_sources.clients.lazy_frame import (
+            arrow_safe_cell,
+            consume_row_dicts_to_lazyframe,
+        )
+
+        exact = Decimal("12345678901234567890.12")
+        assert arrow_safe_cell(exact) == exact
+        with consume_row_dicts_to_lazyframe(iter([{"amount": exact}])) as lf:
+            restored = lf.to_df()["amount"].iloc[0]
+        assert Decimal(str(restored)) == exact

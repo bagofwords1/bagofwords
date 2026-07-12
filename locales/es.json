@@ -1922,7 +1922,8 @@
     "integration.not_found": "Integración no encontrada",
     "resource.conflict": "El recurso ya existe o entra en conflicto con el estado actual",
     "resource.duplicate": "Recurso duplicado",
-    "setting.update_failed": "No se pudo actualizar la configuración"
+    "setting.update_failed": "No se pudo actualizar la configuración",
+    "query.result_too_large": "El resultado de la consulta es demasiado grande"
   },
   "email": {
     "dashboardShare": {

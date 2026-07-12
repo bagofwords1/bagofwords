@@ -28,6 +28,7 @@ import tempfile
 import threading
 import uuid
 import weakref
+from contextlib import suppress
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable, ContextManager, Optional
@@ -87,10 +88,8 @@ def _ensure_secure_root(root: Path, strict: bool) -> None:
     if not strict:
         root.mkdir(parents=True, exist_ok=True)
         return
-    try:
+    with suppress(FileExistsError):
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    except FileExistsError:
-        pass
     st = os.lstat(root)
     if _stat.S_ISLNK(st.st_mode) or not _stat.S_ISDIR(st.st_mode):
         raise RuntimeError(
@@ -124,6 +123,15 @@ _STALE_AFTER_SECONDS = 24 * 3600
 # until the next restart.
 _SWEEP_INTERVAL_SECONDS = 3600
 _last_sweep: dict = {}
+
+# A Parquet file cannot represent N rows with zero columns. Schemaless sources
+# can nevertheless yield real rows such as Mongo projections to ``{}``, so a
+# per-stream marker carries those rows across part-file unioning. Field metadata
+# proves the marker is internal; a user column merely resembling its name must
+# never be hidden.
+_EMPTY_ROW_SENTINEL_PREFIX = "__bow_internal_empty_row_"
+_EMPTY_ROW_METADATA_KEY = b"bow.empty_row_sentinel"
+_EMPTY_ROW_METADATA_VALUE = b"1"
 
 
 def _sweep_stale_files(root: Path) -> None:
@@ -207,10 +215,13 @@ class StreamConfig:
         return f"max_rows={self.max_rows}, max_bytes={self.max_bytes}"
 
     def check_capacity(self, full: bool = False) -> None:
-        """Aggregate spill-root guard, called at stream start (full=True: also
-        sum existing spill files) and per chunk (free-space only — one statvfs
-        syscall). Raises ResultTooLargeError so the caller's cleanup and the
-        413 handling apply unchanged."""
+        """Enforce aggregate spill-root and free-space limits.
+
+        ``full=True`` sums every file under the dedicated spill root, including
+        Parquet parts and DuckDB temp state. Consumers call it both before and
+        after growth so a query cannot start below the cap and then silently
+        push the root over it.
+        """
         import shutil
 
         try:
@@ -225,7 +236,7 @@ class StreamConfig:
         if not full:
             return
         try:
-            total = sum(f.stat().st_size for f in self.root.rglob("lazy_*.parquet"))
+            total = sum(f.stat().st_size for f in self.root.rglob("*") if f.is_file())
         except Exception:
             return
         if total > self.dir_max_bytes:
@@ -282,30 +293,25 @@ def _open_duckdb(allowed_dirs):
         return str(s).replace("'", "''")
 
     dirs = sorted({str(Path(d)) for d in allowed_dirs})
-    hardened = True
     try:
         quoted = ", ".join(f"'{_q(d)}'" for d in dirs)
         con.execute(f"SET allowed_directories=[{quoted}]")
-    except Exception:
-        # Older duckdb without allowed_directories: blanket-disabling external
-        # access would also block the spill scan itself, so skip that knob and
-        # keep the rest of the hardening.
-        hardened = False
-        logger.warning(
-            "duckdb lacks allowed_directories; LazyFrame connection is NOT "
-            "filesystem-confined", exc_info=True,
+        con.execute(
+            f"SET memory_limit='{_q(os.environ.get('BOW_LAZY_DUCKDB_MEM') or '2GB')}'"
         )
-    con.execute(f"SET memory_limit='{_q(os.environ.get('BOW_LAZY_DUCKDB_MEM') or '2GB')}'")
-    if dirs:
-        tmp_dir = Path(dirs[0]) / "duckdb_tmp"
-        try:
+        if dirs:
+            tmp_dir = Path(dirs[0]) / "duckdb_tmp"
             tmp_dir.mkdir(parents=True, exist_ok=True)
             con.execute(f"SET temp_directory='{_q(tmp_dir)}'")
-        except Exception:
-            logger.debug("Could not set duckdb temp_directory", exc_info=True)
-    if hardened:
         con.execute("SET enable_external_access=false")
-    con.execute("SET lock_configuration=true")
+        con.execute("SET lock_configuration=true")
+    except Exception as exc:
+        # This connection is exposed through LazyFrame.sql() to generated code.
+        # Returning it without every confinement knob would turn a config/version
+        # problem into a filesystem sandbox escape, so fail closed.
+        with suppress(Exception):
+            con.close()
+        raise RuntimeError("DuckDB filesystem confinement could not be configured") from exc
     return con
 
 
@@ -315,9 +321,8 @@ def arrow_safe_cell(v):
 
     dict/list → JSON string (schemaless nesting can't be a stable Arrow type);
     scalars pyarrow types natively — str/int/float/bool/datetime/date/time/
-    bytes — pass through unchanged so timestamps stay timestamps (SUM/ORDER BY
-    keep working downstream); Decimal → float (the lazy path's documented
-    high-precision divergence, matching Decimal128 handling); anything else —
+    bytes/Decimal — pass through unchanged so timestamps stay timestamps and
+    exact financial values stay exact; anything else —
     driver-specific scalars like bson.Timestamp/Regex/Code — becomes str,
     because pa.Table.from_pandas raises ArrowInvalid on unknown Python types
     and would kill the whole stream. Eager paths are unaffected (pandas keeps
@@ -329,7 +334,7 @@ def arrow_safe_cell(v):
     if v is None or isinstance(v, (str, int, float, bool, bytes, _dt.datetime, _dt.date, _dt.time)):
         return v
     if isinstance(v, Decimal):
-        return float(v)
+        return v
     return str(v)
 
 
@@ -366,7 +371,15 @@ class LazyFrame:
     those for the *reduced* result, not the raw scan.
     """
 
-    def __init__(self, con, relation, source_path, owns_source: bool = True, parent: "LazyFrame" = None):
+    def __init__(
+        self,
+        con,
+        relation,
+        source_path,
+        owns_source: bool = True,
+        parent: Optional[LazyFrame] = None,
+        hidden_columns=None,
+    ):
         self._con = con
         # None when the backing file has zero columns (empty result from a
         # schemaless source): valid Parquet, but DuckDB can't read a file with
@@ -379,6 +392,7 @@ class LazyFrame:
         else:
             self._source_paths = [Path(source_path)]
         self._owns_source = owns_source
+        self._hidden_columns = frozenset(hidden_columns or ())
         # Derived frames (owns_source=False) pin their parent: without this,
         # `execute_query_lazy(q).sql(...)` drops the owning frame immediately
         # and its finalizer would close the shared connection out from under
@@ -403,17 +417,44 @@ class LazyFrame:
         # produces. Read only column-bearing files; with none left, fall back
         # to the schemaless-empty mode (every accessor short-circuits). All
         # paths stay tracked either way so close() removes every spill file.
-        readable = [p for p in paths if pq.read_schema(p).names]
+        schemas = [(p, pq.read_schema(p)) for p in paths]
+        readable = [p for p, schema in schemas if schema.names]
+        hidden_columns = {
+            field.name
+            for _, schema in schemas
+            for field in schema
+            if (field.metadata or {}).get(_EMPTY_ROW_METADATA_KEY)
+            == _EMPTY_ROW_METADATA_VALUE
+        }
         if not readable:
-            return cls(None, None, paths, owns_source=owns_source)
+            return cls(
+                None,
+                None,
+                paths,
+                owns_source=owns_source,
+                hidden_columns=hidden_columns,
+            )
         # Hardened connection: file access confined to the spill dir(s),
         # bounded memory, config locked (see _open_duckdb). DuckDB spills its
         # own compute state to disk under the same root.
         con = _open_duckdb({p.parent for p in readable})
         # union_by_name reconciles part files whose column sets drifted:
         # missing columns become NULL, matching the eager pandas behavior.
-        rel = con.read_parquet([str(p) for p in readable], union_by_name=len(readable) > 1)
-        return cls(con, rel, paths, owns_source=owns_source)
+        try:
+            rel = con.read_parquet(
+                [str(p) for p in readable],
+                union_by_name=len(readable) > 1,
+            )
+        except BaseException:
+            con.close()
+            raise
+        return cls(
+            con,
+            rel,
+            paths,
+            owns_source=owns_source,
+            hidden_columns=hidden_columns,
+        )
 
     # -- lazy transforms (return new handles, no materialization) -----------
 
@@ -422,6 +463,25 @@ class LazyFrame:
 
         e.g. lf.sql("SELECT region, SUM(amount) FROM data GROUP BY region")
         """
+        import re
+
+        import duckdb
+
+        # This API is directly exposed to generated code. Directory confinement
+        # limits WHERE a query can write, but DuckDB COPY can still fill that
+        # private directory outside every spill budget. Require exactly one
+        # read-only SELECT/WITH statement at this boundary as defense in depth.
+        stripped = re.sub(r"\A(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*", "", sql_query, flags=re.S)
+        first = re.match(r"[A-Za-z]+", stripped)
+        statements = duckdb.extract_statements(sql_query)
+        if (
+            first is None
+            or first.group(0).upper() not in {"SELECT", "WITH"}
+            or len(statements) != 1
+            or statements[0].type != duckdb.StatementType.SELECT
+        ):
+            raise ValueError("LazyFrame.sql accepts one read-only SELECT/WITH query")
+
         if self._rel is None:
             # Schemaless-empty mode: run the SQL against a 0-row relation so
             # aggregates keep SQL semantics (COUNT(*) returns one row with 0,
@@ -446,28 +506,118 @@ class LazyFrame:
                 )
             empty_rel = self._con.sql("SELECT NULL AS _bow_empty WHERE 1=0")
             new_rel = empty_rel.query(table_name, sql_query)
-            return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False, parent=self)
+            hidden = self._hidden_columns.intersection(new_rel.columns)
+            return LazyFrame(
+                self._con,
+                new_rel,
+                self._source_paths,
+                owns_source=False,
+                parent=self,
+                hidden_columns=hidden,
+            )
         new_rel = self._rel.query(table_name, sql_query)
-        return LazyFrame(self._con, new_rel, self._source_paths, owns_source=False, parent=self)
+        hidden = self._hidden_columns.intersection(new_rel.columns)
+        return LazyFrame(
+            self._con,
+            new_rel,
+            self._source_paths,
+            owns_source=False,
+            parent=self,
+            hidden_columns=hidden,
+        )
 
     def limit(self, n: int) -> "LazyFrame":
         if self._rel is None:
-            return LazyFrame(None, None, self._source_paths, owns_source=False, parent=self)
-        return LazyFrame(self._con, self._rel.limit(n), self._source_paths, owns_source=False, parent=self)
+            return LazyFrame(
+                None,
+                None,
+                self._source_paths,
+                owns_source=False,
+                parent=self,
+                hidden_columns=self._hidden_columns,
+            )
+        return LazyFrame(
+            self._con,
+            self._rel.limit(n),
+            self._source_paths,
+            owns_source=False,
+            parent=self,
+            hidden_columns=self._hidden_columns,
+        )
 
     # -- materialization (explicit; this is where memory is spent) ----------
+
+    def _arrow_table(self, relation=None):
+        relation = self._rel if relation is None else relation
+        reader = relation.arrow()
+        try:
+            table = reader.read_all()
+        finally:
+            close = getattr(reader, "close", None)
+            if callable(close):
+                close()
+        hidden = [c for c in self._hidden_columns if c in table.column_names]
+        return table.drop_columns(hidden) if hidden else table
 
     def to_df(self) -> pd.DataFrame:
         if self._rel is None:
             return pd.DataFrame()
-        return self._rel.df()
+        # DuckDB's .df() coerces DECIMAL to float64. Arrow -> pandas preserves
+        # Python Decimal values and therefore exact financial precision.
+        return self._arrow_table().to_pandas()
+
+    def to_df_bounded(self, max_rows: int, max_bytes: int) -> pd.DataFrame:
+        """Materialize this relation in bounded Arrow batches.
+
+        Unlike spill_stats(), this measures the CURRENT relation (including a
+        derived aggregation), not its potentially much larger source spill.
+        Batches are retained only up to the byte/row budget before conversion to
+        pandas, preventing a wide under-row-cap result from causing an OOM.
+        """
+        if self._rel is None:
+            return pd.DataFrame()
+
+        import pyarrow as pa
+
+        batch_size = max(1, min(_env_int("BOW_LAZY_CHUNKSIZE", 50_000), max_rows + 1))
+        reader = self._rel.arrow(batch_size)
+        batches = []
+        rows = 0
+        arrow_bytes = 0
+        try:
+            for batch in reader:
+                rows += int(batch.num_rows)
+                arrow_bytes += int(batch.nbytes)
+                if rows > max_rows or arrow_bytes > max_bytes:
+                    raise ValueError(
+                        "LazyFrame result is too large to materialize "
+                        f"(rows={rows}, bytes={arrow_bytes}, "
+                        f"max_rows={max_rows}, max_bytes={max_bytes})"
+                    )
+                batches.append(batch)
+        finally:
+            close = getattr(reader, "close", None)
+            if callable(close):
+                close()
+
+        table = pa.Table.from_batches(batches, schema=reader.schema)
+        result = table.to_pandas()
+        pandas_bytes = int(result.memory_usage(deep=True).sum())
+        if pandas_bytes > max_bytes:
+            raise ValueError(
+                "LazyFrame result is too large to materialize "
+                f"(rows={len(result)}, bytes={pandas_bytes}, "
+                f"max_rows={max_rows}, max_bytes={max_bytes})"
+            )
+        hidden = [c for c in self._hidden_columns if c in result.columns]
+        return result.drop(columns=hidden) if hidden else result
 
     def to_arrow(self):
         if self._rel is None:
             import pyarrow as pa
 
             return pa.table({})
-        return self._rel.arrow()
+        return self._arrow_table()
 
     def row_count(self) -> int:
         if self._rel is None:
@@ -477,13 +627,13 @@ class LazyFrame:
     def head(self, n: int = 10) -> pd.DataFrame:
         if self._rel is None:
             return pd.DataFrame()
-        return self._rel.limit(n).df()
+        return self._arrow_table(self._rel.limit(n)).to_pandas()
 
     @property
     def columns(self) -> list:
         if self._rel is None:
             return []
-        return list(self._rel.columns)
+        return [c for c in self._rel.columns if c not in self._hidden_columns]
 
     def byte_size(self) -> int:
         """On-disk size of the backing Parquet file(s), used for usage accounting
@@ -505,8 +655,9 @@ class LazyFrame:
         silently loosening admin byte quotas; but row-group total_byte_size is
         post-encoding (RLE/dictionary) and can collapse below the file size for
         low-cardinality data, so the charge is floored at the on-disk size.
-        Metadata only; nothing is materialized. Falls back to on-disk size per
-        part when metadata can't be read."""
+        Metadata only; nothing is materialized. Every tracked part must remain
+        readable: silently skipping one would undercharge a partial multi-part
+        result while still returning the surviving rows."""
         import pyarrow.parquet as pq
 
         rows = 0
@@ -515,17 +666,14 @@ class LazyFrame:
         for p in self._source_paths:
             try:
                 part_disk = int(p.stat().st_size)
-            except Exception:
-                part_disk = 0
-            disk += part_disk
-            try:
                 md = pq.ParquetFile(str(p)).metadata
-                rows += int(md.num_rows)
-                uncompressed += sum(
-                    md.row_group(i).total_byte_size for i in range(md.num_row_groups)
-                )
-            except Exception:
-                uncompressed += part_disk
+            except Exception as exc:
+                raise RuntimeError(f"Could not read lazy spill metadata for {p}") from exc
+            disk += part_disk
+            rows += int(md.num_rows)
+            uncompressed += sum(
+                md.row_group(i).total_byte_size for i in range(md.num_row_groups)
+            )
         return rows, max(uncompressed, disk), disk
 
     def uncompressed_byte_size(self) -> int:
@@ -548,6 +696,20 @@ class LazyFrame:
         if self._finalizer is not None:
             self._finalizer()  # runs _release_lazy_resources at most once
 
+    def close_owner(self) -> None:
+        """Release the owning frame behind a derived chain.
+
+        Normal derived ``close()`` remains non-owning so callers can keep using
+        the parent. The code-execution return boundary, however, is finished
+        with the entire chain and uses this method for deterministic cleanup.
+        """
+        owner = self
+        seen = set()
+        while owner._parent is not None and id(owner) not in seen:
+            seen.add(id(owner))
+            owner = owner._parent
+        owner.close()
+
     def __enter__(self) -> "LazyFrame":
         return self
 
@@ -568,21 +730,13 @@ def _close_quietly(it) -> None:
 
 
 def _widen_null_columns(table):
-    """Prepare the FIRST chunk's schema for the ParquetWriter: a column that is
-    all-NULL within that chunk infers pa.null(), which would lock the file
-    schema to null and make every later non-null chunk unwritable. Widen null
-    columns to nullable float64 — the common cause is a nullable numeric column
-    — so later int/float chunks cast cleanly. (A later *string* chunk still
-    fails the cast, with an error naming the column; that beats silently
-    stringifying numbers.)"""
-    import pyarrow as pa
+    """Keep unknown all-NULL fields as Arrow null.
 
-    fields = [
-        f.with_type(pa.float64()) if pa.types.is_null(f.type) else f
-        for f in table.schema
-    ]
-    schema = pa.schema(fields, metadata=table.schema.metadata)
-    return table if schema.equals(table.schema) else table.cast(schema)
+    Guessing float64 corrupted later booleans into 1.0. The consumer already
+    rolls a new part when a later concrete type cannot cast to the first part;
+    DuckDB's union-by-name then promotes null + concrete to the concrete type.
+    """
+    return table
 
 
 def _cast_chunk_to_schema(table, schema):
@@ -741,17 +895,25 @@ def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None)
     should override execute_query_lazy to bound the ingest peak instead.
     """
     config = config or StreamConfig()
-    rows = len(df)
-    byte_estimate = int(df.memory_usage(deep=True).sum())
+    normalized = _jsonify_nested_cells(_dedupe_columns(df))
+    rows = len(normalized)
+    # Meter the representation that is actually written. A dict object can
+    # report a few hundred pandas bytes yet JSON-expand to megabytes.
+    byte_estimate = int(normalized.memory_usage(deep=True).sum())
     if rows > config.max_rows or byte_estimate > config.max_bytes:
         raise ResultTooLargeError(
             rows=rows, byte_estimate=byte_estimate, limit_desc=config.limit_desc()
         )
     config.check_capacity(full=True)
     path = config.new_spill_path()
-    _jsonify_nested_cells(_dedupe_columns(df)).to_parquet(path, index=False)
-    _restrict_file(path)
-    return _from_parquet_or_cleanup(path)
+    try:
+        normalized.to_parquet(path, index=False)
+        _restrict_file(path)
+        config.check_capacity(full=True)
+        return _from_parquet_or_cleanup(path)
+    except BaseException:
+        _release_lazy_resources(None, [path])
+        raise
 
 
 def lazy_query_via_sqlalchemy(
@@ -763,10 +925,7 @@ def lazy_query_via_sqlalchemy(
 
     The returned LazyFrame owns the temp file and deletes it on `.close()`.
     """
-    config = config or StreamConfig()
-    path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
-    paths = stream_sqlalchemy_to_parquet(connect_cm, sql, path, config)
-    return LazyFrame.from_parquet(paths, owns_source=True)
+    return _lazy_via(stream_sqlalchemy_to_parquet, connect_cm, sql, config)
 
 
 def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns=None) -> list:
@@ -789,6 +948,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
     paths = [path]
     rows = 0
     byte_estimate = 0
+    empty_row_sentinel = f"{_EMPTY_ROW_SENTINEL_PREFIX}{uuid.uuid4().hex}"
 
     def start_writer(table):
         nonlocal writer, schema
@@ -811,23 +971,27 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
             if _cancelled():
                 raise QueryAbandonedError()
             config.check_capacity()
+            chunk = _jsonify_nested_cells(_dedupe_columns(chunk))
             rows += len(chunk)
             byte_estimate += int(chunk.memory_usage(deep=True).sum())
             if rows > config.max_rows or byte_estimate > config.max_bytes:
                 raise ResultTooLargeError(
                     rows=rows, byte_estimate=byte_estimate, limit_desc=config.limit_desc()
                 )
-            # _jsonify_nested_cells: SQL JSON/JSONB columns arrive as dict/list
-            # cells (psycopg2, pymysql, ...); heterogeneous values within one
-            # chunk make pa.Table.from_pandas raise ArrowInvalid and kill the
-            # whole stream. Encode them like the eager-spill path does.
-            chunk = _jsonify_nested_cells(_dedupe_columns(chunk))
             table = pa.Table.from_pandas(chunk, preserve_index=False)
             if table.num_columns == 0:
-                # Rows carrying no fields at all (e.g. Mongo docs projected to
-                # {}): nothing columnar to write, and a zero-column part file
-                # would be unreadable by DuckDB. Budget-count them and move on.
-                continue
+                # Parquet cannot encode N rows with zero fields. Preserve those
+                # real rows with an internal marker; LazyFrame hides it from
+                # public columns/materialization after union-by-name.
+                field = pa.field(
+                    empty_row_sentinel,
+                    pa.bool_(),
+                    metadata={_EMPTY_ROW_METADATA_KEY: _EMPTY_ROW_METADATA_VALUE},
+                )
+                table = pa.Table.from_arrays(
+                    [pa.array([True] * len(chunk), type=pa.bool_())],
+                    schema=pa.schema([field]),
+                )
             if writer is None:
                 table = start_writer(table)
             elif set(table.schema.names) != set(schema.names):
@@ -845,6 +1009,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
                     # (double + varchar → varchar), matching eager pandas.
                     table = roll_part(table)
             writer.write_table(table)
+            config.check_capacity(full=True)
         if writer is None:
             # Empty result with no chunk yielded: write a 0-row Parquet that
             # still carries the real column names (when known) so downstream
@@ -853,6 +1018,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
             table = _widen_null_columns(pa.Table.from_pandas(empty, preserve_index=False))
             pq.write_table(table, str(path))
             _restrict_file(path)
+            config.check_capacity(full=True)
     except BaseException:
         if writer is not None:
             try:
@@ -866,6 +1032,14 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
         if writer is not None:
             writer.close()
         _close_quietly(chunks)  # release the source connection promptly
+    try:
+        # Parquet footer bytes are appended by writer.close(), after the
+        # per-batch checks above. Enforce the aggregate cap once more against
+        # the completed file(s).
+        config.check_capacity(full=True)
+    except BaseException:
+        _release_lazy_resources(None, paths)
+        raise
     return paths
 
 
@@ -947,10 +1121,27 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
     unescaped, so this is not an injection surface beyond what the eager query
     path already trusts.
     """
+    import re
+
     import duckdb
     import pyarrow as pa
 
     inner = _strip_sql_tail(sql)
+    # This strategy sometimes executes the source statement bare (SHOW /
+    # DESCRIBE cannot be nested under SELECT). Parse before that fallback and
+    # allow only read statements; otherwise COPY/ATTACH/DML could write through
+    # the source DuckDB connection before a LazyFrame even exists.
+    stripped = re.sub(r"\A(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*", "", inner, flags=re.S)
+    first = re.match(r"[A-Za-z]+", stripped)
+    statements = duckdb.extract_statements(inner)
+    if (
+        first is None
+        or first.group(0).upper()
+        not in {"SELECT", "WITH", "SHOW", "DESCRIBE", "DESC"}
+        or len(statements) != 1
+        or statements[0].type != duckdb.StatementType.SELECT
+    ):
+        raise ValueError("DuckDB lazy queries accept one read-only query")
     row_cap = int(config.max_rows)
     with connect_cm() as con:
         # The newline before the closing paren guards against a trailing
@@ -1000,8 +1191,15 @@ def _from_parquet_or_cleanup(paths) -> LazyFrame:
 def _lazy_via(stream_fn, connect_cm, sql, config) -> LazyFrame:
     config = config or StreamConfig()
     path = config.new_spill_path()
-    written = stream_fn(connect_cm, sql, path, config)
-    return _from_parquet_or_cleanup(written)
+    try:
+        written = stream_fn(connect_cm, sql, path, config)
+        return _from_parquet_or_cleanup(written)
+    except BaseException:
+        # Covers setup failures before a consumer installs its own cleanup
+        # (connect/execute/reader creation), and removes every part/temp file by
+        # deleting the private q_* parent.
+        _release_lazy_resources(None, [path])
+        raise
 
 
 def lazy_query_via_dbapi_readsql(connect_cm, sql, config=None) -> LazyFrame:
@@ -1056,9 +1254,11 @@ def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> P
             else:
                 table = _cast_chunk_to_schema(table, schema)
             writer.write_table(table)
+            config.check_capacity(full=True)
         if writer is None:
             pd.DataFrame().to_parquet(path, index=False)
             _restrict_file(path)
+            config.check_capacity(full=True)
     except BaseException:
         if writer is not None:
             try:
@@ -1072,6 +1272,11 @@ def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> P
         if writer is not None:
             writer.close()
         _close_quietly(arrow_iter)  # release the source stream promptly
+    try:
+        config.check_capacity(full=True)  # includes footer bytes from close()
+    except BaseException:
+        _release_lazy_resources(None, [path])
+        raise
     return path
 
 

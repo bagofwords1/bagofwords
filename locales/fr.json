@@ -1830,7 +1830,8 @@
     "integration.not_found": "Intégration introuvable",
     "resource.conflict": "La ressource existe déjà ou entre en conflit avec l'état actuel",
     "resource.duplicate": "Ressource en double",
-    "setting.update_failed": "Échec de la mise à jour du paramètre"
+    "setting.update_failed": "Échec de la mise à jour du paramètre",
+    "query.result_too_large": "Le résultat de la requête est trop volumineux"
   },
   "email": {
     "dashboardShare": {

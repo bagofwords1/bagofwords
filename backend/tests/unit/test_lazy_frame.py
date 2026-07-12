@@ -185,16 +185,19 @@ def test_schema_drift_all_null_later_chunk(tmp_path):
 
 
 def test_schema_drift_all_null_first_chunk(tmp_path):
-    # The anomalous chunk can also come FIRST: an all-NULL column infers
-    # pa.null() and must be widened (to float64) before it locks the writer
-    # schema, or every later non-null chunk would fail to write.
+    # The anomalous chunk can also come FIRST. Keep its unknown type as null and
+    # roll a new part when the first concrete type arrives; guessing float would
+    # corrupt a later boolean into 1.0.
     chunks = [
         pd.DataFrame({"id": [1, 2], "v": [None, None]}),
         pd.DataFrame({"id": [3, 4], "v": [30, 40]}),
     ]
     out = tmp_path / "out.parquet"
-    _consume_chunks_to_parquet(iter(chunks), out, StreamConfig())
-    df = pq.read_table(out).to_pandas()
+    paths = _consume_chunks_to_parquet(iter(chunks), out, StreamConfig())
+    df = pa.concat_tables(
+        [pq.read_table(path) for path in paths],
+        promote_options="default",
+    ).to_pandas()
     assert len(df) == 4
     assert list(df.columns) == ["id", "v"]
     assert int(df.v.sum()) == 70
@@ -463,13 +466,16 @@ def test_mongodb_decimal128_conversion():
             "arr": [bson.Decimal128("2.5"), {"inner": bson.Decimal128("3.5")}],
         }
 
-    # Lazy path opts into the lossy float coercion (pyarrow can't spill Decimal128)
+    # Lazy path converts BSON Decimal128 to exact Python Decimal so Arrow can
+    # spill it without losing financial precision.
     doc = make_doc()
     client._convert_bson_types(doc, coerce_decimal128=True)
-    assert isinstance(doc["price"], float) and doc["price"] == pytest.approx(19.99)
-    assert doc["nested"]["amt"] == pytest.approx(0.001)
-    assert doc["arr"][0] == pytest.approx(2.5)
-    assert doc["arr"][1]["inner"] == pytest.approx(3.5)
+    from decimal import Decimal
+
+    assert doc["price"] == Decimal("19.99")
+    assert doc["nested"]["amt"] == Decimal("0.001")
+    assert doc["arr"][0] == Decimal("2.5")
+    assert doc["arr"][1]["inner"] == Decimal("3.5")
     # the converted doc must survive the columnar spill (raw Decimal128 raises)
     pa.Table.from_pandas(pd.DataFrame([{"price": doc["price"]}]))
 
@@ -674,19 +680,29 @@ def test_empty_mode_sql_keeps_aggregate_semantics(tmp_path, monkeypatch):
         lf.close()
 
 
-def test_zero_column_chunk_mid_stream_is_skipped(tmp_path, monkeypatch):
-    # Mongo docs projected to {} produce (n, 0) chunks; they must not roll an
-    # unreadable zero-column part file.
+def test_zero_column_chunk_mid_stream_preserves_rows(tmp_path, monkeypatch):
+    # Mongo docs projected to {} are still rows. The lazy path must preserve
+    # them as NULL-valued rows when later/earlier chunks establish a schema.
     monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path))
     monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "2")
     rows = [{"a": 1}, {"a": 2}, {}, {}, {"a": 5}]
     lf = consume_row_dicts_to_lazyframe(iter(rows))
     try:
         df = lf.sql("SELECT * FROM data ORDER BY a").to_df()
-        assert list(df["a"]) == [1, 2, 5]
+        assert len(df) == 5
+        assert list(df["a"].dropna()) == [1, 2, 5]
+        assert int(df["a"].isna().sum()) == 2
     finally:
         lf.close()
     assert not any(tmp_path.glob("lazy_*.parquet"))
+
+
+def test_user_column_that_resembles_internal_marker_is_not_hidden(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    column = "__bow_internal_empty_row_6f41c9d8"
+    with lazy_from_dataframe(pd.DataFrame({column: ["USER_VALUE"]})) as lf:
+        assert lf.columns == [column]
+        assert lf.to_df()[column].tolist() == ["USER_VALUE"]
 
 
 def test_druid_basic_token_cursor_fetchmany():
@@ -699,3 +715,202 @@ def test_druid_basic_token_cursor_fetchmany():
     assert cur.fetchmany(2) == [(3,)]
     assert cur.fetchmany(2) == []
     assert cur.fetchall() == [(1,), (2,), (3,)]  # fetchall stays non-destructive
+
+
+def test_sqlalchemy_lazy_frames_cannot_read_sibling_spills(tmp_path, monkeypatch):
+    """Every streaming strategy must use the per-query isolation boundary."""
+    sqlalchemy = pytest.importorskip("sqlalchemy")
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+
+    @contextmanager
+    def cm():
+        with engine.connect() as conn:
+            yield conn
+
+    first = lazy_query_via_sqlalchemy(cm, "SELECT 'A' AS tenant")
+    second = lazy_query_via_sqlalchemy(cm, "SELECT 'SECRET_B' AS tenant")
+    try:
+        assert first._source_paths[0].parent != second._source_paths[0].parent
+        other = str(second._source_paths[0]).replace("'", "''")
+        with pytest.raises(Exception, match="[Pp]ermission|disabled"):
+            first.sql(f"SELECT * FROM read_parquet('{other}')").to_df()
+    finally:
+        first.close()
+        second.close()
+        engine.dispose()
+
+
+def test_lazy_sql_rejects_copy_even_inside_private_spill_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+    target = lf._source_paths[0].parent / "escaped.csv"
+    try:
+        with pytest.raises(Exception, match="read.only|SELECT|forbidden"):
+            lf.sql(f"COPY (SELECT 1) TO '{target}'")
+        assert not target.exists()
+    finally:
+        lf.close()
+
+
+def test_duckdb_confinement_setup_fails_closed(tmp_path, monkeypatch):
+    """A broken security setting must abort, never return an unconfined frame."""
+    duckdb = pytest.importorskip("duckdb")
+    real_connect = duckdb.connect
+
+    class BrokenConfinementConnection:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def execute(self, query, *args, **kwargs):
+            if str(query).startswith("SET allowed_directories="):
+                raise RuntimeError("simulated confinement failure")
+            return self.inner.execute(query, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    monkeypatch.setattr(
+        duckdb,
+        "connect",
+        lambda *args, **kwargs: BrokenConfinementConnection(real_connect(*args, **kwargs)),
+    )
+    result = None
+    try:
+        with pytest.raises(RuntimeError, match="confin"):
+            result = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+    finally:
+        if result is not None:
+            result.close()
+    assert list((tmp_path / "spill").glob("q_*")) == []
+
+
+def test_nested_json_is_metered_after_normalization(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_MAX_BYTES", "1000")
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+    result = None
+    try:
+        with pytest.raises(ResultTooLargeError):
+            result = lazy_from_dataframe(
+                pd.DataFrame({"payload": [{"text": "x" * 1_000_000}]})
+            )
+    finally:
+        if result is not None:
+            result.close()
+    assert list((tmp_path / "spill").glob("q_*")) == []
+
+
+def test_aggregate_spill_cap_is_enforced_after_growth(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_DIR_MAX_BYTES", "10")
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+    result = None
+    try:
+        with pytest.raises(ResultTooLargeError, match="aggregate"):
+            result = lazy_from_dataframe(pd.DataFrame({"x": list(range(100))}))
+    finally:
+        if result is not None:
+            result.close()
+    assert list((tmp_path / "spill").glob("q_*")) == []
+
+
+def test_aggregate_spill_cap_includes_parquet_footer(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_DIR_MAX_BYTES", "1000")
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+    with pytest.raises(ResultTooLargeError, match="aggregate"):
+        consume_chunks_to_lazyframe(iter([pd.DataFrame({"x": list(range(100))})]))
+    assert list((tmp_path / "spill").glob("q_*")) == []
+
+
+def test_all_null_leading_boolean_column_keeps_boolean_semantics(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    chunks = [
+        pd.DataFrame({"flag": [None, None]}),
+        pd.DataFrame({"flag": [True]}),
+    ]
+    with consume_chunks_to_lazyframe(iter(chunks)) as lf:
+        df = lf.to_df()
+        assert len(df) == 3
+        assert int(df["flag"].isna().sum()) == 2
+        assert bool(df["flag"].iloc[-1]) is True
+        assert not isinstance(df["flag"].iloc[-1], float)
+
+
+def test_csv_lazy_cap_error_keeps_typed_domain_error(tmp_path, monkeypatch):
+    from app.data_sources.clients.csv_client import CSVClient
+
+    csv_path = tmp_path / "rows.csv"
+    csv_path.write_text("x\n1\n", encoding="utf-8")
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setenv("BOW_LAZY_MAX_ROWS", "0")
+    monkeypatch.setenv("BOW_LAZY_MIN_FREE_BYTES", "0")
+    with pytest.raises(ResultTooLargeError):
+        CSVClient(str(csv_path)).execute_query_lazy("SELECT * FROM rows")
+
+
+def test_duckdb_source_strategy_rejects_copy(tmp_path, monkeypatch):
+    from app.data_sources.clients.csv_client import CSVClient
+
+    csv_path = tmp_path / "rows.csv"
+    csv_path.write_text("x\n1\n", encoding="utf-8")
+    target = tmp_path / "escaped.csv"
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    with pytest.raises(ValueError, match="read-only"):
+        CSVClient(str(csv_path)).execute_query_lazy(
+            f"COPY (SELECT * FROM rows) TO '{target}'"
+        )
+    assert not target.exists()
+
+
+def test_lazy_from_dataframe_write_failure_reclaims_query_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+    monkeypatch.setattr(
+        pd.DataFrame,
+        "to_parquet",
+        lambda self, *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk write failed")),
+    )
+    with pytest.raises(RuntimeError, match="disk write failed"):
+        lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+    assert list((tmp_path / "spill").glob("q_*")) == []
+
+
+def test_lazy_stream_setup_failure_reclaims_query_dir(tmp_path, monkeypatch):
+    duckdb = pytest.importorskip("duckdb")
+    monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+
+    @contextmanager
+    def cm():
+        con = duckdb.connect(":memory:")
+        try:
+            yield con
+        finally:
+            con.close()
+
+    with pytest.raises(Exception, match="[Cc]onversion"):
+        lazy_query_via_duckdb(cm, "SELECT CAST('abc' AS INTEGER)")
+    assert list((tmp_path / "spill").glob("q_*")) == []
+
+
+def test_reader_open_failure_closes_duckdb_connection(tmp_path, monkeypatch):
+    import app.data_sources.clients.lazy_frame as lazy_module
+
+    path = tmp_path / "valid.parquet"
+    pd.DataFrame({"x": [1]}).to_parquet(path, index=False)
+
+    class FailingReaderConnection:
+        closed = False
+
+        def read_parquet(self, *args, **kwargs):
+            raise RuntimeError("reader open failed")
+
+        def close(self):
+            self.closed = True
+
+    con = FailingReaderConnection()
+    monkeypatch.setattr(lazy_module, "_open_duckdb", lambda allowed: con)
+
+    with pytest.raises(RuntimeError, match="reader open failed"):
+        lazy_module.LazyFrame.from_parquet(path)
+    assert con.closed is True

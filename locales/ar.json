@@ -1830,7 +1830,8 @@
     "integration.not_found": "التكامل غير موجود",
     "resource.conflict": "المورد موجود بالفعل أو يتعارض مع الحالة الحالية",
     "resource.duplicate": "مورد مكرر",
-    "setting.update_failed": "تعذّر تحديث الإعداد"
+    "setting.update_failed": "تعذّر تحديث الإعداد",
+    "query.result_too_large": "نتيجة الاستعلام كبيرة جدًا"
   },
   "email": {
     "dashboardShare": {

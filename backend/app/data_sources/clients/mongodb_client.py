@@ -191,10 +191,10 @@ class MongodbClient(DataSourceClient):
     def _convert_bson_types(self, doc: dict, coerce_decimal128: bool = False) -> None:
         """Recursively convert BSON types to JSON-serializable types.
 
-        `coerce_decimal128` is opted into by the lazy path only: pyarrow can't
-        infer Decimal128 so the Parquet spill needs floats (lossy past ~15
-        significant digits but keeps the column numeric). The eager path keeps
-        exact Decimal128 values, as it always has."""
+        `coerce_decimal128` is opted into by the lazy path only: pyarrow cannot
+        infer BSON Decimal128 objects, so convert them to Python Decimal. Arrow
+        then writes an exact decimal128/256 column instead of a lossy float.
+        The eager path keeps Decimal128 values, as it always has."""
         for key, value in list(doc.items()):
             if isinstance(value, ObjectId):
                 doc[key] = str(value)
@@ -204,7 +204,7 @@ class MongodbClient(DataSourceClient):
                 doc[key] = value.decode('utf-8', errors='replace')
             elif isinstance(value, Decimal128):
                 if coerce_decimal128:
-                    doc[key] = float(value.to_decimal())
+                    doc[key] = value.to_decimal()
             elif isinstance(value, dict):
                 self._convert_bson_types(value, coerce_decimal128=coerce_decimal128)
             elif isinstance(value, list):
@@ -216,7 +216,7 @@ class MongodbClient(DataSourceClient):
                     elif isinstance(item, datetime):
                         value[i] = item.isoformat()
                     elif isinstance(item, Decimal128) and coerce_decimal128:
-                        value[i] = float(item.to_decimal())
+                        value[i] = item.to_decimal()
     
     def _get_all_keys(self, collection, sample_size: int = 100) -> dict:
         """Get union of all keys from sampled documents, with sample values for type inference.

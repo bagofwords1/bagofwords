@@ -2091,7 +2091,8 @@
     "integration.not_found": "Integration not found",
     "resource.conflict": "Resource already exists or conflicts with existing state",
     "resource.duplicate": "Duplicate resource",
-    "setting.update_failed": "Failed to update setting"
+    "setting.update_failed": "Failed to update setting",
+    "query.result_too_large": "Query result is too large"
   },
   "email": {
     "dashboardShare": {
