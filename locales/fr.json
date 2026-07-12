@@ -815,7 +815,6 @@
       "failed": "{name} (échec)",
       "awaitingApproval": "En attente de votre approbation pour exécuter {name}…",
       "autoReviewing": "Examen de {name} selon la politique…",
-      "approvalTitle": "Autoriser l'agent à exécuter cet outil ?",
       "approvalHint": "Les choix “Toujours” sont enregistrés comme préférence pour les prochaines exécutions.",
       "allowOnce": "Autoriser une fois",
       "alwaysAllow": "Toujours autoriser",

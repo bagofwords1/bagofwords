@@ -920,7 +920,6 @@
       "failed": "{name} (failed)",
       "awaitingApproval": "Waiting for your approval to run {name}…",
       "autoReviewing": "Reviewing {name} against policy…",
-      "approvalTitle": "Allow the agent to run this tool?",
       "approvalHint": "“Always” choices are saved as your preference for future runs.",
       "allowOnce": "Allow once",
       "alwaysAllow": "Always allow",

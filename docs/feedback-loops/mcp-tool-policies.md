@@ -60,10 +60,14 @@ Policy matrix on the Workboard agent: `list_boards`/`get_board_items` allow,
 Observed (screenshots in `media/pr/claude-mcp-tool-permissions-user-ftsiyo/`):
 
 1. **allow** — `list_boards` ran silently; no approval card (`10-run-allow`).
-2. **ask** — `create_item` paused the run with the approval card (tool, args,
-   Allow once / Always allow / Deny / Always deny; `11-run-ask-card`).
-   "Always allow" resumed the run (`12-…`) and persisted
+2. **ask** — `create_item` paused the run with the approval prompt (one-line
+   call echo, Allow once / Always allow / Deny / Always deny;
+   `20-ask-card-minimal` is the shipped minimal design, `11-run-ask-card` the
+   first iteration). "Always allow" resumed the run (`12-…`) and persisted
    `user_policy=allow`; a second run never prompted (`13-run-remembered`).
+   A "Deny" once ends the call as declined and the decision is digested into
+   the planner's conversation history ("USER DECLINED this call — do not
+   retry it") so later turns don't re-attempt it (`21-ask-denied-once`).
 3. **auto approve** — benign `get_board_items` under `auto`: Haiku approved
    (conf 0.95, "read-only… matches user's task") and the verdict badge renders
    and survives rehydration (`14-run-auto-approved`).

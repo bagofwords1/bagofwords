@@ -837,7 +837,6 @@
       "failed": "{name} (נכשל)",
       "awaitingApproval": "ממתין לאישורך להרצת {name}…",
       "autoReviewing": "בודק את {name} מול המדיניות…",
-      "approvalTitle": "לאפשר לסוכן להריץ כלי זה?",
       "approvalHint": "בחירות “תמיד” נשמרות כהעדפה שלך להרצות עתידיות.",
       "allowOnce": "אפשר פעם אחת",
       "alwaysAllow": "אפשר תמיד",

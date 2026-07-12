@@ -24,39 +24,44 @@
       </div>
     </Transition>
 
-    <!-- Approval card ('ask' policy): the run is paused on this call -->
+    <!-- Approval prompt ('ask' policy): the run is paused on this call.
+         Deliberately quiet — an indented block under the status line, a
+         one-line argument echo, and a row of small actions. -->
     <div
       v-if="showApprovalCard"
-      class="mt-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 p-2.5 space-y-2"
+      class="mt-1.5 ms-1 border-s-2 border-amber-300/70 dark:border-amber-600/50 ps-2.5 py-0.5 space-y-1.5"
       data-testid="mcp-approval-card"
     >
-      <div class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('tools.mcp.approvalTitle') }}</div>
-      <div class="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-400 min-w-0">
-        <code class="px-1 py-0.5 rounded bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 font-mono">{{ confirmation.tool_name }}</code>
-        <span v-if="confirmation.connection_name" class="truncate">· {{ confirmation.connection_name }}</span>
-      </div>
-      <div v-if="confirmationArgs" class="max-h-24 overflow-auto rounded bg-white dark:bg-gray-900 border border-amber-100 dark:border-amber-900">
-        <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ confirmationArgs }}</pre>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <button
+        v-if="argsOneLine"
+        type="button"
+        class="block max-w-full truncate text-start text-[11px] font-mono text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+        :title="showArgs ? '' : argsOneLine"
+        @click="showArgs = !showArgs"
+      >{{ argsOneLine }}</button>
+      <pre
+        v-if="showArgs"
+        class="max-h-32 overflow-auto rounded bg-gray-50 dark:bg-gray-900 text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono"
+      >{{ confirmationArgs }}</pre>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs">
         <button
-          class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+          class="px-2 py-0.5 rounded font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
           :disabled="responding" @click="respond(true, false)"
         >{{ $t('tools.mcp.allowOnce') }}</button>
         <button
-          class="px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-400 bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800 rounded hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors disabled:opacity-50"
-          :disabled="responding" @click="respond(true, true)"
+          class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+          :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(true, true)"
         >{{ $t('tools.mcp.alwaysAllow') }}</button>
+        <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
         <button
-          class="px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+          class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" @click="respond(false, false)"
         >{{ $t('tools.mcp.denyOnce') }}</button>
         <button
-          class="px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 bg-white dark:bg-gray-900 border border-red-200 dark:border-red-900 rounded hover:bg-red-50 dark:hover:bg-red-950 transition-colors disabled:opacity-50"
-          :disabled="responding" @click="respond(false, true)"
+          class="px-2 py-0.5 rounded text-gray-400 dark:text-gray-500 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+          :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(false, true)"
         >{{ $t('tools.mcp.alwaysDeny') }}</button>
       </div>
-      <div class="text-[10px] text-gray-400">{{ $t('tools.mcp.approvalHint') }}</div>
     </div>
 
     <!-- Auto policy verdict ('auto' policy): small-model review outcome -->
@@ -165,6 +170,16 @@ const confirmationArgs = computed(() => {
   try { return JSON.stringify(a, null, 2) } catch { return String(a) }
 })
 
+// Compact one-line call echo, e.g. create_item({"board_id": 1, …}); click to expand.
+const showArgs = ref(false)
+const argsOneLine = computed(() => {
+  if (!confirmation.value) return ''
+  const name = confirmation.value.tool_name || 'tool'
+  const a = confirmation.value.arguments
+  if (!a || !Object.keys(a).length) return `${name}()`
+  try { return `${name}(${JSON.stringify(a)})` } catch { return `${name}(…)` }
+})
+
 async function respond(approved: boolean, remember: boolean) {
   if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
   responding.value = true
@@ -241,7 +256,9 @@ const modelTitle = computed<string>(() => {
 
 const runningLabel = computed(() => {
   if (toolName.value === 'execute_mcp' && ['awaiting_confirmation', 'awaiting_approval'].includes(progressStage.value)) {
-    return t('tools.mcp.awaitingApproval', { name: args.value.tool_name || 'tool' })
+    const label = t('tools.mcp.awaitingApproval', { name: args.value.tool_name || 'tool' })
+    const conn = confirmation.value?.connection_name
+    return conn ? `${label} · ${conn}` : label
   }
   if (toolName.value === 'execute_mcp' && progressStage.value === 'auto_policy_review') {
     return t('tools.mcp.autoReviewing', { name: args.value.tool_name || 'tool' })

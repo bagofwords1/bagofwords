@@ -815,7 +815,6 @@
       "failed": "{name} (fehlgeschlagen)",
       "awaitingApproval": "Warte auf deine Freigabe zur Ausführung von {name}…",
       "autoReviewing": "Prüfe {name} gegen die Richtlinie…",
-      "approvalTitle": "Dem Agenten erlauben, dieses Tool auszuführen?",
       "approvalHint": "“Immer”-Entscheidungen werden als deine Präferenz für künftige Läufe gespeichert.",
       "allowOnce": "Einmal erlauben",
       "alwaysAllow": "Immer erlauben",

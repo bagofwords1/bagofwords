@@ -837,7 +837,6 @@
       "failed": "{name} (falló)",
       "awaitingApproval": "Esperando tu aprobación para ejecutar {name}…",
       "autoReviewing": "Revisando {name} según la política…",
-      "approvalTitle": "¿Permitir que el agente ejecute esta herramienta?",
       "approvalHint": "Las opciones “Siempre” se guardan como tu preferencia para futuras ejecuciones.",
       "allowOnce": "Permitir una vez",
       "alwaysAllow": "Permitir siempre",

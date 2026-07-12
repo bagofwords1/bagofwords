@@ -815,7 +815,6 @@
       "failed": "{name} (non riuscito)",
       "awaitingApproval": "In attesa della tua approvazione per eseguire {name}…",
       "autoReviewing": "Revisione di {name} secondo la policy…",
-      "approvalTitle": "Consentire all'agente di eseguire questo strumento?",
       "approvalHint": "Le scelte “Sempre” vengono salvate come tua preferenza per le esecuzioni future.",
       "allowOnce": "Consenti una volta",
       "alwaysAllow": "Consenti sempre",

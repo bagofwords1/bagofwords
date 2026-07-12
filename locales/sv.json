@@ -815,7 +815,6 @@
       "failed": "{name} (misslyckades)",
       "awaitingApproval": "Väntar på ditt godkännande för att köra {name}…",
       "autoReviewing": "Granskar {name} mot policyn…",
-      "approvalTitle": "Tillåta agenten att köra det här verktyget?",
       "approvalHint": "“Alltid”-val sparas som din preferens för framtida körningar.",
       "allowOnce": "Tillåt en gång",
       "alwaysAllow": "Tillåt alltid",

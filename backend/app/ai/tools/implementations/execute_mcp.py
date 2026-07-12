@@ -224,11 +224,14 @@ Do not use when:
             "preview": None,
             "error_message": None,
         }
-        # Persist the 'auto' policy verdict with the result so the UI can show
-        # it after rehydrating the run from the DB.
+        # Persist policy outcomes with the result so the UI (after rehydration)
+        # and the planner's conversation digest can see them.
         policy_verdict = runtime_ctx.pop("_mcp_policy_verdict", None)
         if policy_verdict:
             output["policy_verdict"] = policy_verdict
+        approval = runtime_ctx.pop("_mcp_policy_approval", None)
+        if approval:
+            output["approval"] = approval
 
         if content_type == "tabular" and isinstance(result_data, list):
             # Auto-materialize tabular data to CSV
@@ -521,6 +524,14 @@ Do not use when:
                 discard_confirmation(confirmation_id)
 
             approved = bool(response and response.get("approved"))
+            # Persist the user's decision on the tool output so the planner's
+            # conversation digest (and the rehydrated UI) can see what the
+            # user chose, not just that the call failed.
+            runtime_ctx["_mcp_policy_approval"] = {
+                "approved": approved,
+                "remember": bool(response and response.get("remember")),
+                "timed_out": response is None,
+            }
             await log_tool_audit(
                 runtime_ctx,
                 action="tool.approval_decision",
@@ -544,6 +555,7 @@ Do not use when:
                     f"Tool '{data.tool_name}' was not executed because {reason}. "
                     "Do not retry the same call; continue the task without it or adjust your approach.",
                     blocked_by="ask",
+                    extra_output={"approval": runtime_ctx.get("_mcp_policy_approval")},
                 )
                 return
             yield ToolProgressEvent(type="tool.progress", payload={

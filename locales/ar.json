@@ -815,7 +815,6 @@
       "failed": "{name} (فشل)",
       "awaitingApproval": "في انتظار موافقتك لتشغيل {name}…",
       "autoReviewing": "مراجعة {name} وفقًا للسياسة…",
-      "approvalTitle": "السماح للوكيل بتشغيل هذه الأداة؟",
       "approvalHint": "تُحفظ خيارات “دائمًا” كتفضيلك للتشغيلات المستقبلية.",
       "allowOnce": "السماح مرة واحدة",
       "alwaysAllow": "السماح دائمًا",

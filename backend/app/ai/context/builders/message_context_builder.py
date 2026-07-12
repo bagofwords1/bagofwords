@@ -194,6 +194,38 @@ def _digest_web_search(tool_execution) -> str:
     return "web search " + " — ".join(parts) if parts else ""
 
 
+def _mcp_policy_action_parts(rj: dict, obs: dict) -> list:
+    """Digest the policy outcome of an execute_mcp call — especially the USER's
+    decision on an 'ask' approval — so the planner remembers it across turns
+    and doesn't re-attempt calls the user already declined.
+    """
+    parts = []
+    approval = rj.get('approval') or obs.get('approval')
+    if isinstance(approval, dict):
+        if approval.get('timed_out'):
+            parts.append("user approval timed out (not granted)")
+        elif approval.get('approved'):
+            parts.append(
+                "user approved this call"
+                + (" and saved 'always allow' for this tool" if approval.get('remember') else "")
+            )
+        else:
+            parts.append(
+                "USER DECLINED this call"
+                + (" and saved 'always deny' for this tool" if approval.get('remember') else "")
+                + " — do not retry it"
+            )
+    verdict = rj.get('policy_verdict') or obs.get('policy_verdict')
+    if isinstance(verdict, dict) and not approval:
+        outcome = "approved" if verdict.get('approved') else "declined"
+        reason = str(verdict.get('reason') or '')[:200]
+        parts.append(f"auto policy review {outcome}" + (f": {reason}" if reason else ""))
+    blocked = rj.get('blocked_by_policy') or obs.get('blocked_by_policy')
+    if blocked == 'deny':
+        parts.append("blocked by admin policy (deny) — this tool is not available")
+    return parts
+
+
 def _digest_execute_mcp(tool_execution) -> str:
     """Digest for execute_mcp so the planner sees WHAT it called, not just the result.
 
@@ -211,6 +243,7 @@ def _digest_execute_mcp(tool_execution) -> str:
     if not isinstance(args, dict):
         args = {}
     digest_parts = []
+    digest_parts.extend(_mcp_policy_action_parts(rj, obs))
 
     # Echo the call: which underlying MCP tool, with what arguments.
     called = args.get('tool_name')

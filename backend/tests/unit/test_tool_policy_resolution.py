@@ -62,6 +62,61 @@ class TestResolveEffectivePolicy:
         assert resolve_effective_policy("bogus", "deny") == TOOL_POLICY_DENY
 
 
+class _FakeToolExecution:
+    tool_name = "execute_mcp"
+
+    def __init__(self, result_json=None, arguments_json=None, status="success"):
+        self.result_json = result_json or {}
+        self.arguments_json = arguments_json or {}
+        self.status = status
+
+
+class TestExecuteMcpDigestUserAction:
+    """The planner's conversation digest must record the user's decision on
+    'ask' approvals (and auto verdicts / admin deny blocks) so later turns
+    don't re-attempt calls the user already settled."""
+
+    def _digest(self, rj, args=None):
+        from app.ai.context.builders.message_context_builder import _digest_execute_mcp
+        return _digest_execute_mcp(_FakeToolExecution(result_json=rj, arguments_json=args or {
+            "tool_name": "create_item", "arguments": {"board_id": 1},
+        }))
+
+    def test_user_decline_is_digested(self):
+        d = self._digest({"success": False, "error_message": "declined",
+                          "blocked_by_policy": "ask",
+                          "approval": {"approved": False, "remember": False, "timed_out": False}})
+        assert "USER DECLINED" in d
+        assert "do not retry" in d
+
+    def test_remembered_decisions_are_digested(self):
+        d = self._digest({"success": True,
+                          "approval": {"approved": True, "remember": True, "timed_out": False}})
+        assert "user approved" in d
+        assert "always allow" in d
+        d = self._digest({"success": False, "blocked_by_policy": "ask",
+                          "approval": {"approved": False, "remember": True, "timed_out": False}})
+        assert "always deny" in d
+
+    def test_timeout_is_digested(self):
+        d = self._digest({"success": False, "blocked_by_policy": "ask",
+                          "approval": {"approved": False, "remember": False, "timed_out": True}})
+        assert "timed out" in d
+
+    def test_auto_verdict_and_admin_deny_are_digested(self):
+        d = self._digest({"success": False, "blocked_by_policy": "auto",
+                          "policy_verdict": {"approved": False, "reason": "destructive"}})
+        assert "auto policy review declined" in d
+        assert "destructive" in d
+        d = self._digest({"success": False, "blocked_by_policy": "deny",
+                          "error_message": "denied by policy"})
+        assert "blocked by admin policy" in d
+
+    def test_plain_success_has_no_policy_noise(self):
+        d = self._digest({"success": True, "content_type": "json"})
+        assert "USER" not in d and "policy" not in d
+
+
 class _FakeCompletion:
     def __init__(self, scheduled_prompt_id=None):
         self.scheduled_prompt_id = scheduled_prompt_id
