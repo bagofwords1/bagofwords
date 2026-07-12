@@ -9,7 +9,7 @@
             <!-- Main content -->
             <div v-else>
                 <!-- Header with Add button -->
-                <div class="flex items-center justify-between mb-4" v-if="canManageConnections">
+                <div class="flex items-center justify-between mb-4" v-if="canLinkConnections">
                     <h2 class="text-sm font-medium text-gray-700 dark:text-gray-300">Connections</h2>
                     <UButton
                         color="blue"
@@ -48,7 +48,7 @@
                                 </span>
                                 <!-- Test button (admin only) -->
                                 <button
-                                    v-if="canManageConnections"
+                                    v-if="canManageConnection(conn)"
                                     @click="testConnection(conn.id)"
                                     :disabled="testingConnectionId === conn.id"
                                     class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
@@ -59,7 +59,7 @@
                                 </button>
                                 <!-- Edit button -->
                                 <UButton
-                                    v-if="canManageConnections"
+                                    v-if="canManageConnection(conn)"
                                     color="gray"
                                     variant="ghost"
                                     size="xs"
@@ -69,7 +69,7 @@
                                 </UButton>
                                 <!-- Unlink button (only if more than 1 connection) -->
                                 <UButton
-                                    v-if="canManageConnections && connections.length > 1"
+                                    v-if="canLinkConnections && connections.length > 1"
                                     color="red"
                                     variant="ghost"
                                     size="xs"
@@ -84,7 +84,7 @@
                         <!-- Indexing progress / completion / failure (shared component, with logs toggle) -->
                         <div v-if="conn.indexing" class="mt-3 ms-11">
                             <ConnectionIndexingProgress :indexing="conn.indexing" :show-logs="true" />
-                            <div v-if="conn.indexing.status === 'failed' && canManageConnections" class="mt-2">
+                            <div v-if="conn.indexing.status === 'failed' && canManageConnection(conn)" class="mt-2">
                                 <UButton size="xs" color="amber" variant="soft" @click="reindexConnection(conn.id)">
                                     Retry
                                 </UButton>
@@ -142,7 +142,7 @@
                         <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-400" />
                         <p class="text-sm">No connections linked to this agent.</p>
                         <UButton
-                            v-if="canManageConnections"
+                            v-if="canLinkConnections"
                             color="blue"
                             variant="soft"
                             size="sm"
@@ -206,7 +206,7 @@
                 <!-- No connections available -->
                 <div v-else class="text-center py-4 text-gray-500">
                     <p class="text-sm">No available connections to link.</p>
-                    <p class="text-xs mt-1">All organization connections are already linked to this agent.</p>
+                    <p class="text-xs mt-1">Connections you can build agents on and that aren't already linked will appear here.</p>
                 </div>
             </div>
 
@@ -273,7 +273,15 @@ import type { Ref } from 'vue'
 const route = useRoute()
 const toast = useToast()
 const dsId = computed(() => String(route.params.id || ''))
-const canManageConnections = computed(() => useCan('manage_connections'))
+// Linking/unlinking a connection to this agent is an agent-management action;
+// editing/testing/reindexing mutates the shared connection and stays gated by
+// per-connection `manage_connection`. See AgentConnectionsModal.vue.
+const canLinkConnections = computed(() =>
+    useCan('manage', { type: 'data_source', id: dsId.value })
+)
+function canManageConnection(conn: any) {
+    return useCan('manage_connection', { type: 'connection', id: conn.id })
+}
 const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
 
@@ -312,10 +320,15 @@ const isAdmin = computed(() => {
   return org?.role === 'admin'
 })
 
-// Available connections (org connections not already linked)
+// Available connections: not already linked, and ones the caller may build
+// agents on (per-connection `create_data_sources` — the same permission the
+// link API enforces). See AgentConnectionsModal.vue.
 const availableConnections = computed(() => {
   const linkedIds = new Set(connections.value.map((c: any) => c.id))
-  return orgConnections.value.filter(c => !linkedIds.has(c.id))
+  return orgConnections.value.filter(c =>
+    !linkedIds.has(c.id) &&
+    useCan('create_data_sources', { type: 'connection', id: c.id })
+  )
 })
 
 // Status helpers — derived from the shared state machine.

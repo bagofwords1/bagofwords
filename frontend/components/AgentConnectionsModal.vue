@@ -6,7 +6,7 @@
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Connections</h3>
                     <div class="flex items-center gap-2">
                         <UButton
-                            v-if="canManageConnections"
+                            v-if="canLinkConnections"
                             color="blue"
                             variant="soft"
                             size="xs"
@@ -25,7 +25,7 @@
             <div v-else-if="connections.length === 0" class="py-8 text-center">
                 <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                 <p class="text-sm text-gray-500 dark:text-gray-400">No connections linked to this agent.</p>
-                <UButton v-if="canManageConnections" color="blue" variant="soft" size="sm" class="mt-3" @click="openLinkModal">
+                <UButton v-if="canLinkConnections" color="blue" variant="soft" size="sm" class="mt-3" @click="openLinkModal">
                     Link a connection
                 </UButton>
             </div>
@@ -49,7 +49,7 @@
                                 {{ getStatusLabel(conn) }}
                             </span>
                             <button
-                                v-if="canManageConnections"
+                                v-if="canManageConnection(conn)"
                                 @click="testConnection(conn.id)"
                                 :disabled="testingConnectionId === conn.id"
                                 class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
@@ -59,14 +59,14 @@
                                 <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-400" />
                             </button>
                             <UButton
-                                v-if="canManageConnections"
+                                v-if="canManageConnection(conn)"
                                 color="gray" variant="ghost" size="xs"
                                 @click="openEditModal(conn)"
                             >
                                 <UIcon name="heroicons-pencil" class="w-4 h-4" />
                             </UButton>
                             <UButton
-                                v-if="canManageConnections && connections.length > 1"
+                                v-if="canLinkConnections && connections.length > 1"
                                 color="red" variant="ghost" size="xs"
                                 @click="unlinkConnection(conn.id)"
                                 title="Unlink"
@@ -86,7 +86,7 @@
                     <!-- Indexing progress -->
                     <div v-if="conn.indexing" class="mt-2 ms-10">
                         <ConnectionIndexingProgress :indexing="conn.indexing" :show-logs="true" />
-                        <div v-if="conn.indexing.status === 'failed' && canManageConnections" class="mt-2">
+                        <div v-if="conn.indexing.status === 'failed' && canManageConnection(conn)" class="mt-2">
                             <UButton size="xs" color="amber" variant="soft" @click="reindexConnection(conn.id)">
                                 Retry
                             </UButton>
@@ -111,7 +111,7 @@
                 <Spinner class="w-5 h-5" />
             </div>
             <div v-else-if="availableConnections.length === 0" class="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                All connections are already linked to this agent.
+                No connections available to link.
             </div>
             <div v-else class="space-y-2 max-h-64 overflow-y-auto">
                 <label
@@ -203,7 +203,6 @@ const isOpen = computed({
 
 const route = useRoute()
 const toast = useToast()
-const canManageConnections = computed(() => useCan('manage_connections'))
 
 const integration = inject<Ref<any>>('integration', ref(null))
 const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
@@ -212,6 +211,23 @@ const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async (
 const dsId = computed(() => props.dsId ?? String(route.params.id || ''))
 const connections = computed(() => props.connections ?? (integration.value?.connections || []))
 const ready = computed(() => props.dsId != null || !!integration.value)
+
+// Linking/unlinking a connection to THIS agent is an agent-management action:
+// anyone who can manage the agent may attach connections they have access to
+// (the picker only lists connections the caller can see, and the API enforces
+// per-connection read access on link). This is distinct from managing the
+// shared connection object below.
+const canLinkConnections = computed(() =>
+    useCan('manage', { type: 'data_source', id: dsId.value })
+)
+
+// Editing / testing / reindexing mutates the SHARED connection (config,
+// credentials, catalog) used by every agent it backs, so it stays gated by the
+// per-connection `manage_connection` permission (org `manage_connections` and
+// full_admin imply it) rather than agent-management.
+function canManageConnection(conn: any) {
+    return useCan('manage_connection', { type: 'connection', id: conn.id })
+}
 
 // Refresh both the legacy layout (via inject) and the standalone parent (via emit).
 async function refresh() {
@@ -229,9 +245,15 @@ const loadingOrgConnections = ref(false)
 const orgConnections = ref<any[]>([])
 const isLinking = ref(false)
 
+// Offer only connections the caller (a) hasn't already linked and (b) may build
+// agents on — per-connection `create_data_sources`, the same permission the link
+// API enforces. Keeps the picker in sync with what the backend will accept.
 const availableConnections = computed(() => {
     const linked = new Set(connections.value.map((c: any) => c.id))
-    return orgConnections.value.filter((c) => !linked.has(c.id))
+    return orgConnections.value.filter((c) =>
+        !linked.has(c.id) &&
+        useCan('create_data_sources', { type: 'connection', id: c.id })
+    )
 })
 
 function getConnectionEffective(conn: any) {

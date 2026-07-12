@@ -495,7 +495,22 @@ async def add_connection_to_domain(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    """Add a connection to an agent (M:N relationship)."""
+    """Add a connection to an agent (M:N relationship).
+
+    Two independent capabilities are required, matching the "build an agent on a
+    connection" model:
+      - The `data_source:manage` decorator proves the caller owns/manages this
+        agent.
+      - Per-connection `create_data_sources` proves they may build agents on the
+        connection being attached — the SAME check `create_data_source` runs when
+        an agent is created directly on a connection. Connection admins /
+        `manage_connections` pass via implication.
+    """
+    await check_resource_permissions(
+        db, str(current_user.id), str(organization.id),
+        "connection", [connection_id], "create_data_sources",
+    )
+
     result = await data_source_service.add_connection_to_domain(
         db=db,
         data_source_id=data_source_id,
