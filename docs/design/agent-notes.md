@@ -96,8 +96,8 @@ edit_note(note_id: str,
   failing op named, no partial write). This is ideal for todos (flip one `- [ ]`
   → `- [x]` line without re-emitting the note). `content` is the full-replacement
   fallback for large restructures; exactly one of `edits`/`content` is provided.
-  Reuses `apply_find_replace_edits` (extract from `_doc_markdown.py` to a neutral
-  `_text_edits.py`, shared with `edit_doc`).
+  Reuses `apply_find_replace_edits` imported directly from `_doc_markdown.py`
+  (a pure string helper — no rename/move needed).
 - Both validate the note belongs to the current report; `edit_note` errors on an
   unknown id.
 - Metadata: `tags=["note"]`, `category="action"`, `allowed_modes=None` (all
