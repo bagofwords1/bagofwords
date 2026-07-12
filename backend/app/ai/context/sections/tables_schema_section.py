@@ -56,6 +56,11 @@ class FileScopeItem(BaseModel):
     supports_search: bool = True     # native search API OR index_mode==content
     writable: bool = False
     per_user: bool = False           # per-user OAuth (each user reads as themselves)
+    # True when this connector enforces a path/glob scope boundary (network_dir/
+    # s3/sharepoint). False for token-scoped sources (OneDrive/Drive) whose only
+    # boundary is the user's OAuth account — for those we render no <scope> and
+    # no "else denied" language, because neither would be true.
+    enforces_scope: bool = True
 
 
 class TablesSchemaContext(ContextSection):
@@ -234,11 +239,16 @@ class TablesSchemaContext(ContextSection):
                 files_xml = "\n".join(f'<file>{xml_escape(n)}</file>' for n in fs.sample)
                 inner.append(xml_tag("files", files_xml))
             else:
-                if fs.globs:
-                    patt = "\n".join(f'<pattern>{xml_escape(g)}</pattern>' for g in fs.globs)
-                    inner.append(xml_tag("scope", patt))
-                else:
-                    inner.append(xml_tag("scope", "<pattern>**</pattern>"))
+                # A <scope> only for connectors that ENFORCE a path/glob boundary
+                # (network_dir/s3/sharepoint). Token-scoped sources (OneDrive/
+                # Drive) have no such boundary — the user's OAuth account is the
+                # limit — so a <scope> here would misrepresent what's enforced.
+                if fs.enforces_scope:
+                    if fs.globs:
+                        patt = "\n".join(f'<pattern>{xml_escape(g)}</pattern>' for g in fs.globs)
+                        inner.append(xml_tag("scope", patt))
+                    else:
+                        inner.append(xml_tag("scope", "<pattern>**</pattern>"))
                 if fs.sample:
                     sm = "\n".join(f'<file>{xml_escape(n)}</file>' for n in fs.sample)
                     inner.append(xml_tag("sample", sm))
@@ -260,16 +270,17 @@ class TablesSchemaContext(ContextSection):
                     "does NOT mean no files — call list_files/search_files to see the "
                     "current user's files (they must have connected their account)."
                 ))
-            # Usage guidance — gate search_files on real capability.
+            # Usage guidance — gate search_files on real capability, and the
+            # "else denied" clause on real scope enforcement.
+            denial = (" Access is limited to the scope above; anything else is denied."
+                      if fs.enforces_scope else "")
             if fs.supports_search:
                 usage = ("search_files to find by topic · list_files to browse · "
-                         "read_file to read (use offset/length for large files). "
-                         "Access is limited to the scope above; anything else is denied.")
+                         "read_file to read (use offset/length for large files)." + denial)
             else:
                 usage = ("list_files (with name_pattern to filter) to browse · "
                          "read_file to read (use offset/length for large files). "
-                         "No content search on this connection — discover by filename. "
-                         "Access is limited to the scope above; anything else is denied.")
+                         "No content search on this connection — discover by filename." + denial)
             inner.append(xml_tag("usage", usage))
             attrs = {"name": fs.name, "type": fs.type, "kind": "files"}
             if fs.connection_id:

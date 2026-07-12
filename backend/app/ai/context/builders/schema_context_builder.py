@@ -443,6 +443,9 @@ class SchemaContextBuilder:
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {"network_dir", "s3", "sharepoint", "onedrive", "google_drive", "outlook_mail"}
     _NATIVE_SEARCH_TYPES = {"sharepoint", "onedrive", "google_drive"}
+    # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
+    # account IS the scope. Everything else enforces a path/glob scope.
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail"}
 
     def _build_file_scopes(self, ds, tables):
         """Turn the data source's file-source connections into compact scope
@@ -501,12 +504,13 @@ class SchemaContextBuilder:
             # the descriptor tells the model discovery is per-user + live.
             per_user = (getattr(c, "auth_policy", None) == "user_required"
                         and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
+            enforces_scope = c.type not in self._TOKEN_SCOPED_TYPES
             scopes.append(FileScopeItem(
                 connection_id=cid, name=c.name, type=c.type, base=base,
                 globs=globs, index_mode=index_mode, file_count=len(ftabs),
                 capped=False, sample=sample, topics=topics,
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
-                per_user=bool(per_user),
+                per_user=bool(per_user), enforces_scope=enforces_scope,
             ))
         return scopes, remaining
 
