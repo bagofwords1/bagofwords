@@ -20,12 +20,15 @@ of `execute_query`.
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import os
+import stat as _stat
 import tempfile
 import threading
 import uuid
 import weakref
+from decimal import Decimal
 from pathlib import Path
 from typing import Callable, ContextManager, Optional
 
@@ -65,6 +68,41 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ[name])
     except (KeyError, ValueError):
         return default
+
+
+def _ensure_secure_root(root: Path) -> None:
+    """Create/verify the spill root safely. Spill files hold complete query
+    results, so the directory must be ours alone: created 0700, not a symlink
+    (squatting attack: another user pre-creates or symlinks the path and reads
+    every tenant's spills), and owned by the current uid."""
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except FileExistsError:
+        pass
+    st = os.lstat(root)
+    if _stat.S_ISLNK(st.st_mode) or not _stat.S_ISDIR(st.st_mode):
+        raise RuntimeError(
+            f"Lazy spill dir {root} is a symlink or not a directory; refusing to "
+            "spill query results into it. Set BOW_LAZY_DIR to a private directory."
+        )
+    if hasattr(os, "getuid") and st.st_uid != os.getuid():
+        raise RuntimeError(
+            f"Lazy spill dir {root} is owned by another user; refusing to spill "
+            "query results into it. Set BOW_LAZY_DIR to a private directory."
+        )
+    try:
+        os.chmod(root, 0o700)
+    except OSError:
+        logger.debug("Could not chmod spill root %s", root, exc_info=True)
+
+
+def _restrict_file(path: Path) -> None:
+    """chmod a freshly-created spill file to owner-only. Writers create files
+    at the process umask (typically 0644 → world-readable query results)."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        logger.debug("Could not chmod spill file %s", path, exc_info=True)
 
 
 # Spill files older than this are considered orphans (see _sweep_stale_files).
@@ -117,7 +155,15 @@ class StreamConfig:
         self.dir_max_bytes = _env_int("BOW_LAZY_DIR_MAX_BYTES", 32 * 1024 * 1024 * 1024)
         self.min_free_bytes = _env_int("BOW_LAZY_MIN_FREE_BYTES", 1024 * 1024 * 1024)
         root = os.environ.get("BOW_LAZY_DIR")
-        self.root = Path(root) if root else Path(tempfile.gettempdir()) / "bow_lazy"
+        if root:
+            self.root = Path(root)
+        else:
+            # Per-uid default: a fixed name under world-writable /tmp is the
+            # classic shared-tempdir pitfall (pre-creation/symlink squatting,
+            # other users reading spilled query results).
+            suffix = f"_{os.getuid()}" if hasattr(os, "getuid") else ""
+            self.root = Path(tempfile.gettempdir()) / f"bow_lazy{suffix}"
+        _ensure_secure_root(self.root)
         _sweep_stale_files(self.root)
 
     def limit_desc(self) -> str:
@@ -231,16 +277,22 @@ def arrow_safe_cell(v):
     every row-dict lazy override (Salesforce, NetSuite, Spark, Mongo).
 
     dict/list → JSON string (schemaless nesting can't be a stable Arrow type);
-    plain scalars pass through; anything else — driver-specific scalars like
-    bson.Timestamp/Regex/Code — becomes str, because pa.Table.from_pandas
-    raises ArrowInvalid on unknown Python types and would kill the whole
-    stream. Eager paths are unaffected (pandas keeps raw objects)."""
+    scalars pyarrow types natively — str/int/float/bool/datetime/date/time/
+    bytes — pass through unchanged so timestamps stay timestamps (SUM/ORDER BY
+    keep working downstream); Decimal → float (the lazy path's documented
+    high-precision divergence, matching Decimal128 handling); anything else —
+    driver-specific scalars like bson.Timestamp/Regex/Code — becomes str,
+    because pa.Table.from_pandas raises ArrowInvalid on unknown Python types
+    and would kill the whole stream. Eager paths are unaffected (pandas keeps
+    raw objects)."""
     import json
 
     if isinstance(v, (dict, list)):
         return json.dumps(v, default=str)
-    if v is None or isinstance(v, (str, int, float, bool)):
+    if v is None or isinstance(v, (str, int, float, bool, bytes, _dt.datetime, _dt.date, _dt.time)):
         return v
+    if isinstance(v, Decimal):
+        return float(v)
     return str(v)
 
 
@@ -643,6 +695,7 @@ def lazy_from_dataframe(df: pd.DataFrame, config: Optional[StreamConfig] = None)
     config.root.mkdir(parents=True, exist_ok=True)
     path = config.root / f"lazy_{uuid.uuid4().hex}.parquet"
     _jsonify_nested_cells(_dedupe_columns(df)).to_parquet(path, index=False)
+    _restrict_file(path)
     return LazyFrame.from_parquet(path, owns_source=True)
 
 
@@ -687,6 +740,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
         table = _widen_null_columns(table)
         schema = table.schema
         writer = pq.ParquetWriter(str(paths[-1]), schema)
+        _restrict_file(paths[-1])
         return table
 
     def roll_part(table):
@@ -743,6 +797,7 @@ def _consume_chunks_to_parquet(chunks, path: Path, config: StreamConfig, columns
             empty = pd.DataFrame(columns=list(columns)) if columns else pd.DataFrame()
             table = _widen_null_columns(pa.Table.from_pandas(empty, preserve_index=False))
             pq.write_table(table, str(path))
+            _restrict_file(path)
     except BaseException:
         if writer is not None:
             try:
@@ -851,7 +906,14 @@ def stream_duckdb_to_parquet(connect_cm, sql, path, config):
         # LIMIT row_cap + 1 so overflow is detectable without streaming an
         # unbounded number of rows.
         bounded = f"SELECT * FROM (\n{inner}\n) AS _bow_src LIMIT {row_cap + 1}"
-        res = con.execute(bounded)
+        try:
+            res = con.execute(bounded)
+        except Exception:
+            # Statements valid at top level but not as a subquery (SHOW
+            # TABLES, PRAGMA, some DESCRIBE forms) — the eager path accepts
+            # them, so run them bare. Their results are catalog-sized; the
+            # row/byte budgets below still apply per batch.
+            res = con.execute(inner)
         # to_arrow_reader() replaced fetch_record_batch() in newer duckdb
         make_reader = getattr(res, "to_arrow_reader", None) or res.fetch_record_batch
         reader = make_reader(config.chunksize)
@@ -924,11 +986,13 @@ def _consume_arrow_to_parquet(arrow_iter, path: Path, config: StreamConfig) -> P
                 table = _widen_null_columns(table)
                 schema = table.schema
                 writer = pq.ParquetWriter(str(path), schema)
+                _restrict_file(path)
             else:
                 table = _cast_chunk_to_schema(table, schema)
             writer.write_table(table)
         if writer is None:
             pd.DataFrame().to_parquet(path, index=False)
+            _restrict_file(path)
     except BaseException:
         if writer is not None:
             try:
@@ -983,4 +1047,11 @@ def consume_row_dicts_to_lazyframe(
         if buf:
             yield pd.DataFrame(buf, columns=columns)
 
-    return consume_chunks_to_lazyframe(chunks(), config, columns=columns)
+    try:
+        return consume_chunks_to_lazyframe(chunks(), config, columns=columns)
+    finally:
+        # Closing the chunks() wrapper doesn't cascade to the source iterator;
+        # close it explicitly so `with client.connect()` blocks inside row
+        # generators release their connection deterministically on abort
+        # (budget errors, abandonment) instead of at GC time.
+        _close_quietly(rows)

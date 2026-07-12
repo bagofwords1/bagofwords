@@ -26,7 +26,9 @@ _VP_GLOBAL_LOCK = threading.RLock()
 # lock*. Blocking forever behind one would turn a single hung query into a
 # process-wide Vertica outage; failing with a clear error keeps later queries
 # diagnosable and lets the pile-up clear when the hung call finally returns.
-_VP_LOCK_TIMEOUT_SECONDS = 600
+# Kept close to (not 10x) the wrapper's per-query timeout so waiters fail in
+# a diagnosable way rather than queueing for many minutes.
+_VP_LOCK_TIMEOUT_SECONDS = 180
 
 
 @contextmanager
@@ -39,6 +41,13 @@ def _vp_serialized():
             "holding verticapy's single global connection."
         )
     try:
+        # An abandoned (timed-out) daemon thread that finally wins the lock
+        # must NOT replay its long-canceled query against the database — that
+        # would extend one hang into a serial pile-up of stale executions.
+        from app.data_sources.clients.lazy_frame import QueryAbandonedError, _cancelled
+
+        if _cancelled():
+            raise QueryAbandonedError()
         yield
     finally:
         _VP_GLOBAL_LOCK.release()

@@ -478,6 +478,17 @@ class QueryCapturingClientWrapper:
         try:
             result_bytes = result.byte_size()
         except Exception:
+            # With quota enforcement active, an unmeterable result must not
+            # pass for free — _consume_data_bytes_quota skips consumption at
+            # result_bytes <= 0, which would let arbitrary data through an
+            # org's byte limit. Without a quota context (dev/tests), log and
+            # continue.
+            if self._usage_context is not None and self._usage_context.session_maker is not None:
+                raise RuntimeError(
+                    "Could not meter the lazy query result (spill metadata and "
+                    "file size both unreadable); refusing to return it unmetered "
+                    "while usage limits are enforced."
+                )
             logger.warning("LazyFrame byte metering failed entirely; result is uncharged", exc_info=True)
         return rows, result_bytes
 
@@ -603,6 +614,19 @@ class QueryCapturingClientWrapper:
         t.join(self._query_timeout_seconds)
         if t.is_alive():
             abandoned.set()
+            # Race window: the runner may have completed and stored its result
+            # between join() expiring and abandoned.set() — close it here so a
+            # multi-GB spill isn't left waiting for GC. (The LazyFrame
+            # finalizer remains the backstop for the residual nanosecond
+            # interleaving.)
+            value = holder.pop("value", None)
+            if value is not None:
+                close = getattr(value, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        logger.debug("Failed to close raced query result", exc_info=True)
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,

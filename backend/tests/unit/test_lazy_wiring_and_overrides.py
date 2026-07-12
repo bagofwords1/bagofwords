@@ -934,6 +934,164 @@ class TestDesignReviewFixes:
         )
 
 
+class TestRound5MaxReviewFixes:
+    def test_spill_root_rejects_symlink(self, tmp_path, monkeypatch):
+        import app.data_sources.clients.lazy_frame as lf_mod
+
+        real = tmp_path / "real"
+        real.mkdir()
+        link = tmp_path / "sneaky"
+        link.symlink_to(real)
+        monkeypatch.setenv("BOW_LAZY_DIR", str(link))
+        with pytest.raises(RuntimeError, match="symlink"):
+            lf_mod.StreamConfig()
+
+    def test_spill_files_are_owner_only(self, tmp_path, monkeypatch):
+        import stat
+
+        monkeypatch.setenv("BOW_LAZY_DIR", str(tmp_path / "spill"))
+        lf = lazy_from_dataframe(pd.DataFrame({"x": [1]}))
+        try:
+            root = lf._source_paths[0].parent
+            assert stat.S_IMODE(root.stat().st_mode) == 0o700
+            assert stat.S_IMODE(lf._source_paths[0].stat().st_mode) == 0o600
+        finally:
+            lf.close()
+
+    def test_default_spill_root_is_per_uid(self, monkeypatch):
+        import os
+        import app.data_sources.clients.lazy_frame as lf_mod
+
+        monkeypatch.delenv("BOW_LAZY_DIR", raising=False)
+        cfg = lf_mod.StreamConfig()
+        if hasattr(os, "getuid"):
+            assert cfg.root.name == f"bow_lazy_{os.getuid()}"
+
+    def test_arrow_safe_cell_preserves_temporal_and_decimal_types(self):
+        import datetime
+        from decimal import Decimal
+        from app.data_sources.clients.lazy_frame import arrow_safe_cell
+
+        ts = datetime.datetime(2026, 7, 12, 10, 30)
+        d = datetime.date(2026, 7, 12)
+        assert arrow_safe_cell(ts) is ts        # stays a timestamp, not str
+        assert arrow_safe_cell(d) is d
+        assert arrow_safe_cell(b"raw") == b"raw"
+        assert arrow_safe_cell(Decimal("3.70")) == 3.7  # documented divergence
+
+    def test_temporal_cells_stay_queryable_in_spill(self):
+        """SUM/date arithmetic must keep working on lazy row-dict results —
+        stringified timestamps would break lf.sql() aggregation."""
+        import datetime
+        from decimal import Decimal
+        from app.data_sources.clients.lazy_frame import (
+            arrow_safe_cell,
+            consume_row_dicts_to_lazyframe,
+        )
+
+        rows = [
+            {"amount": arrow_safe_cell(Decimal("1.5")), "ts": arrow_safe_cell(datetime.datetime(2026, 1, 1))},
+            {"amount": arrow_safe_cell(Decimal("2.5")), "ts": arrow_safe_cell(datetime.datetime(2026, 1, 2))},
+        ]
+        with consume_row_dicts_to_lazyframe(iter(rows)) as lf:
+            out = lf.sql("SELECT SUM(amount) AS s, MAX(ts) AS m FROM data").to_df()
+        assert float(out["s"].iloc[0]) == 4.0
+        assert pd.Timestamp(out["m"].iloc[0]).year == 2026
+
+    def test_duckdb_lazy_accepts_top_level_statements(self):
+        import duckdb
+        from app.data_sources.clients.lazy_frame import lazy_query_via_duckdb
+
+        @contextmanager
+        def connect_cm():
+            con = duckdb.connect()
+            con.execute("CREATE TABLE t1 (x INTEGER)")
+            try:
+                yield con
+            finally:
+                con.close()
+
+        # SHOW TABLES works eagerly; the lazy path must not reject it
+        with lazy_query_via_duckdb(connect_cm, "SHOW TABLES") as lf:
+            assert lf.row_count() == 1
+
+    def test_vertica_abandoned_thread_does_not_replay_stale_query(self, monkeypatch):
+        import app.data_sources.clients.lazy_frame as lf_mod
+        import app.data_sources.clients.vertica_client as vc
+
+        calls = []
+        monkeypatch.setattr(vc.vp, "connect", lambda name: calls.append(name))
+        client = VerticaTestHelper.make()
+        evt = threading.Event()
+        evt.set()  # the wrapper already timed out and abandoned this thread
+        lf_mod.set_cancel_event(evt)
+        try:
+            with pytest.raises(lf_mod.QueryAbandonedError):
+                client.connect()
+            assert calls == []  # the stale query never touched verticapy
+        finally:
+            lf_mod.set_cancel_event(None)
+
+    def test_metering_failure_raises_under_active_quota(self):
+        from types import SimpleNamespace
+
+        class UnmeterableLazy:
+            def row_count(self):
+                raise RuntimeError("gone")
+
+            def byte_size(self):
+                raise RuntimeError("gone")
+
+        class Client(TinyClient):
+            def execute_query_lazy(self, sql):
+                return UnmeterableLazy()
+
+        from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+        wrapper = QueryCapturingClientWrapper(
+            Client(), [], [],
+            usage_context=SimpleNamespace(session_maker=object()),
+            lazy_enabled=True,
+        )
+        with pytest.raises(RuntimeError, match="unmetered"):
+            wrapper.execute_query_lazy("SELECT x")
+
+        # without a quota context: logged, not fatal
+        wrapper2, _, timings = _make_wrapper(Client())
+        wrapper2.execute_query_lazy("SELECT x")
+        assert timings[0]["result_bytes"] == 0
+
+    def test_row_generator_closed_deterministically_on_abort(self, monkeypatch):
+        from app.data_sources.clients.lazy_frame import consume_row_dicts_to_lazyframe
+
+        monkeypatch.setenv("BOW_LAZY_MAX_ROWS", "2")
+        monkeypatch.setenv("BOW_LAZY_CHUNKSIZE", "1")
+        closed = []
+
+        def rows():
+            try:
+                for i in range(100):
+                    yield {"x": i}
+            finally:
+                closed.append(True)  # the `with connect()` release point
+
+        gen = rows()  # hold a ref so refcount GC can't mask a missing close
+        with pytest.raises(ResultTooLargeError):
+            consume_row_dicts_to_lazyframe(gen)
+        assert closed == [True]
+
+
+class VerticaTestHelper:
+    @staticmethod
+    def make():
+        from app.data_sources.clients.vertica_client import VerticaClient
+
+        client = VerticaClient.__new__(VerticaClient)
+        client._connection_name = "vertica_conn_test"
+        client._connected = True
+        return client
+
+
 class TestArrowSafeCell:
     def test_bson_scalars_become_strings(self):
         from bson.timestamp import Timestamp
