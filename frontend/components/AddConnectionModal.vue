@@ -47,7 +47,7 @@
         <!-- Scrollable region: data sources grouped by category. MCP-backed
              presets (Notion, Sentry…) live inside their domain category with an
              "MCP" badge rather than a transport-named section. -->
-        <div v-else class="max-h-[460px] overflow-y-auto -mx-1 px-1">
+        <div v-else class="max-h-[320px] overflow-y-auto -mx-1 px-1">
           <div v-for="group in groupedCategories" :key="group.key" class="mb-5">
             <div v-if="activeCategory === 'all'" class="text-xs font-medium text-gray-400 mb-2">{{ $t(group.label) }}</div>
             <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3">
