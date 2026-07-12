@@ -192,22 +192,30 @@ const canViewMonitoring = computed(() => useCan('full_admin_access'))
 const canManageEvals = computed(() => useCan('manage_evals'))
 
 const allTabs = computed(() => {
-    // Label the Tables tab to match the agent's data_shape: "Files" for
-    // file-shape connectors (OneDrive / SharePoint / Google Drive),
-    // "Collections" for object-shape (MongoDB), default "Tables" for SQL.
+    // Objects (MongoDB) still label the grid "Collections"; SQL is "Tables".
+    // File connections are NOT labelled here anymore — they live in the Files
+    // tab, so the tables grid is purely for structured (SQL/object) catalogs.
     const tablesLabel = (() => {
         const s = catalog.value.noun.plural
-        if (s === 'tables') return 'Tables'
-        // Title-case the noun
-        return s.charAt(0).toUpperCase() + s.slice(1)
+        if (s === 'collections') return 'Collections'
+        return 'Tables'
     })()
+    // Does the agent have any structured (table/object) connection? If it's a
+    // files-only or tools-only agent, hide the empty Tables tab.
+    const conns = (integration.value?.connections || []) as any[]
+    const hasTableConn = conns.length === 0 || conns.some((c: any) => {
+        const shape = registryByType.value[c.type]?.data_shape
+        return shape && shape !== 'files' && shape !== 'tools'
+    })
     return [
         { name: '', label: 'Overview' },
-        // Unified "sources" tab — holds tables, file scopes AND tools per
-        // connection (the old separate Tools tab is merged in here).
-        { name: 'tables', label: tablesLabel },
+        // Each knowledge kind is its own coherent category/tab:
+        // Tables (SQL grid) · Files (uploads + directory connections) · Tools.
+        { name: 'tables', label: tablesLabel, gate: computed(() => hasTableConn) },
+        { name: 'files', label: 'Files' },
         { name: 'context', label: 'Instructions' },
         { name: 'queries', label: 'Queries' },
+        { name: 'tools', label: 'Tools' },
         { name: 'monitoring', label: 'Monitoring', gate: canViewMonitoring },
         { name: 'evals', label: 'Evals', gate: canManageEvals },
         { name: 'settings', label: 'Settings' },
@@ -216,6 +224,7 @@ const allTabs = computed(() => {
 
 const tabs = computed(() =>
     allTabs.value.filter(tab => {
+        if (tab.name === 'tools' && !isMcpToolsEnabled.value) return false
         if (tab.gate && !tab.gate.value) return false
         return true
     })
