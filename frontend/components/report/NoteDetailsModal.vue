@@ -46,10 +46,16 @@ function formatTime(ts?: string): string {
 </script>
 
 <style scoped>
-.note-markdown :deep(ul) { list-style: disc; padding-inline-start: 1.25rem; margin: 0.5rem 0; }
-.note-markdown :deep(ol) { list-style: decimal; padding-inline-start: 1.25rem; margin: 0.5rem 0; }
-.note-markdown :deep(li) { margin: 0.15rem 0; }
-.note-markdown :deep(h1), .note-markdown :deep(h2), .note-markdown :deep(h3) { font-weight: 600; margin: 0.75rem 0 0.35rem; }
+.note-markdown :deep(p) { margin: 0.4rem 0; }
+.note-markdown :deep(ul) { list-style: disc; padding-inline-start: 1.25rem; margin: 0.4rem 0; }
+.note-markdown :deep(ol) { list-style: decimal; padding-inline-start: 1.25rem; margin: 0.4rem 0; }
+.note-markdown :deep(li) { margin: 0.1rem 0; }
+/* Compact, note-scale headings (MarkdownRender's defaults are far too large here) */
+.note-markdown :deep(h1) { font-size: 0.9375rem; font-weight: 600; margin: 0.9rem 0 0.35rem; }
+.note-markdown :deep(h2) { font-size: 0.875rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
+.note-markdown :deep(h3) { font-size: 0.8125rem; font-weight: 600; margin: 0.7rem 0 0.25rem; color: rgb(75 85 99); }
+.note-markdown :deep(h1:first-child), .note-markdown :deep(h2:first-child), .note-markdown :deep(h3:first-child) { margin-top: 0; }
+:global(.dark) .note-markdown :deep(h3) { color: rgb(156 163 175); }
 .note-markdown :deep(code) { font-size: 0.8125rem; background: rgb(243 244 246); border-radius: 0.25rem; padding: 0.05rem 0.3rem; }
 :global(.dark) .note-markdown :deep(code) { background: rgb(31 41 55); }
 </style>

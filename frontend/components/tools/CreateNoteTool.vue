@@ -59,5 +59,9 @@ const content = computed(() => props.toolExecution.arguments_json?.content || ''
 <style scoped>
 .note-markdown :deep(ul) { list-style: disc; padding-inline-start: 1.1rem; margin: 0.25rem 0; }
 .note-markdown :deep(li) { margin: 0.1rem 0; }
-.note-markdown :deep(h1), .note-markdown :deep(h2), .note-markdown :deep(h3) { font-weight: 600; margin: 0.4rem 0 0.2rem; }
+/* Note-scale headings — MarkdownRender's defaults are far too large in a card */
+.note-markdown :deep(h1) { font-size: 0.8125rem; font-weight: 600; margin: 0.5rem 0 0.2rem; }
+.note-markdown :deep(h2) { font-size: 0.8125rem; font-weight: 600; margin: 0.45rem 0 0.15rem; }
+.note-markdown :deep(h3) { font-size: 0.75rem; font-weight: 600; margin: 0.4rem 0 0.15rem; color: rgb(107 114 128); }
+.note-markdown :deep(h1:first-child), .note-markdown :deep(h2:first-child) { margin-top: 0; }
 </style>
