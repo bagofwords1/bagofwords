@@ -96,6 +96,27 @@
           </div>
         </div>
 
+        <!-- Delivery channels (in addition to the report + inbox each target gets) -->
+        <div v-if="teamsEnabled || smtpEnabled" class="rounded-md border border-gray-100 dark:border-gray-800 p-2.5">
+          <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.deliverLabel') }}</div>
+          <div class="space-y-1.5">
+            <label v-if="teamsEnabled" class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="deliverTeams" class="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500" />
+              <span class="text-xs text-gray-700 dark:text-gray-200">
+                {{ $t('prompts.deliverTeams') }}
+                <span class="block text-[10px] text-gray-400">{{ $t('prompts.deliverTeamsHint') }}</span>
+              </span>
+            </label>
+            <label v-if="smtpEnabled" class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="deliverEmail" class="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500" />
+              <span class="text-xs text-gray-700 dark:text-gray-200">
+                {{ $t('prompts.deliverEmail') }}
+                <span class="block text-[10px] text-gray-400">{{ $t('prompts.deliverEmailHint') }}</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <!-- Confirmation line -->
         <div v-if="targetCount > 0" class="text-xs text-gray-600 dark:text-gray-300 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900 p-2.5">
           <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 inline -mt-0.5 text-blue-500" />
@@ -143,6 +164,23 @@ const toast = useToast()
 const { organization } = useOrganization()
 const { runPromptFor, getRunForTargets } = usePrompts()
 const { extractParamNames } = usePromptFill()
+const { smtpEnabled, fetchSettings } = useAppSettings()
+
+// Optional delivery channels (on top of the report + inbox each target gets).
+const deliverTeams = ref(false)
+const deliverEmail = ref(false)
+const teamsEnabled = ref(false)
+
+async function loadTeamsAvailability() {
+  // Only offer the Teams option when an active Teams integration exists.
+  teamsEnabled.value = false
+  try {
+    const { data } = await useMyFetch<any[]>('/api/settings/integrations')
+    teamsEnabled.value = (data.value || []).some(
+      (p: any) => p?.platform_type === 'teams' && (p?.is_active ?? true),
+    )
+  } catch {}
+}
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -207,7 +245,11 @@ watch(() => props.modelValue, (open) => {
     targetType.value = 'users'
     collectedParams.value = null
     paramsCollected.value = false
+    deliverTeams.value = false
+    deliverEmail.value = false
     loadTargets()
+    fetchSettings()
+    loadTeamsAvailability()
   }
 })
 
@@ -273,6 +315,11 @@ async function run() {
     }
     if (targetType.value === 'users') payload.user_ids = selectedMemberIds.value
     else payload.group_id = selectedGroupId.value
+
+    const channels: string[] = []
+    if (deliverTeams.value && teamsEnabled.value) channels.push('teams')
+    if (deliverEmail.value && smtpEnabled.value) channels.push('email')
+    if (channels.length) payload.delivery_channels = channels
 
     const res = await runPromptFor(props.prompt.id, payload)
     if (res) {

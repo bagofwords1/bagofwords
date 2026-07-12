@@ -245,3 +245,143 @@ async def test_step0_admin_cannot_read_targets_run_for_report(monkeypatch):
             blocked = e.status_code in (403, 404)
         assert blocked, "admin must NOT be able to read the target's private run-for report"
         print("[step0] admin cannot read target's owner-private run-for report")
+
+
+def _stub_completion_kwargs(monkeypatch):
+    """Like _stub_completion but records the full kwargs of each call so tests
+    can assert the external-platform routing threaded in for Teams delivery."""
+    calls = []
+
+    async def _fake(self, db, report_id, completion_data, current_user, organization, *a, **kw):
+        calls.append({"report_id": str(report_id), "user_id": str(current_user.id), "kwargs": kw})
+        return {"stubbed": True}
+
+    from app.services.completion_service import CompletionService
+    monkeypatch.setattr(CompletionService, "create_completion", _fake)
+    return calls
+
+
+async def _add_teams_mapping(db, org_id, app_user_id, external_user_id="29:teams-user", verified=True):
+    from app.models.external_user_mapping import ExternalUserMapping
+    from app.models.external_platform import ExternalPlatform
+    platform = ExternalPlatform(
+        organization_id=org_id, platform_type="teams", platform_config={}, is_active=True,
+    )
+    db.add(platform)
+    await db.flush()
+    m = ExternalUserMapping(
+        organization_id=org_id, platform_id=platform.id, platform_type="teams",
+        external_user_id=external_user_id, app_user_id=app_user_id, is_verified=verified,
+    )
+    db.add(m)
+    await db.commit()
+    return m
+
+
+@pytest.mark.asyncio
+async def test_run_for_teams_delivery_sets_external_routing(monkeypatch):
+    """delivery_channels=['teams'] stamps the completion with the target's Teams
+    routing so the completion-finished listeners deliver to their DM."""
+    calls = _stub_completion_kwargs(monkeypatch)
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        await _add_teams_mapping(db, ids["org"], ids["m_yes"], external_user_id="29:alice")
+
+        p = await prompt_service.create_prompt(
+            db, PromptCreate(title="TeamsRun", text="t", scope="agent",
+                             data_source_ids=[ids["ds1"]]), admin, org)
+        out = await prompt_service.run_prompt_for(
+            db, p.id, admin, org, principal_type="users",
+            user_ids=[ids["m_yes"]], parameters={}, delivery_channels=["teams"])
+
+        assert out["ran"] == 1
+        kw = calls[-1]["kwargs"]
+        assert kw.get("external_platform") == "teams"
+        assert kw.get("external_user_id") == "29:alice"
+        assert kw.get("external_channel_type") == "personal"
+        # No prior Teams conversation seen for this user → adapter opens a DM.
+        assert kw.get("external_channel_id") is None
+        print("[run-for] teams delivery stamps external routing on the completion")
+
+
+@pytest.mark.asyncio
+async def test_run_for_teams_delivery_skipped_without_mapping(monkeypatch):
+    """A target with no verified Teams mapping still runs, just without any
+    external routing (no Teams message attempted)."""
+    calls = _stub_completion_kwargs(monkeypatch)
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        # unverified mapping must NOT be used
+        await _add_teams_mapping(db, ids["org"], ids["m_yes"], verified=False)
+
+        p = await prompt_service.create_prompt(
+            db, PromptCreate(title="TeamsNo", text="t", scope="agent",
+                             data_source_ids=[ids["ds1"]]), admin, org)
+        out = await prompt_service.run_prompt_for(
+            db, p.id, admin, org, principal_type="users",
+            user_ids=[ids["m_yes"]], parameters={}, delivery_channels=["teams"])
+
+        assert out["ran"] == 1
+        kw = calls[-1]["kwargs"]
+        assert "external_platform" not in kw
+        print("[run-for] unreachable teams target still runs, no external routing")
+
+
+@pytest.mark.asyncio
+async def test_run_for_email_delivery_dispatches(monkeypatch):
+    """delivery_channels=['email'] dispatches a notification email to the
+    target's account address."""
+    _stub_completion_kwargs(monkeypatch)
+    dispatched = []
+
+    async def _fake_dispatch(self, *a, **kw):
+        dispatched.append(kw)
+        return None
+
+    from app.services.notification_service import NotificationService
+    monkeypatch.setattr(NotificationService, "dispatch", _fake_dispatch)
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        target = await db.get(User, ids["m_yes"])
+
+        p = await prompt_service.create_prompt(
+            db, PromptCreate(title="EmailRun", text="e", scope="agent",
+                             data_source_ids=[ids["ds1"]]), admin, org)
+        out = await prompt_service.run_prompt_for(
+            db, p.id, admin, org, principal_type="users",
+            user_ids=[ids["m_yes"]], parameters={}, delivery_channels=["email"])
+
+        assert out["ran"] == 1
+        assert dispatched, "email channel should have dispatched a notification"
+        assert target.email in dispatched[-1].get("recipients", [])
+        print("[run-for] email delivery dispatches a notification to the target")
+
+
+@pytest.mark.asyncio
+async def test_run_for_no_channels_no_external_routing(monkeypatch):
+    """Default (no delivery_channels) keeps the current behavior: no external
+    routing on the completion."""
+    calls = _stub_completion_kwargs(monkeypatch)
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        await _add_teams_mapping(db, ids["org"], ids["m_yes"], external_user_id="29:alice")
+
+        p = await prompt_service.create_prompt(
+            db, PromptCreate(title="Plain", text="p", scope="agent",
+                             data_source_ids=[ids["ds1"]]), admin, org)
+        out = await prompt_service.run_prompt_for(
+            db, p.id, admin, org, principal_type="users",
+            user_ids=[ids["m_yes"]], parameters={})
+
+        assert out["ran"] == 1
+        assert "external_platform" not in calls[-1]["kwargs"]
+        print("[run-for] no channels selected → no external routing (unchanged)")
