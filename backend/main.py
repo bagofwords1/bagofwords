@@ -466,14 +466,14 @@ async def startup_event():
             scheduler.add_job(
                 sweep_due_reindexes,
                 trigger="interval",
-                minutes=10,
+                minutes=1,
                 id="schema_reindex_sweep",
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
-                misfire_grace_time=600,
+                misfire_grace_time=60,
             )
-            logger.info("Scheduled job: schema_reindex_sweep every 10 minutes")
+            logger.info("Scheduled job: schema_reindex_sweep every 1 minute")
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
 
