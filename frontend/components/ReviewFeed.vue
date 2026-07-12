@@ -26,7 +26,7 @@
         <!-- Agent filter -->
         <UPopover :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
           <button type="button" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-            <DataSourceIcon v-if="agentFilter" :type="agentTypeOf(agentFilter)" class="w-3 h-3" />
+            <DataSourceIcon v-if="agentFilter" :type="agentTypeOf(agentFilter)" :icon="agentIconOf(agentFilter)" class="w-3 h-3" />
             <UIcon v-else name="i-heroicons-cube" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
             {{ agentFilter ? agentNameOf(agentFilter) : 'All agents' }}
             <UIcon name="i-heroicons-chevron-down" class="w-2.5 h-2.5 opacity-60" />
@@ -34,7 +34,7 @@
           <template #panel="{ close }">
             <div class="p-1 w-56 max-h-72 overflow-auto">
               <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-[13px]" @click="agentFilter = null; close()"><UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 dark:text-gray-500" />All agents<UIcon v-if="!agentFilter" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white" /></button>
-              <button v-for="a in agents" :key="a.id" class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-[13px]" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" class="w-4 h-4" /><span class="truncate">{{ a.name }}</span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
+              <button v-for="a in agents" :key="a.id" class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-[13px]" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}</span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
             </div>
           </template>
         </UPopover>
@@ -85,7 +85,7 @@
               <p v-if="row.why" class="mt-0.5 text-[12px] text-gray-500 dark:text-gray-400 line-clamp-2">{{ row.why }}</p>
               <div class="mt-1.5 flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
                 <span class="inline-flex items-center gap-1">
-                  <DataSourceIcon v-if="row.singleAgentId" :type="agentTypeOf(row.singleAgentId)" class="w-3 h-3" />
+                  <DataSourceIcon v-if="row.singleAgentId" :type="agentTypeOf(row.singleAgentId)" :icon="agentIconOf(row.singleAgentId)" class="w-3 h-3" />
                   <UIcon v-else name="i-heroicons-globe-alt" class="w-3 h-3" />
                   {{ row.agentLabel }}
                 </span>
@@ -131,7 +131,7 @@
         <div class="mb-4">
           <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Agent</label>
           <div class="relative mt-1">
-            <DataSourceIcon v-if="settingsAgentId" :type="agentTypeOf(settingsAgentId)" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" />
+            <DataSourceIcon v-if="settingsAgentId" :type="agentTypeOf(settingsAgentId)" :icon="agentIconOf(settingsAgentId)" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" />
             <select v-model="settingsAgentId" class="w-full h-9 pl-9 pr-2 text-[13px] bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white appearance-none dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500">
               <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
@@ -185,6 +185,7 @@ const typeMeta = (t: string) => TYPE_META[t] || { label: t, icon: 'i-heroicons-b
 
 const agentNameOf = (id: string) => props.agents.find(a => a.id === id)?.name || 'Agent'
 const agentTypeOf = (id: string) => props.agents.find(a => a.id === id)?.type
+const agentIconOf = (id: string) => props.agents.find(a => a.id === id)?.icon
 
 const accentClass = (it: any) => it.severity === 'error' ? 'bg-red-400' : it.severity === 'warning' ? 'bg-amber-400' : 'bg-transparent'
 const iconWrapClass = (it: any) => {

@@ -40,7 +40,7 @@ class Connection(BaseSchema):
     reindex_interval_hours = Column(Integer, nullable=True, default=None)
 
     # The schedule is EITHER a recurring interval OR a fixed time-of-day:
-    #   * mode == "interval": fire every `reindex_interval_minutes` (10m floor).
+    #   * mode == "interval": fire every `reindex_interval_minutes` (1m floor).
     #   * mode == "time":     fire once a day at `reindex_at_time` ("HH:MM"),
     #                         interpreted in the org's timezone (UTC fallback).
     # `reindex_interval_minutes` supersedes the legacy `reindex_interval_hours`
@@ -55,11 +55,44 @@ class Connection(BaseSchema):
     next_retry_at = Column(DateTime, nullable=True, default=None)
     last_reindex_error = Column(Text, nullable=True, default=None)
 
+    # Per-connection request rate limit (enterprise `connection_rate_limit`).
+    # Hard-blocks agent data queries against this connection once a fixed
+    # per-window threshold is crossed. The limit is scoped to the connection
+    # *globally* — all users share one budget. Fixed windows (minute / hour /
+    # day) are counted in Postgres via ConnectionRateLimitCounter (there is no
+    # shared cache in the stack, so counters must live in the DB). A NULL or 0
+    # on a window means "no limit for that window"; when `rate_limit_enabled`
+    # is False the whole feature is off regardless of the per-window values.
+    rate_limit_enabled = Column(Boolean, nullable=False, default=False)
+    rate_limit_per_minute = Column(Integer, nullable=True, default=None)
+    rate_limit_per_hour = Column(Integer, nullable=True, default=None)
+    rate_limit_per_day = Column(Integer, nullable=True, default=None)
+
+    # Ordered widest-to-narrowest window granularities and their span in
+    # seconds. Used by the rate-limit service to truncate "now" into a bucket.
+    RATE_LIMIT_WINDOWS = (("minute", 60), ("hour", 3600), ("day", 86400))
+
+    @property
+    def rate_limit_windows(self) -> dict:
+        """Active {window: limit} pairs — only enabled, positive windows.
+
+        Empty when the feature is disabled or no positive per-window cap is
+        set, in which case the rate limiter is a no-op for this connection.
+        """
+        if not self.rate_limit_enabled:
+            return {}
+        configured = {
+            "minute": self.rate_limit_per_minute,
+            "hour": self.rate_limit_per_hour,
+            "day": self.rate_limit_per_day,
+        }
+        return {w: int(v) for w, v in configured.items() if v is not None and int(v) > 0}
+
     # Default cadence when no interval is configured (every 12 hours).
     DEFAULT_REINDEX_INTERVAL_HOURS = 12
     DEFAULT_REINDEX_INTERVAL_MINUTES = 12 * 60
     # Hard floor on interval cadence — guards against runaway tight loops.
-    MIN_REINDEX_INTERVAL_MINUTES = 10
+    MIN_REINDEX_INTERVAL_MINUTES = 1
 
     @property
     def effective_reindex_interval_minutes(self) -> int:

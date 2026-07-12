@@ -109,7 +109,13 @@ class ReportPdfService:
             async with async_session_maker() as db:
                 stmt = (
                     select(Artifact)
-                    .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
+                    .where(
+                        Artifact.report_id == report_id,
+                        Artifact.deleted_at.is_(None),
+                        # Report-level PDF renders the dashboard; docs export
+                        # via generate_for_artifact with the doc's id.
+                        Artifact.mode.in_(("page", "slides")),
+                    )
                     .order_by(Artifact.created_at.desc())
                     .limit(1)
                 )

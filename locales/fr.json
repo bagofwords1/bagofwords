@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Rédiger un document",
+      "writing": "Rédaction du document...",
+      "created": "Document créé",
+      "failed": "Échec du document",
+      "untitled": "Document sans titre",
+      "openDocument": "Ouvrir le document",
+      "chartsCount": "{n} graphiques"
+    },
+    "editDoc": {
+      "label": "Modifier le document",
+      "editing": "Modification du document...",
+      "edited": "Document modifié",
+      "failed": "Échec de la modification",
+      "diff": "diff",
+      "rewrite": "réécriture",
+      "editsCount": "{n} modifications ciblées"
     }
   },
   "entityCreate": {
@@ -1973,7 +1991,10 @@
     "empty": "Aucun tableau de bord trouvé",
     "emptyDescription": "Essayez d'ajuster votre terme de recherche ou créez un rapport avec un tableau de bord.",
     "showingRange": "Affichage de {start} à {end} sur {total} tableaux de bord",
-    "fetchFailed": "Échec du chargement des tableaux de bord"
+    "fetchFailed": "Échec du chargement des tableaux de bord",
+    "typeAll": "Tous",
+    "typeDashboards": "Tableaux de bord",
+    "typeDocs": "Documents"
   },
   "excel": {
     "greeting": "Bonjour, {name} 👋",
@@ -2965,5 +2986,22 @@
     "toastSaved": "Déclencheur enregistré",
     "toastDeleted": "Déclencheur supprimé",
     "saveFailed": "Impossible d'enregistrer le déclencheur"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualisation indisponible",
+    "vizRenderFailed": "Échec du rendu du graphique",
+    "diagramFailed": "Échec du rendu du diagramme",
+    "exportMarkdown": "Télécharger en Markdown",
+    "printPdf": "Imprimer / Enregistrer en PDF",
+    "exportPdf": "Exporter en PDF",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "Modifier",
+    "editDocument": "Modifier le document",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "saved": "Document enregistré",
+    "saveFailed": "Échec de l'enregistrement du document"
   }
 }

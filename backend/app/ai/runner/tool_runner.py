@@ -22,7 +22,11 @@ class ToolRunner:
     def __init__(self, retry: RetryPolicy | None = None, timeout: TimeoutPolicy | None = None) -> None:
         self.retry = retry or RetryPolicy()
         self.timeout = timeout or TimeoutPolicy()
-        self.validation_failure_count = 0  # Track validation failures
+        # Validation failures tracked per tool name: one runner instance is
+        # shared by the whole agent run, and tool calls may execute
+        # concurrently — a single shared counter would let tool A's success
+        # reset tool B's failure streak (or double-count across tools).
+        self.validation_failure_counts: Dict[str, int] = {}
         self.max_validation_failures = 2   # Max before giving up
 
     async def run(self, tool, arguments: Dict[str, Any], runtime_ctx: Dict[str, Any], emit) -> Dict[str, Any]:
@@ -45,13 +49,14 @@ class ToolRunner:
             if getattr(tool, "input_model", None) is not None:
                 arguments = tool.input_model(**arguments).model_dump()
         except PydValidationError as ve:
-            self.validation_failure_count += 1
-            
+            failures = self.validation_failure_counts.get(tool.name, 0) + 1
+            self.validation_failure_counts[tool.name] = failures
+
             # Build detailed error message
             error_details = ve.errors()
             field_errors = [f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in error_details]
-            
-            if self.validation_failure_count >= self.max_validation_failures:
+
+            if failures >= self.max_validation_failures:
                 return {
                     "summary": f"Tool '{tool.name}' failed validation {self.max_validation_failures} times and cannot be executed",
                     "error": {
@@ -65,7 +70,7 @@ class ToolRunner:
                 }
             
             return {
-                "summary": f"Invalid input for '{tool.name}' (attempt {self.validation_failure_count}/{self.max_validation_failures})",
+                "summary": f"Invalid input for '{tool.name}' (attempt {failures}/{self.max_validation_failures})",
                 "error": {
                     "type": "validation_error", 
                     "details": error_details,
@@ -144,8 +149,8 @@ class ToolRunner:
                     if hard_timer and not hard_timer.cancelled():
                         hard_timer.cancel()
 
-                # Reset validation failure count on successful execution
-                self.validation_failure_count = 0
+                # Reset this tool's validation failure streak on successful execution
+                self.validation_failure_counts.pop(tool.name, None)
                 # Output schema validation (generic)
                 if getattr(tool, "output_model", None) is not None and last_output is not None:
                     try:

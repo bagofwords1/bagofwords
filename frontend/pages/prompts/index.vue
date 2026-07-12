@@ -48,11 +48,11 @@
             :ui="{ option: { base: 'text-xs py-1.5' } }"
           >
             <template #label>
-              <DataSourceIcon v-if="selectedAgentOption?.type" :type="selectedAgentOption.type" class="h-3.5 w-auto flex-shrink-0" />
+              <DataSourceIcon v-if="selectedAgentOption?.type || selectedAgentOption?.icon" :type="selectedAgentOption.type" :icon="selectedAgentOption.icon" class="h-3.5 w-auto flex-shrink-0" />
               <span class="text-xs truncate">{{ selectedAgentOption?.label || $t('prompts.allAgents') }}</span>
             </template>
             <template #option="{ option }">
-              <DataSourceIcon v-if="option.type" :type="option.type" class="h-3.5 w-auto flex-shrink-0" />
+              <DataSourceIcon v-if="option.type || option.icon" :type="option.type" :icon="option.icon" class="h-3.5 w-auto flex-shrink-0" />
               <span class="text-xs truncate">{{ option.label }}</span>
             </template>
           </USelectMenu>
@@ -181,13 +181,13 @@ const agentNames = computed<Record<string, string>>(() =>
   Object.fromEntries(agents.value.map(a => [a.id, a.name])),
 )
 // id → { name, type } for the card chips' DataSourceIcon.
-const agentMap = computed<Record<string, { name: string; type?: string }>>(() =>
-  Object.fromEntries(agents.value.map(a => [a.id, { name: a.name, type: a.type }])),
+const agentMap = computed<Record<string, { name: string; type?: string; icon?: string | null }>>(() =>
+  Object.fromEntries(agents.value.map(a => [a.id, { name: a.name, type: a.type, icon: a.icon }])),
 )
 
 const agentFilterOptions = computed(() => [
-  { value: '', label: t('prompts.allAgents'), type: undefined as string | undefined },
-  ...agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })),
+  { value: '', label: t('prompts.allAgents'), type: undefined as string | undefined, icon: null as string | null },
+  ...agents.value.map(a => ({ value: a.id, label: a.name, type: a.type, icon: a.icon })),
 ])
 const selectedAgentOption = computed(() => agentFilterOptions.value.find(o => o.value === agentFilter.value))
 
@@ -214,6 +214,7 @@ async function loadAgents() {
       id: d.id,
       name: d.name,
       type: d.type || d.connections?.[0]?.type,
+      icon: d.icon,
     }))
   } catch {}
 }

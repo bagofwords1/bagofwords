@@ -146,6 +146,11 @@ class ReadArtifactTool(Tool):
         content = artifact.content or {}
         code = content.get("code", "")
 
+        # Docs (mode='doc') store markdown, not code — return it as the "code"
+        # payload so the planner can quote exact text for edit_doc find/replace.
+        if artifact.mode == "doc":
+            code = content.get("markdown", "")
+
         # For slides mode, concatenate all slide codes
         if artifact.mode == "slides" and "slides" in content:
             slides = content.get("slides", [])

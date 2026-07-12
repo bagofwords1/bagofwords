@@ -38,6 +38,79 @@ class ArtifactService:
         await db.refresh(artifact)
         return artifact
 
+    async def create_doc_version(
+        self,
+        db: AsyncSession,
+        artifact_id: str,
+        markdown: str,
+        title: Optional[str],
+        user_id: str,
+        organization_id: str,
+    ) -> Artifact:
+        """Persist a user-edited version of a doc artifact (mode='doc').
+
+        Mirrors the edit_doc tool's contract: validates {{viz:...}} placeholders,
+        enforces the size cap, refuses non-doc artifacts, and inserts a NEW row
+        (version+1) so history is preserved. Also rejects the save while an
+        agent run is in progress on the report — the run-lock that prevents the
+        agent and the user from clobbering each other.
+        """
+        from fastapi import HTTPException
+
+        from app.ai.tools.implementations._doc_markdown import (
+            MAX_DOC_CHARS,
+            extract_viz_placeholders,
+        )
+        from app.ai.tools.implementations.create_doc import validate_doc_visualizations
+
+        artifact = await self.get(db, artifact_id)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        if artifact.mode != "doc":
+            raise HTTPException(status_code=400, detail="Artifact is not a document")
+        if not markdown or not markdown.strip():
+            raise HTTPException(status_code=400, detail="Document cannot be empty")
+        if len(markdown) > MAX_DOC_CHARS:
+            raise HTTPException(status_code=400, detail=f"Document too long (max {MAX_DOC_CHARS} chars)")
+
+        # Run-lock: refuse the save while the agent is working on this report
+        from app.models.completion import Completion
+        running = await db.execute(
+            select(Completion.id).where(
+                Completion.report_id == str(artifact.report_id),
+                Completion.status == "in_progress",
+                Completion.deleted_at.is_(None),
+            ).limit(1)
+        )
+        if running.first() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="An analysis is currently running on this report — try again when it finishes",
+            )
+
+        viz_ids = extract_viz_placeholders(markdown)
+        valid_viz_ids, problems = await validate_doc_visualizations(
+            db, str(artifact.report_id), viz_ids
+        )
+        if problems:
+            raise HTTPException(status_code=400, detail="Invalid visualization placeholders: " + "; ".join(problems))
+
+        new_artifact = Artifact(
+            report_id=str(artifact.report_id),
+            user_id=str(user_id),
+            organization_id=str(organization_id),
+            title=title or artifact.title,
+            mode="doc",
+            content={"markdown": markdown, "visualization_ids": valid_viz_ids},
+            generation_prompt=None,
+            version=(artifact.version or 1) + 1,
+            status="completed",
+        )
+        db.add(new_artifact)
+        await db.commit()
+        await db.refresh(new_artifact)
+        return new_artifact
+
     async def get(self, db: AsyncSession, artifact_id: str) -> Optional[Artifact]:
         """Get an artifact by ID.
 
@@ -80,9 +153,14 @@ class ArtifactService:
         return list(res.scalars().all())
 
     async def get_latest_by_report(
-        self, db: AsyncSession, report_id: str
+        self, db: AsyncSession, report_id: str, include_docs: bool = False
     ) -> Optional[Artifact]:
-        """Get the most recent artifact for a report."""
+        """Get the most recent artifact for a report.
+
+        By default docs (mode='doc') are excluded: every existing consumer of
+        "the report's latest artifact" means the dashboard/slides deliverable.
+        Pass include_docs=True to consider docs too.
+        """
         stmt = (
             select(Artifact)
             .options(lazyload("*"))
@@ -93,6 +171,8 @@ class ArtifactService:
             .order_by(Artifact.created_at.desc())
             .limit(1)
         )
+        if not include_docs:
+            stmt = stmt.where(Artifact.mode.in_(("page", "slides")))
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 

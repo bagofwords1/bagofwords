@@ -637,6 +637,22 @@ Apply the edit now:"""
             )
             return
 
+        if artifact.mode == "doc":
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error": f"Artifact {data.artifact_id} is a document (mode='doc'). Use edit_doc to edit documents.",
+                    },
+                    "observation": {
+                        "summary": f"Artifact {data.artifact_id} is a document — use edit_doc instead of edit_artifact.",
+                        "error": {"type": "wrong_tool", "message": "edit_artifact only edits dashboards/slides; call edit_doc for documents."},
+                    },
+                },
+            )
+            return
+
         # Extract existing code and viz_ids
         content = artifact.content or {}
         existing_code = content.get("code", "")

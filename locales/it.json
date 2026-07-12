@@ -961,6 +961,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Scrivi documento",
+      "writing": "Scrittura del documento...",
+      "created": "Documento creato",
+      "failed": "Documento non riuscito",
+      "untitled": "Documento senza titolo",
+      "openDocument": "Apri documento",
+      "chartsCount": "{n} grafici"
+    },
+    "editDoc": {
+      "label": "Modifica documento",
+      "editing": "Modifica del documento...",
+      "edited": "Documento modificato",
+      "failed": "Modifica non riuscita",
+      "diff": "diff",
+      "rewrite": "riscrittura",
+      "editsCount": "{n} modifiche mirate"
     }
   },
   "entityCreate": {
@@ -1973,7 +1991,10 @@
     "empty": "Nessuna dashboard trovata",
     "emptyDescription": "Prova a modificare il termine di ricerca o crea un report con una dashboard.",
     "showingRange": "Visualizzate da {start} a {end} di {total} dashboard",
-    "fetchFailed": "Impossibile caricare le dashboard"
+    "fetchFailed": "Impossibile caricare le dashboard",
+    "typeAll": "Tutti",
+    "typeDashboards": "Dashboard",
+    "typeDocs": "Documenti"
   },
   "excel": {
     "greeting": "Ciao, {name} 👋",
@@ -2965,5 +2986,22 @@
     "toastSaved": "Trigger salvato",
     "toastDeleted": "Trigger eliminato",
     "saveFailed": "Impossibile salvare il trigger"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualizzazione non disponibile",
+    "vizRenderFailed": "Impossibile visualizzare il grafico",
+    "diagramFailed": "Impossibile visualizzare il diagramma",
+    "exportMarkdown": "Scarica come Markdown",
+    "printPdf": "Stampa / Salva come PDF",
+    "exportPdf": "Esporta come PDF",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "Modifica",
+    "editDocument": "Modifica documento",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "saved": "Documento salvato",
+    "saveFailed": "Impossibile salvare il documento"
   }
 }

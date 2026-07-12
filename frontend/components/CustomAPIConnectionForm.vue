@@ -154,6 +154,10 @@
         <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
           {{ testResult.message }}
         </div>
+
+        <div v-if="submitError" class="text-xs px-3 py-2 rounded bg-red-50 dark:bg-red-950 text-red-700">
+          {{ submitError }}
+        </div>
       </template>
 
       <div class="flex items-center justify-between pt-2">
@@ -185,7 +189,6 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const toast = useToast()
 const selectedExisting = ref<any>(null)
 const existingConnections = computed(() => props.existingConnections || [])
 const existingConnectionOptions = computed(() =>
@@ -314,6 +317,16 @@ watch(() => props.editConnection, async (conn) => {
 const testing = ref(false)
 const submitting = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
+const submitError = ref<string | null>(null)
+
+// Extract a human-readable message from a useMyFetch error (FetchError) or a
+// thrown exception. `detail` is what FastAPI returns for HTTPException.
+function errorMessage(err: any, fallback: string): string {
+  return err?.data?.detail || err?.message || fallback
+}
+
+// Clear the inline submit error as soon as the user edits any field.
+watch(() => ({ ...form }), () => { submitError.value = null })
 
 const endpointsError = computed(() => {
   if (rawMode.value) {
@@ -385,25 +398,35 @@ async function handleSubmit() {
 
   if (endpointsError.value) return
   submitting.value = true
+  submitError.value = null
+  const fallback = isEditMode.value ? 'Failed to update connection' : 'Failed to create connection'
   try {
     const config = buildConfig()
     const credentials = buildCredentials()
 
+    let response: any
     if (isEditMode.value && props.editConnection) {
-      const response = await useMyFetch(`/connections/${props.editConnection.id}`, {
+      response = await useMyFetch(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
         body: { name: form.name, config, credentials },
       })
-      if (response.data.value) emit('saved', response.data.value)
     } else {
-      const response = await useMyFetch('/connections', {
+      response = await useMyFetch('/connections', {
         method: 'POST',
         body: { name: form.name, type: 'custom_api', config, credentials, auth_policy: 'system_only' },
       })
-      if (response.data.value) emit('saved', response.data.value)
     }
+
+    // useMyFetch resolves (never throws) on HTTP errors — a non-2xx response
+    // surfaces via response.error, so surface it inline instead of silently
+    // doing nothing (e.g. a duplicate connection name → 409).
+    if (response.error?.value) {
+      submitError.value = errorMessage(response.error.value, fallback)
+      return
+    }
+    if (response.data.value) emit('saved', response.data.value)
   } catch (e: any) {
-    toast.add({ title: isEditMode.value ? 'Failed to update' : 'Failed to create connection', description: e?.data?.detail, color: 'red' })
+    submitError.value = errorMessage(e, fallback)
   } finally {
     submitting.value = false
   }

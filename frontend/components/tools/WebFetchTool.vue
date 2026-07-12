@@ -2,15 +2,17 @@
   <div class="mt-1">
     <Transition name="fade" appear>
       <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-gray-400" />
-          {{ $t('tools.webFetch.fetching') }}
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">{{ displayUrl }}</span>
+        <span v-if="status === 'running'" class="flex items-center">
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <span class="tool-shimmer">
+            <template v-if="modelTitle">{{ modelTitle }}</template>
+            <template v-else>{{ $t('tools.webFetch.fetching') }}<span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template>
+          </span>
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
-          <span>{{ $t('tools.webFetch.fetched') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
+          <span>{{ modelTitle || $t('tools.webFetch.fetched') }}</span>
+          <span v-if="displayUrl && !modelTitle" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
           <span v-if="statusCode" class="ms-1.5 text-[10px] text-gray-400 shrink-0">{{ statusCode }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -30,6 +32,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Spinner from '~/components/Spinner.vue'
 
 const { t } = useI18n()
 
@@ -48,6 +51,11 @@ interface Props {
 const props = defineProps<Props>()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
+
+const modelTitle = computed<string>(() => {
+  const t = props.toolExecution?.arguments_json?.title
+  return typeof t === 'string' && t.trim() ? t.trim() : ''
+})
 
 const result = computed<any>(() => props.toolExecution?.result_json || {})
 
@@ -79,16 +87,14 @@ const errorMessage = computed<string>(() => {
 </script>
 
 <style scoped>
+@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
+  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
   background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
+  color: transparent;
+  animation: shimmer 2s linear infinite;
 }
 
 .fade-enter-active, .fade-leave-active {

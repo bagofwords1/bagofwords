@@ -16,11 +16,34 @@ remains unchanged.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import time
 from typing import AsyncIterator, Callable, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Matches the (possibly unterminated) value of the "title" argument inside a
+# partial tool-input JSON stream — used to surface a connection tool's
+# human-readable label token-by-token before the full input is parsed.
+_STREAMING_TITLE_RE = re.compile(r'"title"\s*:\s*"((?:\\.|[^"\\])*)')
+
+
+def _extract_streaming_title(buf: str) -> Optional[str]:
+    """Best-effort extraction of the `title` string from a partial tool-input
+    JSON buffer. Returns the decoded title so far, or None if not present yet."""
+    m = _STREAMING_TITLE_RE.search(buf)
+    if not m:
+        return None
+    raw = m.group(1)
+    if raw.endswith("\\"):  # dangling escape mid-stream — drop it to decode cleanly
+        raw = raw[:-1]
+    try:
+        return json.loads(f'"{raw}"') or None
+    except Exception:
+        return raw or None
+
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,6 +157,7 @@ class PlannerV3:
         # when the model emits them out of order.
         completed_actions: list[Action] = []
         action_id_index: dict[str, int] = {}  # tool_use_id -> index in completed_actions
+        input_buffers: dict[str, str] = {}  # tool_use_id -> accumulated partial input JSON
         stop_reason: Optional[str] = None
         final_prompt_tokens = prompt_tokens_est
         final_completion_tokens = 0
@@ -150,6 +174,7 @@ class PlannerV3:
                 thinking=thinking,
                 web_search=planner_input.web_search_enabled,
                 web_search_domains=planner_input.web_search_domains or None,
+                disable_parallel_tools=not planner_input.parallel_tools_enabled,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
@@ -194,7 +219,23 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, ToolUseInputDeltaEvent):
-                    # Not parsed yet — defer to ToolUseCompleteEvent
+                    # Stream the human-readable `title` argument as the model
+                    # generates it, so the UI paints the tool's live label
+                    # token-by-token. The frontend reads action.arguments.title
+                    # off decision.partial (see reports/[id]/index.vue). The full,
+                    # authoritative arguments still arrive parsed at
+                    # ToolUseCompleteEvent, which overwrites this placeholder.
+                    if evt.id and evt.partial_json:
+                        input_buffers[evt.id] = input_buffers.get(evt.id, "") + evt.partial_json
+                        idx = action_id_index.get(evt.id)
+                        if idx is not None:
+                            title = _extract_streaming_title(input_buffers[evt.id])
+                            if title and completed_actions[idx].arguments.get("title") != title:
+                                completed_actions[idx].arguments["title"] = title
+                                yield PlannerDecisionEvent(
+                                    type="planner.decision.partial",
+                                    data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
+                                )
                     continue
 
                 if isinstance(evt, ReasoningStartEvent):

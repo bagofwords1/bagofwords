@@ -89,6 +89,7 @@ const imageError = ref(false)
 const hasArtifact = computed(() => props.report.artifact_modes?.length > 0)
 const hasSlides = computed(() => props.report.artifact_modes?.includes('slides'))
 const hasDashboard = computed(() => props.report.artifact_modes?.includes('page'))
+const hasDoc = computed(() => props.report.artifact_modes?.includes('doc'))
 
 const thumbnailUrl = computed(() => {
   if (!props.report.thumbnail_url) return null
@@ -116,6 +117,7 @@ const reportLink = computed(() => {
 const reportIcon = computed(() => {
   if (hasSlides.value) return 'heroicons:presentation-chart-bar'
   if (hasDashboard.value) return 'heroicons:chart-bar-square'
+  if (hasDoc.value) return 'heroicons:document-text'
   return 'heroicons:chat-bubble-left-right'
 })
 
@@ -125,6 +127,9 @@ const badgeStyle = computed(() => {
   }
   if (hasDashboard.value) {
     return { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Dashboard', cardBg: 'bg-blue-50 dark:bg-blue-950', iconColor: 'text-blue-300' }
+  }
+  if (hasDoc.value) {
+    return { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Doc', cardBg: 'bg-emerald-50 dark:bg-emerald-950', iconColor: 'text-emerald-300' }
   }
   return { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Chat', cardBg: 'bg-gray-50 dark:bg-gray-900', iconColor: 'text-gray-300 dark:text-gray-600' }
 })

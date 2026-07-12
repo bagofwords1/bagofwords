@@ -260,6 +260,13 @@ class InspectDataMCPTool(MCPTool):
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
 
+        # Persist buffered data-plane metering (queries/bytes are enqueued by
+        # the execute_query wrapper, not written synchronously).
+        try:
+            await usage_ctx.flush()
+        except Exception:
+            _logger.debug("mcp.inspect_data usage flush failed", exc_info=True)
+
         # Audit: success or failure
         try:
             from app.ee.audit.service import audit_service

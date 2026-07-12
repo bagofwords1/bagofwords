@@ -1513,7 +1513,7 @@ class InstructionService:
             return set()
 
         from app.models.instruction_version import InstructionVersion as _IV
-        from app.services.text_hunks import rebased_hunks_against_main
+        from app.services.text_hunks import RebasedHunkCache, has_live_hunk_against_main
 
         # Batched equivalent of looping review_hunks() per instruction. Same
         # per-hunk rule (a suggestion build counts only if it yields a hunk that
@@ -1624,16 +1624,39 @@ class InstructionService:
                 main_text[str(iid)] = txt or ""
 
         # (4) Pure-Python pass — no awaits in the loop.
+        # Process conclusive unchanged-main suggestions first. Once one such row
+        # marks an instruction pending, every other suggestion for that instruction
+        # is skipped below. This avoids paying for an older/stale diff merely because
+        # the database happened to return it before the cheap conclusive row.
+        def _is_conclusive_pending(row) -> bool:
+            row_iid, row_build, row_proposed = row
+            row_iid = str(row_iid)
+            row_base = (
+                base_text.get((str(row_build.base_build_id), row_iid), "")
+                if row_build.base_build_id else ""
+            )
+            row_main = main_text.get(row_iid, "")
+            return (
+                row_base == row_main
+                and (row_proposed or "") != row_base
+                and not self._rejected_keys(row_build, row_iid)
+            )
+
+        sug_rows.sort(key=lambda row: not _is_conclusive_pending(row))
         pending: set = set()
+        diff_cache = RebasedHunkCache()
         for iid, build, proposed in sug_rows:
             iid = str(iid)
             if iid in pending:
                 continue
             rejected = self._rejected_keys(build, iid)
             bt = base_text.get((str(build.base_build_id), iid), "") if build.base_build_id else ""
-            if any(
-                h["key"] not in rejected
-                for h in rebased_hunks_against_main(bt, proposed or "", main_text.get(iid, ""))
+            if has_live_hunk_against_main(
+                bt,
+                proposed or "",
+                main_text.get(iid, ""),
+                rejected,
+                cache=diff_cache,
             ):
                 pending.add(iid)
         return pending
@@ -3838,7 +3861,7 @@ class InstructionService:
             )
             primary_ds = primary_result.scalars().all()
             instruction_dict["primary_for"] = [
-                DataSourceMinimalSchema(id=str(ds.id), name=ds.name).model_dump()
+                DataSourceMinimalSchema(id=str(ds.id), name=ds.name, icon=getattr(ds, "icon", None)).model_dump()
                 for ds in primary_ds
             ]
         except Exception as e:
@@ -3864,7 +3887,7 @@ class InstructionService:
                         from app.models.connection import Connection
                         from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, Connection.type)
+                            select(DataSource.name, Connection.type, DataSource.icon)
                             .select_from(DataSource)
                             .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
                             .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
@@ -3874,6 +3897,7 @@ class InstructionService:
                         if ds_info:
                             ref_data["data_source_name"] = ds_info.name
                             ref_data["data_source_type"] = ds_info.type
+                            ref_data["data_source_icon"] = ds_info.icon
                             ref_data["data_source_id"] = referenced_obj.data_source_id
                             
                     elif ref.object_type == "datasource_table":
@@ -3884,7 +3908,7 @@ class InstructionService:
                         from app.models.connection import Connection
                         from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, Connection.type)
+                            select(DataSource.name, Connection.type, DataSource.icon)
                             .select_from(DataSource)
                             .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
                             .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
@@ -3894,6 +3918,7 @@ class InstructionService:
                         if ds_info:
                             ref_data["data_source_name"] = ds_info.name
                             ref_data["data_source_type"] = ds_info.type
+                            ref_data["data_source_icon"] = ds_info.icon
                             ref_data["data_source_id"] = referenced_obj.datasource_id
                 else:
                     logger.warning(f"Referenced object not found: type={ref.object_type}, id={ref.object_id}")

@@ -188,7 +188,7 @@
                                     <h4 class="text-sm font-medium text-gray-900 dark:text-white">{{ getSelectedItemTitle() }}</h4>
                                     <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ms-2">
                                         <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-600 dark:text-gray-400">
-                                            <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
+                                            <DataSourceIcon :type="ds.type" :icon="ds.icon" class="w-3.5 h-3.5" />
                                             <span>{{ ds.name || ds.type }}</span>
                                         </span>
                                     </span>

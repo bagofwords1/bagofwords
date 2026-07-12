@@ -154,28 +154,18 @@ def create_llm_provider_and_models(test_client):
                    "credentials": credentials,
                    "models": [
                        {
-                           "model_id": "gpt-5.4",
-                           "name": "GPT-5.4",
+                           "model_id": "gpt-5.6-sol",
+                           "name": "GPT-5.6 Sol",
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-5.4-mini",
-                           "name": "GPT-5.4 Mini",
+                           "model_id": "gpt-5.6-terra",
+                           "name": "GPT-5.6 Terra",
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-5.2",
-                           "name": "GPT-5.2",
-                           "is_custom": False
-                       },
-                       {
-                           "model_id": "o1",
-                           "name": "o1",
-                           "is_custom": False
-                       },
-                       {
-                           "model_id": "o1-mini",
-                           "name": "o1 Mini",
+                           "model_id": "gpt-5.6-luna",
+                           "name": "GPT-5.6 Luna",
                            "is_custom": False
                        }
                        ]},
@@ -210,13 +200,13 @@ def create_openai_provider_with_base_url(test_client):
                 },
                 "models": [
                        {
-                           "model_id": "gpt-5.4",
-                           "name": "GPT-5.4",
+                           "model_id": "gpt-5.6-sol",
+                           "name": "GPT-5.6 Sol",
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-5.4-mini",
-                           "name": "GPT-5.4 Mini",
+                           "model_id": "gpt-5.6-luna",
+                           "name": "GPT-5.6 Luna",
                            "is_custom": False
                        }
                 ]

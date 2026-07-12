@@ -71,7 +71,7 @@ def _is_due(connection, now: datetime, tz=None) -> bool:
 async def sweep_due_reindexes() -> None:
     """Scheduled entrypoint: re-index every connection whose schema is due.
 
-    Safe to register on a short APScheduler interval (e.g. every 10 minutes);
+    Safe to register on a short APScheduler interval (e.g. every 1 minute);
     the staleness gate keeps actual reindex work proportional to N / interval.
     """
     from app.core.scheduler import claim_scheduled_run

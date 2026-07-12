@@ -86,6 +86,26 @@ async def create_completion(
         background=background,
     )
 
+@router.get("/api/reports/{report_id}/completions/{completion_id}/stream")
+@requires_permission('view_reports', model=Report)
+async def watch_completion_stream(
+    report_id: str,
+    completion_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Re-attachable SSE stream for an existing completion.
+
+    Lets a client that lost its kickoff stream (page refresh, network drop,
+    second tab) resume live progress. Idempotent and side-effect free, so it
+    is safe to retry with backoff.
+    """
+    return await completion_service.watch_completion_stream(
+        db, report_id, completion_id, current_user, organization
+    )
+
+
 @router.get("/api/reports/{report_id}/completions.legacy")
 @requires_permission('view_reports', model=Report)
 async def get_completions(report_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):

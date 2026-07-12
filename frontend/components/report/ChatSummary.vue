@@ -36,13 +36,17 @@
             class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow cursor-pointer transition-all"
             @click="emit('openArtifact', { artifactId: art.id })"
           >
-            <Icon name="heroicons:squares-plus" class="w-4 h-4 flex-shrink-0 text-blue-500" />
+            <Icon
+              :name="art.mode === 'doc' ? 'heroicons:document-text' : 'heroicons:squares-plus'"
+              class="w-4 h-4 flex-shrink-0"
+              :class="art.mode === 'doc' ? 'text-emerald-500' : 'text-blue-500'"
+            />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ art.title || 'Untitled' }}</span>
                 <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">Default</span>
               </div>
-              <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode }}</div>
+              <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode === 'doc' ? 'document' : art.mode }}</div>
             </div>
           </li>
         </ul>

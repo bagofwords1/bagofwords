@@ -1066,6 +1066,24 @@
       "resuming": "Resuming…",
       "cancelled": "Wait cancelled",
       "cancel": "Cancel wait"
+    },
+    "createDoc": {
+      "label": "Write document",
+      "writing": "Writing document...",
+      "created": "Document created",
+      "failed": "Document failed",
+      "untitled": "Untitled document",
+      "openDocument": "Open document",
+      "chartsCount": "{n} charts"
+    },
+    "editDoc": {
+      "label": "Edit document",
+      "editing": "Editing document...",
+      "edited": "Document edited",
+      "failed": "Edit failed",
+      "diff": "diff",
+      "rewrite": "rewrite",
+      "editsCount": "{n} surgical edits"
     }
   },
   "entityCreate": {
@@ -1931,7 +1949,7 @@
     "sampleTag": "sample",
     "connectorsSection": "Connectors",
     "dataSourcesSection": "Data sources",
-    "connectorDcrNote": "No admin setup required — this connector registers itself automatically (DCR). Just click Connect and sign in with your own account.",
+    "connectorDcrNote": "No admin setup required — this connector auto-registers (DCR). You're adding it for your org; each user signs in with their own account when they first use it.",
     "tables": "tables",
     "noDescription": "No description",
     "connect": "Connect",
@@ -2015,7 +2033,18 @@
     "unitMinutes": "minutes",
     "unitHours": "hours",
     "autoReindexLastError": "Last error",
-    "autoReindexSaveFailed": "Failed to save auto-reindex settings"
+    "autoReindexSaveFailed": "Failed to save auto-reindex settings",
+    "rateLimit": "Request rate limit",
+    "rateLimitHint": "Cap how many requests this connection accepts per window. Shared across all users; queries over the limit are blocked.",
+    "rateLimitEnterprise": "Per-connection rate limiting is an enterprise feature.",
+    "rateLimitNoLimit": "No limit",
+    "rateLimitPerMinute": "Per minute",
+    "rateLimitPerHour": "Per hour",
+    "rateLimitPerDay": "Per day",
+    "rateLimitReqMin": "req/min",
+    "rateLimitReqHour": "req/hour",
+    "rateLimitReqDay": "req/day",
+    "rateLimitSaveFailed": "Failed to save rate limit settings"
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -2234,7 +2263,10 @@
     "empty": "No dashboards found",
     "emptyDescription": "Try adjusting your search term, or create a report with a dashboard.",
     "showingRange": "Showing {start} to {end} of {total} dashboards",
-    "fetchFailed": "Failed to fetch dashboards"
+    "fetchFailed": "Failed to fetch dashboards",
+    "typeAll": "All",
+    "typeDashboards": "Dashboards",
+    "typeDocs": "Docs"
   },
   "excel": {
     "greeting": "Hi, {name} 👋",
@@ -3277,5 +3309,22 @@
     "toastSaved": "Trigger saved",
     "toastDeleted": "Trigger deleted",
     "saveFailed": "Could not save the trigger"
+  },
+  "docViewer": {
+    "vizUnavailable": "Visualization unavailable",
+    "vizRenderFailed": "Chart failed to render",
+    "diagramFailed": "Diagram failed to render",
+    "exportMarkdown": "Download as Markdown",
+    "printPdf": "Print / Save as PDF",
+    "exportPdf": "Export as PDF",
+    "pdf": "PDF"
+  },
+  "docEditor": {
+    "edit": "Edit",
+    "editDocument": "Edit document",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Document saved",
+    "saveFailed": "Failed to save document"
   }
 }
