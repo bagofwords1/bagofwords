@@ -1127,8 +1127,13 @@ class PowerBICredentials(BaseModel):
 
 
 class PowerBIConfig(BaseModel):
-    """Auto-discovers all workspaces and datasets the service principal has access to."""
-    pass
+    """Auto-discovers workspaces and datasets the service principal has access to."""
+    workspaces: Optional[str] = Field(
+        None,
+        title="Workspaces",
+        description="Optional workspace name(s) or ID(s), comma-separated. If empty, all accessible workspaces will be discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 # Power BI Report Server (on-prem)

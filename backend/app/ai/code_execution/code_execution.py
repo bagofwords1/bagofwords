@@ -772,7 +772,11 @@ class StreamingCodeExecutor:
 
             # Pre-resolved loadables (see loadables.py). Build pure in-memory
             # lookup closures — no DB/I/O happens inside the sandbox thread.
-            load_step, load_entity = self._build_loadable_closures(loadables)
+            # load_step is gated by the org's enable_load_step setting; when off
+            # the closure raises so stray calls fail clearly.
+            load_step, load_entity = self._build_loadable_closures(
+                loadables, enable_load_step=self._load_step_enabled()
+            )
 
             local_namespace = {
                 'pd': pd,
@@ -830,19 +834,40 @@ class StreamingCodeExecutor:
             return None
         return SafeHttpClient()
 
+    def _load_step_enabled(self) -> bool:
+        """Whether `load_step` is enabled for this org (default off)."""
+        settings = self.organization_settings
+        if settings is None:
+            return False
+        try:
+            cfg = settings.get_config("enable_load_step")
+        except Exception:
+            return False
+        return bool(getattr(cfg, "value", False))
+
     @staticmethod
-    def _build_loadable_closures(loadables: Optional[Dict]):
+    def _build_loadable_closures(loadables: Optional[Dict], *, enable_load_step: bool = True):
         """Build pure-lookup `load_step` / `load_entity` over a resolved registry.
 
         The registry maps the exact literal ref used in the code to a
         DataFrame. A miss raises a clear error naming what's available — it
         only fires for dynamic (non-literal) refs that bypassed pre-resolution.
+
+        When `enable_load_step` is False the `load_step` closure is a defensive
+        stub that always raises — the feature is advertised nowhere in that
+        case, so any call is a stray one and should fail clearly (and feed the
+        retry loop) rather than silently succeed. `load_entity` is unaffected.
         """
         reg = loadables or {}
         steps = reg.get("steps") or {}
         entities = reg.get("entities") or {}
 
         def load_step(id_or_name):
+            if not enable_load_step:
+                raise RuntimeError(
+                    "load_step is disabled for this organization. "
+                    "Do not call load_step; query the data source instead."
+                )
             key = str(id_or_name)
             if key in steps:
                 return steps[key].copy()

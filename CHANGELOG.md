@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.449 (July 12, 2026)
+- **`load_step` reuse is now opt-in (#620)** — the coder/planner feature that reuses a prior step's results via `load_step` is gated behind a new org setting `enable_load_step` (default **off**). Only steps built within a recent window (a fixed 300s) are advertised as reusable; re-running saved code that references older steps is unaffected. `load_entity` (published catalog entities) is independent and unchanged.
+- **`new`/`חדש` starts a fresh report on Teams and WhatsApp (#619)** — sending a message that is exactly `new` or `חדש` on Teams 1:1 or WhatsApp forces a brand-new conversation report instead of reusing the recent one, so users can explicitly start over mid-conversation.
+- **Power BI connector: workspace scoping and reliable connection test (#617)** — a new optional `workspaces` filter scopes discovery/indexing to named workspaces; the connection test now probes multiple datasets and classifies failures by layer (an engine-level error on an empty model passes with a warning), and listing/query calls gain Retry-After-aware backoff on 429/5xx.
+- **Dependency security fixes (#618)** — resolved Snyk-reported Critical/High/Medium vulnerabilities in frontend (esbuild, tar, dompurify, markdown-it, and other transitives) and backend (pillow, pypdf, httplib2, pydantic-settings, setuptools) dependencies; zero Critical/High findings remain.
+
 ## Version 0.0.448 (July 11, 2026)
 - **Document creation (#613)** — the analyst can now write findings as markdown documents, a new artifact type alongside dashboards and slides. Docs carry live charts, mermaid diagrams, tables, and per-claim citations (built for root-cause analyses, deep-dive reports, and memos), render in the report panel and on shared links, export to Markdown/PDF, and are editable in place by the report owner — with full RTL (Hebrew/Arabic) support.
 

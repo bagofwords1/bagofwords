@@ -20,4 +20,18 @@ exclude:
     - 'frontend/public/libs/**'
     - 'frontend/pages/agents/*/evals.vue'
     - 'frontend/pages/evals/index.vue'
+    - 'frontend/pages/old_agents'
+    - 'frontend/pages/old_agents/**'
+    - 'frontend/.repro'
+    - 'frontend/.repro/**'
     - 'scripts/pw-shot.js'
+    # Local dev/verification/seed harnesses: standalone scripts that log in to a
+    # localhost instance with throwaway test credentials. Not imported by the
+    # application (backend/app) and never shipped. Hardcoded localhost logins
+    # here are intentional test fixtures, not production secrets.
+    - 'backend/scripts'
+    - 'backend/scripts/**'
+    - 'backend/email_sandbox'
+    - 'backend/email_sandbox/**'
+    - 'tools'
+    - 'tools/**'
