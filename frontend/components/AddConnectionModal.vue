@@ -1,5 +1,5 @@
 <template>
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-xl' }">
+  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-3xl' }">
     <div class="p-5">
       <!-- Step 1: Select data source type -->
       <div v-if="step === 'select'">
@@ -11,27 +11,8 @@
         </div>
         <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ $t('data.selectTypeHint') }}</p>
 
-        <!-- Demo data sources at the top -->
-        <div v-if="uninstalledDemos.length > 0" class="mb-4">
-          <div class="text-xs text-gray-400 mb-2">{{ $t('data.trySample') }}</div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="demo in uninstalledDemos"
-              :key="`demo-${demo.id}`"
-              @click="handleInstallDemo(demo.id)"
-              :disabled="installingDemo === demo.id"
-              class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
-              <DataSourceIcon v-else class="h-4" :type="demo.type" />
-              {{ demo.name }}
-              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
-            </button>
-          </div>
-        </div>
-
         <!-- Search input -->
-        <div class="mb-4">
+        <div class="mb-3">
           <UInput
             v-model="searchQuery"
             :placeholder="$t('data.searchSources')"
@@ -40,73 +21,120 @@
           />
         </div>
 
+        <!-- Category filter chips -->
+        <div v-if="!loadingDataSources && categoryChips.length > 1" class="flex flex-wrap gap-1.5 mb-4">
+          <button
+            v-for="chip in categoryChips"
+            :key="chip.key"
+            type="button"
+            @click="activeCategory = chip.key"
+            :class="[
+              'px-2.5 py-1 text-xs rounded-full border transition-colors',
+              activeCategory === chip.key
+                ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-medium'
+                : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
+            ]"
+          >
+            {{ chip.key === 'all' ? $t('data.catAll') : $t(chip.label) }}
+          </button>
+        </div>
+
         <!-- Loading state -->
         <div v-if="loadingDataSources" class="flex items-center justify-center py-12">
           <Spinner class="h-4 w-4 text-gray-400" />
         </div>
 
-        <!-- Scrollable region: data source grid + connectors catalog -->
-        <div v-else class="max-h-[340px] overflow-y-auto -mx-1 px-1">
-          <div v-if="filteredCatalog.length > 0 && filteredDataSources.length > 0" class="text-xs text-gray-400 mb-2">{{ $t('data.dataSourcesSection') }}</div>
-
-          <!-- Data source grid -->
-          <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-            <button
-              v-for="ds in filteredDataSources"
-              :key="ds.type"
-              type="button"
-              :disabled="isLocked(ds)"
-              @click="!isLocked(ds) && selectType(ds)"
-              :class="[
-                'group rounded-lg p-3 bg-white dark:bg-gray-900 border transition-all w-full',
-                isLocked(ds)
-                  ? 'opacity-60 cursor-not-allowed border-gray-200 dark:border-gray-700'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200'
-              ]"
-            >
-              <div class="flex flex-col items-center text-center">
-                <div class="p-1 relative">
-                  <DataSourceIcon class="h-6" :type="ds.type" />
-                  <div v-if="isLocked(ds)" class="absolute -top-1 -end-1">
-                    <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ ds.title }}</div>
-                <div v-if="isLocked(ds)" class="mt-1">
-                  <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
-                    {{ $t('data.enterprise') }}
-                  </span>
-                </div>
-              </div>
-            </button>
-          </div>
-
-          <!-- Connectors catalog — named one-click app integrations (Notion, Linear…) -->
-          <div v-if="filteredCatalog.length > 0" class="mt-4">
-            <div class="text-xs text-gray-400 mb-2">{{ $t('data.connectorsSection') }}</div>
-            <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+        <!-- Scrollable region: data sources grouped by category. MCP-backed
+             presets (Notion, Sentry…) live inside their domain category with an
+             "MCP" badge rather than a transport-named section. -->
+        <div v-else class="max-h-[320px] overflow-y-auto -mx-1 px-1">
+          <div v-for="group in groupedCategories" :key="group.key" class="mb-5">
+            <div v-if="activeCategory === 'all'" class="text-xs font-medium text-gray-400 mb-2">{{ $t(group.label) }}</div>
+            <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3">
               <button
-                v-for="entry in filteredCatalog"
-                :key="`catalog-${entry.key}`"
+                v-for="tile in group.tiles"
+                :key="tile.id"
                 type="button"
-                @click="selectCatalogEntry(entry)"
-                class="group rounded-lg p-3 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-all w-full"
+                :disabled="tile.locked"
+                @click="onTileClick(tile)"
+                :class="[
+                  'group rounded-lg p-3 bg-white dark:bg-gray-900 border transition-all w-full',
+                  tile.locked
+                    ? 'opacity-60 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-100 dark:border-gray-800 hover:border-blue-200'
+                ]"
               >
                 <div class="flex flex-col items-center text-center">
-                  <div class="p-1">
-                    <DataSourceIcon class="h-6" type="mcp" :connector-key="entry.key" />
+                  <div class="p-1 relative">
+                    <DataSourceIcon class="h-6" :type="tile.iconType" :connector-key="tile.connectorKey" />
+                    <div v-if="tile.locked" class="absolute -top-1 -end-1">
+                      <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ entry.title }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ tile.title }}</div>
+                  <div v-if="tile.isMcp || tile.locked" class="mt-1 flex items-center justify-center gap-1">
+                    <span v-if="tile.isMcp" class="text-[9px] font-medium uppercase tracking-wide text-blue-600 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
+                      {{ $t('data.mcpBadge') }}
+                    </span>
+                    <span v-if="tile.locked" class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                      {{ $t('data.enterprise') }}
+                    </span>
+                  </div>
                 </div>
               </button>
             </div>
           </div>
 
           <!-- No results -->
-          <div v-if="filteredDataSources.length === 0 && filteredCatalog.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+          <div v-if="groupedCategories.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
             {{ $t('data.noSourcesFound', { query: searchQuery }) }}
+          </div>
+        </div>
+
+        <!-- Frozen footer: two titled columns — Custom Connectors (raw MCP /
+             Custom API escape hatches) on the left, Sample databases on the
+             right. Stays pinned below the scroll. -->
+        <div
+          v-if="!loadingDataSources && (uninstalledDemos.length > 0 || customEntries.length > 0)"
+          class="border-t border-gray-100 dark:border-gray-800 mt-3 pt-3 flex items-start justify-between gap-x-6 gap-y-3 flex-wrap"
+        >
+          <!-- Custom Connectors (left) -->
+          <div v-if="customEntries.length > 0">
+            <div class="text-xs font-medium text-gray-400 mb-2">{{ $t('data.customSection') }}</div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="entry in customEntries"
+                :key="`custom-${entry.type}`"
+                type="button"
+                @click="selectType(entry)"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-300 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-200 transition-colors"
+              >
+                <DataSourceIcon class="h-4" :type="entry.type" />
+                {{ entry.title }}
+              </button>
+            </div>
+          </div>
+          <div v-else></div>
+
+          <!-- Sample databases (right) -->
+          <div v-if="uninstalledDemos.length > 0" class="ms-auto text-end">
+            <div class="text-xs font-medium text-gray-400 mb-2">{{ $t('data.sampleSection') }}</div>
+            <div class="flex flex-wrap gap-2 justify-end">
+              <button
+                v-for="demo in uninstalledDemos"
+                :key="`demo-${demo.id}`"
+                @click="handleInstallDemo(demo.id)"
+                :disabled="installingDemo === demo.id"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
+                <DataSourceIcon v-else class="h-4" :type="demo.type" />
+                {{ demo.name }}
+                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -276,30 +304,88 @@ const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) =
 // Check if data source requires enterprise license
 const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicensed.value
 
-// Filter data sources by search query — tool providers are always prepended
-// The backend now returns every entry — data sources + integrations + MCP /
-// Custom API. We bucket on `is_connection`: true means data-source-shaped
-// (Postgres, SharePoint), false means tool-provider integration (OneDrive,
-// Google Drive, MCP, Custom API). MCP and Custom API have their own bespoke
-// create forms; everything else with is_connection=false uses the generic
-// IntegrationConnectionForm.
-const dataSourceEntries = computed(() =>
-  dataSources.value.filter((d: any) => d.is_connection !== false)
-)
-const integrationEntries = computed(() =>
-  dataSources.value.filter((d: any) => d.is_connection === false)
+// Ordered domain categories rendered as sections in the picker. `custom`
+// (raw MCP / Custom API) is intentionally NOT here — those pin to the frozen
+// footer instead of scrolling as a category.
+const CATEGORY_ORDER: { key: string; label: string }[] = [
+  { key: 'databases', label: 'data.catDatabases' },
+  { key: 'bi', label: 'data.catBi' },
+  { key: 'infra', label: 'data.catInfra' },
+  { key: 'services', label: 'data.catServices' },
+  { key: 'files', label: 'data.catFiles' },
+]
+
+// Normalize both data streams (registry data sources + MCP catalog presets)
+// into one tile shape so a category can hold both. `isMcp` drives the badge;
+// presets always carry it, and any registry entry of type `mcp` would too.
+const allTiles = computed(() => {
+  const dsTiles = (dataSources.value || [])
+    .filter((d: any) => (d.category || 'databases') !== 'custom')
+    .map((d: any) => ({
+      id: `ds-${d.type}`,
+      kind: 'ds' as const,
+      title: d.title,
+      category: d.category || 'databases',
+      iconType: d.type,
+      connectorKey: d.connector_key,
+      isMcp: d.type === 'mcp',
+      locked: isLocked(d),
+      searchText: `${d.title || ''} ${d.type || ''}`.toLowerCase(),
+      raw: d,
+    }))
+  const presetTiles = (catalog.value || []).map((c: any) => ({
+    id: `preset-${c.key}`,
+    kind: 'preset' as const,
+    title: c.title,
+    category: c.category || 'services',
+    iconType: 'mcp',
+    connectorKey: c.key,
+    isMcp: true,
+    locked: false,
+    searchText: `${c.title || ''} ${c.key || ''}`.toLowerCase(),
+    raw: c,
+  }))
+  return [...dsTiles, ...presetTiles]
+})
+
+const filteredTiles = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return allTiles.value
+  return allTiles.value.filter((t: any) => t.searchText.includes(q))
+})
+
+// Active category filter chip. 'all' shows every section; a specific key
+// narrows to one category. Typing in search resets to 'all' (search is global).
+const activeCategory = ref('all')
+watch(searchQuery, () => { activeCategory.value = 'all' })
+
+// Chips = "All" + each category that has at least one (search-filtered) tile.
+const categoryChips = computed(() => {
+  const present = new Set(filteredTiles.value.map((t: any) => t.category))
+  return [
+    { key: 'all', label: 'data.catAll' },
+    ...CATEGORY_ORDER.filter((c) => present.has(c.key)),
+  ]
+})
+
+// Non-empty category groups in display order, narrowed by the active chip.
+const groupedCategories = computed(() =>
+  CATEGORY_ORDER
+    .filter((c) => activeCategory.value === 'all' || c.key === activeCategory.value)
+    .map((c) => ({ ...c, tiles: filteredTiles.value.filter((t: any) => t.category === c.key) }))
+    .filter((g) => g.tiles.length > 0)
 )
 
-const filteredDataSources = computed(() => {
-  // Single grid combining both groups (existing UI behaviour).
-  const all = [...dataSourceEntries.value, ...integrationEntries.value]
-  if (!searchQuery.value.trim()) return all
-  const query = searchQuery.value.toLowerCase()
-  return all.filter((ds: any) =>
-    ds.title?.toLowerCase().includes(query) ||
-    ds.type?.toLowerCase().includes(query)
-  )
-})
+// Generic escape hatches for the frozen footer (raw MCP + Custom API).
+const customEntries = computed(() =>
+  (dataSources.value || []).filter((d: any) => (d.category || '') === 'custom')
+)
+
+function onTileClick(tile: any) {
+  if (tile.locked) return
+  if (tile.kind === 'preset') selectCatalogEntry(tile.raw)
+  else selectType(tile.raw)
+}
 
 // Fetch available data sources and demos
 async function fetchDataSources() {
@@ -371,16 +457,6 @@ function selectType(ds: any) {
   mcpPrefill.value = null
   step.value = 'form'
 }
-
-// Filter the connector catalog by the same search box.
-const filteredCatalog = computed(() => {
-  const all = catalog.value || []
-  if (!searchQuery.value.trim()) return all
-  const q = searchQuery.value.toLowerCase()
-  return all.filter((c: any) =>
-    c.title?.toLowerCase().includes(q) || c.key?.toLowerCase().includes(q)
-  )
-})
 
 // A catalog tile opens the MCP form prefilled (server URL + DCR/OAuth) so the
 // user just clicks Connect. Rendered as the "mcp" form with provider branding.
@@ -520,6 +596,7 @@ function finishConnect() {
 function reset() {
   step.value = 'select'
   searchQuery.value = ''
+  activeCategory.value = 'all'
   selectedDataSource.value = null
   mcpPrefill.value = null
   createdConnection.value = null
