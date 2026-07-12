@@ -54,6 +54,11 @@ from app.schemas.data_sources.configs import (
     PrometheusNoAuthCredentials,
     PrometheusBasicCredentials,
     PrometheusBearerCredentials,
+    # Jaeger
+    JaegerConfig,
+    JaegerNoAuthCredentials,
+    JaegerBasicCredentials,
+    JaegerBearerCredentials,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -724,6 +729,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.prometheus_client.PrometheusClient",
+        dev_only=True,
+    ),
+    "jaeger": DataSourceRegistryEntry(
+        type="jaeger",
+        title="Jaeger",
+        description="Distributed tracing backend. Investigate traces and spans across services with the Query API — search by service, operation, tags, latency, and errors.",
+        config_schema=JaegerConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth (network-gated)",
+                    schema=JaegerNoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "basic": AuthVariant(
+                    title="Username / Password (Basic)",
+                    schema=JaegerBasicCredentials,
+                    scopes=["system", "user"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=JaegerBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.jaeger_client.JaegerClient",
         dev_only=True,
     ),
     "databricks_sql": DataSourceRegistryEntry(

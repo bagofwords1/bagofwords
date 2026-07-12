@@ -991,6 +991,64 @@ class PrometheusConfig(BaseModel):
     )
 
 
+# Jaeger (distributed tracing via the Query JSON HTTP API)
+class JaegerNoAuthCredentials(BaseModel):
+    # Network-gated Jaeger (internal :16686 / behind a VPN) needs no secret.
+    class Config:
+        extra = "allow"
+
+
+class JaegerBasicCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Username for HTTP Basic auth (typically a reverse proxy in front of Jaeger Query).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for HTTP Basic auth.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class JaegerBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Sent as 'Authorization: Bearer <token>'. Used when Jaeger Query sits behind an auth proxy or gateway.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class JaegerConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Jaeger Query URL, including scheme and port. Example: http://jaeger:16686",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable only for self-signed certs on internal hosts.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    default_lookback: str = Field(
+        "1h",
+        title="Default Lookback",
+        description="Default search window when a query omits one (e.g. '1h', '6h', '2d').",
+        json_schema_extra={"ui:type": "string"},
+    )
+    default_limit: int = Field(
+        20,
+        title="Default Trace Limit",
+        description="Default maximum number of traces returned by a span search.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Databricks SQL
 class DatabricksSqlCredentials(BaseModel):
     access_token: str = Field(
