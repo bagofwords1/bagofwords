@@ -230,7 +230,7 @@ const docDir = computed(() => detectDocDir(props.markdown))
 
 /* ---- Typography for rendered markdown (v-html → :deep) ---- */
 .bow-doc-md :deep(h1) {
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   line-height: 1.25;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -239,23 +239,23 @@ const docDir = computed(() => detectDocDir(props.markdown))
 }
 .bow-doc-md :deep(h1:not(:first-child)) { margin-top: 2.5rem; }
 .bow-doc-md :deep(h2) {
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   line-height: 1.35;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: rgb(17 24 39);
-  margin: 2.25rem 0 0.75rem;
+  margin: 2rem 0 0.625rem;
   padding-bottom: 0.375rem;
   border-bottom: 1px solid rgb(243 244 246);
 }
 .bow-doc-md :deep(h3) {
-  font-size: 1.0625rem;
+  font-size: 1rem;
   font-weight: 600;
   color: rgb(31 41 55);
-  margin: 1.75rem 0 0.5rem;
+  margin: 1.5rem 0 0.5rem;
 }
 .bow-doc-md :deep(h4) {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: rgb(31 41 55);
   margin: 1.5rem 0 0.375rem;
