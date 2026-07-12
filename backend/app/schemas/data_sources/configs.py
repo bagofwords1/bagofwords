@@ -1342,14 +1342,27 @@ class SharePointConfig(BaseModel):
     folder_path: Optional[str] = Field(
         None,
         title="Folder Path",
-        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). Leave blank for the root.",
+        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). The efficient server-side base; leave blank for the root.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Glob patterns relative to the folder above — the connection's scope. "
+            "When set, ONLY matching files are visible AND readable; access to "
+            "anything else is denied. Filter by subfolder AND type here: "
+            "'Reports/**/*.xlsx' (Excel under Reports), '**/*.pdf' (all PDFs), "
+            "'2025/**' (everything under 2025). Comma-separated; '**' crosses "
+            "subfolders, '*' is one segment. Leave blank to allow the whole folder."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     allowed_extensions: Optional[str] = Field(
         None,
-        title="Allowed Extensions",
-        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,pdf'). Leave blank for all files.",
-        json_schema_extra={"ui:type": "string"}
+        title="Allowed Extensions (legacy)",
+        description="Deprecated — use Include Patterns with '**/*.ext'. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True}
     )
     recursive: bool = Field(
         False,
@@ -1424,8 +1437,21 @@ class NetworkDirConfig(BaseModel):
     )
     allowed_extensions: Optional[str] = Field(
         None,
-        title="Allowed Extensions",
-        description="Comma-separated list of file extensions to include (e.g. 'csv,xlsx,pdf,png'). Leave blank for all files.",
+        title="Allowed Extensions (legacy)",
+        description="Deprecated — use Include Patterns with '**/*.ext'. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True}
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Glob patterns relative to the path — the connection's scope. When "
+            "set, ONLY matching files are visible AND readable; access to "
+            "anything else is denied. Filter by folder AND type here: "
+            "'reports/**/*.csv' (CSVs under reports), '**/*.pdf' (all PDFs), "
+            "'files/**' (everything under files/). Comma-separated; '**' crosses "
+            "subfolders, '*' is one segment. Leave blank to allow the whole path."
+        ),
         json_schema_extra={"ui:type": "string"}
     )
     recursive: bool = Field(
@@ -1449,15 +1475,42 @@ class NetworkDirConfig(BaseModel):
         description="Skip files larger than this when reading. Guards against loading huge files into memory.",
         json_schema_extra={"ui:type": "number"}
     )
+    index_mode: str = Field(
+        "content",
+        title="Indexing",
+        description=(
+            "How much to cache from the source. 'none' → nothing cached; the "
+            "agent lists/reads live every time (freshest, best for volatile or "
+            "huge dirs). 'metadata' → cache the file list on a schedule "
+            "(fast listing, no content search). 'content' → also extract "
+            "keywords from PDF/Word/PowerPoint/Excel/CSV so the agent can find "
+            "files by topic. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata", "content"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "File list",
+                "content": "Contents (searchable)",
+            },
+        },
+    )
     index_content: bool = Field(
         True,
-        title="Index File Contents",
+        title="Index File Contents (legacy)",
+        description="Deprecated — use Indexing above. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True}
+    )
+    max_catalog_objects: int = Field(
+        10000,
+        title="Max Files",
         description=(
-            "When indexing the directory, extract keywords from each file's "
-            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
-            "files by topic quickly. Turn off to index filenames only."
+            "Safety cap on how many files are ever enumerated (indexed or listed "
+            "live). A directory with more than this is truncated to protect memory "
+            "and the catalog — narrow the include-patterns to scope large trees."
         ),
-        json_schema_extra={"ui:type": "boolean"}
+        json_schema_extra={"ui:type": "number"},
     )
 
 
@@ -1517,8 +1570,22 @@ class S3Config(BaseModel):
     )
     allowed_extensions: Optional[str] = Field(
         None,
-        title="Allowed Extensions",
-        description="Comma-separated list of extensions to include (e.g. 'csv,xlsx,pdf'). Leave blank for all files.",
+        title="Allowed Extensions (legacy)",
+        description="Deprecated — use Include Patterns with '**/*.ext'. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True},
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Glob patterns relative to the prefix — the connection's scope. When "
+            "set, ONLY matching objects are visible AND readable; access to "
+            "anything else in the prefix is denied. Filter by folder AND type "
+            "here: 'docs/**/*.pdf', '**/*.csv', 'reports/**'. Comma-separated; "
+            "'**' crosses sub-prefixes, '*' is one segment. Blank = whole prefix. "
+            "(The Prefix above is the efficient server-side base; globs refine "
+            "within it.)"
+        ),
         json_schema_extra={"ui:type": "string"},
     )
     recursive: bool = Field(
@@ -1533,15 +1600,30 @@ class S3Config(BaseModel):
         description="Reject whole-object (structured) reads above this size. Windowed byte-range reads are exempt.",
         json_schema_extra={"ui:type": "number"},
     )
+    index_mode: str = Field(
+        "content",
+        title="Indexing",
+        description=(
+            "How much to cache from the bucket. 'none' → nothing cached; list/"
+            "read go live (best for huge or volatile buckets). 'metadata' → "
+            "cache the object list only. 'content' → also extract keywords for "
+            "topic search. Reads are always live regardless."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata", "content"],
+            "ui:enumLabels": {
+                "none": "None (live only)",
+                "metadata": "Object list",
+                "content": "Contents (searchable)",
+            },
+        },
+    )
     index_content: bool = Field(
         True,
-        title="Index File Contents",
-        description=(
-            "When indexing the bucket, extract keywords from each object's "
-            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
-            "files by topic. Turn off to index keys only."
-        ),
-        json_schema_extra={"ui:type": "boolean"},
+        title="Index File Contents (legacy)",
+        description="Deprecated — use Indexing above. Kept for back-compatibility.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
     )
     max_catalog_objects: int = Field(
         5000,

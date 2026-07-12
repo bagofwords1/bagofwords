@@ -22,7 +22,9 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import FileEntry, WriteFileInput, WriteFileOutput
 from app.data_sources.clients.base import Capability
 
-from ._file_tool_common import resolve_file_client
+from app.data_sources.clients._file_source_common import GlobScopeError
+
+from ._file_tool_common import audit_file_access_denied, resolve_file_client
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +103,11 @@ class WriteFileTool(Tool):
                 data.filename, payload, folder_id=data.folder, overwrite=data.overwrite
             )
         except Exception as e:
-            yield _fail(f"write_file failed: {e}")
+            if isinstance(e, GlobScopeError):
+                await audit_file_access_denied(runtime_ctx, data.connection_id, data.filename, str(e))
+                yield _fail(str(e))
+            else:
+                yield _fail(f"write_file failed: {e}")
             return
 
         entry = FileEntry(

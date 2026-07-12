@@ -29,7 +29,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients._document_text import DOC_EXTS, extract_document_text
+from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
+from app.data_sources.clients._file_source_common import (
+    INDEX_CONTENT,
+    INDEX_METADATA,
+    INDEX_NONE,
+    GlobScopeError,
+    globs_from_str,
+    normalize_index_mode,
+    path_matches_globs,
+)
 from app.data_sources.clients._keywords import extract_keywords
 from app.data_sources.clients.base import Capability, DataSourceClient
 
@@ -43,6 +52,8 @@ TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml", "xml", "p
 # Extensions we're willing to scan for content matches in search_files: text,
 # tabular, AND documents (extracted). Binary/unknown types are name-matched only.
 GREPPABLE_EXTS = TABULAR_EXTS | TEXT_EXTS | DOC_EXTS
+
+DEFAULT_WINDOW_BYTES = 1024 * 1024  # 1 MiB default page for windowed reads
 
 
 def _ext(name: str) -> str:
@@ -65,24 +76,40 @@ class NetworkDirClient(DataSourceClient):
         Capability.WRITE_FILE,
     }
 
+    # Local FS walk is cheap → list files live, per-connection (see base).
+    cheap_live_listing = True
+
     def __init__(
         self,
         root_path: Optional[str] = None,
         allowed_extensions: Optional[str] = None,
+        include_globs: Optional[str] = None,
         recursive: bool = True,
         writable: bool = False,
         max_file_mb: int = 100,
         index_content: bool = True,
+        index_mode: Optional[str] = None,
+        max_catalog_objects: int = 10000,
         max_keywords: int = 50,
         **_ignored,
     ):
         super().__init__()
         self.root_path = (root_path or "").strip()
         self.allowed_extensions = self._parse_exts(allowed_extensions)
+        # Include-globs scope the connection to matching files AND act as an
+        # access boundary enforced in `_resolve` (a read of a real-but-off-glob
+        # file is rejected). Empty = whole directory (still root-confined).
+        self.include_globs = globs_from_str(include_globs)
         self.recursive = bool(recursive)
         self.writable = bool(writable)
         self.max_file_bytes = int(max_file_mb) * 1024 * 1024 if max_file_mb else None
-        self.index_content = bool(index_content)
+        # Effective index tier: none/metadata/content. Falls back to the legacy
+        # index_content boolean when index_mode isn't set.
+        self.index_mode = normalize_index_mode(index_mode, index_content_legacy=index_content)
+        self.index_content = self.index_mode == INDEX_CONTENT
+        # Hard cap on how many files we ever enumerate — guards indexing AND
+        # live listing from a directory with millions of files (OOM / DB blowup).
+        self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 10000
         self.max_keywords = int(max_keywords) if max_keywords else 50
 
         # Per-instance capability gating: a read-only connection must not expose
@@ -119,7 +146,21 @@ class NetworkDirClient(DataSourceClient):
             raise ValueError(f"Path is not a directory: {self.root_path}")
         return root
 
-    def _resolve(self, rel_or_id: str, *, must_exist: bool = True) -> Path:
+    def file_version(self, file_id: str) -> Optional[str]:
+        """mtime+size as the cache key. `_resolve` enforces the glob scope, so an
+        off-scope id raises here too — a cache hit stays access-checked."""
+        try:
+            path = self._resolve(file_id, enforce_scope=True)
+            st = path.stat()
+            return f"{int(st.st_mtime)}:{st.st_size}"
+        except (GlobScopeError, ValueError):
+            raise
+        except Exception:
+            return None
+
+    def _resolve(
+        self, rel_or_id: str, *, must_exist: bool = True, enforce_scope: bool = True
+    ) -> Path:
         """Resolve a file id / relative path to an absolute path INSIDE root.
 
         Rejects any path that escapes root (via `..`, an absolute path, or a
@@ -144,9 +185,20 @@ class NetworkDirClient(DataSourceClient):
         else:
             resolved = target.parent.resolve() / target.name
         try:
-            resolved.relative_to(root)
+            rel = resolved.relative_to(root)
         except ValueError:
             raise ValueError(f"Path escapes the connection root: {rel_or_id}")
+        # Access boundary: if include-globs are configured, the resolved path
+        # (relative to root) must match one — otherwise a read/attach of a
+        # real-but-out-of-scope file (e.g. a `.env` next to the decks) is
+        # rejected here, at the single chokepoint, not just hidden from listing.
+        if enforce_scope and self.include_globs and not path_matches_globs(
+            rel.as_posix(), self.include_globs
+        ):
+            raise GlobScopeError(
+                f"'{rel.as_posix()}' is outside this connection's allowed patterns "
+                f"({', '.join(self.include_globs)}). Access denied."
+            )
         if must_exist and not resolved.exists():
             raise ValueError(f"File not found: {rel_or_id}")
         return resolved
@@ -184,9 +236,15 @@ class NetworkDirClient(DataSourceClient):
             return True
         return name.lower() in {".ds_store", "thumbs.db", "desktop.ini"}
 
-    def _iter_files(self, base: Path, recursive: bool) -> List[Path]:
+    #: set True by the most recent _iter_files call when it hit the cap.
+    _last_walk_truncated: bool = False
+
+    def _iter_files(self, base: Path, recursive: bool, limit: Optional[int] = None) -> List[Path]:
         walker = base.rglob("*") if recursive else base.glob("*")
+        root = self._root()
+        cap = limit if limit is not None else self.max_catalog_objects
         out: List[Path] = []
+        self._last_walk_truncated = False
         for p in walker:
             if not p.is_file():
                 continue
@@ -194,7 +252,20 @@ class NetworkDirClient(DataSourceClient):
                 continue
             if not self._allowed(p.name):
                 continue
+            # Scope filter: only files matching the include-globs are visible.
+            if self.include_globs:
+                try:
+                    rel = p.relative_to(root).as_posix()
+                except ValueError:
+                    continue
+                if not path_matches_globs(rel, self.include_globs):
+                    continue
             out.append(p)
+            # Stop early rather than materialize millions of paths — the walk
+            # itself is bounded, so a huge directory can't OOM us.
+            if cap and len(out) >= cap:
+                self._last_walk_truncated = True
+                break
         return out
 
     # ---------------------------------------------------- public capabilities
@@ -203,7 +274,9 @@ class NetworkDirClient(DataSourceClient):
         self, folder_id: Optional[str] = None, recursive: Optional[bool] = None
     ) -> List[Dict[str, Any]]:
         root = self._root()
-        base = self._resolve(folder_id) if folder_id else root
+        # A folder is a container, not a glob-matched file — don't scope-enforce
+        # the folder path itself; the files inside are filtered by _iter_files.
+        base = self._resolve(folder_id, enforce_scope=False) if folder_id else root
         if not base.is_dir():
             raise ValueError(f"Not a folder: {folder_id}")
         rec = self.recursive if recursive is None else bool(recursive)
@@ -212,11 +285,24 @@ class NetworkDirClient(DataSourceClient):
         return [self._entry(p) for p in files]
 
     def read_file(
-        self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_
+        self,
+        file_id: str,
+        sheet: Optional[str] = None,
+        offset: Optional[int] = None,
+        length: Optional[int] = None,
+        max_bytes: Optional[int] = None,
+        **_,
     ) -> Any:
         path = self._resolve(file_id, must_exist=True)
         if not path.is_file():
             raise ValueError(f"Not a file: {file_id}")
+
+        # Windowed (ranged) read — same contract as S3's _read_window: a raw
+        # byte window plus a cursor (next_cursor/total_size/eof) to page through
+        # arbitrarily large files. No parsing, no attachment. Text windows snap
+        # to the last complete newline so paging never splits a line.
+        if offset is not None:
+            return self._read_window(path, int(offset), length)
 
         # Rich documents (pdf/docx/pptx): return extracted plain text so the
         # agent can actually read them instead of receiving opaque bytes.
@@ -227,9 +313,10 @@ class NetworkDirClient(DataSourceClient):
                     f"exceeds the {self.max_file_bytes / 1024 / 1024:.0f} MB limit."
                 )
             text = extract_document_text(str(path), path.name)
-            # Fall back to raw bytes if extraction yielded nothing (scanned PDF,
-            # unusual encoding) so the caller can still attach/inspect the file.
-            return text if text else path.read_bytes()
+            # Fall back to raw bytes when extraction yielded nothing OR only a
+            # stray glyph (scanned / image-based / CID-font PDF) so the caller
+            # can render it to images for a vision model instead of a junk read.
+            return text if doc_text_is_usable(text) else path.read_bytes()
 
         cap = max_bytes or self.max_file_bytes
         size = path.stat().st_size
@@ -266,6 +353,58 @@ class NetworkDirClient(DataSourceClient):
             return content.decode("utf-8")
         except UnicodeDecodeError:
             return content
+
+    def _read_window(self, path: Path, offset: int, length: Optional[int]) -> Dict[str, Any]:
+        """Ranged byte read of a local file → a window plus a cursor to page
+        forward. Mirrors S3Client._read_window so the agent sees ONE contract
+        across file sources: text windows snap back to the last complete newline
+        (unless at EOF or the window has no newline); binary windows are base64.
+        """
+        import base64 as _b64
+
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
+        window = int(length) if length else DEFAULT_WINDOW_BYTES
+        total = path.stat().st_size
+        with open(path, "rb") as fh:
+            fh.seek(offset)
+            data = fh.read(window)
+
+        raw_end = offset + len(data)
+        eof = raw_end >= total
+
+        try:
+            text = data.decode("utf-8")
+            is_text = True
+        except UnicodeDecodeError:
+            is_text = False
+
+        if is_text:
+            content = text
+            next_cursor = raw_end
+            if not eof:
+                nl = text.rfind("\n")
+                if nl != -1 and nl + 1 < len(text):
+                    content = text[: nl + 1]
+                    next_cursor = offset + len(content.encode("utf-8"))
+            return {
+                "content": content,
+                "encoding": "text",
+                "offset": offset,
+                "length": len(content.encode("utf-8")),
+                "next_cursor": None if eof else next_cursor,
+                "total_size": total,
+                "eof": eof,
+            }
+        return {
+            "content": _b64.b64encode(data).decode("ascii"),
+            "encoding": "base64",
+            "offset": offset,
+            "length": len(data),
+            "next_cursor": None if eof else raw_end,
+            "total_size": total,
+            "eof": eof,
+        }
 
     def _file_text(self, path: Path, max_chars: int = 200_000) -> str:
         """Extract plain text from a greppable file (doc/csv/tsv/text) for
@@ -421,11 +560,18 @@ class NetworkDirClient(DataSourceClient):
         except Exception as e:
             return {"success": False, "message": str(e)}
 
-    def get_schemas(self) -> List[Table]:
-        """Index the directory into catalog rows. When `index_content` is on,
-        each file's contents are read once here to extract keywords (top
-        `max_keywords`) + a content hash, stored in metadata_json so the
-        search_files tool can match by topic without re-parsing every file."""
+    def get_schemas(self, progress_callback=None) -> List[Table]:
+        """Index the directory into catalog rows per the connection's index tier:
+
+        - `none`     → no catalog at all (listing/search go live at the tool
+                       layer). Returns [].
+        - `metadata` → one row per file with name/size/mtime, NO content read.
+        - `content`  → metadata + extracted keywords/hash so search_files can
+                       match by topic without re-parsing every file.
+        """
+        if self.index_mode == INDEX_NONE:
+            # Live mode: nothing is cached; the tool layer lists/reads directly.
+            return []
         root = self._root()
         tables: List[Table] = []
         for f in self.list_files(recursive=self.recursive):
@@ -460,6 +606,13 @@ class NetworkDirClient(DataSourceClient):
                 fks=[],
                 metadata_json={"network_dir": meta},
             ))
+        if self._last_walk_truncated:
+            import logging
+            logging.getLogger(__name__).warning(
+                "network_dir: catalog capped at %d files (max_catalog_objects); "
+                "narrow the include-patterns to index more of %s.",
+                self.max_catalog_objects, self.root_path,
+            )
         return tables
 
     def get_schema(self, table_name: str) -> Optional[Table]:

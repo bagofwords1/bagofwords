@@ -27,6 +27,18 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 # Extensions this module can turn into text. Callers gate on this set.
 DOC_EXTS = {"pdf", "docx", "pptx"}
 
+# Below this many non-whitespace characters, a rich document's text extraction
+# is treated as failed — the common case being a scanned / image-based PDF or
+# one using CID fonts with no ToUnicode map, where pypdf returns nothing or a
+# stray glyph. Callers fall back to raw bytes so the file can be rendered to
+# images for a vision model instead of surfacing an empty/garbage "text" read.
+MIN_USABLE_DOC_CHARS = 16
+
+
+def doc_text_is_usable(text) -> bool:
+    """True when extracted document text is substantive enough to use as-is."""
+    return bool(text) and len(str(text).strip()) >= MIN_USABLE_DOC_CHARS
+
 # Default cap on extracted characters. Bounds both memory and how much of a big
 # document we scan on every search. ~200k chars ≈ 40-50 pages of prose.
 DEFAULT_MAX_CHARS = 200_000

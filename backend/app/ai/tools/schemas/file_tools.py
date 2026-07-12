@@ -44,8 +44,11 @@ class ListFilesInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file-source connection to list (SharePoint, OneDrive, "
-            "Google Drive). The connection must be attached to the current agent."
+            "UUID of the file-source connection to list (network dir, S3, "
+            "SharePoint, OneDrive, Google Drive, …). Use the value from the "
+            "`id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. The connection must be attached to the "
+            "current agent."
         ),
     )
     folder_id: Optional[str] = Field(
@@ -86,10 +89,11 @@ class ReadFileInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file source attached to this agent. Either the "
-            "Connection ID or the DataSource (agent) ID is accepted — when "
-            "the agent has one file connection, passing the agent's own ID "
-            "is the simplest path."
+            "UUID of the file source attached to this agent. Use the value from "
+            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. Either the Connection ID or the DataSource "
+            "(agent) ID is accepted — when the agent has one file connection, "
+            "passing the agent's own ID is the simplest path."
         ),
     )
     file_id: str = Field(
@@ -144,7 +148,7 @@ class ReadFileOutput(BaseModel):
     file_name: Optional[str] = None
     content_type: str = Field(
         default="unknown",
-        description="One of: tabular, text, json, binary, unknown.",
+        description="One of: tabular, text, json, binary, images, unknown.",
     )
     csv: Optional[str] = None  # for tabular
     text: Optional[str] = None  # for text/json/document
@@ -183,6 +187,21 @@ class ReadFileOutput(BaseModel):
         default=None,
         description="For windowed reads: 'text' (content is utf-8 in `text`) or 'base64' (content is base64 in `text`).",
     )
+    # Vision fallback — set when content_type == "images": the file couldn't be
+    # extracted to text so its pages were rendered and shown to the model as
+    # images (see the observation). Also materialized as session files.
+    image_count: Optional[int] = Field(
+        default=None,
+        description="Number of page images shown to the model (content_type='images').",
+    )
+    pages_total: Optional[int] = Field(
+        default=None,
+        description="Total pages in the source document (image_count may be capped below this).",
+    )
+    image_file_ids: Optional[list[str]] = Field(
+        default=None,
+        description="Session file ids of the rendered page images, in page order.",
+    )
     error: Optional[str] = None
 
 
@@ -193,10 +212,11 @@ class SearchFilesInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file source attached to this agent. Either the "
-            "Connection ID or the DataSource (agent) ID is accepted — when "
-            "the agent has one file connection, passing the agent's own ID "
-            "is the simplest path."
+            "UUID of the file source attached to this agent. Use the value from "
+            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. Either the Connection ID or the DataSource "
+            "(agent) ID is accepted — when the agent has one file connection, "
+            "passing the agent's own ID is the simplest path."
         ),
     )
     query: str = Field(..., description="Free-text search query — matches filename / content depending on the provider.")
@@ -228,9 +248,10 @@ class WriteFileInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of a WRITABLE file source attached to this agent (Connection ID "
-            "or the DataSource/agent ID). Only connections with writes enabled "
-            "accept this — a read-only source rejects the call."
+            "UUID of a WRITABLE file source attached to this agent — the value "
+            "from the `id=` attribute of the `<connection>` tag, NOT its display "
+            "name (Connection ID or the DataSource/agent ID). Only connections "
+            "with writes enabled accept this — a read-only source rejects the call."
         ),
     )
     filename: str = Field(
@@ -282,8 +303,9 @@ class AttachFileInput(BaseModel):
     connection_id: str = Field(
         ...,
         description=(
-            "ID of the file source attached to this agent (Connection ID or the "
-            "DataSource/agent ID)."
+            "UUID of the file source attached to this agent — the value from the "
+            "`id=` attribute of the `<connection>` tag, NOT its display name "
+            "(Connection ID or the DataSource/agent ID)."
         ),
     )
     file_ids: List[str] = Field(

@@ -25,6 +25,36 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive", "outlook_mail", "network_dir", "s3"}
 
 
+async def audit_file_access_denied(
+    runtime_ctx: Dict[str, Any], connection_id: str, file_id: str, reason: str
+) -> None:
+    """Record an audit-trail entry when a file tool is denied access to a path
+    outside the connection's include-globs. Best-effort — never raises, never
+    blocks the tool response. Viewing is license-gated at the API; logging is
+    always on so the trail is complete."""
+    try:
+        db = runtime_ctx.get("db")
+        organization = runtime_ctx.get("organization")
+        user = runtime_ctx.get("user")
+        if db is None or organization is None:
+            return
+        from app.ee.audit.service import audit_service
+        await audit_service.log(
+            db=db,
+            organization_id=str(organization.id),
+            action="file.access_denied",
+            user_id=str(user.id) if user is not None else None,
+            resource_type="connection",
+            resource_id=str(connection_id),
+            details={"file_id": file_id, "reason": reason,
+                     "report_id": str(getattr(runtime_ctx.get("report"), "id", "")) or None},
+            commit=True,
+        )
+        logger.warning("file.access_denied conn=%s file=%s: %s", connection_id, file_id, reason)
+    except Exception:
+        logger.debug("audit_file_access_denied failed", exc_info=True)
+
+
 async def resolve_file_data_source(
     runtime_ctx: Dict[str, Any],
     connection_id: str,
@@ -137,6 +167,14 @@ async def resolve_file_client(
             f"Connection '{resolved_conn.name}' does not support {required_capability.value}."
         )
 
+    # Stash the resolved connection so tools can inspect its auth policy (e.g.
+    # list_files listing live-per-user for per-user OAuth sources) without a
+    # second lookup.
+    try:
+        client._bow_connection = resolved_conn
+    except Exception:
+        pass
+
     return client, None
 
 
@@ -202,6 +240,13 @@ _ATTACHABLE_BY_EXT = {
     "txt": "text/plain",
     "md": "text/markdown",
     "pdf": "application/pdf",
+    # Rendered page images / picture files — materialized so they get a file id
+    # (referenceable in later turns and visible in the UI).
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
 }
 
 # Reverse map: MIME → extension. Used when materializing an MCP blob/resource
@@ -220,6 +265,80 @@ def ext_for_mime(mime: Optional[str]) -> Optional[str]:
     if not mime:
         return None
     return _EXT_BY_MIME.get(mime.strip().lower())
+
+
+# Picture files we can hand to a vision model as-is (normalized to PNG).
+_RENDERABLE_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"}
+
+
+def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 150):
+    """Turn a *binary* file payload into page images for a vision model.
+
+    - Picture files (png/jpg/…) pass through, normalized to PNG.
+    - PDFs are rasterized page-by-page with pypdfium2 (PDFium — the same engine
+      Chromium uses for PDFs — as a self-contained wheel, so no system poppler
+      and no headless-browser launch).
+
+    Returns ``(images, total_pages)`` where ``images`` is a list of
+    ``(png_bytes, "image/png")``, capped at ``max_pages``. Best-effort: returns
+    ``([], 0)`` when the payload isn't a renderable binary or the renderer is
+    unavailable, so the caller simply keeps the original (binary) result.
+    """
+    if not isinstance(payload, (bytes, bytearray)):
+        return [], 0
+    data = bytes(payload)
+    ext = file_id.rsplit(".", 1)[-1].lower() if "." in (file_id or "") else ""
+    import io
+    try:
+        if ext in _RENDERABLE_IMAGE_EXTS:
+            from PIL import Image
+            im = Image.open(io.BytesIO(data))
+            im.load()
+            if im.mode not in ("RGB", "RGBA", "L"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            return [(buf.getvalue(), "image/png")], 1
+        if ext == "pdf":
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(data)
+            try:
+                total = len(pdf)
+                out = []
+                for i in range(min(total, max_pages)):
+                    page = pdf[i]
+                    pil = page.render(scale=dpi / 72.0).to_pil()
+                    if pil.mode not in ("RGB", "L"):
+                        pil = pil.convert("RGB")
+                    buf = io.BytesIO()
+                    pil.save(buf, format="PNG")
+                    out.append((buf.getvalue(), "image/png"))
+                return out, total
+            finally:
+                pdf.close()
+    except Exception as e:  # corrupt/locked file, unsupported image
+        logger.info("render_file_images: could not render %s: %s", file_id, e)
+    return [], 0
+
+
+def allow_llm_see_data(runtime_ctx: Dict[str, Any]) -> bool:
+    """Whether the org lets raw data/content reach the model. Defaults to True
+    when settings are unavailable, matching the other tool call sites."""
+    try:
+        org = runtime_ctx.get("organization")
+        settings = getattr(org, "settings", None)
+        if settings is None:
+            return True
+        try:
+            return bool(settings.get_config("allow_llm_see_data").value)
+        except Exception:
+            pass
+        cfg = getattr(settings, "config", None)
+        if isinstance(cfg, dict):
+            return bool(cfg.get("allow_llm_see_data", {}).get("value", True))
+    except Exception:
+        pass
+    return True
 
 # Hard cap on auto-attach size. Larger files still return content inline but
 # don't get persisted — the agent should reach for a more specific reader.
@@ -278,7 +397,12 @@ async def attach_drive_file_to_session(
         from app.models.report import Report
 
         os.makedirs("uploads/files", exist_ok=True)
-        unique_filename = f"{uuid.uuid4()}_{filename}"
+        # File ids from nested sources carry path separators (e.g.
+        # "docs/scan.png"); they must not leak into the on-disk path or the open
+        # fails on a missing subdir. Flatten for storage; keep `filename` (the
+        # display name) intact.
+        safe_name = filename.replace("/", "_").replace("\\", "_")
+        unique_filename = f"{uuid.uuid4()}_{safe_name}"
         path = f"uploads/files/{unique_filename}"
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content_bytes)
