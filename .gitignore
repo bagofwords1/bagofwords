@@ -61,3 +61,11 @@ backend/loadtest/smoke*.json
 
 # repo-root symlink to frontend/node_modules so tools/agent/*.mjs resolve @playwright/test
 /node_modules
+
+# Playwright throwaway auth state / capture helpers (never commit)
+frontend/state.json
+frontend/shot*.mjs
+frontend/shots*.mjs
+frontend/login*.mjs
+frontend/evidence*.mjs
+frontend/diag*.mjs
