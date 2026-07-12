@@ -56,6 +56,14 @@ class DataSourceClient(ABC):
     # get_schemas. File-shaped clients set their own set.
     capabilities: set = {Capability.QUERY}
 
+    # When True, listing files live from the source is cheap enough to do on
+    # every list_files call (local FS walk, bounded S3 LIST) — so list_files
+    # reads the live per-connection client instead of the shared, per-data-
+    # source catalog cache. This is both fresher and correctly scoped to the
+    # single connection (the cache unions all of a data source's connections).
+    # Remote-API sources (Graph/Drive) leave this False and use the cache.
+    cheap_live_listing: bool = False
+
     def __init__(self):
         pass
 

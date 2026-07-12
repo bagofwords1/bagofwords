@@ -76,6 +76,9 @@ class NetworkDirClient(DataSourceClient):
         Capability.WRITE_FILE,
     }
 
+    # Local FS walk is cheap → list files live, per-connection (see base).
+    cheap_live_listing = True
+
     def __init__(
         self,
         root_path: Optional[str] = None,

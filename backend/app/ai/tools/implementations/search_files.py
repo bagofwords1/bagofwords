@@ -108,6 +108,43 @@ class SearchFilesTool(Tool):
     def output_model(self) -> Type[BaseModel]:
         return SearchFilesOutput
 
+    async def _resolve_connection_id(self, runtime_ctx: Dict[str, Any], connection_id: str):
+        """Map the passed id (Connection id OR DataSource id) to a single
+        Connection id, so the keyword search is scoped to one connection.
+        Returns None when it can't be pinned (unknown, or a data source with
+        multiple file connections) — the caller then uses the per-connection
+        live scan, which is scoped by construction."""
+        from ._file_tool_common import FILE_SOURCE_TYPES
+        report = runtime_ctx.get("report")
+        sid = str(connection_id)
+        attached = []
+        if report:
+            for ds in (report.data_sources or []):
+                for conn in (ds.connections or []):
+                    if conn.type in FILE_SOURCE_TYPES:
+                        attached.append((ds, conn))
+        for ds, conn in attached:
+            if str(conn.id) == sid:
+                return conn.id
+        ds_conns = [conn for ds, conn in attached if str(ds.id) == sid]
+        if len(ds_conns) == 1:
+            return ds_conns[0].id
+        db = runtime_ctx.get("db")
+        org = runtime_ctx.get("organization")
+        if db is not None and org is not None:
+            from sqlalchemy import select
+            from app.models.connection import Connection
+            c = (await db.execute(
+                select(Connection).where(
+                    Connection.id == sid,
+                    Connection.organization_id == str(org.id),
+                    Connection.type.in_(list(FILE_SOURCE_TYPES)),
+                )
+            )).scalar_one_or_none()
+            if c is not None:
+                return c.id
+        return None
+
     async def run_stream(
         self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]
     ) -> AsyncIterator[ToolEvent]:
@@ -125,24 +162,21 @@ class SearchFilesTool(Tool):
             })
 
         # 1. Fast path: keyword index on the cached catalog (unless deep).
+        #    Scoped to THIS connection's ConnectionTable rows — the per-data-
+        #    source schema unions every connection, which would leak one
+        #    connection's files into another's search results.
         entries: List[Dict[str, Any]] = []
         used_index = False
         if not data.deep:
-            data_source, err = await resolve_file_data_source(runtime_ctx, data.connection_id)
-            if not err and data_source is not None:
+            conn_id = await self._resolve_connection_id(runtime_ctx, data.connection_id)
+            if conn_id is not None:
                 try:
-                    from app.services.data_source_service import DataSourceService
-                    tables = await DataSourceService().get_data_source_schema(
-                        db=runtime_ctx.get("db"),
-                        data_source_id=str(data_source.id),
-                        organization=runtime_ctx.get("organization"),
-                        current_user=runtime_ctx.get("user"),
-                        include_inactive=True,
-                    )
+                    from sqlalchemy import select
+                    from app.models.connection_table import ConnectionTable
+                    tables = (await runtime_ctx["db"].execute(
+                        select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
+                    )).scalars().all()
                     entries = _index_search(tables, data.query, data.max_results)
-                    # indexed_any is signalled by a non-empty catalog carrying
-                    # keywords; _index_search returns [] both when unindexed and
-                    # when indexed-but-no-match. Distinguish via a re-check.
                     used_index = any(
                         (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
                         for t in (tables or []) for k in _FILE_METADATA_KEYS

@@ -68,6 +68,10 @@ class S3Client(DataSourceClient):
         Capability.READ_FILE,
     }
 
+    # A bounded list_objects_v2 under the prefix is cheap enough to do live per
+    # call → list per-connection from the source, not the shared catalog cache.
+    cheap_live_listing = True
+
     def __init__(
         self,
         bucket: Optional[str] = None,
