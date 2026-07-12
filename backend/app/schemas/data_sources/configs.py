@@ -1461,6 +1461,96 @@ class NetworkDirConfig(BaseModel):
     )
 
 
+# Amazon S3 — a cloud object store exposed as a file catalog.
+# Credentials mirror the Athena idiom so boto3 session construction is shared:
+# static keys, keys + STS assume-role, or the default credential chain.
+class S3KeyCredentials(BaseModel):
+    access_key: str = Field(..., title="Access Key", description="AWS access key id.", json_schema_extra={"ui:type": "string"})
+    secret_key: str = Field(..., title="Secret Key", description="AWS secret access key.", json_schema_extra={"ui:type": "password"})
+    session_token: Optional[str] = Field(None, title="Session Token", description="Optional session token for temporary credentials.", json_schema_extra={"ui:type": "password"})
+
+
+class S3RoleCredentials(BaseModel):
+    role_arn: str = Field(..., title="Role ARN", description="ARN of the IAM role to assume (STS) for bucket access.", json_schema_extra={"ui:type": "string"})
+    # Static keys are optional: leave blank to assume the role using the
+    # deployment's ambient credentials (EC2 instance profile / EKS IRSA / env),
+    # mirroring the Athena connector.
+    access_key: Optional[str] = Field(None, title="Access Key", description="Optional — access key id used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "string"})
+    secret_key: Optional[str] = Field(None, title="Secret Key", description="Optional — secret access key used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "password"})
+
+
+class S3DefaultCredentials(BaseModel):
+    """No credentials required — boto3 resolves via its default chain (env vars,
+    shared config, instance profile, IRSA). Mirrors AWSAthenaDefaultCredentials."""
+    class Config:
+        extra = "allow"
+
+
+class S3Config(BaseModel):
+    bucket: str = Field(
+        ...,
+        title="Bucket",
+        description="S3 bucket name (e.g. 'my-company-reports').",
+        json_schema_extra={"ui:type": "string"},
+    )
+    prefix: Optional[str] = Field(
+        None,
+        title="Prefix",
+        description=(
+            "Key prefix to scope the connection (e.g. 'reports/2025/'). All "
+            "listing and reads are confined to this prefix. Leave blank for the "
+            "whole bucket."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    region: Optional[str] = Field(
+        None,
+        title="Region",
+        description="AWS region of the bucket (e.g. 'us-west-2'). Recommended — avoids a redirect on the first call.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    endpoint_url: Optional[str] = Field(
+        None,
+        title="Endpoint URL",
+        description="Custom S3 endpoint for S3-compatible stores (MinIO / Cloudflare R2 / Wasabi). Leave blank for AWS.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of extensions to include (e.g. 'csv,xlsx,pdf'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    recursive: bool = Field(
+        True,
+        title="Include Sub-prefixes",
+        description="Recursively enumerate keys under the prefix when listing / indexing.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_file_mb: int = Field(
+        100,
+        title="Max File Size (MB)",
+        description="Reject whole-object (structured) reads above this size. Windowed byte-range reads are exempt.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    index_content: bool = Field(
+        True,
+        title="Index File Contents",
+        description=(
+            "When indexing the bucket, extract keywords from each object's "
+            "contents (incl. PDF/Word/PowerPoint/Excel) so the agent can find "
+            "files by topic. Turn off to index keys only."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_catalog_objects: int = Field(
+        5000,
+        title="Max Catalog Objects",
+        description="Cap on objects indexed into the catalog, so a huge bucket doesn't produce an unbounded catalog.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""

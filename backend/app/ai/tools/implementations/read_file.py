@@ -74,6 +74,64 @@ class ReadFileTool(Tool):
             })
             return
 
+        # Windowed (ranged) read: pass offset/length through, return the raw
+        # byte window + cursor WITHOUT parsing or attaching. For streaming
+        # through large objects (logs, ndjson, big CSVs) on object-store sources.
+        if data.offset is not None:
+            try:
+                window = await client.aread_file(
+                    data.file_id, offset=data.offset, length=data.length
+                )
+            except Exception as e:
+                err = f"read_file (windowed) failed: {e}"
+                yield ToolEndEvent(type="tool.end", payload={
+                    "output": {
+                        "success": False,
+                        "connection_id": data.connection_id,
+                        "file_id": data.file_id,
+                        "error": err,
+                    },
+                    "observation": {"summary": err, "success": False},
+                })
+                return
+            if not isinstance(window, dict) or "content" not in window:
+                err = "This connection does not support windowed (offset/length) reads."
+                yield ToolEndEvent(type="tool.end", payload={
+                    "output": {
+                        "success": False,
+                        "connection_id": data.connection_id,
+                        "file_id": data.file_id,
+                        "error": err,
+                    },
+                    "observation": {"summary": err, "success": False},
+                })
+                return
+            enc = window.get("encoding", "text")
+            output = {
+                "success": True,
+                "connection_id": data.connection_id,
+                "file_id": data.file_id,
+                "windowed": True,
+                "content_type": "text" if enc == "text" else "binary",
+                "text": window.get("content"),
+                "encoding": enc,
+                "next_cursor": None if window.get("eof") else window.get("next_cursor"),
+                "total_size": window.get("total_size"),
+                "eof": window.get("eof"),
+                "byte_count": window.get("length"),
+            }
+            pos = f"{window.get('offset')}–{window.get('next_cursor')}"
+            total = window.get("total_size")
+            summary = (
+                f"Read window {pos} of {total} bytes from {data.file_id}"
+                + (" (eof)" if window.get("eof") else "")
+            )
+            yield ToolEndEvent(type="tool.end", payload={
+                "output": output,
+                "observation": {"summary": summary, "success": True},
+            })
+            return
+
         try:
             payload = await client.aread_file(data.file_id, sheet=data.sheet)
         except Exception as e:

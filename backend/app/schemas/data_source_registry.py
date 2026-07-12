@@ -84,6 +84,11 @@ from app.schemas.data_sources.configs import (
     # Network Directory (local / mounted file share)
     NetworkDirConfig,
     NetworkDirCredentials,
+    # Amazon S3
+    S3Config,
+    S3KeyCredentials,
+    S3RoleCredentials,
+    S3DefaultCredentials,
     # QVD Files
     QVDConfig,
     QVDCredentials,
@@ -866,6 +871,48 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+    ),
+    "s3": DataSourceRegistryEntry(
+        type="s3",
+        title="Amazon S3",
+        description=(
+            "Browse and read files from an Amazon S3 bucket. Reads inside PDF, "
+            "Word, PowerPoint, Excel and CSV, and can attach objects to a report. "
+            "Large objects can be read in byte-range windows."
+        ),
+        config_schema=S3Config,
+        # The auth-variant dropdown doubles as the credential picker: static
+        # keys, keys + STS assume-role, or boto3's default chain. GCS / Azure
+        # providers would slot in here as additional variants later.
+        credentials_auth=AuthOptions(
+            default="aws_keys",
+            by_auth={
+                "aws_keys": AuthVariant(
+                    title="AWS Access Key",
+                    schema=S3KeyCredentials,
+                    scopes=["system"],
+                ),
+                "aws_role": AuthVariant(
+                    title="AWS Assume Role (STS)",
+                    schema=S3RoleCredentials,
+                    scopes=["system"],
+                ),
+                "aws_default": AuthVariant(
+                    title="AWS Default Chain",
+                    schema=S3DefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.s3_client.S3Client",
+        # An admin points the connection at one bucket/prefix whose catalog is
+        # the single source of truth for everyone (like a SharePoint library),
+        # so the catalog is shared. Community tier (no license gate) — a bucket
+        # is treated like a plain directory, same as network_dir.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        version="beta",
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",

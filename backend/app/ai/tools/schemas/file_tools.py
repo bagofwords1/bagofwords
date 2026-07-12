@@ -117,6 +117,23 @@ class ReadFileInput(BaseModel):
         le=500000,
         description="For text files: max characters to return.",
     )
+    offset: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "For object-store / large files: start byte for a windowed (ranged) "
+            "read. When set, the file is NOT parsed or attached — you get a raw "
+            "byte window plus `next_cursor`/`eof` to page forward. Pass "
+            "`next_cursor` from the previous read as the next `offset` until "
+            "`eof` is true. Leave unset for a normal whole-file read."
+        ),
+    )
+    length: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50_000_000,
+        description="For windowed reads: number of bytes to fetch from `offset`. Defaults to ~1 MiB.",
+    )
     title: Optional[str] = _title_field()
 
 
@@ -141,6 +158,30 @@ class ReadFileOutput(BaseModel):
     session_file_id: Optional[str] = Field(
         default=None,
         description="Session file id you can pass to inspect_data / create_data / read_excel_as_csv. None for files that aren't attachable (oversize, unknown binary).",
+    )
+    # Windowed (ranged) read fields — set only when `offset` was passed. The
+    # window arrives in `text` (utf-8) or, for binary, base64 in `text` with
+    # content_type="binary". Page forward by passing `next_cursor` as the next
+    # `offset` until `eof` is true.
+    windowed: bool = Field(
+        default=False,
+        description="True when this was a windowed byte-range read (not a parsed/attached whole-file read).",
+    )
+    next_cursor: Optional[int] = Field(
+        default=None,
+        description="Byte offset to pass as the next `offset` to continue reading. Null when eof.",
+    )
+    total_size: Optional[int] = Field(
+        default=None,
+        description="Total size of the object in bytes (for windowed reads).",
+    )
+    eof: Optional[bool] = Field(
+        default=None,
+        description="True when the window reached the end of the object.",
+    )
+    encoding: Optional[str] = Field(
+        default=None,
+        description="For windowed reads: 'text' (content is utf-8 in `text`) or 'base64' (content is base64 in `text`).",
     )
     error: Optional[str] = None
 

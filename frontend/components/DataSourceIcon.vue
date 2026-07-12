@@ -94,6 +94,7 @@ const iconPath = computed(() => {
         csv: 'csv.png',
         outlook_mail: 'outlook_mail.svg',
         elasticsearch: 'elasticsearch.svg',
+        s3: 's3.svg',
     };
     if (TYPE_ICON_FILE[t]) {
         return `/data_sources_icons/${TYPE_ICON_FILE[t]}`;
