@@ -496,11 +496,17 @@ class SchemaContextBuilder:
                 if len(topics) >= 12:
                     break
             supports_search = (c.type in self._NATIVE_SEARCH_TYPES) or (index_mode == "content")
+            # Per-user OAuth connection: each user reads with their own token, so
+            # the cached sample/count (if any) is not a global truth. Flag it so
+            # the descriptor tells the model discovery is per-user + live.
+            per_user = (getattr(c, "auth_policy", None) == "user_required"
+                        and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
             scopes.append(FileScopeItem(
                 connection_id=cid, name=c.name, type=c.type, base=base,
                 globs=globs, index_mode=index_mode, file_count=len(ftabs),
                 capped=False, sample=sample, topics=topics,
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
+                per_user=bool(per_user),
             ))
         return scopes, remaining
 

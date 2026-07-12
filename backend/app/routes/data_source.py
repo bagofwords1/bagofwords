@@ -526,6 +526,20 @@ async def list_connection_files(
     try:
         client = await ConnectionService().construct_client(db, conn, current_user)
         entries = await client.alist_files(recursive=True)
+    except HTTPException as he:
+        # Per-user OAuth sources raise 403 when the caller hasn't linked their
+        # account. Surface that as a structured "connect required" state (not a
+        # generic failure) so the UI can prompt sign-in instead of showing an
+        # error. Any other HTTPException is a real error — re-raise it.
+        detail = str(getattr(he, "detail", "") or "")
+        if he.status_code == 403 and "connect" in detail.lower():
+            return {
+                "connection_id": str(connection_id),
+                "connect_required": True,
+                "reason": detail,
+                "files": [], "total": 0, "offset": offset, "limit": limit, "has_more": False,
+            }
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to list files: {e}")
     files = [e for e in (entries or []) if not e.get("is_folder")]

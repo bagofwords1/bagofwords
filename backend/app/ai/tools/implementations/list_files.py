@@ -122,7 +122,20 @@ class ListFilesTool(Tool):
         client, _client_err = await resolve_file_client(
             runtime_ctx, data.connection_id, Capability.LIST_FILES
         )
-        live_listing = bool(client is not None and getattr(client, "cheap_live_listing", False))
+        # Per-user OAuth sources (SharePoint/OneDrive/Drive) have no cheap live
+        # listing, but their catalog is either not centrally indexed (per_user)
+        # or ACL-shared — so serving a cache would risk showing another
+        # identity's files. List them LIVE with the current user's client
+        # instead, so the browse always reflects the querying user's account.
+        conn_obj = getattr(client, "_bow_connection", None) if client is not None else None
+        per_user_live = bool(
+            conn_obj is not None
+            and getattr(conn_obj, "auth_policy", None) == "user_required"
+            and "oauth" in (getattr(conn_obj, "allowed_user_auth_modes", None) or [])
+        )
+        live_listing = bool(client is not None and (
+            getattr(client, "cheap_live_listing", False) or per_user_live
+        ))
 
         async def _live() -> tuple:
             if data.folder_id:

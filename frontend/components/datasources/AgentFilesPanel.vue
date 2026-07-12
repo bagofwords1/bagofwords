@@ -45,12 +45,17 @@
         </div>
       </div>
       <div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-2">
+        <div v-if="browse[conn.id]?.connectRequired" class="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1.5">
+          Connect your account to browse — this connection reads files with each user's own credentials.
+        </div>
+        <template v-else>
         <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ browse[conn.id]?.total ?? '…' }} files match · agent reads ONLY these · denials audited</div>
         <ul class="text-xs font-mono text-gray-600 dark:text-gray-400 space-y-0.5 max-h-48 overflow-auto">
           <li v-for="n in (browse[conn.id]?.names || [])" :key="n" class="truncate">{{ n }}</li>
           <li v-if="(browse[conn.id]?.total || 0) > (browse[conn.id]?.names?.length || 0)" class="text-gray-400 italic">… {{ browse[conn.id].total - browse[conn.id].names.length }} more</li>
           <li v-if="browse[conn.id] && browse[conn.id].total === 0" class="text-gray-400 italic">{{ indexModeOf(conn) === 'none' ? 'Live source — read on demand, not cached.' : 'No files match.' }}</li>
         </ul>
+        </template>
       </div>
     </section>
 
@@ -67,7 +72,7 @@ const toast = useToast()
 const connections = ref<any[]>([])
 const registryByType = ref<Record<string, any>>({})
 const files = ref<any[]>([])
-const browse = ref<Record<string, { names: string[]; total: number }>>({})
+const browse = ref<Record<string, { names: string[]; total: number; connectRequired?: boolean }>>({})
 const uploading = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -95,7 +100,7 @@ async function loadAll() {
       // so browse never diverges and none-mode connections show their files.
       const res = await useMyFetch(`/data_sources/${props.dsId}/connections/${c.id}/files?limit=30`, { method: 'GET' })
       const d: any = res.data.value || {}
-      browse.value[c.id] = { names: (d.files || []).map((f: any) => f.id || f.name), total: d.total ?? (d.files || []).length }
+      browse.value[c.id] = { names: (d.files || []).map((f: any) => f.id || f.name), total: d.total ?? (d.files || []).length, connectRequired: !!d.connect_required }
     } catch { browse.value[c.id] = { names: [], total: 0 } }
   }
 }

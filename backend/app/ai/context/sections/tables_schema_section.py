@@ -55,6 +55,7 @@ class FileScopeItem(BaseModel):
     topics: List[str] = []           # aggregate keywords (content mode)
     supports_search: bool = True     # native search API OR index_mode==content
     writable: bool = False
+    per_user: bool = False           # per-user OAuth (each user reads as themselves)
 
 
 class TablesSchemaContext(ContextSection):
@@ -248,6 +249,17 @@ class TablesSchemaContext(ContextSection):
             )
             if fs.topics:
                 inner.append(xml_tag("topics", xml_escape(", ".join(fs.topics[:12]))))
+            # Per-user OAuth sources: the sample/count above (if any) reflect the
+            # querying user's own account, and discovery is always live — so tell
+            # the model not to treat an empty scope as "no files".
+            if fs.per_user:
+                inner.append(xml_tag(
+                    "auth",
+                    "per-user — each user reads with their own connected account. "
+                    "The file list is per-user and fetched live; an empty scope here "
+                    "does NOT mean no files — call list_files/search_files to see the "
+                    "current user's files (they must have connected their account)."
+                ))
             # Usage guidance — gate search_files on real capability.
             if fs.supports_search:
                 usage = ("search_files to find by topic · list_files to browse · "

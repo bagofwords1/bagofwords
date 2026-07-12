@@ -167,6 +167,14 @@ async def resolve_file_client(
             f"Connection '{resolved_conn.name}' does not support {required_capability.value}."
         )
 
+    # Stash the resolved connection so tools can inspect its auth policy (e.g.
+    # list_files listing live-per-user for per-user OAuth sources) without a
+    # second lookup.
+    try:
+        client._bow_connection = resolved_conn
+    except Exception:
+        pass
+
     return client, None
 
 
