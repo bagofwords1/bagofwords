@@ -55,8 +55,8 @@ class ConnectionUpdate(BaseModel):
 
     @validator("reindex_interval_minutes")
     def _validate_minutes(cls, v):
-        if v is not None and v < 10:
-            raise ValueError("reindex_interval_minutes must be at least 10")
+        if v is not None and v < 1:
+            raise ValueError("reindex_interval_minutes must be at least 1")
         return v
 
     @validator("reindex_at_time")

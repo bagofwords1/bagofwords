@@ -40,7 +40,7 @@ class Connection(BaseSchema):
     reindex_interval_hours = Column(Integer, nullable=True, default=None)
 
     # The schedule is EITHER a recurring interval OR a fixed time-of-day:
-    #   * mode == "interval": fire every `reindex_interval_minutes` (10m floor).
+    #   * mode == "interval": fire every `reindex_interval_minutes` (1m floor).
     #   * mode == "time":     fire once a day at `reindex_at_time` ("HH:MM"),
     #                         interpreted in the org's timezone (UTC fallback).
     # `reindex_interval_minutes` supersedes the legacy `reindex_interval_hours`
@@ -92,7 +92,7 @@ class Connection(BaseSchema):
     DEFAULT_REINDEX_INTERVAL_HOURS = 12
     DEFAULT_REINDEX_INTERVAL_MINUTES = 12 * 60
     # Hard floor on interval cadence — guards against runaway tight loops.
-    MIN_REINDEX_INTERVAL_MINUTES = 10
+    MIN_REINDEX_INTERVAL_MINUTES = 1
 
     @property
     def effective_reindex_interval_minutes(self) -> int:

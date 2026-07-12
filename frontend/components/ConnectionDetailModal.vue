@@ -130,7 +130,7 @@
             </div>
           </div>
 
-          <!-- Interval: number + unit (10 minute minimum) -->
+          <!-- Interval: number + unit (1 minute minimum) -->
           <div v-if="reindexMode === 'interval'" class="flex items-center justify-between">
             <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.autoReindexEvery') }}</span>
             <div class="flex items-center gap-1">
@@ -687,7 +687,7 @@ const autoReindexError = ref<string | null>(null)
 const savingAutoReindex = ref(false)
 
 // Schedule: either a recurring interval (value + unit) OR a fixed daily time.
-const MIN_INTERVAL_MINUTES = 10
+const MIN_INTERVAL_MINUTES = 1
 const reindexMode = ref<'interval' | 'time'>('interval')
 const intervalValue = ref<number>(12)
 const intervalUnit = ref<'minutes' | 'hours'>('hours')

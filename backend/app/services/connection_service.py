@@ -372,12 +372,12 @@ class ConnectionService:
                     status_code=400,
                     detail="reindex_interval_hours must be between 1 and 168.",
                 )
-            # Interval minutes: 10 minute floor .. 7 days.
+            # Interval minutes: 1 minute floor .. 7 days.
             mins = updates.get("reindex_interval_minutes")
-            if mins is not None and (mins < 10 or mins > 24 * 7 * 60):
+            if mins is not None and (mins < 1 or mins > 24 * 7 * 60):
                 raise HTTPException(
                     status_code=400,
-                    detail="reindex_interval_minutes must be between 10 and 10080.",
+                    detail="reindex_interval_minutes must be between 1 and 10080.",
                 )
             mode = updates.get("reindex_schedule_mode")
             if mode is not None and mode not in ("interval", "time"):
