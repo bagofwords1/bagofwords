@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.455 (July 13, 2026)
+- **Fix Slack/Teams channel settings crashing when connected** — a bare `@` in the "Usage notes" locale strings broke vue-i18n message parsing, blanking the panel in every language; the `@` is now escaped so connected Slack/Teams panels render again.
+
 ## Version 0.0.454 (July 13, 2026)
 - **Configurable Teams/WhatsApp session staleness (#646)** — how long Teams 1:1 and WhatsApp chats keep continuing in the same conversation report is set per org in hours from Settings → Channels (`teams_session_max_age_hours`, default 120; `whatsapp_session_max_age_hours`, default 24; range 1–720).
 
