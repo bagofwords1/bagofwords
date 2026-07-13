@@ -29,6 +29,10 @@ class Capability(str, Enum):
     LIST_FILES = "list_files"
     READ_FILE = "read_file"
     SEARCH_FILES = "search_files"
+    # Line-level content grep (regex over raw bytes → matching lines + counts).
+    # Only sources that can scan file contents directly declare it (network_dir,
+    # s3); provider-indexed sources (SharePoint/Drive) keep SEARCH_FILES only.
+    GREP_FILES = "grep_files"
     WRITE_FILE = "write_file"
 
 
@@ -178,6 +182,16 @@ class DataSourceClient(ABC):
         """Free-text search over the connection's accessible files."""
         raise NotImplementedError("search_files not supported by this client")
 
+    def grep_files(self, pattern: str, **kwargs) -> dict:
+        """Line-level content grep: match `pattern` (regex or literal) against
+        each line of the connection's text files and return the matching lines
+        with context, plus sweep accounting (files scanned/skipped, why the
+        sweep stopped, a cursor to resume). Only clients that declare
+        Capability.GREP_FILES implement this — see
+        `_grep_common.run_grep_sweep` for the shared engine and return shape.
+        """
+        raise NotImplementedError("grep_files not supported by this client")
+
     def file_version(self, file_id: str) -> Optional[str]:
         """A cheap, stable version token for a file (mtime+size, ETag, …) used to
         key a content cache and detect staleness — without downloading the file.
@@ -223,6 +237,9 @@ class DataSourceClient(ABC):
 
     async def asearch_files(self, query: str, **kwargs) -> list:
         return await asyncio.to_thread(self.search_files, query, **kwargs)
+
+    async def agrep_files(self, pattern: str, **kwargs) -> dict:
+        return await asyncio.to_thread(self.grep_files, pattern, **kwargs)
 
     async def afile_version(self, file_id: str) -> Optional[str]:
         return await asyncio.to_thread(self.file_version, file_id)

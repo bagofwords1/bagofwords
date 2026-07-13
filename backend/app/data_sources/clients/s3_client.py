@@ -10,10 +10,13 @@ Everything is confined to the configured `bucket` + `prefix`: every file id is a
 key *relative* to the prefix, and any id that escapes it (`..`, absolute, leading
 slash) is rejected at a single chokepoint (`_resolve_key`).
 
-Declares LIST_FILES + READ_FILE. SEARCH_FILES is intentionally NOT declared —
-a live content scan over an object store is a GET-per-object; keyword search runs
-at the tool layer against the catalog indexed in `get_schemas()`. WRITE_FILE is
-likewise out of scope for now.
+Declares LIST_FILES + READ_FILE + GREP_FILES. SEARCH_FILES is intentionally NOT
+declared — a live content scan over an object store is a GET-per-object; keyword
+search runs at the tool layer against the catalog indexed in `get_schemas()`.
+GREP_FILES *is* declared because line-grep is explicitly budgeted (max_files /
+max_bytes_per_file / time budget, resumable cursor), so its GET-per-object cost
+is bounded and reported, unlike an unbounded search. WRITE_FILE is likewise out
+of scope for now.
 
 Auth mirrors the Athena client: static keys, keys + STS assume-role, or boto3's
 default credential chain. All parsing (csv/tsv/xlsx → DataFrame, pdf/docx/pptx →
@@ -66,6 +69,7 @@ class S3Client(DataSourceClient):
     capabilities = {
         Capability.LIST_FILES,
         Capability.READ_FILE,
+        Capability.GREP_FILES,
     }
 
     # A bounded list_objects_v2 under the prefix is cheap enough to do live per
@@ -439,6 +443,107 @@ class S3Client(DataSourceClient):
             "total_size": total,
             "eof": eof,
         }
+
+    def grep_files(
+        self,
+        pattern: str,
+        *,
+        is_regex: bool = True,
+        ignore_case: bool = False,
+        file_ids: Optional[List[str]] = None,
+        folder_id: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        recursive: bool = True,
+        before: int = 0,
+        after: int = 0,
+        max_matches: int = 100,
+        max_matches_per_file: int = 50,
+        max_files: int = 500,
+        max_bytes_per_file: Optional[int] = None,
+        cursor: Optional[str] = None,
+        time_budget_seconds: float = 60.0,
+        **_,
+    ) -> Dict[str, Any]:
+        """Line-level grep under the bucket/prefix — same contract as
+        network_dir.grep_files (see `_grep_common.run_grep_sweep`).
+
+        Cost shape: one LIST for the sweep (or one HEAD per explicit id), then
+        one GET per candidate that passes the size gate — the listing carries
+        object sizes, so oversized objects are skipped without a GET. All
+        candidates flow through `_resolve_key`, the same confinement chokepoint
+        as read_file.
+        """
+        from app.data_sources.clients._grep_common import (
+            DEFAULT_MAX_BYTES_PER_FILE,
+            SKIP_ACCESS_DENIED,
+            SKIP_NOT_FOUND,
+            SKIP_UNREADABLE,
+            run_grep_sweep,
+        )
+
+        byte_cap = int(max_bytes_per_file) if max_bytes_per_file else DEFAULT_MAX_BYTES_PER_FILE
+        s3 = self._client()
+
+        candidates: List[Dict[str, Any]] = []
+        if file_ids:
+            for fid in file_ids:
+                try:
+                    key = self._resolve_key(fid)
+                    head = s3.head_object(Bucket=self.bucket, Key=key)
+                    rel = self._rel_id(key)
+                    candidates.append({
+                        "id": rel, "path": rel,
+                        "size": int(head.get("ContentLength", 0)),
+                    })
+                except GlobScopeError:
+                    candidates.append({"id": str(fid), "skip_reason": SKIP_ACCESS_DENIED})
+                except ValueError:
+                    candidates.append({"id": str(fid), "skip_reason": SKIP_NOT_FOUND})
+                except Exception as e:
+                    # botocore 404 (NoSuchKey / missing head) → not_found; any
+                    # other API failure → unreadable.
+                    code = str(getattr(e, "response", {}).get("Error", {}).get("Code", ""))
+                    reason = SKIP_NOT_FOUND if code in ("404", "NoSuchKey") else SKIP_UNREADABLE
+                    candidates.append({"id": str(fid), "skip_reason": reason})
+        else:
+            import fnmatch
+            pat = (name_pattern or "").strip().lower()
+            for f in self.list_files(folder_id=folder_id, recursive=recursive):
+                if f.get("is_folder"):
+                    continue
+                rel = f["id"]
+                if pat and not (
+                    fnmatch.fnmatch((f.get("name") or "").lower(), pat)
+                    or fnmatch.fnmatch(str(rel).lower(), pat)
+                ):
+                    continue
+                candidates.append({"id": rel, "path": rel, "size": f.get("size")})
+
+        def _read(entry: Dict[str, Any]) -> bytes:
+            key = self._resolve_key(entry["id"])
+            return s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
+        scope_key = "|".join([
+            "s3", self.bucket, self.prefix, str(folder_id or ""), str(name_pattern or ""),
+            str(bool(recursive)), ",".join(sorted(str(f) for f in (file_ids or []))),
+            pattern, str(bool(is_regex)), str(bool(ignore_case)),
+        ])
+        return run_grep_sweep(
+            candidates=candidates,
+            read_bytes=_read,
+            pattern=pattern,
+            is_regex=is_regex,
+            ignore_case=ignore_case,
+            before=before,
+            after=after,
+            max_matches=max_matches,
+            max_matches_per_file=max_matches_per_file,
+            max_files=max_files,
+            max_bytes_per_file=byte_cap,
+            scope_key=scope_key,
+            cursor=cursor,
+            time_budget_seconds=time_budget_seconds,
+        )
 
     def read_raw_bytes(self, file_id: str) -> Tuple[bytes, str, Optional[str]]:
         """Raw object bytes + name + mime, unparsed — for attach_file, which

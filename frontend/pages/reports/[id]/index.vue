@@ -764,6 +764,7 @@ import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
 import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
 import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
+import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
@@ -1637,6 +1638,8 @@ function getToolComponent(toolName: string) {
 			return ReadExcelAsCsvTool
 		case 'search_files':
 			return SearchFilesTool
+		case 'grep_files':
+			return GrepFilesTool
 		case 'list_files':
 			return ListFilesTool
 		case 'read_file':
