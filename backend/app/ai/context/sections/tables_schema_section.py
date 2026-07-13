@@ -1,4 +1,4 @@
-from typing import ClassVar, List, Optional, Literal
+from typing import ClassVar, List, Optional, Literal, Dict, Any
 from pydantic import BaseModel
 from app.ai.context.sections.base import ContextSection, xml_tag, xml_escape
 from app.schemas.data_source_schema import DataSourceSummarySchema
@@ -75,6 +75,13 @@ class TablesSchemaContext(ContextSection):
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []
         file_scopes: List[FileScopeItem] = []
+        # Connections dropped from `tables`/`file_scopes` because their backing
+        # Connection.is_active flag is False (a cached "unreachable" health
+        # signal). Retained so the render can KEEP the data source — a live
+        # sibling connection must not vanish just because one connection is down —
+        # and tell the model which connections are temporarily unavailable,
+        # instead of silently omitting the whole agent. Each item: {name, type}.
+        unhealthy_connections: List[Dict[str, Any]] = []
 
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
@@ -303,6 +310,28 @@ class TablesSchemaContext(ContextSection):
             if fs.writable:
                 attrs["writable"] = "true"
             return xml_tag("connection", "\n".join(inner), attrs)
+
+        def _render_unhealthy_connections_xml(self) -> str:
+            """Flag connections that are currently unreachable (Connection.is_active
+            is False). Their tables are withheld from the schema above — querying a
+            dead connection just errors — but we surface them so the agent knows
+            the data exists and is temporarily unavailable, rather than concluding
+            the whole source has no data."""
+            conns = self.unhealthy_connections or []
+            if not conns:
+                return ""
+            items = []
+            for c in conns:
+                attrs = {"name": (c.get("name") or "unknown")}
+                if c.get("type"):
+                    attrs["type"] = c["type"]
+                items.append(xml_tag(
+                    "connection",
+                    "temporarily unreachable — its tables are withheld until it "
+                    "reconnects; do not attempt to query them.",
+                    attrs,
+                ))
+            return xml_tag("unavailable_connections", "\n".join(items))
 
         def render(self) -> str:
             # Group tables by connection
@@ -579,11 +608,24 @@ class TablesSchemaContext(ContextSection):
             index_xml = ds._render_names_index(index_limit) if include_index else ""
             # Render MCP tools for this data source
             mcp_xml = ds._render_mcp_tools_xml() if ds.mcp_tools else ""
-            if not (sample_xml or index_xml or mcp_xml):
+            # File-source connections render as compact scope descriptors — they
+            # are the ONLY content of a files agent (network_dir/s3/sharepoint/
+            # drive), so without this a healthy files-only source would be dropped.
+            file_xml = "\n".join(ds._render_file_scope_xml(fs) for fs in (ds.file_scopes or []))
+            # Connections withheld because they are unreachable. Surfacing them
+            # keeps a multi-connection agent present when one connection is down.
+            unhealthy_xml = ds._render_unhealthy_connections_xml()
+            # Drop the data source only when it has NOTHING to contribute — no
+            # live relational tables, index, MCP tools, or file connections, and
+            # no unhealthy connection to report. A source keeps its place as long
+            # as ONE connection is live (or there is a down connection worth
+            # flagging), so a dead DB connection never takes its healthy file
+            # sibling — or the whole agent — down with it.
+            if not (sample_xml or index_xml or mcp_xml or file_xml or unhealthy_xml):
                 continue
 
             # Check if multi-connection (sample_xml will contain <connection> tags if so)
-            has_multi_connection = '<connection ' in sample_xml if sample_xml else False
+            has_multi_connection = ('<connection ' in sample_xml if sample_xml else False) or bool(file_xml)
 
             inner_parts: List[str] = []
             status_xml = ds._render_status_xml()
@@ -595,8 +637,12 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:
                 inner_parts.append(index_xml)
+            if file_xml:
+                inner_parts.append(file_xml)
             if mcp_xml:
                 inner_parts.append(mcp_xml)
+            if unhealthy_xml:
+                inner_parts.append(unhealthy_xml)
 
             attrs = {
                 "name": ds.info.name,
