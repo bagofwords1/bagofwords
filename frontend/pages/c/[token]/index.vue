@@ -225,6 +225,7 @@ import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
+import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
@@ -360,6 +361,8 @@ function getToolComponent(toolName: string) {
             return InspectDataTool
         case 'search_files':
             return SearchFilesTool
+        case 'grep_files':
+            return GrepFilesTool
         case 'list_files':
             return ListFilesTool
         case 'read_file':

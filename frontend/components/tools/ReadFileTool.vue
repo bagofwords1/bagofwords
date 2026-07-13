@@ -12,6 +12,7 @@
           <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
           <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
+          <span v-if="windowed" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
         </span>
       </div>
     </Transition>
@@ -38,6 +39,8 @@
       </div>
     </Transition>
 
+    <ToolCallParams v-if="status !== 'running'" :params="toolExecution?.arguments_json" />
+
     <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
@@ -45,6 +48,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 
 interface ToolExecution {
   id: string
@@ -76,6 +80,17 @@ const colCount = computed(() => rj.value.col_count)
 const truncated = computed(() => !!rj.value.truncated)
 const sessionFileId = computed(() => rj.value.session_file_id || '')
 const errorMessage = computed(() => rj.value.error || '')
+
+// Windowed (byte-range) read state — offset comes from the call args, the
+// cursor from the result. Shown as a badge so paging progress is visible.
+const windowed = computed(() => !!rj.value.windowed)
+const windowLabel = computed(() => {
+  if (!windowed.value) return ''
+  const offset = props.toolExecution?.arguments_json?.offset ?? 0
+  const total = rj.value.total_size
+  const pos = total ? `${offset}–${rj.value.next_cursor ?? total} / ${total}` : `offset ${offset}`
+  return rj.value.eof ? `window ${pos} · eof` : `window ${pos}`
+})
 
 const hasContent = computed(() => !!(rj.value.csv || rj.value.text || rj.value.byte_count))
 const previewText = computed(() => {

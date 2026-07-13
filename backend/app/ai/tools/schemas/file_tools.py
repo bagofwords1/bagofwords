@@ -3,7 +3,7 @@ Google Drive, and any future client declaring the LIST_FILES / READ_FILE /
 SEARCH_FILES capabilities)."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -238,6 +238,129 @@ class SearchFilesOutput(BaseModel):
     query: str
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+# ----------------------------------------------------------- grep_files
+
+
+class GrepFilesInput(BaseModel):
+    connection_id: str = Field(
+        ...,
+        description=(
+            "UUID of the file source attached to this agent. Use the value from "
+            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
+            "connection's display name. Either the Connection ID or the DataSource "
+            "(agent) ID is accepted."
+        ),
+    )
+    pattern: str = Field(
+        ...,
+        description=(
+            "Pattern matched against each LINE of the scanned files. Python-regex "
+            "syntax when is_regex=true (the default), otherwise a literal "
+            "substring. Returns matching lines with context — use search_files "
+            "to find WHICH documents are relevant instead."
+        ),
+    )
+    is_regex: bool = Field(
+        True, description="Treat pattern as a regex. Set false for a literal substring."
+    )
+    ignore_case: bool = Field(False, description="Case-insensitive matching.")
+    file_ids: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Explicit files to scan (ids from list_files / search_files). "
+            "Mutually exclusive with name_pattern/folder_id — use this to grep "
+            "a known set, or name_pattern to sweep a corpus."
+        ),
+    )
+    folder_id: Optional[str] = Field(
+        None, description="Restrict the sweep to this folder (id from list_files)."
+    )
+    name_pattern: Optional[str] = Field(
+        None,
+        description=(
+            "Glob (fnmatch) filter for the sweep, e.g. '*.log', 'app-2026-*.txt'. "
+            "Case-insensitive, matched against filename and relative path. "
+            "Omitting both file_ids and name_pattern sweeps every text file in "
+            "scope, bounded by max_files."
+        ),
+    )
+    recursive: bool = Field(
+        True,
+        description="Sweep subfolders. On by default — grep's unit of scope is the corpus.",
+    )
+    before: int = Field(0, ge=0, le=10, description="Context lines before each match (grep -B).")
+    after: int = Field(0, ge=0, le=10, description="Context lines after each match (grep -A).")
+    max_matches: int = Field(
+        100, ge=1, le=2000,
+        description="Total match cap for this call. Continue with `cursor` for more.",
+    )
+    max_matches_per_file: int = Field(
+        50, ge=1, le=500,
+        description="Per-file cap so one noisy file can't exhaust the whole match budget.",
+    )
+    max_files: int = Field(500, ge=1, le=5000, description="Max files to scan this call.")
+    max_bytes_per_file: int = Field(
+        20_000_000, ge=1024, le=100_000_000,
+        description="Files larger than this are skipped and reported in files_skipped.",
+    )
+    cursor: Optional[str] = Field(
+        None,
+        description=(
+            "Opaque resume token from a previous grep_files call (next_cursor). "
+            "Continues the same sweep — pattern and scope must be identical."
+        ),
+    )
+    title: Optional[str] = _title_field()
+
+
+class GrepMatch(BaseModel):
+    file_id: str
+    path: Optional[str] = None
+    line_no: int = Field(..., description="1-based line number, grep convention.")
+    line: str = Field(..., description="The matched line (clipped at 500 chars).")
+    line_truncated: bool = False
+    before: List[str] = Field(default_factory=list)
+    after: List[str] = Field(default_factory=list)
+
+
+class SkippedFile(BaseModel):
+    file_id: str
+    reason: Literal["too_large", "binary", "unreadable", "access_denied", "not_found"]
+
+
+class GrepFilesOutput(BaseModel):
+    success: bool
+    connection_id: str
+    pattern: str
+    matches: List[GrepMatch] = Field(default_factory=list)
+    total_matches: int = Field(
+        0,
+        description=(
+            "Matches found in the scanned files — a lower bound when the sweep "
+            "stopped early (see stop_reason)."
+        ),
+    )
+    files_scanned: int = 0
+    files_with_matches: int = 0
+    files_skipped: List[SkippedFile] = Field(default_factory=list)
+    truncated: bool = Field(
+        False, description="True when matches were dropped due to max_matches / per-file caps."
+    )
+    stop_reason: Literal["complete", "max_matches", "max_files", "time_budget"] = Field(
+        "complete",
+        description=(
+            "Why the sweep ended: 'complete' = everything in scope was scanned; "
+            "'max_matches' = page forward with cursor; 'max_files'/'time_budget' "
+            "= narrow the scope or continue with cursor."
+        ),
+    )
+    next_cursor: Optional[str] = Field(
+        None,
+        description="Pass back as `cursor` (same pattern + scope) to continue. Null when complete.",
+    )
     error: Optional[str] = None
 
 

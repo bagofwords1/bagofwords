@@ -86,10 +86,13 @@ class SearchFilesTool(Tool):
                 "SharePoint, OneDrive, or Google Drive connection. Matches "
                 "filename AND content — including inside PDF, Word, PowerPoint, "
                 "Excel and CSV. Fast: uses the keyword index built when the "
-                "connection was indexed. If a term you're sure is in a file "
-                "isn't found, retry with deep=true for an exhaustive live scan. "
-                "Returns matches with their IDs — pass an ID to read_file or "
-                "attach_file."
+                "connection was indexed; a zero-hit index lookup automatically "
+                "falls through to a live content scan. If a term you're sure is "
+                "in a file isn't found, retry with deep=true for an exhaustive "
+                "live scan. Returns FILES (not lines) with their IDs — pass an "
+                "ID to read_file or attach_file. For exact tokens (error codes, "
+                "request IDs) inside text/log files, or to extract the matching "
+                "LINES themselves, prefer grep_files when available."
             ),
             category="research",
             input_schema=SearchFilesInput.model_json_schema(),

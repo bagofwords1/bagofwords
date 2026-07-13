@@ -3,17 +3,19 @@
 Backs the `network_dir` data source type: a local folder or an already-mounted
 network share (SMB/NFS) exposed to the agent as a file catalog. It gives the
 agent the filesystem primitives it would otherwise reach for on a shell —
-`ls`/`find` (list_files), `grep` (search_files, filename + content), `cat`
-(read_file) — plus, when the connection is writable, `cp`/`put` (write_file).
+`ls`/`find` (list_files), `grep -ril` (search_files, filename + content),
+`grep -n` (grep_files, matching lines + context), `cat` (read_file) — plus,
+when the connection is writable, `cp`/`put` (write_file).
 
 Everything is confined to the configured `root_path`: every id resolves back to
 a path *inside* root, and traversal outside it (`..`, absolute escapes,
 symlinks that point out) is rejected. File ids are the POSIX-relative path under
 root — stable and human-readable, so the LLM can round-trip them naturally.
 
-Declares LIST_FILES + READ_FILE + SEARCH_FILES always; WRITE_FILE only when the
-connection is configured writable (dropped from the *instance* capabilities
-otherwise so runtime resolution rejects a write against a read-only dir).
+Declares LIST_FILES + READ_FILE + SEARCH_FILES + GREP_FILES always; WRITE_FILE
+only when the connection is configured writable (dropped from the *instance*
+capabilities otherwise so runtime resolution rejects a write against a
+read-only dir).
 """
 from __future__ import annotations
 
@@ -73,6 +75,7 @@ class NetworkDirClient(DataSourceClient):
         Capability.LIST_FILES,
         Capability.READ_FILE,
         Capability.SEARCH_FILES,
+        Capability.GREP_FILES,
         Capability.WRITE_FILE,
     }
 
@@ -118,6 +121,7 @@ class NetworkDirClient(DataSourceClient):
             Capability.LIST_FILES,
             Capability.READ_FILE,
             Capability.SEARCH_FILES,
+            Capability.GREP_FILES,
         }
         if self.writable:
             self.capabilities = self.capabilities | {Capability.WRITE_FILE}
@@ -471,6 +475,98 @@ class NetworkDirClient(DataSourceClient):
                 if len(results) >= max_results:
                     break
         return results
+
+    def grep_files(
+        self,
+        pattern: str,
+        *,
+        is_regex: bool = True,
+        ignore_case: bool = False,
+        file_ids: Optional[List[str]] = None,
+        folder_id: Optional[str] = None,
+        name_pattern: Optional[str] = None,
+        recursive: bool = True,
+        before: int = 0,
+        after: int = 0,
+        max_matches: int = 100,
+        max_matches_per_file: int = 50,
+        max_files: int = 500,
+        max_bytes_per_file: Optional[int] = None,
+        cursor: Optional[str] = None,
+        time_budget_seconds: float = 60.0,
+        **_,
+    ) -> Dict[str, Any]:
+        """Line-level grep under root: matching lines + context + sweep
+        accounting (see `_grep_common.run_grep_sweep` for the contract).
+
+        Candidates go through the SAME scoping as every other read: explicit
+        file_ids resolve via `_resolve` (an off-glob id is reported as an
+        access_denied skip, not silently dropped); sweep mode enumerates via
+        `_iter_files`, which already applies junk/extension/glob filters.
+        Text-vs-binary is decided by content sniff in the engine, NOT by
+        extension — .log/.ndjson/extensionless text all grep fine.
+        """
+        from app.data_sources.clients._grep_common import (
+            DEFAULT_MAX_BYTES_PER_FILE,
+            SKIP_ACCESS_DENIED,
+            SKIP_NOT_FOUND,
+            run_grep_sweep,
+        )
+
+        root = self._root()
+        byte_cap = int(max_bytes_per_file) if max_bytes_per_file else DEFAULT_MAX_BYTES_PER_FILE
+
+        candidates: List[Dict[str, Any]] = []
+        if file_ids:
+            for fid in file_ids:
+                try:
+                    path = self._resolve(fid, must_exist=True)
+                    if not path.is_file():
+                        raise ValueError(f"Not a file: {fid}")
+                    rel = self._rel_id(path)
+                    candidates.append({"id": rel, "path": rel, "size": path.stat().st_size})
+                except GlobScopeError:
+                    candidates.append({"id": str(fid), "skip_reason": SKIP_ACCESS_DENIED})
+                except Exception:
+                    candidates.append({"id": str(fid), "skip_reason": SKIP_NOT_FOUND})
+        else:
+            base = self._resolve(folder_id, enforce_scope=False) if folder_id else root
+            if not base.is_dir():
+                raise ValueError(f"Not a folder: {folder_id}")
+            import fnmatch
+            pat = (name_pattern or "").strip().lower()
+            for p in self._iter_files(base, recursive=bool(recursive)):
+                rel = self._rel_id(p)
+                if pat and not (
+                    fnmatch.fnmatch(p.name.lower(), pat) or fnmatch.fnmatch(rel.lower(), pat)
+                ):
+                    continue
+                candidates.append({"id": rel, "path": rel, "size": p.stat().st_size})
+
+        def _read(entry: Dict[str, Any]) -> bytes:
+            return self._resolve(entry["id"], must_exist=True).read_bytes()
+
+        scope_key = "|".join([
+            "network_dir", self.root_path, str(folder_id or ""), str(name_pattern or ""),
+            str(bool(recursive)), ",".join(sorted(str(f) for f in (file_ids or []))),
+            pattern, str(bool(is_regex)), str(bool(ignore_case)),
+        ])
+        return run_grep_sweep(
+            candidates=candidates,
+            read_bytes=_read,
+            pattern=pattern,
+            is_regex=is_regex,
+            ignore_case=ignore_case,
+            before=before,
+            after=after,
+            max_matches=max_matches,
+            max_matches_per_file=max_matches_per_file,
+            max_files=max_files,
+            max_bytes_per_file=byte_cap,
+            scope_key=scope_key,
+            cursor=cursor,
+            time_budget_seconds=time_budget_seconds,
+        )
 
     def write_file(
         self,

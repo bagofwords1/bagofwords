@@ -56,6 +56,8 @@
       </div>
     </Transition>
 
+    <ToolCallParams v-if="status !== 'running'" :params="toolExecution?.arguments_json" />
+
     <div v-if="status !== 'running' && !files.length && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
@@ -63,6 +65,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 
 interface ToolExecution {
   id: string
