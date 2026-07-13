@@ -8,6 +8,7 @@ Covers:
 """
 from unittest.mock import MagicMock
 
+import pytest
 import httpx
 
 from app.data_sources.clients.custom_api_client import CustomApiClient
@@ -131,6 +132,50 @@ class TestConnectionReachability:
         _head_status(monkeypatch, 200)
         client = CustomApiClient(base_url="https://api.example.com", auth_type="bearer", token="t")
         assert client.test_connection()["success"] is True
+
+
+# --- Full Test-Connection path (test_connection_params) ----------------------
+
+class TestConnectionParamsPath:
+    """The pre-save 'Test Connection' button goes through
+    ConnectionService.test_connection_params -> _resolve_client_by_type, which
+    must preserve auth_type so an oauth_app API root 404 reads as reachable
+    (not the misleading 'HTTP 404 — check the base URL' failure)."""
+
+    def _cfg(self):
+        return {
+            "base_url": "https://api.x.com",
+            "auth_type": "oauth_app",
+            "headers": {},
+            "endpoints": [
+                {"name": "create_post", "method": "POST", "path": "/2/tweets",
+                 "parameters": [{"name": "text", "in": "body", "type": "string", "required": True}]},
+            ],
+        }
+
+    def test_resolve_client_preserves_auth_type(self):
+        from app.services.connection_service import ConnectionService
+        c = ConnectionService()._resolve_client_by_type("custom_api", self._cfg(), {"client_id": "x"})
+        assert c.auth_type == "oauth_app"
+
+    @pytest.mark.asyncio
+    async def test_test_params_oauth_app_root_404_is_success(self, monkeypatch):
+        import httpx
+        from app.services.connection_service import ConnectionService
+
+        def fake_head(self, url, **kw):
+            return httpx.Response(404, request=httpx.Request("HEAD", url))
+
+        monkeypatch.setattr(httpx.Client, "head", fake_head)
+        res = await ConnectionService().test_connection_params(
+            data_source_type="custom_api",
+            config=self._cfg(),
+            credentials={"client_id": "x", "client_secret": "y",
+                         "token_url": "https://api.x.com/2/oauth2/token"},
+        )
+        # Reachable → lists the configured endpoints as tools.
+        assert res["success"] is True
+        assert "404" not in res["message"]
 
 
 # --- get_oauth_params for custom_api ----------------------------------------
