@@ -2546,6 +2546,7 @@ class DataSourceService:
         selected_state: str = None,  # 'selected', 'unselected', or None for all
         with_stats: bool = False,
         current_user: User = None,
+        exclude_file_source_types: bool = False,  # hide file-connection catalog rows (they're Files, not Tables)
     ):
         """
         Get paginated tables for a data source with filtering and sorting.
@@ -2597,15 +2598,41 @@ class DataSourceService:
         def _scope(q):
             return q if overlay_table_ids is None else q.where(DataSourceTable.id.in_(overlay_table_ids))
 
+        # Exclude file-source catalog rows from the Tables view: a file connection
+        # (network_dir / s3 / SharePoint / OneDrive / Drive) is surfaced as Files,
+        # NOT as selectable tables — its per-file catalog rows must not leak here.
+        # Applied via a subquery on connection_table_id (no extra joins to clash
+        # with the conditional joins below). NULL connection_table_id (legacy
+        # tables) is kept.
+        _FILE_SOURCE_TYPES = ["network_dir", "s3", "sharepoint", "onedrive", "google_drive", "outlook_mail"]
+        _file_ct_subq = None
+        if exclude_file_source_types:
+            _file_ct_subq = (
+                select(ConnectionTable.id)
+                .join(Connection, ConnectionTable.connection_id == Connection.id)
+                .where(Connection.type.in_(_FILE_SOURCE_TYPES))
+            ).scalar_subquery()
+
+        def _excl(q):
+            if _file_ct_subq is None:
+                return q
+            # Local bind: a later `from sqlalchemy import or_` in this method makes
+            # `or_` a function-local name, so reference it locally here.
+            from sqlalchemy import or_ as _or
+            return q.where(_or(
+                DataSourceTable.connection_table_id.is_(None),
+                DataSourceTable.connection_table_id.notin_(_file_ct_subq),
+            ))
+
         # Get total_tables count first (no filters - for display purposes)
         total_tables_result = await db.execute(
-            _scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))
+            _excl(_scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)))
         )
         total_tables = total_tables_result.scalar() or 0
 
         # Build base query
-        base_query = _scope(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id))
-        count_query = _scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))
+        base_query = _excl(_scope(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id)))
+        count_query = _excl(_scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)))
         
         # Apply selected_state filter (takes precedence over include_inactive)
         if selected_state == 'selected':
@@ -2688,15 +2715,16 @@ class DataSourceService:
         
         # Get total selected count (across ALL tables, not just filtered)
         selected_count_result = await db.execute(
-            select(func.count(DataSourceTable.id)).where(
+            _excl(select(func.count(DataSourceTable.id)).where(
                 DataSourceTable.datasource_id == data_source_id,
                 DataSourceTable.is_active == True
-            )
+            ))
         )
         selected_count = selected_count_result.scalar() or 0
-        
-        # Get distinct connections for filter dropdown
-        connections_result = await db.execute(
+
+        # Get distinct connections for filter dropdown (exclude file sources when
+        # they're hidden from the Tables view, so the dropdown matches the rows).
+        connections_query = (
             select(Connection.id, Connection.name, Connection.type)
             .select_from(DataSourceTable)
             .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
@@ -2704,6 +2732,9 @@ class DataSourceService:
             .where(DataSourceTable.datasource_id == data_source_id)
             .distinct()
         )
+        if exclude_file_source_types:
+            connections_query = connections_query.where(Connection.type.notin_(_FILE_SOURCE_TYPES))
+        connections_result = await db.execute(connections_query)
         distinct_connections = [
             ConnectionInfo(id=str(row[0]), name=row[1], type=row[2])
             for row in connections_result.fetchall()
