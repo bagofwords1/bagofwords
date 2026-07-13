@@ -7,6 +7,10 @@ more. Mentioning the missing agent with `@` makes it work. This loop reproduces
 the failure end-to-end (deterministic + real-LLM + UI) and pins **two** root
 causes that share one defect in `render_combined`.
 
+**Status: FIXED** — `render_combined` now renders `file_scopes` and keeps a data
+source whenever any connection is live (or there is a down connection worth
+flagging). See "The fix (applied)" below.
+
 Two distinct variants share one root defect: **`render_combined` (the render the
 main planner path uses, `agent_v2.py:1515`) decides source membership from
 relational tables/index/MCP tools only, ignores `file_scopes`, and silently
@@ -190,28 +194,74 @@ files, and they never survive into the combined context.
 Regression test: `backend/tests/unit/test_report_context_file_source_omitted.py`
 (full render includes the file source; combined render drops it).
 
-## Proposed fix (NOT applied — root-cause report only)
+## The fix (applied)
 
-The defect is a **silent** omission of an attached-but-unactivated agent. Options,
-at the two seams:
+Rule implemented: **drop an agent only when ALL its connections are dead; if some
+are healthy and some are not, render the healthy ones and flag the dead ones.**
 
-1. **Render `file_scopes` in `render_combined`, and don't silently drop an
-   attached source.** `render_combined` (`tables_schema_section.py:575-611`)
-   must include the `file_scopes` block (as the full render does at `:346-348`)
-   so file-source agents appear at all, and the `:582` guard must count
-   `file_scopes` — otherwise a network-files agent is dropped. And when a
-   `report.data_sources` member still renders empty, emit a minimal
-   `<data_source>` with a status note ("no tables activated yet") instead of
-   `continue`, so the model reports the agent honestly rather than denying it.
-2. **Make new agents usable by default.** `ONBOARDING_MAX_TABLES = 0` means every
-   new agent is dead-on-arrival for the automatic path until a human activates
-   tables. A small positive default (the docstring at `:4262` still says `20`)
-   or auto-activating when `total_tables` is small would remove the trap. If the
-   zero-default is intentional onboarding, the prompt box should not present an
-   agent with 0 active tables as ready-to-use without a warning.
-3. **Surface it in the UI.** The selector shows the agent as selectable with no
-   hint that it will contribute nothing; a "0 tables active" badge would close
-   the gap between what the prompt box shows and what the agent receives.
+Two files changed:
+
+* **`app/ai/context/sections/tables_schema_section.py` — `render_combined`.**
+  It now renders each `file_scopes` entry (via the existing
+  `_render_file_scope_xml`, previously only reached by the full render) and a new
+  `_render_unhealthy_connections_xml()` block, and the drop guard counts them:
+
+  ```python
+  if not (sample_xml or index_xml or mcp_xml or file_xml or unhealthy_xml):
+      continue
+  ```
+
+  So a files-only agent (or a multi-connection agent whose relational side is
+  down) is no longer omitted. A new `unhealthy_connections` field on the
+  `DataSource` section carries the withheld connections.
+
+* **`app/ai/context/builders/schema_context_builder.py`.** When it withholds a
+  table because its connection is unhealthy (`Connection.is_active` False) it now
+  records that connection, and passes the list to the section **only when at
+  least one sibling is live** (`tables or file_scopes`). If every connection is
+  dead the source still renders nothing and is dropped, as before.
+
+**Verification (real LLM, post-fix).** The files-only glob agent as the only
+source on a report — before the fix the model got `<data_sources></data_sources>`
+and said "no data sources or files are currently attached." After:
+
+> "You have access to one file connection right now: **Glob Files** (network
+> directory) … 3 files: sales_q1.csv, sales_q2.csv, summary.txt … browse them
+> with `list_files`, or read them directly with `read_file`."
+
+And the multi-connection agent with a **dead DB + live network_dir** now renders:
+
+```xml
+<data_source name="Procurement Agent" ...>
+  <connection name="Procurement Files" type="network_dir" kind="files" ...>
+    <files>...3 PDFs...</files>
+    <usage>search_files ... list_files ... read_file ...</usage>
+  </connection>
+  <unavailable_connections>
+    <connection name="Procurement DB" type="sqlite">
+      temporarily unreachable — its tables are withheld until it reconnects;
+      do not attempt to query them.
+    </connection>
+  </unavailable_connections>
+</data_source>
+```
+
+Regression guard: `backend/tests/unit/test_report_context_file_source_omitted.py`
+(files-only agent kept; partial-connection agent kept + dead connection flagged;
+truly-empty agent still dropped).
+
+### Related, still open (separate issues)
+
+- **Variant 1 (`ONBOARDING_MAX_TABLES = 0`)** — a brand-new relational agent with
+  zero *activated* tables and no file side still renders empty and is dropped.
+  That is table-activation UX, not this fix; a small positive default (the
+  docstring at `data_source_service.py:4262` still says `20`) or a UI "0 tables
+  active" hint would address it. Test still asserts the current behavior:
+  `test_report_context_inactive_tables_omitted.py`.
+- **UI health signal** — the agent tables page shows "6/6 active" while the
+  backing connection is dead (`DataSourceTable.is_active` is independent of
+  `Connection.is_active`); surfacing connection health there would remove the
+  "looks fine but empty context" confusion at the source.
 
 ## What this proves / regression notes
 

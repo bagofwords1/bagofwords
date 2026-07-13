@@ -109,6 +109,11 @@ class SchemaContextBuilder:
             # Normalize into a common shape for downstream rendering
             # Each entry: { name, columns: [{name,dtype}], pks: [{name,dtype}], fks: [fk], metadata_json, metrics, is_active }
             normalized: List[Dict[str, Any]] = []
+            # Connections whose tables we withhold because the connection is
+            # flagged unhealthy (Connection.is_active is False). Collected so the
+            # renderer can keep the data source and flag them, instead of the
+            # source silently vanishing when one of several connections is down.
+            unhealthy_conns: Dict[str, Dict[str, Any]] = {}
 
             if access_denied:
                 # User has no current access — emit the data source with no tables
@@ -168,8 +173,11 @@ class SchemaContextBuilder:
                     # Connection.is_active is a cached reachability flag; a dead
                     # connection has no client (see construct_clients), so showing
                     # its tables would invite the model to query a source it
-                    # cannot reach.
+                    # cannot reach. Record it so the source is flagged (and kept)
+                    # rather than silently emptied.
                     if active_only and not conn_is_active:
+                        if conn_id:
+                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
                         continue
 
                     normalized.append({
@@ -211,7 +219,11 @@ class SchemaContextBuilder:
                             conn_is_active = bool(getattr(ct.connection, 'is_active', True))
                     # Skip tables whose backing connection is flagged unhealthy
                     # (mirrors construct_clients, which builds no client for it).
+                    # Record it so the source is flagged (and kept) rather than
+                    # silently emptied when a sibling connection is still live.
                     if active_only and not conn_is_active:
+                        if conn_id:
+                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
                         continue
 
                     normalized.append({
@@ -410,6 +422,15 @@ class SchemaContextBuilder:
                     tables=tables,
                     mcp_tools=mcp_tools,
                     file_scopes=file_scopes,
+                    # Only flag connections as unavailable when at least one other
+                    # connection is live — if EVERY connection is down the source
+                    # renders nothing and is dropped as before (an all-dead agent
+                    # has nothing to offer). This is what keeps "some ok, some not"
+                    # showing the ok ones and marking the not-ok ones.
+                    unhealthy_connections=(
+                        list(unhealthy_conns.values())
+                        if (tables or file_scopes) else []
+                    ),
                 )
             )
 
