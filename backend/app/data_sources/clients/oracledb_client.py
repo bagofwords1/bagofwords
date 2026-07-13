@@ -270,7 +270,7 @@ class OracledbClient(DataSourceClient):
     def description(self):
         system_prompt = """
         You can call the execute_query method to run SQL queries.
-        
+
         The below are examples for how to use the execute_query method. Note that the actual SQL will vary based on the schema.
         Notice only the SQL syntax and instructions on how to use the execute_query method, not the actual SQL queries.
 
@@ -281,6 +281,30 @@ class OracledbClient(DataSourceClient):
         ```python
         df = client.execute_query("SELECT * FROM HR.EMPLOYEES WHERE SALARY > 100000")
         ```
+
+        Character set mismatch (ORA-12704):
+        Oracle raises "ORA-12704: character set mismatch" when a single expression
+        combines text values of different character sets — a national-charset column
+        (NVARCHAR2 / NCHAR / NCLOB) mixed with a database-charset value (VARCHAR2 /
+        CHAR / CLOB / a plain 'literal'). Watch the column types in the schema: a
+        column typed NVARCHAR2 or NCHAR is national charset.
+        This happens most often in:
+          - UNION / UNION ALL where one branch's text column is NVARCHAR2 and the
+            matching column in another branch is VARCHAR2 (or a plain string literal).
+          - CASE / DECODE / COALESCE / NVL whose branches mix NVARCHAR2 and VARCHAR2.
+          - String concatenation (||) or comparison across the two charsets.
+        To avoid it, normalize every text branch to ONE charset. The simplest, most
+        reliable fix is to wrap each text column and literal in TO_CHAR(...) so all
+        branches share the database charset:
+          - TO_CHAR(nvarchar2_col)  -- national -> database charset
+          - Use TO_CHAR('literal') or just a plain 'literal' consistently.
+        Example (fixes a UNION across a VARCHAR2 and an NVARCHAR2 column):
+          SELECT TO_CHAR(status) AS status FROM DWH.WF_PROC_INSTS
+          UNION ALL
+          SELECT TO_CHAR(state)  AS status FROM DWH.WF_MANUAL_WORKITEMS
+        Alternatively bring everything to the national charset with TO_NCHAR(...),
+        but pick one direction and apply it to every branch — do not leave a raw
+        NVARCHAR2 column next to a VARCHAR2 one.
         """
         description = f"Oracle database service '{self.service_name}' at {self.host}:{self.port}\n\n"
         description += system_prompt

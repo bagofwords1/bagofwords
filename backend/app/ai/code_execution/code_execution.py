@@ -427,6 +427,52 @@ def validate_sql_query(query: str) -> None:
 
 
 # =============================================================================
+# Known DB-error remediation hints
+# =============================================================================
+
+# Some database errors are cryptic enough that the raw message alone doesn't
+# tell the coder how to fix them, so it keeps regenerating the same broken
+# query across retries. Each entry maps a case-insensitive signature found in
+# the error text to an actionable hint appended to the retry feedback. Keep
+# this list SHORT and high-signal — only errors where the fix is unambiguous.
+_DB_ERROR_HINTS: List[Tuple[str, str]] = [
+    (
+        "ORA-12704",
+        # Oracle character set mismatch: an expression combines national-charset
+        # text (NVARCHAR2/NCHAR/NCLOB) with database-charset text (VARCHAR2/CHAR/
+        # CLOB/a plain literal), usually across a UNION/UNION ALL, CASE/DECODE/
+        # COALESCE/NVL, concatenation, or comparison.
+        "Hint: ORA-12704 means the query combines text of two different Oracle "
+        "character sets — a national-charset column (NVARCHAR2/NCHAR/NCLOB) mixed "
+        "with a database-charset value (VARCHAR2/CHAR/CLOB or a plain 'literal'). "
+        "This usually happens across a UNION/UNION ALL, CASE/DECODE/COALESCE/NVL, "
+        "string concatenation (||), or comparison. Fix it by normalizing every "
+        "text branch to ONE character set: wrap each NVARCHAR2/NCHAR column (and "
+        "any mismatched literal) in TO_CHAR(...) so all branches share the "
+        "database charset — e.g. SELECT TO_CHAR(a) ... UNION ALL SELECT TO_CHAR(b) ... "
+        "Apply the conversion to EVERY branch of the offending expression, then retry."
+    ),
+]
+
+
+def augment_db_error_hint(error_text: str) -> str:
+    """Append a remediation hint when the error matches a known signature.
+
+    Returns the error text unchanged when nothing matches. Reactive companion
+    to the proactive guidance in each client's `description`: the hint rides
+    the actual failure into the retry feedback, right next to the failing
+    code, regardless of how the query was generated.
+    """
+    if not isinstance(error_text, str) or not error_text:
+        return error_text
+    haystack = error_text.upper()
+    hints = [hint for signature, hint in _DB_ERROR_HINTS if signature.upper() in haystack]
+    if not hints:
+        return error_text
+    return error_text + "\n" + "\n".join(hints)
+
+
+# =============================================================================
 # Query Capturing Wrapper (captures queries passed to execute_query)
 # =============================================================================
 
@@ -1201,7 +1247,7 @@ class StreamingCodeExecutor:
                 executed_successfully = True
                 break
             except Exception as e:
-                msg = f"Execution error: {str(e)}"
+                msg = augment_db_error_hint(f"Execution error: {str(e)}")
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
@@ -1423,7 +1469,7 @@ class StreamingCodeExecutor:
                 # client wrapper), so the attempt is not safely repeatable.
                 break
             except Exception as e:
-                msg = f"Execution error: {str(e)}"
+                msg = augment_db_error_hint(f"Execution error: {str(e)}")
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
