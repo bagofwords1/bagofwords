@@ -3,6 +3,27 @@
 See `frontend/AGENTS.md` and `backend/AGENTS.md` for the per-side guides, and
 `backend/tests/AGENTS.md` before writing or changing any backend test.
 
+### Issues & PRs — read the authoring standard first
+
+Before you **open a GitHub issue** or **write a PR description**, read the
+matching standard **in full** and follow it. These are dual-audience artifacts
+(a maintainer must be able to *decide* from the top; a future fixer/agent must
+be able to *navigate and reproduce*), distilled from this repo's own issues/PRs:
+
+- **`.claude/templates/issue_schema.md`** — how to open an issue: title
+  `[Severity] area: precise outcome`, **user-impact first** (a named persona,
+  what they see, why it hurts), a single **root cause with `file:line`**,
+  **quoted evidence** (never "I think"), the **"tell"** that proves it's a real
+  bug vs intended, honestly-**bounded scope** (what's NOT affected), an in-repo
+  **correct-reference pattern**, a **minimal→fuller proposed fix**, and a
+  code-derived **wireframe only for visual bugs**. Severity is a worded judgment,
+  not a score.
+- **`.claude/templates/PR_DESCRIPTION_STANDARD.md`** — the PR body shape:
+  reviewer **decision box**, a product/customer **executive summary**, both a
+  **product-impact and a technical visual**, an **evidence KPI**, and a
+  **context map** — ordered so a reviewer can decide from the first screen and a
+  future agent can navigate the change from the bottom.
+
 ### Agent skills
 
 Reusable agent procedures live in `.agents/skills/<name>/SKILL.md`
