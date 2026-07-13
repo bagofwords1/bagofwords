@@ -174,7 +174,10 @@ class GrepFilesTool(Tool):
         # matched lines themselves (grep-style, capped) or the whole sweep is
         # just a count to the model.
         if output["matches"]:
-            observation["details"] = render_matches_details(output["matches"])
+            observation["details"] = render_matches_details(
+                output["matches"],
+                has_more_pages=bool(output["next_cursor"]),
+            )
         yield ToolEndEvent(type="tool.end", payload={
             "output": output,
             "observation": observation,

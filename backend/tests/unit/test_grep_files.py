@@ -237,11 +237,31 @@ class TestRenderMatchesDetails:
         assert "app/web.log:1- INFO boot ok" in text   # context, grep '-' marker
         assert "app/web.log:3- INFO retrying" in text
 
-    def test_caps_and_reports_omitted(self):
+    def test_caps_and_note_says_found_not_missing(self):
         many = [self._match(line_no=i + 1, line="E " + "x" * 200) for i in range(100)]
         text = render_matches_details(many, max_chars=1000)
-        assert len(text) < 1300  # cap + omission note
-        assert "more matched line(s) omitted" in text
+        assert len(text) < 1400  # cap + note
+        # The note must say the rest WERE found (not "go fetch more") and must
+        # not point at a cursor that doesn't exist.
+        assert "all 100 were found" in text
+        assert "cursor" not in text
+        assert "do NOT re-run the same sweep" in text
+
+    def test_note_mentions_cursor_only_when_pages_remain(self):
+        many = [self._match(line_no=i + 1, line="E " + "x" * 200) for i in range(100)]
+        text = render_matches_details(many, max_chars=1000, has_more_pages=True)
+        assert "Continue with the cursor" in text
+
+    def test_adaptive_budget_renders_modest_sets_in_full(self):
+        # The incident case: ~a dozen long JSON log lines must ALL render —
+        # no note, no clipping — under the default (adaptive) budget.
+        matches = [
+            self._match(line_no=i + 1, line='{"ts":"2026-07-12"} ' + "x" * 480)
+            for i in range(11)
+        ]
+        text = render_matches_details(matches)
+        assert all(f":{i + 1}:" in text for i in range(11))
+        assert "showing" not in text
 
     def test_empty(self):
         assert render_matches_details([]) == ""

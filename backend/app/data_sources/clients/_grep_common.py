@@ -102,20 +102,39 @@ def _clip(line: str) -> Tuple[str, bool]:
     return line, False
 
 
-# Cap for the model-facing rendering of matches (observation.details). Keeps a
-# high-match sweep from flooding the planner context; the count in the summary
-# still reports the true total.
-DETAILS_MAX_CHARS = 3500
+# Budget for the model-facing rendering of matches (observation.details).
+# Adaptive: modest result sets (the "show me all 11 errors" case) render in
+# full; only genuinely large sweeps get clipped. The count in the summary
+# always reports the true total.
+DETAILS_BASE_CHARS = 3500
+DETAILS_PER_MATCH_CHARS = 400
+DETAILS_HARD_CAP_CHARS = 8000
 
 
-def render_matches_details(matches: List[Dict[str, Any]], *, max_chars: int = DETAILS_MAX_CHARS) -> str:
+def render_matches_details(
+    matches: List[Dict[str, Any]],
+    *,
+    max_chars: Optional[int] = None,
+    has_more_pages: bool = False,
+) -> str:
     """Render matches as a grep-style text block for the tool observation.
 
     The planner consumes the OBSERVATION, not the raw tool output — without
     this block the model would see only the match counts while the UI shows
     the lines (the exact failure mode grep_files exists to avoid). Format is
     classic grep: `path:NN:` for matched lines, `path:NN-` for context.
+
+    When the budget clips the rendering, the trailing note must say exactly
+    what happened: the remaining lines WERE found and counted — they are just
+    not printed here. A note that reads as "go fetch more" sends the model on
+    a redundant re-grep of results it already has, and "page with the cursor"
+    is only valid advice when a cursor actually exists (has_more_pages).
     """
+    if max_chars is None:
+        max_chars = min(
+            DETAILS_HARD_CAP_CHARS,
+            DETAILS_BASE_CHARS + DETAILS_PER_MATCH_CHARS * len(matches or []),
+        )
     blocks: List[str] = []
     used = 0
     shown = 0
@@ -136,11 +155,19 @@ def render_matches_details(matches: List[Dict[str, Any]], *, max_chars: int = DE
         used += len(chunk) + 1
         shown += 1
     text = "\n".join(blocks)[:max_chars]
-    if shown < len(matches or []):
+    total = len(matches or [])
+    if shown < total:
         text += (
-            f"\n… {len(matches) - shown} more matched line(s) omitted from this view — "
-            "narrow the pattern or page with the cursor."
+            f"\n[showing {shown} of {total} matched lines — all {total} were found "
+            "and are counted above; the rest are just not printed here. "
         )
+        if has_more_pages:
+            text += "Continue with the cursor for further matches beyond these.]"
+        else:
+            text += (
+                "To view the rest, re-grep the specific file (file_ids) with a "
+                "narrower pattern — do NOT re-run the same sweep.]"
+            )
     return text
 
 
