@@ -1869,14 +1869,41 @@ class InforOlapCredentials(BaseModel):
     username: str = Field(
         ...,
         title="Username",
-        description="Infor OLAP user for the XMLA endpoint (Basic auth).",
+        description="Infor OLAP user sent in the XMLA worker PropertyList; direct connections also use HTTP Basic.",
         json_schema_extra={"ui:type": "string"},
     )
     password: str = Field(
         ...,
         title="Password",
-        description="Password for the Infor OLAP user.",
+        description="Infor OLAP password sent in the XMLA worker PropertyList; direct connections also use HTTP Basic.",
         json_schema_extra={"ui:type": "password"},
+    )
+
+
+class InforOlapIonCredentials(InforOlapCredentials):
+    gateway_token_url: str = Field(
+        ...,
+        title="ION Token URL",
+        description="OAuth token URL formed from the pu and ot values in the .ionapi credentials file.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    gateway_client_id: str = Field(
+        ...,
+        title="ION Client ID",
+        description="Client ID (ci) from the backend-service .ionapi credentials file.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    gateway_client_secret: str = Field(
+        ...,
+        title="ION Client Secret",
+        description="Client secret (cs) from the backend-service .ionapi credentials file.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    gateway_scope: str = Field(
+        "",
+        title="ION OAuth Scope",
+        description="Optional space-separated OAuth scopes assigned to the authorized application.",
+        json_schema_extra={"ui:type": "string"},
     )
 
 
@@ -1918,11 +1945,29 @@ class InforOlapConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "boolean"},
     )
+    worker_url_base: str = Field(
+        "",
+        title="Gateway Worker URL Base",
+        description=(
+            "Optional external base URL used to map worker paths returned by manager discovery through "
+            "ION API Gateway or a reverse proxy. Specify the API-suite route before /BI/APP/SOAP/OLAPDB."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
     tenant: str = Field(
         "single",
         title="Tenant",
-        description="XMLA Tenant property sent during manager discovery ('single' for on-premises single-tenant farms).",
+        description="XMLA Tenant property sent during manager discovery and all worker requests.",
         json_schema_extra={"ui:type": "string"},
+    )
+    secured: bool = Field(
+        False,
+        title="Secured OLAP Datasource",
+        description=(
+            "Match the Secured value advertised by DISCOVER_DATASOURCES. This describes the Infor "
+            "datasource itself, even when an HTTPS gateway fronts an HTTP OLAP farm."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
     )
     verify_ssl: bool = Field(
         True,

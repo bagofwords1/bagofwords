@@ -128,6 +128,7 @@ from app.schemas.data_sources.configs import (
     # Infor OLAP (Infor d/EPM OLAP — XMLA)
     InforOlapConfig,
     InforOlapCredentials,
+    InforOlapIonCredentials,
     # Microsoft Analysis Services (SSAS — XMLA)
     AnalysisServicesConfig,
     AnalysisServicesCredentials,
@@ -1276,7 +1277,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     title="Username / Password",
                     schema=InforOlapCredentials,
                     scopes=["system", "user"],
-                )
+                ),
+                "ion_oauth": AuthVariant(
+                    title="ION API Gateway",
+                    schema=InforOlapIonCredentials,
+                    scopes=["system"],
+                ),
             },
         ),
         client_path="app.data_sources.clients.infor_olap_client.InforOlapClient",
@@ -1741,5 +1747,4 @@ def resolve_client_class(ds_type: str):
     class_name = f"{title}Client"
     module = import_module(module_name)
     return getattr(module, class_name)
-
 

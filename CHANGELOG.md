@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.453 (July 13, 2026)
+- **Infor OLAP XMLA connections** — connect to Infor d/EPM through the OLAP Service Manager or ION API Gateway, with database-worker routing, application credentials, and actionable XMLA faults.
+
 ## Version 0.0.452 (July 12, 2026)
 - **Files knowledge category with enforced glob scope (#630)** — file connectors (`network_dir`, Amazon S3) become their own Files category instead of masquerading as tables: the agent reads only files matching the connection's `include_globs`, off-scope reads are denied and audited (a `file.access_denied` entry in Settings → Audit Logs), large files page cursor-by-cursor via windowed reads, and a new `index_mode` tier (`none` / `metadata` / `content`) selects live listing, a cached file list, or a keyword index.
 - **Agent notes (#631)** — the agent keeps a per-report markdown scratchpad it writes and reads while answering — plans as `- [ ]` checklists, findings, and progress — surfaced read-only in the report and injected back into the planner each iteration; gated by the `enable_agent_notes` org setting.
