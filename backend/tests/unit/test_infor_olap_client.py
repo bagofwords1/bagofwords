@@ -1,6 +1,7 @@
 """Unit tests for InforOlapClient — all XMLA transport is mocked."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+from xml.etree import ElementTree as ET
 
 import pandas as pd
 import pytest
@@ -84,6 +85,17 @@ SOAP_FAULT = (
     b"</soap:Fault></soap:Body></soap:Envelope>"
 )
 
+INFOR_SOAP_FAULT = (
+    b'<?xml version="1.0" encoding="UTF-8"?>'
+    b'<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+    b"<soap:Body><soap:Fault>"
+    b"<faultcode>soap:Server</faultcode>"
+    b"<faultstring>An exception was thrown to inform the client about error condition.</faultstring>"
+    b'<detail><Error ErrorCode="1042" '
+    b'Description="The username or password is incorrect."/></detail>'
+    b"</soap:Fault></soap:Body></soap:Envelope>"
+)
+
 XMLA_INLINE_ERROR = (
     b'<?xml version="1.0" encoding="UTF-8"?>'
     b'<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
@@ -130,6 +142,21 @@ def _client(**kwargs):
     )
 
 
+def _sent_envelopes(session):
+    envelopes = []
+    for call in session.post.call_args_list:
+        payload = call.kwargs.get("data") or call.args[1]
+        envelopes.append(ET.fromstring(payload))
+    return envelopes
+
+
+def _element_text(root, name: str):
+    for element in root.iter():
+        if element.tag.split("}", 1)[-1] == name:
+            return element.text
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Connect / auth
 # ---------------------------------------------------------------------------
@@ -155,6 +182,12 @@ class TestConnect:
         client = _client()
         _install_post(client, [_make_response(SOAP_FAULT)])
         with pytest.raises(RuntimeError, match="Invalid credentials"):
+            client._list_catalogs()
+
+    def test_infor_soap_fault_includes_error_code_and_description(self):
+        client = _client()
+        _install_post(client, [_make_response(INFOR_SOAP_FAULT)])
+        with pytest.raises(RuntimeError, match=r"1042.*username or password"):
             client._list_catalogs()
 
     def test_http_error_raises(self):
@@ -208,6 +241,29 @@ class TestDiscovery:
         assert gl.columns[0].metadata["unique_name"] == "[Account]"
         assert gl.columns[1].metadata["unique_name"] == "[Measures].[Amount]"
 
+    def test_worker_discovery_carries_infor_context_and_credentials(self):
+        client = InforOlapClient(
+            host="http://epm.example.com/bi/olap",
+            username=r"DOMAIN\reader&ops",
+            password="p<>&word",
+            tenant="tenant&one",
+            catalog="Finance",
+        )
+        session = _install_post(client, [
+            _make_response(CUBES_FINANCE),
+            _make_response(HIERARCHIES_GL),
+            _make_response(MEASURES_GL),
+        ])
+
+        client.get_schemas()
+
+        envelopes = _sent_envelopes(session)
+        assert envelopes
+        for envelope in envelopes:
+            assert _element_text(envelope, "Tenant") == "tenant&one"
+            assert _element_text(envelope, "UserName") == r"DOMAIN\reader&ops"
+            assert _element_text(envelope, "Password") == "p<>&word"
+
     def test_get_schema_by_name(self):
         client = _client(catalog="Finance")
         _install_post(client, [
@@ -243,6 +299,23 @@ class TestExecuteQuery:
         assert df.iloc[0]["Account"] == "Cash"
         assert df.iloc[1]["Amount"] == "250"
         assert len(df) == 2
+
+    def test_execute_carries_infor_context_and_credentials(self):
+        client = InforOlapClient(
+            host="http://epm.example.com/bi/olap",
+            username="reader@example.com",
+            password="p<>&word",
+            tenant="tenant&one",
+            catalog="Finance",
+        )
+        session = _install_post(client, [_make_response(EXECUTE_OK)])
+
+        client.execute_query("SELECT {[Measures].[Amount]} ON COLUMNS FROM [GL]")
+
+        envelope = _sent_envelopes(session)[0]
+        assert _element_text(envelope, "Tenant") == "tenant&one"
+        assert _element_text(envelope, "UserName") == "reader@example.com"
+        assert _element_text(envelope, "Password") == "p<>&word"
 
     def test_empty_result_returns_empty_frame(self):
         client = _client(catalog="Finance")
@@ -282,6 +355,19 @@ class TestTopLevel:
         assert result["catalogs"] == 0
         assert "no olap databases" in result["message"].lower()
 
+    def test_configured_catalog_test_connection_verifies_worker(self):
+        client = _manager_client(catalog="Finance", tenant="tenant-one")
+        session = _install_post(client, [
+            _make_response(DATASOURCES_GUID),
+            _make_response(INFOR_SOAP_FAULT),
+        ])
+
+        result = client.test_connection()
+
+        assert result["success"] is False
+        assert "1042" in result["message"]
+        assert session.post.call_count == 2
+
     def test_description_includes_system_prompt(self):
         client = _client()
         text = client.description
@@ -291,6 +377,22 @@ class TestTopLevel:
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class
         assert resolve_client_class("infor_olap") is InforOlapClient
+
+    def test_registry_exposes_ion_gateway_credentials(self):
+        from app.schemas.data_source_registry import credentials_schema_for, get_entry
+
+        entry = get_entry("infor_olap")
+        schema = credentials_schema_for("infor_olap", "ion_oauth")
+
+        assert "ion_oauth" in entry.credentials_auth.by_auth
+        assert {"secured", "worker_url_base"}.issubset(entry.config_schema.model_fields)
+        assert {
+            "username",
+            "password",
+            "gateway_token_url",
+            "gateway_client_id",
+            "gateway_client_secret",
+        }.issubset(schema.model_fields)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +409,12 @@ DATASOURCES_TWO = _discover_envelope(
     "<URL>http://internal-worker-01:8210/BI/APP/SOAP/OLAPDB/Planning</URL></row>"
     "<row><DataSourceName>Finance</DataSourceName>"
     "<URL>http://internal-worker-02:8215/BI/APP/SOAP/OLAPDB/Finance</URL></row>"
+)
+
+DATASOURCES_GUID = _discover_envelope(
+    "<row><DataSourceName>Finance</DataSourceName>"
+    "<URL>http://internal-manager:8200/BI/app/soap/OLAPDB/"
+    "11111111-2222-3333-4444-555555555555</URL></row>"
 )
 
 
@@ -335,6 +443,64 @@ class TestManagerDiscovery:
         _install_post(client, [_make_response(DATASOURCES_ONE)])
         client.connect()
         assert client.host == "http://internal-worker-01:8210/BI/APP/SOAP/OLAPDB/Planning"
+
+    def test_gateway_base_maps_discovered_worker_path(self):
+        client = InforOlapClient(
+            host="https://gateway.example.com/acme/EPM/BI/APP/SOAP/OLAPDB",
+            username="u",
+            password="p",
+            catalog="Planning",
+            manager_discovery=True,
+            worker_url_base="https://gateway.example.com/acme/EPM",
+        )
+        session = _install_post(client, [_make_response(DATASOURCES_ONE)])
+
+        client.connect()
+
+        assert client.host == (
+            "https://gateway.example.com/acme/EPM/BI/APP/SOAP/OLAPDB/Planning"
+        )
+        assert _element_text(_sent_envelopes(session)[0], "Secured") == "false"
+
+    def test_database_guid_route_stays_on_manager_listener(self):
+        client = _manager_client(catalog="Finance", tenant="tenant-one")
+        _install_post(client, [_make_response(DATASOURCES_GUID)])
+
+        client.connect()
+
+        assert client.host == (
+            "http://203.0.113.5:8200/BI/app/soap/OLAPDB/"
+            "11111111-2222-3333-4444-555555555555"
+        )
+
+    def test_manager_bootstrap_drives_schema_discovery_and_query_on_guid_route(self):
+        client = _manager_client(catalog="Finance", tenant="tenant-one")
+        session = _install_post(client, [
+            _make_response(DATASOURCES_GUID),
+            _make_response(CUBES_FINANCE),
+            _make_response(HIERARCHIES_GL),
+            _make_response(MEASURES_GL),
+            _make_response(EXECUTE_OK),
+        ])
+
+        tables = client.get_schemas()
+        frame = client.execute_query(
+            "SELECT {[Measures].[Amount]} ON COLUMNS FROM [GL]",
+            "Finance/GL",
+        )
+
+        assert [table.name for table in tables] == ["Finance/GL"]
+        assert list(frame["Account"]) == ["Cash", "Receivables"]
+        urls = [call.args[0] for call in session.post.call_args_list]
+        assert urls[0] == "http://203.0.113.5:8200/BI/APP/SOAP/OLAPDB"
+        assert set(urls[1:]) == {
+            "http://203.0.113.5:8200/BI/app/soap/OLAPDB/"
+            "11111111-2222-3333-4444-555555555555"
+        }
+        for envelope in _sent_envelopes(session)[1:]:
+            assert _element_text(envelope, "Tenant") == "tenant-one"
+            assert _element_text(envelope, "UserName") == "u"
+            assert _element_text(envelope, "Password") == "p"
 
     def test_catalog_picks_matching_database(self):
         client = _manager_client(catalog="Finance")
@@ -365,6 +531,29 @@ class TestManagerDiscovery:
         assert 'Version Sequence="200"' in body
         assert "<Databasename>Planning</Databasename>" in body
 
+    @pytest.mark.parametrize(
+        ("secured", "expected"),
+        [
+            (False, "false"),
+            (True, "true"),
+        ],
+    )
+    def test_discovery_declares_datasource_security(self, secured, expected):
+        client = InforOlapClient(
+            host="https://epm.example.com/BI/APP/SOAP/OLAPDB",
+            username="u",
+            password="p",
+            catalog="Planning",
+            manager_discovery=True,
+            secured=secured,
+        )
+        session = _install_post(client, [_make_response(DATASOURCES_ONE)])
+
+        client.connect()
+
+        envelope = _sent_envelopes(session)[0]
+        assert _element_text(envelope, "Secured") == expected
+
     def test_bootstrap_runs_once(self):
         client = _manager_client()
         session = _install_post(client, [
@@ -375,6 +564,128 @@ class TestManagerDiscovery:
         client.connect()  # second call must not re-discover
         client._list_catalogs()
         assert session.post.call_count == 2  # one bootstrap + one DBSCHEMA_CATALOGS
+
+
+# ---------------------------------------------------------------------------
+# ION API Gateway authentication
+# ---------------------------------------------------------------------------
+
+class TestIonGateway:
+    def test_client_credentials_mint_gateway_bearer_token(self):
+        token_response = MagicMock()
+        token_response.status_code = 200
+        token_response.json.return_value = {
+            "access_token": "gateway-token",
+            "expires_in": 3600,
+        }
+        client = InforOlapClient(
+            host="https://gateway.example.com/acme/EPM/BI/APP/SOAP/OLAPDB",
+            username="epm-reader",
+            password="epm-password",
+            gateway_token_url="https://identity.example.com/oauth2/token",
+            gateway_client_id="client-id",
+            gateway_client_secret="client-secret",
+            gateway_scope="olap.read",
+        )
+
+        with patch(
+            "app.data_sources.clients.infor_olap_client.requests.post",
+            return_value=token_response,
+        ) as token_post:
+            client.connect()
+
+        assert client._http.auth is None
+        assert client._http.headers["Authorization"] == "Bearer gateway-token"
+        request = token_post.call_args
+        assert request.args[0] == "https://identity.example.com/oauth2/token"
+        assert request.kwargs["data"] == {
+            "grant_type": "client_credentials",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "scope": "olap.read",
+        }
+
+    def test_gateway_manager_worker_and_query_flow(self):
+        token_response = MagicMock(status_code=200)
+        token_response.json.return_value = {
+            "access_token": "gateway-token",
+            "expires_in": 3600,
+        }
+        gateway_base = "https://gateway.example.com/acme/EPM"
+        client = InforOlapClient(
+            host=f"{gateway_base}/BI/APP/SOAP/OLAPDB",
+            username="epm-reader",
+            password="epm-password",
+            catalog="Finance",
+            tenant="tenant-one",
+            manager_discovery=True,
+            worker_url_base=gateway_base,
+            gateway_token_url="https://identity.example.com/oauth2/token",
+            gateway_client_id="client-id",
+            gateway_client_secret="client-secret",
+        )
+        session = _install_post(client, [
+            _make_response(DATASOURCES_GUID),
+            _make_response(CUBES_FINANCE),
+            _make_response(HIERARCHIES_GL),
+            _make_response(MEASURES_GL),
+            _make_response(EXECUTE_OK),
+        ])
+        session.headers = {}
+
+        with patch(
+            "app.data_sources.clients.infor_olap_client.requests.post",
+            return_value=token_response,
+        ):
+            tables = client.get_schemas()
+            frame = client.execute_query(
+                "SELECT {[Measures].[Amount]} ON COLUMNS FROM [GL]",
+                "Finance/GL",
+            )
+
+        worker_url = (
+            f"{gateway_base}/BI/app/soap/OLAPDB/"
+            "11111111-2222-3333-4444-555555555555"
+        )
+        assert [table.name for table in tables] == ["Finance/GL"]
+        assert list(frame["Account"]) == ["Cash", "Receivables"]
+        assert session.headers["Authorization"] == "Bearer gateway-token"
+        assert [call.args[0] for call in session.post.call_args_list] == [
+            f"{gateway_base}/BI/APP/SOAP/OLAPDB",
+            worker_url,
+            worker_url,
+            worker_url,
+            worker_url,
+        ]
+
+    def test_gateway_401_refreshes_token_once(self):
+        first_token = MagicMock(status_code=200)
+        first_token.json.return_value = {"access_token": "first", "expires_in": 3600}
+        second_token = MagicMock(status_code=200)
+        second_token.json.return_value = {"access_token": "second", "expires_in": 3600}
+        client = InforOlapClient(
+            host="https://gateway.example.com/acme/EPM/BI/APP/SOAP/OLAPDB",
+            username="epm-reader",
+            password="epm-password",
+            gateway_token_url="https://identity.example.com/oauth2/token",
+            gateway_client_id="client-id",
+            gateway_client_secret="client-secret",
+        )
+
+        with patch(
+            "app.data_sources.clients.infor_olap_client.requests.post",
+            side_effect=[first_token, second_token],
+        ) as token_post:
+            client.connect()
+            session = _install_post(client, [
+                _make_response(b"expired", status=401),
+                _make_response(CATALOGS_TWO),
+            ])
+            catalogs = client._list_catalogs()
+
+        assert catalogs == ["Finance", "Sales"]
+        assert token_post.call_count == 2
+        assert session.post.call_count == 2
 
 
 # ---------------------------------------------------------------------------

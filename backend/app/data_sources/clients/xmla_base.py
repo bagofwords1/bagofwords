@@ -496,6 +496,9 @@ class XmlaClient(DataSourceClient):
 
         fault = root.find(".//soap:Fault", _NS)
         if fault is not None:
+            error = self._xmla_error_details(fault)
+            if error:
+                raise RuntimeError(f"{self.PRODUCT_NAME} {method} error: {error}")
             faultstring = (fault.findtext("faultstring") or "").strip()
             raise RuntimeError(faultstring or f"{self.PRODUCT_NAME} SOAP fault on {method}")
 
@@ -505,9 +508,22 @@ class XmlaClient(DataSourceClient):
     def _raise_on_xmla_error(self, root: Element):
         """XMLA reports query/discovery errors as <Messages><Error/> inside the
         rowset root rather than as a SOAP fault."""
-        for err in root.iter(f"{{{XMLA_ROWSET_NS}}}Error"):
-            desc = err.get("Description") or err.get("ErrorCode") or "XMLA error"
-            raise RuntimeError(f"{self.PRODUCT_NAME} query error: {desc}")
+        error = self._xmla_error_details(root)
+        if error:
+            raise RuntimeError(f"{self.PRODUCT_NAME} query error: {error}")
+
+    @staticmethod
+    def _xmla_error_details(root: Element) -> Optional[str]:
+        """Return the first XMLA ``Error`` detail regardless of namespace."""
+        for err in root.iter():
+            if err.tag.split("}", 1)[-1] != "Error":
+                continue
+            code = (err.get("ErrorCode") or "").strip()
+            description = (err.get("Description") or "").strip()
+            if code and description:
+                return f"{code}: {description}"
+            return description or code or "XMLA error"
+        return None
 
     @staticmethod
     def _parse_rowset(root: Element) -> List[Dict]:
