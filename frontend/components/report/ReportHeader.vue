@@ -44,13 +44,15 @@
                 v-for="tab in mobileTabs"
                 :key="tab.value"
                 @click="$emit('update:mobileView', tab.value)"
-                class="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
+                class="flex items-center gap-1.5 py-1.5 text-xs font-medium rounded-md transition-colors"
                 :class="mobileView === tab.value
-                    ? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-                    : 'text-gray-400 hover:text-gray-600'"
+                    ? 'px-3 text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
+                    : 'px-2.5 text-gray-400 hover:text-gray-600'"
+                :aria-label="tab.label"
+                :title="tab.label"
             >
-                <Icon :name="tab.icon" class="w-3 h-3" />
-                {{ tab.label }}
+                <Icon :name="tab.icon" class="w-4 h-4 flex-shrink-0" />
+                <span v-if="mobileView === tab.value">{{ tab.label }}</span>
             </button>
             <button
                 v-if="mobileView !== 'chat'"

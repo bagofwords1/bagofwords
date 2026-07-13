@@ -85,7 +85,7 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
 			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
@@ -134,7 +134,7 @@
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
@@ -185,7 +185,7 @@
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
@@ -4234,6 +4234,35 @@ onMounted(async () => {
 }
 .compact-messages li {
 	font-size: 13px;
+}
+
+/* Mobile — larger reading text (excludes Excel compact mode, which can also be narrow) */
+@media (max-width: 767px) {
+	.chat-messages:not(.compact-messages) .block-content {
+		font-size: 15px;
+	}
+	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content) {
+		font-size: 15px;
+	}
+	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
+	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
+		font-size: 13px;
+	}
+	/* User message bubbles (InstructionText renders at 13px by default) */
+	.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
+	.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
+		font-size: 15px;
+	}
+	/* Collapsible reasoning stays secondary, but readable */
+	.chat-messages:not(.compact-messages) .thinking-header {
+		font-size: 13px;
+	}
+	.chat-messages:not(.compact-messages) .thinking-content,
+	.chat-messages:not(.compact-messages) .thinking-content :deep(*),
+	.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
+	.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
+		font-size: 13px !important;
+	}
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
