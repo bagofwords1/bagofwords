@@ -20,7 +20,11 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import GrepFilesInput, GrepFilesOutput
 from app.data_sources.clients.base import Capability
 from app.data_sources.clients._file_source_common import GlobScopeError
-from app.data_sources.clients._grep_common import SKIP_ACCESS_DENIED, compile_pattern
+from app.data_sources.clients._grep_common import (
+    SKIP_ACCESS_DENIED,
+    compile_pattern,
+    render_matches_details,
+)
 
 from ._file_tool_common import audit_file_access_denied, resolve_file_client
 
@@ -165,7 +169,13 @@ class GrepFilesTool(Tool):
             bits.append(f"{len(output['files_skipped'])} file(s) skipped")
         if output["stop_reason"] != "complete":
             bits.append(f"stopped: {output['stop_reason']} — continue with cursor")
+        observation: Dict[str, Any] = {"summary": " — ".join(bits), "success": True}
+        # The planner reads the observation, not the raw output — ship the
+        # matched lines themselves (grep-style, capped) or the whole sweep is
+        # just a count to the model.
+        if output["matches"]:
+            observation["details"] = render_matches_details(output["matches"])
         yield ToolEndEvent(type="tool.end", payload={
             "output": output,
-            "observation": {"summary": " — ".join(bits), "success": True},
+            "observation": observation,
         })

@@ -102,6 +102,48 @@ def _clip(line: str) -> Tuple[str, bool]:
     return line, False
 
 
+# Cap for the model-facing rendering of matches (observation.details). Keeps a
+# high-match sweep from flooding the planner context; the count in the summary
+# still reports the true total.
+DETAILS_MAX_CHARS = 3500
+
+
+def render_matches_details(matches: List[Dict[str, Any]], *, max_chars: int = DETAILS_MAX_CHARS) -> str:
+    """Render matches as a grep-style text block for the tool observation.
+
+    The planner consumes the OBSERVATION, not the raw tool output — without
+    this block the model would see only the match counts while the UI shows
+    the lines (the exact failure mode grep_files exists to avoid). Format is
+    classic grep: `path:NN:` for matched lines, `path:NN-` for context.
+    """
+    blocks: List[str] = []
+    used = 0
+    shown = 0
+    for m in matches or []:
+        path = m.get("path") or m.get("file_id") or "?"
+        ln = int(m.get("line_no") or 0)
+        rows: List[str] = []
+        before = m.get("before") or []
+        for i, b in enumerate(before):
+            rows.append(f"{path}:{ln - len(before) + i}- {b}")
+        rows.append(f"{path}:{ln}: {m.get('line') or ''}")
+        for i, a in enumerate(m.get("after") or []):
+            rows.append(f"{path}:{ln + 1 + i}- {a}")
+        chunk = "\n".join(rows)
+        if blocks and used + len(chunk) + 1 > max_chars:
+            break
+        blocks.append(chunk)
+        used += len(chunk) + 1
+        shown += 1
+    text = "\n".join(blocks)[:max_chars]
+    if shown < len(matches or []):
+        text += (
+            f"\n… {len(matches) - shown} more matched line(s) omitted from this view — "
+            "narrow the pattern or page with the cursor."
+        )
+    return text
+
+
 def run_grep_sweep(
     *,
     candidates: List[Dict[str, Any]],

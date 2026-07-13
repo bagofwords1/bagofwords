@@ -18,6 +18,7 @@ from app.data_sources.clients._grep_common import (
     compile_pattern,
     make_cursor,
     parse_cursor,
+    render_matches_details,
     run_grep_sweep,
 )
 from app.data_sources.clients.base import Capability
@@ -218,6 +219,34 @@ class TestEngine:
         assert m["line_truncated"] is True and len(m["line"]) == 500
 
 
+class TestRenderMatchesDetails:
+    """The model-facing rendering: the planner consumes observation.details,
+    so the matched LINE CONTENT must be in it — counts alone are useless."""
+
+    def _match(self, path="app/web.log", line_no=2, line="ERROR boom", before=None, after=None):
+        return {"file_id": path, "path": path, "line_no": line_no, "line": line,
+                "before": before or [], "after": after or []}
+
+    def test_contains_line_content_and_location(self):
+        text = render_matches_details([
+            self._match(line="ERROR ERR_TIMEOUT_504 upstream",
+                        before=["INFO boot ok"], after=["INFO retrying"]),
+        ])
+        assert "ERR_TIMEOUT_504 upstream" in text
+        assert "app/web.log:2:" in text          # matched line, grep ':' marker
+        assert "app/web.log:1- INFO boot ok" in text   # context, grep '-' marker
+        assert "app/web.log:3- INFO retrying" in text
+
+    def test_caps_and_reports_omitted(self):
+        many = [self._match(line_no=i + 1, line="E " + "x" * 200) for i in range(100)]
+        text = render_matches_details(many, max_chars=1000)
+        assert len(text) < 1300  # cap + omission note
+        assert "more matched line(s) omitted" in text
+
+    def test_empty(self):
+        assert render_matches_details([]) == ""
+
+
 # ------------------------------------------------------------- network_dir
 
 
@@ -287,6 +316,54 @@ class TestNetworkDirGrep:
         c = _client(logs)
         r = asyncio.run(c.agrep_files("ERR_TIMEOUT_504", name_pattern="*.ndjson"))
         assert [m["file_id"] for m in r["matches"]] == ["events.ndjson"]
+
+
+class TestGrepFilesTool:
+    """Tool-level contract: the observation must carry the matched lines
+    (details), not just counts — the planner never sees the raw output."""
+
+    @pytest.mark.asyncio
+    async def test_observation_details_carry_matched_lines(self, logs):
+        from unittest.mock import AsyncMock, patch
+        from app.ai.tools.implementations.grep_files import GrepFilesTool
+
+        client = _client(logs)
+        with patch(
+            "app.ai.tools.implementations.grep_files.resolve_file_client",
+            new=AsyncMock(return_value=(client, None)),
+        ):
+            tool = GrepFilesTool()
+            events = [e async for e in tool.run_stream(
+                {"connection_id": "C1", "pattern": "ERR_TIMEOUT_504",
+                 "is_regex": False, "before": 1, "after": 1},
+                {},
+            )]
+        payload = events[-1].payload
+        assert payload["output"]["success"] is True
+        details = payload["observation"].get("details") or ""
+        # Line content + location reach the model, with context.
+        assert "ERR_TIMEOUT_504 upstream" in details
+        assert "app/web.log:2:" in details
+        assert "app/web.log:1- " in details
+        # And the summary still carries the accounting.
+        assert "5 match(es)" in payload["observation"]["summary"]
+
+    @pytest.mark.asyncio
+    async def test_bad_regex_is_clean_error(self, logs):
+        from unittest.mock import AsyncMock, patch
+        from app.ai.tools.implementations.grep_files import GrepFilesTool
+
+        with patch(
+            "app.ai.tools.implementations.grep_files.resolve_file_client",
+            new=AsyncMock(return_value=(_client(logs), None)),
+        ):
+            tool = GrepFilesTool()
+            events = [e async for e in tool.run_stream(
+                {"connection_id": "C1", "pattern": "([unclosed"}, {},
+            )]
+        payload = events[-1].payload
+        assert payload["output"]["success"] is False
+        assert "Invalid pattern" in payload["output"]["error"]
 
 
 # ---------------------------------------------------------------------- s3

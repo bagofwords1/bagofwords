@@ -167,6 +167,15 @@ class ReadFileTool(Tool):
 
         if version:
             cached = _file_cache.read(data.connection_id, data.file_id, version)
+            # Never serve a TRUNCATED render from cache: the cached text is
+            # frozen at the caps of whichever call populated it, so (a) a
+            # retry asking for more (bigger max_chars/max_rows) would get the
+            # same clipped content back, and (b) _persist_rendered_session
+            # would re-materialize the session file from the clipped text,
+            # poisoning downstream analysis (inspect_data / write_csv) with a
+            # fraction of the file. Truncated renders read live instead.
+            if cached and (cached.get("rendered") or {}).get("truncated"):
+                cached = None
             if cached:
                 rendered = cached.get("rendered") or {}
                 session_file_id = await self._persist_rendered_session(runtime_ctx, data.file_id, rendered)
@@ -218,8 +227,15 @@ class ReadFileTool(Tool):
         )
 
         # Populate the cache. Skip un-rendered binary so a later vision-capable
-        # read still gets its chance to render the pages.
-        if version and output.get("content_type") in ("text", "tabular", "json", "images"):
+        # read still gets its chance to render the pages, and skip TRUNCATED
+        # renders — they're only valid for the caps of THIS call and would be
+        # served verbatim to later calls asking for more (see the read-side
+        # guard above).
+        if (
+            version
+            and output.get("content_type") in ("text", "tabular", "json", "images")
+            and not output.get("truncated")
+        ):
             cache_rendered = {
                 k: v for k, v in output.items()
                 if k not in ("success", "connection_id", "file_id", "session_file_id", "image_file_ids")
