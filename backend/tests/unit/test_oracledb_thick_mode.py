@@ -73,3 +73,19 @@ def test_tcps_without_verification_omits_ssl_context_in_thick_mode(monkeypatch):
     args = _client(use_tcps=True, verify_ssl=False)._connect_args()
     assert args["ssl_server_dn_match"] is False
     assert "ssl_context" not in args
+
+
+# ---------------------------------------------------------------------------
+# Coder-facing description
+# ---------------------------------------------------------------------------
+
+def test_description_warns_about_charset_mismatch():
+    """The description feeds the coder's <connection_clients> prompt, so it must
+    teach how to avoid the recurring ORA-12704 character set mismatch."""
+    desc = _client().description
+    assert "ORA-12704" in desc
+    assert "character set mismatch" in desc.lower()
+    # Names the offending types and the concrete fix so the model can act on it.
+    assert "NVARCHAR2" in desc
+    assert "VARCHAR2" in desc
+    assert "TO_CHAR" in desc
