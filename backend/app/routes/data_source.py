@@ -237,6 +237,9 @@ async def get_data_source_full_schema(
             selected_state=selected_state,
             with_stats=with_stats,
             current_user=current_user,
+            # File connections are surfaced as Files, not Tables — keep their
+            # per-file catalog rows out of the tables selector.
+            exclude_file_source_types=True,
         )
         await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
         return paginated
