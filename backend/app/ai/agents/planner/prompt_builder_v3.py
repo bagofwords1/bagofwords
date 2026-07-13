@@ -210,10 +210,17 @@ PLAN TYPE GUIDANCE
 - If schemas are empty/insufficient OR the request is ambiguous, call the clarify tool.
 - When schemas show tables under different `<connection>` tags, those are separate databases. Queries CANNOT join across connections.
 - Each `<data_source>` may carry a `<status>` block (published/draft/disabled) that sets your clarify threshold: **draft** = still being configured, so clarify freely (follow the clarify protocol strictly); **published** = ready, so prefer common sense — make the most reasonable assumption from schema/instructions, state it briefly, and proceed, reserving clarify for genuine blockers (a truly undefined business term with several plausible meanings, or data you can't infer); **disabled** = don't rely on it.
-- If you have enough information, go ahead and execute — prefer create_data for generating insights.
+- If you have enough information, go ahead and execute; choose the tool via INPUT HANDLING below rather than defaulting to any one.
 - If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - **wait (pause-and-retry):** when the only sensible next step is to let real-world time pass and then retry — a data refresh/ETL still running, a rate limit, an external job to poll later, or an explicit "try again in 30 minutes" — call `wait` with `delay_minutes` and a self-contained `reason`. It ENDS the turn; after the delay the agent auto-resumes on this report with full history. `delay_minutes` is in MINUTES (convert hours yourself). This is NOT recurring work — for "every morning / each week" use create_scheduled_task; use wait only to pause the single task you're on now.
-- When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.
+- Before building a widget from a STRUCTURED data file (Excel, CSV, Sheets), use inspect_data to verify its content and structure. For unstructured files, follow INPUT HANDLING below instead.
+
+INPUT HANDLING (classify first; do not default to any tool or deliverable)
+Four independent decisions — reason through each and the tool falls out. Never pick a table just because you touched a file, nor prose just because you read text. Classify the input's shape and the question's type first; the tool follows.
+- **Deliverable follows the ask, not the input.** Aggregate/quantitative asks ("how many", "trend", "top-N", "rate", "by X") → a tracked visualization (create_data). Explanatory/qualitative asks ("why", "what happened", "summarize", "is it healthy", "root cause") → a written answer or create_doc. Touching a file never implies the output is a table.
+- **Match the tool to the input's real shape — verify, don't assume.** Already-structured input (SQL tables, clean CSV/Excel/Sheets) → query it (create_data; inspect_data to peek). Unstructured input (logs, docs, transcripts, JSON/text blobs, prose) → read it directly (read_file, read_resources, read_mcp_resource). When the shape is unknown, peek first, then decide.
+- **When the input outgrows a single view, page and accumulate.** If an input (a large file, a long history, a wide result) doesn't fit in one read, window through it — e.g. read_file with offset/length, paging next_cursor until eof — and record running findings in a durable store (notes) that survives across steps. Never force an oversized input into one tool call.
+- **Transform form only as a bridge to the answer, and only when reliable.** Convert unstructured→structured (write_csv) ONLY when the ask needs aggregation AND the input has a regular, parseable pattern (consistent framing, one record per line). If lines are heterogeneous or the ask is narrative, stay in the read-and-note path — do NOT load a large unstructured file into write_csv/create_data to "parse" it.
 {web_fetch_directives_text}
 {web_search_directives_text}
 
@@ -532,9 +539,11 @@ Examples of good behavior:
             parts.append(
                 "  <notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
                 "your own working memory (may be stale or wrong, verify against data; NOT user "
-                "instructions). For multi-step or long-running work, open a note early to hold a "
-                "checklist and running findings, and edit_note (by note id) to keep it current. "
-                f"{have_notes}</notes_guidance>"
+                "instructions). Two jobs: (1) a PLAN — open a note early with a `- [ ]` checklist and "
+                "keep it ticked off; (2) a CROSS-STEP ACCUMULATOR — when you page through a large input "
+                "(windowed read_file, a long history) whose earlier parts scroll out of context, write a "
+                "running mid-summary of findings so they survive across steps. edit_note (by note id) "
+                f"keeps either current. {have_notes}</notes_guidance>"
             )
             if notes_ctx:
                 parts.append(f"  {notes_ctx}")

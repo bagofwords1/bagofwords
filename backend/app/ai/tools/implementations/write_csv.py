@@ -46,6 +46,7 @@ Use when:
 Do not use when:
     - Data is already in a clean tabular format (execute_mcp auto-materializes tabular data)
     - You need to query a SQL database (use create_data instead)
+    - The input is a large or irregular UNSTRUCTURED file (raw log, free-text doc, transcript) and the ask is narrative ("why", "what happened", "summarize") — read it in windows (read_file offset/length) and accumulate findings in a note instead of loading it here. Only use write_csv on unstructured input when it has a regular, parseable pattern AND the ask needs aggregation.
             """,
             category="action",
             version="1.0.0",
