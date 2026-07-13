@@ -199,6 +199,10 @@ class PowerBIReportServerClient(DataSourceClient):
         self.enable_pbix_query = enable_pbix_query
 
         self._session: Optional[requests.Session] = None
+        # Catalog-discovery cache: get_schema() is called per execute_query
+        # (table_name → report/dataset ID resolution), so avoid re-enumerating
+        # the whole catalog on every query within one client lifetime.
+        self._schemas_cache: Optional[List[Table]] = None
 
     # ------------------------------------------------------------------
     # URL / auth plumbing
@@ -905,6 +909,11 @@ class PowerBIReportServerClient(DataSourceClient):
           - Each shared dataset (.rsd) — one Table with schema columns and CommandText
           - Each KPI — one Table representing the metric (for LLM awareness)
         """
+        # Serve from cache only for internal (no-callback) calls — indexing
+        # passes a progress_callback and must always re-discover.
+        if progress_callback is None and self._schemas_cache is not None:
+            return self._schemas_cache
+
         reporter = make_reporter(progress_callback)
         reporter.phase("listing")
         self.connect()
@@ -1151,7 +1160,7 @@ class PowerBIReportServerClient(DataSourceClient):
                                 "path": r.get("Path"),
                                 "parse_error": str(e),
                                 "queryable": True,
-                                "query_note": "Execute via execute_query(report_id=..., format='CSV').",
+                                "query_note": "Execute via execute_query(table_name=<this schema table name>) — the report_id is resolved from metadata (or pass report_id=... explicitly, format='CSV').",
                             }},
                         ))
                         continue
@@ -1186,7 +1195,7 @@ class PowerBIReportServerClient(DataSourceClient):
                                 "report_parameters": report_params,
                                 "report_data_sources": report_sources,
                                 "queryable": True,
-                                "query_note": "Execute via execute_query(report_id=..., format='CSV'). Single dataset per execution — RDL export returns full rendered report data.",
+                                "query_note": "Execute via execute_query(table_name=<this schema table name>) — the report_id is resolved from metadata (or pass report_id=... explicitly, format='CSV'). Single dataset per execution — RDL export returns full rendered report data.",
                             }
                         }
                         tables.append(Table(
@@ -1213,7 +1222,7 @@ class PowerBIReportServerClient(DataSourceClient):
                                 "report_name": rname,
                                 "path": r.get("Path"),
                                 "queryable": True,
-                                "query_note": "Execute via execute_query(report_id=..., format='CSV').",
+                                "query_note": "Execute via execute_query(table_name=<this schema table name>) — the report_id is resolved from metadata (or pass report_id=... explicitly, format='CSV').",
                             }},
                         ))
 
@@ -1297,7 +1306,7 @@ class PowerBIReportServerClient(DataSourceClient):
                             for p in params.get(did, [])
                         ],
                         "queryable": True,
-                        "query_note": "Execute via execute_query(dataset_id=...). Uses Model.GetData action. Supports parameters via the parameters kwarg.",
+                        "query_note": "Execute via execute_query(table_name=<this schema table name>) — the dataset_id is resolved from metadata (or pass dataset_id=... explicitly). Uses Model.GetData action. Supports parameters via the parameters kwarg.",
                     }
                 }
                 tables.append(Table(
@@ -1342,6 +1351,7 @@ class PowerBIReportServerClient(DataSourceClient):
             ))
 
         reporter.done()
+        self._schemas_cache = tables
         return tables
 
     def get_schema(self, table_name: str) -> Table:

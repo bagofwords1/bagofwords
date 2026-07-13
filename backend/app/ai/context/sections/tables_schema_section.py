@@ -66,6 +66,30 @@ class FileScopeItem(BaseModel):
     enforces_scope: bool = True
 
 
+def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
+    """Render the `powerbi` (cloud) metadata block for a table, if present.
+
+    Emits datasetId/workspaceId/datasetName/tableName as attributes so the
+    agent can execute DAX with explicit IDs (executeQueries is addressed by
+    dataset GUID) or with the exact schema table name.
+    """
+    try:
+        meta = t.metadata_json if isinstance(t.metadata_json, dict) else None
+        pbi = (meta or {}).get("powerbi")
+        if not isinstance(pbi, dict):
+            return ""
+        attrs = {}
+        for k in ("datasetId", "workspaceId", "datasetName", "tableName"):
+            v = pbi.get(k)
+            if v is not None and v != "":
+                attrs[k] = str(v)
+        if not attrs:
+            return ""
+        return xml_tag("powerbi", "", attrs)
+    except Exception:
+        return ""
+
+
 class TablesSchemaContext(ContextSection):
     tag_name: ClassVar[str] = "data_sources"
 
@@ -179,7 +203,7 @@ class TablesSchemaContext(ContextSection):
                 pbi = (t.metadata_json or {}).get("powerbi_report_server") if isinstance(t.metadata_json, dict) else None
                 if isinstance(pbi, dict):
                     pbi_attrs = {}
-                    for k in ("queryable", "report_type", "upstream_source"):
+                    for k in ("queryable", "report_type", "upstream_source", "report_id", "dataset_id"):
                         v = pbi.get(k)
                         if v is not None and v != "":
                             pbi_attrs[k] = str(v).lower() if isinstance(v, bool) else str(v)
@@ -189,12 +213,17 @@ class TablesSchemaContext(ContextSection):
                         pbi_xml = xml_tag("powerbi_report_server", pbi_inner, pbi_attrs)
             except Exception:
                 pbi_xml = ""
+            # Power BI (cloud) metadata — the executeQueries endpoint is addressed
+            # by dataset GUID, so the agent needs datasetId/workspaceId (or the
+            # exact schema table name) to run DAX. Without these it has no way to
+            # resolve the dataset and ends up asking the user for the GUID.
+            pbi_cloud_xml = _render_powerbi_cloud_metadata_xml(t)
             # Add query instructions for semantic views
             is_semantic_view = isinstance(t.metadata_json, dict) and t.metadata_json.get("type") == "semantic_view"
             note_xml = ""
             if is_semantic_view:
                 note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
-            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, pbi_xml, metrics_xml]))
+            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, pbi_xml, pbi_cloud_xml, metrics_xml]))
             table_attrs = {"name": t.name}
             # Mark semantic views
             if is_semantic_view:
@@ -493,7 +522,7 @@ class TablesSchemaContext(ContextSection):
                     pbi = (t.metadata_json or {}).get("powerbi_report_server") if isinstance(getattr(t, 'metadata_json', None), dict) else None
                     if isinstance(pbi, dict):
                         pbi_attrs = {}
-                        for k in ("queryable", "report_type", "upstream_source"):
+                        for k in ("queryable", "report_type", "upstream_source", "report_id", "dataset_id"):
                             v = pbi.get(k)
                             if v is not None and v != "":
                                 pbi_attrs[k] = str(v).lower() if isinstance(v, bool) else str(v)
@@ -503,7 +532,8 @@ class TablesSchemaContext(ContextSection):
                             pbi_xml = xml_tag("powerbi_report_server", pbi_inner, pbi_attrs)
                 except Exception:
                     pbi_xml = ""
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml]))
+                pbi_cloud_xml = _render_powerbi_cloud_metadata_xml(t)
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml, pbi_cloud_xml]))
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:

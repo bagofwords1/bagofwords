@@ -85,6 +85,59 @@ class PowerBIClient(DataSourceClient):
         self._access_token: Optional[str] = access_token
         self._http: Optional[requests.Session] = None
 
+        # Persisted schema metadata injected via attach_table_metadata():
+        # schema table name ("Dataset/Table") -> the table's `powerbi` metadata
+        # dict ({datasetId, workspaceId, ...}). Lets execute_query resolve the
+        # dataset GUID as a dict lookup instead of re-crawling the tenant.
+        self._table_metadata_map: Dict[str, Dict] = {}
+        # Live-discovery cache: get_schemas() is a full tenant crawl (workspaces,
+        # datasets, admin scan, COLUMNSTATISTICS) — run it at most once per
+        # client instance.
+        self._schemas_cache: Optional[List[Table]] = None
+
+    def attach_table_metadata(self, tables: List[Dict]) -> None:
+        """Inject persisted table metadata (from the indexed schema catalog).
+
+        `tables` is a list of {"name": <schema table name>, "metadata_json": {...}}
+        entries. Only entries carrying `powerbi.datasetId` are kept. Called by
+        DataSourceService.construct_clients so query-time table_name resolution
+        needs zero API calls.
+        """
+        mapping: Dict[str, Dict] = {}
+        for t in tables or []:
+            try:
+                name = (t.get("name") or "").strip()
+                meta = t.get("metadata_json") or {}
+                pbi = meta.get("powerbi") if isinstance(meta, dict) else None
+                if name and isinstance(pbi, dict) and pbi.get("datasetId"):
+                    mapping[name] = pbi
+            except Exception:
+                continue
+        self._table_metadata_map = mapping
+
+    def _resolve_ids_from_metadata(self, table_name: str) -> Optional[Dict]:
+        """Resolve a table reference to its `powerbi` metadata using the
+        attached map. Matches the exact schema name first, then falls back to
+        case-insensitive and tableName/datasetName/datasetId matches."""
+        if not table_name or not self._table_metadata_map:
+            return None
+        pbi = self._table_metadata_map.get(table_name)
+        if pbi:
+            return pbi
+        lowered = table_name.strip().lower()
+        for name, meta in self._table_metadata_map.items():
+            if name.strip().lower() == lowered:
+                return meta
+        for meta in self._table_metadata_map.values():
+            candidates = (
+                str(meta.get("tableName") or "").strip().lower(),
+                str(meta.get("datasetName") or "").strip().lower(),
+                str(meta.get("datasetId") or "").strip().lower(),
+            )
+            if lowered in candidates and lowered:
+                return meta
+        return None
+
     def connect(self):
         """
         Authenticate with Azure AD and obtain an access token for Power BI API.
@@ -647,10 +700,14 @@ class PowerBIClient(DataSourceClient):
 
         return results
 
-    def get_schemas(self) -> List[Table]:
+    def get_schemas(self, force_refresh: bool = False) -> List[Table]:
         """
         Build Table objects representing all internal tables across all datasets.
         Each internal Power BI table becomes one BOW Table named "{Dataset}/{Table}".
+
+        The result is cached on the instance: this is a full tenant crawl
+        (workspaces, datasets, admin scan, COLUMNSTATISTICS fallbacks), far too
+        expensive to repeat per query. Pass force_refresh=True to re-discover.
 
         Strategy:
         1. Fetch datasets and reports for all workspaces in parallel
@@ -659,6 +716,9 @@ class PowerBIClient(DataSourceClient):
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import logging
+
+        if self._schemas_cache is not None and not force_refresh:
+            return self._schemas_cache
 
         workspaces = self.list_workspaces()
         tables: List[Table] = []
@@ -830,6 +890,7 @@ class PowerBIClient(DataSourceClient):
                     metadata_json=metadata_json,
                 ))
 
+        self._schemas_cache = tables
         return tables
 
     def get_schema(self, table_name: str) -> Table:
@@ -890,18 +951,45 @@ class PowerBIClient(DataSourceClient):
         if not query:
             raise ValueError("DAX query is required")
 
-        # If table_name provided (but not dataset_id), look up the IDs
+        # If table_name provided (but not dataset_id), resolve the IDs:
+        # 1. From the attached persisted metadata map — zero API calls.
+        # 2. Fallback: live discovery (cached on the instance after first use).
+        lookup_error: Optional[str] = None
         if table_name and not dataset_id:
-            try:
-                table = self.get_schema(table_name)
-                pbi = (table.metadata_json or {}).get("powerbi") or {}
-                dataset_id = pbi.get("datasetId")
-                workspace_id = workspace_id or pbi.get("workspaceId")
-            except Exception:
-                pass
+            meta = self._resolve_ids_from_metadata(table_name)
+            if meta:
+                dataset_id = meta.get("datasetId")
+                workspace_id = workspace_id or meta.get("workspaceId")
+            else:
+                try:
+                    table = self.get_schema(table_name)
+                    pbi = (table.metadata_json or {}).get("powerbi") or {}
+                    dataset_id = pbi.get("datasetId")
+                    workspace_id = workspace_id or pbi.get("workspaceId")
+                except Exception as e:
+                    lookup_error = str(e)
 
         if not dataset_id:
-            raise ValueError("dataset_id is required (pass table_name or dataset_id)")
+            known = sorted(self._table_metadata_map.keys())
+            hint = (
+                f" Known schema tables include: {', '.join(known[:10])}"
+                f"{', ...' if len(known) > 10 else ''}."
+                if known else ""
+            )
+            if table_name:
+                detail = f" Lookup failed: {lookup_error}" if lookup_error else ""
+                raise ValueError(
+                    f"Could not resolve Power BI dataset for table '{table_name}'.{detail} "
+                    "Pass the schema table name EXACTLY as shown in the schema context "
+                    "(format 'Dataset/Table'), or pass explicit dataset_id=/workspace_id= "
+                    f"from the table's powerbi metadata.{hint}"
+                )
+            raise ValueError(
+                "execute_query needs a target dataset: pass the schema table name as the "
+                "second argument (format 'Dataset/Table', exactly as shown in the schema "
+                "context), or explicit dataset_id=/workspace_id= from the table's powerbi "
+                f"metadata. Do not ask the user for these IDs.{hint}"
+            )
 
         return self._execute_dax_internal(workspace_id, dataset_id, query, max_rows=max_rows)
 
@@ -997,7 +1085,16 @@ df = db_clients['powerbi'].execute_query(
     "EVALUATE Customers",           # DAX uses the table name (after /)
     "SalesModel/Customers"          # Schema table name (REQUIRED)
 )
+
+# Or with explicit IDs from the table's <powerbi datasetId=... workspaceId=.../> metadata:
+df = db_clients['powerbi'].execute_query(
+    "EVALUATE Customers",
+    dataset_id="<datasetId>",
+    workspace_id="<workspaceId>",
+)
 ```
+
+Every table's `datasetId`/`workspaceId` are shown in the schema context — NEVER ask the user for them.
 
 ### DAX Query Pattern
 

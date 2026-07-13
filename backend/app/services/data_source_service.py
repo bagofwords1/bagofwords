@@ -2173,6 +2173,7 @@ class DataSourceService:
 
             client = ClientClass(**allowed)
             self._attach_client_quota_metadata(client, data_source, conn, key)
+            await self._attach_stored_table_metadata(db, client, data_source, conn)
             clients[key] = client
 
         # Backward compatibility: add legacy key aliases for single-connection domains
@@ -2182,6 +2183,48 @@ class DataSourceService:
             clients[data_source.name] = first_client
 
         return clients
+
+    async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
+        """Inject the persisted (indexed) table metadata into clients that
+        resolve query targets from it.
+
+        Some connectors address queries by opaque IDs rather than names — e.g.
+        Power BI's executeQueries endpoint needs the dataset GUID. Those GUIDs
+        are captured at indexing time in DataSourceTable.metadata_json, but the
+        client itself is constructed from connection config/credentials only and
+        has no DB access at query time. Without this hook its only fallback is a
+        live catalog re-crawl on every query. Clients opt in by exposing
+        `attach_table_metadata(tables)`.
+        """
+        if not hasattr(client, "attach_table_metadata"):
+            return
+        try:
+            from app.models.datasource_table import DataSourceTable
+            from app.models.connection_table import ConnectionTable
+
+            rows = (await db.execute(
+                select(DataSourceTable.name, DataSourceTable.metadata_json)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active == True,
+                    ConnectionTable.connection_id == str(connection.id),
+                )
+            )).all()
+            if not rows:
+                # Legacy rows indexed before the connection_table link existed
+                rows = (await db.execute(
+                    select(DataSourceTable.name, DataSourceTable.metadata_json).where(
+                        DataSourceTable.datasource_id == str(data_source.id),
+                        DataSourceTable.is_active == True,
+                    )
+                )).all()
+            client.attach_table_metadata(
+                [{"name": name, "metadata_json": metadata_json} for name, metadata_json in rows]
+            )
+        except Exception:
+            # Non-fatal: the client falls back to live discovery.
+            logger.debug("attach_stored_table_metadata failed", exc_info=True)
 
     def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:
         try:

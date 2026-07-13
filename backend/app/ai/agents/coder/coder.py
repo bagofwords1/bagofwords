@@ -301,6 +301,7 @@ class Coder:
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
            - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
+           - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE Customers", "SalesModel/Customers")`. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -725,6 +726,7 @@ class Coder:
                  * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
                - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
+               - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE Customers", "SalesModel/Customers")`. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -904,6 +906,7 @@ class Coder:
         3. **Joins within one connection are fine**, but cross-connection joins do not work in SQL. If tables are under different `<connection>` tags, query each connection separately.
         4. **Connection-Table Mapping**: Match `<connection name="...">` in schemas to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
         5. **Do not query information_schema** — schemas are already provided above.
+        6. **Power BI connections**: pass the schema table name (`Dataset/Table`, exactly as shown) as the SECOND argument to `execute_query`, or `dataset_id=`/`workspace_id=` from the `<powerbi .../>` metadata. Never ask the user for these IDs.
 
         **What to validate**:
         - Sample rows to see data structure
