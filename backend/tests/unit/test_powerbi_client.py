@@ -215,3 +215,125 @@ class TestRequestRetry:
         out = c._request("POST", "https://api.powerbi.com/x")
         assert out.status_code == 400
         assert c._http.request.call_count == 1
+
+
+# ---------- execute_query dataset resolution ---------- #
+
+
+PBI_META = {
+    "powerbi": {
+        "datasetId": "ds-guid-1",
+        "workspaceId": "ws-guid-1",
+        "workspaceName": "Sales",
+        "datasetName": "SalesModel",
+        "tableName": "Customers",
+    }
+}
+
+
+class TestExecuteQueryResolution:
+    """table_name -> (dataset_id, workspace_id) must resolve from the attached
+    persisted metadata (a dict lookup) — NOT a live tenant re-crawl — and the
+    failure message must steer the model to the schema table name, never to
+    asking the user for a GUID."""
+
+    def _client_with_map(self):
+        c = _mk_client()
+        c.attach_table_metadata([
+            {"name": "SalesModel/Customers", "metadata_json": PBI_META},
+            {"name": "SalesModel/Orders", "metadata_json": {
+                "powerbi": {**PBI_META["powerbi"], "tableName": "Orders"}
+            }},
+            # Rows without powerbi metadata (e.g. other connectors) are ignored
+            {"name": "other", "metadata_json": {"schema": "public"}},
+        ])
+        return c
+
+    def test_resolves_from_attached_metadata_without_discovery(self):
+        c = self._client_with_map()
+        c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
+        c._execute_dax_internal = MagicMock(return_value="df")
+        out = c.execute_query("EVALUATE Customers", "SalesModel/Customers")
+        assert out == "df"
+        c._execute_dax_internal.assert_called_once_with(
+            "ws-guid-1", "ds-guid-1", "EVALUATE Customers", max_rows=None
+        )
+
+    def test_resolution_is_case_insensitive(self):
+        c = self._client_with_map()
+        c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
+        c._execute_dax_internal = MagicMock(return_value="df")
+        c.execute_query("EVALUATE Customers", "salesmodel/customers")
+        c._execute_dax_internal.assert_called_once()
+
+    def test_resolves_by_internal_table_name(self):
+        c = self._client_with_map()
+        c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
+        c._execute_dax_internal = MagicMock(return_value="df")
+        c.execute_query("EVALUATE Orders", "Orders")
+        args = c._execute_dax_internal.call_args[0]
+        assert args[1] == "ds-guid-1"
+
+    def test_explicit_ids_bypass_all_lookup(self):
+        c = _mk_client()
+        c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
+        c._execute_dax_internal = MagicMock(return_value="df")
+        c.execute_query("EVALUATE T", dataset_id="d-x", workspace_id="w-x")
+        c._execute_dax_internal.assert_called_once_with("w-x", "d-x", "EVALUATE T", max_rows=None)
+
+    def test_explicit_workspace_kept_when_table_name_resolves(self):
+        c = self._client_with_map()
+        c._execute_dax_internal = MagicMock(return_value="df")
+        c.execute_query("EVALUATE Customers", "SalesModel/Customers", workspace_id="override-ws")
+        args = c._execute_dax_internal.call_args[0]
+        assert args[0] == "override-ws"
+
+    def test_falls_back_to_live_discovery_when_not_in_map(self):
+        c = self._client_with_map()
+        from app.ai.prompt_formatters import Table
+        live = Table(name="NewModel/Things", columns=[], pks=[], fks=[], is_active=True,
+                     metadata_json={"powerbi": {"datasetId": "live-ds", "workspaceId": "live-ws"}})
+        c.get_schemas = MagicMock(return_value=[live])
+        c._execute_dax_internal = MagicMock(return_value="df")
+        c.execute_query("EVALUATE Things", "NewModel/Things")
+        args = c._execute_dax_internal.call_args[0]
+        assert (args[0], args[1]) == ("live-ws", "live-ds")
+
+    def test_unresolvable_table_error_names_table_and_known_tables(self):
+        c = self._client_with_map()
+        c.get_schemas = MagicMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(ValueError) as ei:
+            c.execute_query("EVALUATE X", "Nope/Nothing")
+        msg = str(ei.value)
+        assert "Nope/Nothing" in msg
+        assert "SalesModel/Customers" in msg          # known-tables hint
+        assert "dataset_id is required" not in msg    # the old GUID-demanding message
+
+    def test_missing_target_error_forbids_asking_user(self):
+        c = self._client_with_map()
+        with pytest.raises(ValueError) as ei:
+            c.execute_query("EVALUATE X")
+        msg = str(ei.value)
+        assert "Do not ask the user" in msg
+        assert "dataset_id is required" not in msg
+
+    def test_empty_query_still_rejected(self):
+        c = self._client_with_map()
+        with pytest.raises(ValueError):
+            c.execute_query("", "SalesModel/Customers")
+
+
+class TestGetSchemasCache:
+    def test_get_schemas_cached_per_instance(self):
+        c = _mk_client()
+        c.list_workspaces = MagicMock(return_value=[])
+        assert c.get_schemas() == []
+        assert c.get_schemas() == []
+        c.list_workspaces.assert_called_once()
+
+    def test_force_refresh_re_discovers(self):
+        c = _mk_client()
+        c.list_workspaces = MagicMock(return_value=[])
+        c.get_schemas()
+        c.get_schemas(force_refresh=True)
+        assert c.list_workspaces.call_count == 2

@@ -253,6 +253,19 @@ class ServiceFormatter:
             except Exception:
                 pass
             try:
+                # Power BI (cloud): executeQueries is addressed by dataset GUID —
+                # surface it so the agent can query without asking the user.
+                pbic = table.metadata_json.get("powerbi", {})
+                kv = []
+                for k in ["datasetId", "workspaceId", "datasetName", "tableName"]:
+                    v = pbic.get(k)
+                    if v is not None and v != "":
+                        kv.append(f"{k}={v}")
+                if kv:
+                    table_strs.append(f"meta: {'; '.join(kv)}")
+            except Exception:
+                pass
+            try:
                 pbi = table.metadata_json.get("powerbi_report_server", {})
                 if pbi:
                     kv = []
@@ -302,8 +315,10 @@ class TableFormatter:
             and table.metadata_json.get("type") == "semantic_view"
         )
         pbi_meta = None
+        pbi_cloud_meta = None
         if isinstance(table.metadata_json, dict):
             pbi_meta = table.metadata_json.get("powerbi_report_server")
+            pbi_cloud_meta = table.metadata_json.get("powerbi")
         table_fmt = []
         table_name = table.name
         for col in table.columns or []:
@@ -374,6 +389,15 @@ class TableFormatter:
                 create_tbl = f"-- Snowflake Semantic View\nCREATE SEMANTIC VIEW {table_name}"
             else:
                 create_tbl = f"CREATE TABLE {table_name}"
+
+        if isinstance(pbi_cloud_meta, dict):
+            kv = []
+            for k in ("datasetId", "workspaceId", "datasetName", "tableName"):
+                v = pbi_cloud_meta.get(k)
+                if v is not None and v != "":
+                    kv.append(f"{k}={v}")
+            if kv:
+                create_tbl = f"-- Power BI: {'; '.join(kv)}\n" + create_tbl
 
         if pbi_meta:
             lines = [f"-- Power BI Report Server entry: {table_name}"]
