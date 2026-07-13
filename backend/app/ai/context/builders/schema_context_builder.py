@@ -418,6 +418,10 @@ class SchemaContextBuilder:
                         context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
                         # Manager-set publishing lifecycle (published/draft/disabled).
                         publish_status=getattr(ds, 'publish_status', None),
+                        # Reliability-loop lifecycle (ok/training/development) — a
+                        # published source can still be "training", which sets a
+                        # distinct clarify posture in the planner prompt.
+                        reliability_status=getattr(ds, 'reliability_status', None),
                     ),
                     tables=tables,
                     mcp_tools=mcp_tools,

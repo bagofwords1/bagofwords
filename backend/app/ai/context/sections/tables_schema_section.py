@@ -120,20 +120,34 @@ class TablesSchemaContext(ContextSection):
             "disabled": "turned off and excluded from normal use",
         }
 
+        # Reliability-loop lifecycle, orthogonal to publish_status. Only
+        # "training" is surfaced — it's the one value that changes the planner's
+        # clarify posture (published + training → "propose, don't ask"). "ok"
+        # (production) and "development" (which already implies publish=draft)
+        # add no signal the publishing status doesn't already carry.
+        _RELIABILITY_STATUS_DESCRIPTIONS: ClassVar[dict] = {
+            "training": "live, but still being actively improved — prefer proposing an instruction over asking",
+        }
+
         def _render_status_xml(self) -> str:
-            """Render the agent's publishing-status block.
+            """Render the agent's status block.
 
             Surfaces the manager-set publishing lifecycle (published/draft/
-            disabled) paired with a short explanation so the planner knows what
-            the status means and can caveat its answers (e.g. note when a source
-            is still a draft rather than finalized).
+            disabled) so the planner knows what the status means and can caveat
+            its answers. When the source is also in the reliability loop's
+            "training" stage, emit that too — it gives the planner a distinct,
+            lower-friction clarify posture (see the clarify protocol).
             """
             publish = (getattr(self.info, 'publish_status', None) or '').strip().lower()
             if not publish:
                 return ""
             desc = self._PUBLISH_STATUS_DESCRIPTIONS.get(publish, "")
-            inner = xml_tag("publishing", xml_escape(desc), {"value": publish})
-            return xml_tag("status", inner)
+            parts = [xml_tag("publishing", xml_escape(desc), {"value": publish})]
+            reliability = (getattr(self.info, 'reliability_status', None) or '').strip().lower()
+            rel_desc = self._RELIABILITY_STATUS_DESCRIPTIONS.get(reliability)
+            if rel_desc:
+                parts.append(xml_tag("reliability", xml_escape(rel_desc), {"value": reliability}))
+            return xml_tag("status", "\n".join(parts))
 
         def _group_tables_by_connection(self) -> dict:
             """Group tables by connection_id. Tables without connection_id go under 'default'."""

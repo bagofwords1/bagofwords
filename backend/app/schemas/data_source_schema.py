@@ -10,6 +10,10 @@ class DataSourceSummarySchema(BaseModel):
     context: Optional[str] = None
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     publish_status: Optional[str] = None
+    # Reliability-loop lifecycle: "ok" | "training" | "development". Orthogonal
+    # to publish_status — a source can be published (live) while still "training"
+    # (being actively improved). Surfaced to the planner to set its clarify posture.
+    reliability_status: Optional[str] = None
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     # None = use the default type/connector icon.
     icon: Optional[str] = None
