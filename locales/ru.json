@@ -1280,7 +1280,11 @@
           "testing": "Проверка…",
           "autoLinkEnabled": "Автопривязка включена",
           "autoLinkDisabled": "Автопривязка отключена",
-          "failedToUpdateSetting": "Не удалось обновить настройку"
+          "failedToUpdateSetting": "Не удалось обновить настройку",
+          "sessionStalenessTitle": "Сессия разговора",
+          "hoursSuffix": "часов",
+          "sessionStalenessSaved": "Окно сессии обновлено",
+          "sessionStalenessInvalid": "Введите целое число от 1 до 720 часов"
         },
         "slack": {
           "title": "Интеграция со Slack",
@@ -1327,7 +1331,8 @@
           "failedConnect": "Не удалось подключить Teams",
           "disconnectedToast": "Teams отключён",
           "disconnectedToastDesc": "Интеграция с Microsoft Teams отключена",
-          "failedDisconnect": "Не удалось отключить Teams"
+          "failedDisconnect": "Не удалось отключить Teams",
+          "sessionStalenessDesc": "Как долго личный чат продолжается в одном отчёте-разговоре. Сообщения после этого окна начинают новый отчёт (команда \"new\" начинает его сразу). По умолчанию: 120 часов (5 дней)."
         },
         "whatsapp": {
           "title": "Интеграция с WhatsApp",
@@ -1358,7 +1363,8 @@
           "failedConnect": "Не удалось подключить WhatsApp",
           "disconnectedToast": "WhatsApp отключён",
           "disconnectedToastDesc": "Интеграция с WhatsApp отключена",
-          "failedDisconnect": "Не удалось отключить WhatsApp"
+          "failedDisconnect": "Не удалось отключить WhatsApp",
+          "sessionStalenessDesc": "Как долго чат продолжается в одном отчёте-разговоре. Сообщения после этого окна начинают новый отчёт (команда \"new\" начинает его сразу). По умолчанию: 24 часа."
         },
         "email": {
           "title": "ИИ-почта",

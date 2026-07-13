@@ -1280,7 +1280,11 @@
           "testing": "Test in corso…",
           "autoLinkEnabled": "Collegamento automatico abilitato",
           "autoLinkDisabled": "Collegamento automatico disabilitato",
-          "failedToUpdateSetting": "Impossibile aggiornare l'impostazione"
+          "failedToUpdateSetting": "Impossibile aggiornare l'impostazione",
+          "sessionStalenessTitle": "Sessione di conversazione",
+          "hoursSuffix": "ore",
+          "sessionStalenessSaved": "Finestra di sessione aggiornata",
+          "sessionStalenessInvalid": "Inserisci un numero intero tra 1 e 720 ore"
         },
         "slack": {
           "title": "Integrazione Slack",
@@ -1327,7 +1331,8 @@
           "failedConnect": "Impossibile connettere Teams",
           "disconnectedToast": "Teams disconnesso",
           "disconnectedToastDesc": "Integrazione Microsoft Teams disconnessa",
-          "failedDisconnect": "Impossibile disconnettere Teams"
+          "failedDisconnect": "Impossibile disconnettere Teams",
+          "sessionStalenessDesc": "Per quanto tempo una chat 1:1 continua nello stesso report di conversazione. I messaggi oltre questa finestra avviano un nuovo report (inviare \"new\" ne avvia uno subito). Predefinito: 120 ore (5 giorni)."
         },
         "whatsapp": {
           "title": "Integrazione WhatsApp",
@@ -1358,7 +1363,8 @@
           "failedConnect": "Impossibile connettere WhatsApp",
           "disconnectedToast": "WhatsApp disconnesso",
           "disconnectedToastDesc": "Integrazione WhatsApp disconnessa",
-          "failedDisconnect": "Impossibile disconnettere WhatsApp"
+          "failedDisconnect": "Impossibile disconnettere WhatsApp",
+          "sessionStalenessDesc": "Per quanto tempo una chat continua nello stesso report di conversazione. I messaggi oltre questa finestra avviano un nuovo report (inviare \"new\" ne avvia uno subito). Predefinito: 24 ore."
         },
         "email": {
           "title": "Casella di posta IA",

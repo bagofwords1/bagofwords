@@ -176,6 +176,17 @@ class OrganizationSettingsService:
                                 status_code=400,
                                 detail="Step retention days must be between 7 and 365."
                             )
+                    # Range check for the Teams/WhatsApp conversation reuse
+                    # windows (plain-int settings, edited from the Channels page).
+                    if key in ('teams_session_max_age_hours', 'whatsapp_session_max_age_hours'):
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not isinstance(new_value, int) or isinstance(new_value, bool) or new_value < 1 or new_value > 720:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Session staleness must be between 1 and 720 hours."
+                            )
+                        # Normalize so a {'value': N} payload is stored as the bare int.
+                        value_update = new_value
                     # Get current config dict from DB or default from schema
                     current_value_dict = current_config.get(key)
                     is_feature = False

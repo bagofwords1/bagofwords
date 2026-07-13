@@ -1508,7 +1508,11 @@
           "testing": "Testing…",
           "autoLinkEnabled": "Auto-link enabled",
           "autoLinkDisabled": "Auto-link disabled",
-          "failedToUpdateSetting": "Failed to update setting"
+          "failedToUpdateSetting": "Failed to update setting",
+          "sessionStalenessTitle": "Conversation session",
+          "hoursSuffix": "hours",
+          "sessionStalenessSaved": "Conversation session window updated",
+          "sessionStalenessInvalid": "Enter a whole number between 1 and 720 hours"
         },
         "slack": {
           "title": "Slack Integration",
@@ -1555,7 +1559,8 @@
           "failedConnect": "Failed to connect Teams",
           "disconnectedToast": "Teams disconnected",
           "disconnectedToastDesc": "Microsoft Teams integration disconnected",
-          "failedDisconnect": "Failed to disconnect Teams"
+          "failedDisconnect": "Failed to disconnect Teams",
+          "sessionStalenessDesc": "How long a 1:1 chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 120 hours (5 days)."
         },
         "whatsapp": {
           "title": "WhatsApp Integration",
@@ -1586,7 +1591,8 @@
           "failedConnect": "Failed to connect WhatsApp",
           "disconnectedToast": "WhatsApp disconnected",
           "disconnectedToastDesc": "WhatsApp integration disconnected",
-          "failedDisconnect": "Failed to disconnect WhatsApp"
+          "failedDisconnect": "Failed to disconnect WhatsApp",
+          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours."
         },
         "email": {
           "title": "AI Mailbox",

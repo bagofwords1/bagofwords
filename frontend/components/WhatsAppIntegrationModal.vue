@@ -66,6 +66,27 @@
           </i18n-t>
         </div>
 
+        <!-- Conversation session staleness -->
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+          <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.integrations.channels.common.sessionStalenessTitle') }}</h3>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ $t('settings.integrations.channels.whatsapp.sessionStalenessDesc') }}</p>
+          <div class="flex items-center gap-2">
+            <input
+              v-model.number="sessionMaxAgeHours"
+              type="number"
+              min="1"
+              max="720"
+              class="w-24 border rounded px-2 py-1 text-sm"
+              :disabled="savingSessionMaxAge"
+              @keyup.enter="saveSessionMaxAge"
+            />
+            <span class="text-sm text-gray-600 dark:text-gray-400">{{ $t('settings.integrations.channels.common.hoursSuffix') }}</span>
+            <UButton size="xs" color="gray" :loading="savingSessionMaxAge" @click="saveSessionMaxAge">
+              {{ $t('settings.integrations.channels.common.save') }}
+            </UButton>
+          </div>
+        </div>
+
         <UButton
           color="red"
           variant="soft"
@@ -120,7 +141,7 @@
   </template>
 
   <script setup lang="ts">
-  import { ref, computed } from 'vue'
+  import { ref, computed, onMounted, watch } from 'vue'
   const props = defineProps<{
     integrated: boolean
     integrationData?: any
@@ -128,6 +149,47 @@
   const emit = defineEmits(['close', 'updated'])
   const toast = useToast()
   const { t } = useI18n()
+
+  // Conversation session staleness (org setting, hours). Default mirrors the
+  // backend schema default (24h).
+  const sessionMaxAgeHours = ref<number>(24)
+  const savingSessionMaxAge = ref(false)
+
+  async function loadSessionMaxAge() {
+    const res = await useMyFetch('/api/organization/settings')
+    if (res.status.value === 'success') {
+      const v = (res.data.value as any)?.config?.whatsapp_session_max_age_hours
+      if (typeof v === 'number' && v > 0) sessionMaxAgeHours.value = v
+    }
+  }
+
+  async function saveSessionMaxAge() {
+    const v = sessionMaxAgeHours.value
+    if (!Number.isInteger(v) || v < 1 || v > 720) {
+      toast.add({ title: t('settings.integrations.channels.common.sessionStalenessInvalid'), color: 'amber' })
+      return
+    }
+    savingSessionMaxAge.value = true
+    const res = await useMyFetch('/api/organization/settings', {
+      method: 'PUT',
+      body: { config: { whatsapp_session_max_age_hours: v } },
+    })
+    savingSessionMaxAge.value = false
+    if (res.status.value === 'success') {
+      toast.add({ title: t('settings.integrations.channels.common.sessionStalenessSaved'), color: 'green' })
+    } else {
+      toast.add({
+        title: t('settings.integrations.channels.common.failedToUpdateSetting'),
+        description: (res.error.value as any)?.data?.detail || (res.error.value as any)?.message,
+        color: 'red',
+      })
+    }
+  }
+
+  onMounted(() => {
+    if (props.integrated) loadSessionMaxAge()
+  })
+  watch(() => props.integrated, (v) => { if (v) loadSessionMaxAge() })
 
   const accessToken = ref('')
   const phoneNumberId = ref('')

@@ -54,7 +54,11 @@ def _adapter():
 
 def _db():
     db = MagicMock()
-    db.execute = AsyncMock()
+    # execute() resolves to a result whose scalar_one_or_none() is None, so the
+    # org-settings lookup for the session staleness window falls back to defaults.
+    result = MagicMock()
+    result.scalar_one_or_none = MagicMock(return_value=None)
+    db.execute = AsyncMock(return_value=result)
     db.commit = AsyncMock()
     return db
 

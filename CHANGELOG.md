@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.454 (July 13, 2026)
+- **Configurable Teams/WhatsApp session staleness (#646)** — how long Teams 1:1 and WhatsApp chats keep continuing in the same conversation report is set per org in hours from Settings → Channels (`teams_session_max_age_hours`, default 120; `whatsapp_session_max_age_hours`, default 24; range 1–720).
+
 ## Version 0.0.453 (July 13, 2026)
 - **Infor OLAP XMLA connections** — connect to Infor d/EPM through the OLAP Service Manager or ION API Gateway, with database-worker routing, application credentials, and actionable XMLA faults.
 

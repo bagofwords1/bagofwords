@@ -1280,7 +1280,11 @@
           "testing": "Testar…",
           "autoLinkEnabled": "Automatisk länkning aktiverad",
           "autoLinkDisabled": "Automatisk länkning inaktiverad",
-          "failedToUpdateSetting": "Det gick inte att uppdatera inställningen"
+          "failedToUpdateSetting": "Det gick inte att uppdatera inställningen",
+          "sessionStalenessTitle": "Konversationssession",
+          "hoursSuffix": "timmar",
+          "sessionStalenessSaved": "Sessionsfönstret uppdaterat",
+          "sessionStalenessInvalid": "Ange ett heltal mellan 1 och 720 timmar"
         },
         "slack": {
           "title": "Slack-integration",
@@ -1327,7 +1331,8 @@
           "failedConnect": "Det gick inte att ansluta Teams",
           "disconnectedToast": "Teams frånkopplad",
           "disconnectedToastDesc": "Microsoft Teams-integrationen frånkopplad",
-          "failedDisconnect": "Det gick inte att koppla från Teams"
+          "failedDisconnect": "Det gick inte att koppla från Teams",
+          "sessionStalenessDesc": "Hur länge en 1:1-chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 120 timmar (5 dagar)."
         },
         "whatsapp": {
           "title": "WhatsApp-integration",
@@ -1358,7 +1363,8 @@
           "failedConnect": "Det gick inte att ansluta WhatsApp",
           "disconnectedToast": "WhatsApp frånkopplad",
           "disconnectedToastDesc": "WhatsApp-integrationen frånkopplad",
-          "failedDisconnect": "Det gick inte att koppla från WhatsApp"
+          "failedDisconnect": "Det gick inte att koppla från WhatsApp",
+          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar."
         },
         "email": {
           "title": "AI-brevlåda",
