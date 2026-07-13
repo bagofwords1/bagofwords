@@ -1374,8 +1374,14 @@ class ConnectionService:
             if credentials:
                 client_params.update(credentials)
 
-            # Strip meta keys, empty values, and oauth override keys (stored in credentials but not used by clients)
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+            # Strip meta keys, empty values, and oauth override keys (stored in credentials but not used by clients).
+            # Keep auth_type — the tool-provider clients (custom_api/mcp) switch on
+            # it (e.g. custom_api's per-user OAuth Bearer + its reachability test).
+            # This mirrors construct_client, which also keeps auth_type; stripping
+            # it here made the pre-save "Test Connection" build the client as
+            # auth_type="none", so an oauth_app API root 404 looked like a failure.
+            # Clients that don't accept auth_type drop it via the signature narrowing below.
+            meta_keys = {"auth_policy", "allowed_user_auth_modes"}
             client_params = {k: v for k, v in client_params.items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
             # Narrow to constructor signature
