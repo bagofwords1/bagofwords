@@ -8,6 +8,8 @@ Covers:
 """
 from unittest.mock import MagicMock
 
+import httpx
+
 from app.data_sources.clients.custom_api_client import CustomApiClient
 from app.services.connection_oauth_service import get_oauth_params
 from app.schemas.data_source_registry import (
@@ -79,6 +81,56 @@ class TestWriteEndpointPolicy:
     def test_confirm_false_overrides_write_method(self):
         c = self._client_with([{"name": "safe_post", "method": "POST", "path": "/x", "confirm": False}])
         assert "default_policy" not in c.list_tools()[0]
+
+
+# --- test_connection reachability (the OAuth-callback rollback bug) ----------
+
+def _head_status(monkeypatch, status):
+    """Patch httpx.Client so a HEAD returns the given status."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status)
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.Client
+
+    class _Patched(original):
+        def __init__(self, *a, **kw):
+            kw["transport"] = transport
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(httpx, "Client", _Patched)
+
+
+class TestConnectionReachability:
+    def test_oauth_app_root_404_is_reachable(self, monkeypatch):
+        # X's api.x.com root 404s; the callback must NOT treat that as a failure
+        # (doing so rolled back a valid token and blocked sign-in).
+        _head_status(monkeypatch, 404)
+        client = CustomApiClient(base_url="https://api.x.com", auth_type="oauth_app")
+        res = client.test_connection()
+        assert res["success"] is True
+        assert "sign-in required" in res["message"].lower()
+
+    def test_oauth_app_401_is_reachable(self, monkeypatch):
+        _head_status(monkeypatch, 401)
+        client = CustomApiClient(base_url="https://api.x.com", auth_type="oauth_app")
+        assert client.test_connection()["success"] is True
+
+    def test_oauth_app_5xx_is_failure(self, monkeypatch):
+        _head_status(monkeypatch, 503)
+        client = CustomApiClient(base_url="https://api.x.com", auth_type="oauth_app")
+        assert client.test_connection()["success"] is False
+
+    def test_bearer_root_404_still_fails(self, monkeypatch):
+        # Strict behavior preserved for data APIs — a 404 root is a likely misconfig.
+        _head_status(monkeypatch, 404)
+        client = CustomApiClient(base_url="https://api.example.com", auth_type="bearer", token="t")
+        assert client.test_connection()["success"] is False
+
+    def test_bearer_200_succeeds(self, monkeypatch):
+        _head_status(monkeypatch, 200)
+        client = CustomApiClient(base_url="https://api.example.com", auth_type="bearer", token="t")
+        assert client.test_connection()["success"] is True
 
 
 # --- get_oauth_params for custom_api ----------------------------------------
