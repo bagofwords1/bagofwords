@@ -214,7 +214,7 @@ const props = defineProps<{
   prefill?: {
     name?: string; server_url?: string; transport?: string; auth_type?: string
     allowed_auth?: string[] | null
-    oauth_defaults?: { authorize_url?: string; token_url?: string; scopes?: string; audience?: string } | null
+    oauth_defaults?: { authorize_url?: string; token_url?: string; scopes?: string; audience?: string; token_endpoint_auth_method?: string } | null
     description?: string
     sample_tools?: string[] | null
   } | null
@@ -247,6 +247,9 @@ const form = reactive({
   client_secret: '',
   scopes: '',
   audience: '',
+  // Provider constant (client_secret_basic for X, client_secret_post for
+  // Microsoft/Google). Carried through, not shown as an input.
+  token_endpoint_auth_method: '',
 })
 
 watch(() => props.editConnection, async (conn) => {
@@ -273,6 +276,7 @@ watch(() => props.editConnection, async (conn) => {
         form.client_secret = ''
         form.scopes = meta.scopes || ''
         form.audience = meta.audience || ''
+        form.token_endpoint_auth_method = meta.token_endpoint_auth_method || ''
         return
       }
     } catch {}
@@ -297,6 +301,7 @@ watch(() => props.prefill, (p) => {
     if (d.token_url) form.token_url = d.token_url
     if (d.scopes) form.scopes = d.scopes
     if (d.audience) form.audience = d.audience
+    if (d.token_endpoint_auth_method) form.token_endpoint_auth_method = d.token_endpoint_auth_method
   }
 }, { immediate: true })
 
@@ -359,6 +364,7 @@ function buildCredentials(): Record<string, any> | undefined {
     if (form.client_secret) c.client_secret = form.client_secret
     if (form.scopes) c.scopes = form.scopes
     if (form.audience) c.audience = form.audience
+    if (form.token_endpoint_auth_method) c.token_endpoint_auth_method = form.token_endpoint_auth_method
     return Object.keys(c).length ? c : undefined
   }
   return undefined

@@ -441,6 +441,21 @@ class ConnectionService:
         if "credentials" in updates:
             new_credentials = updates.pop("credentials")
             if new_credentials and not any(v is None for v in new_credentials.values()):
+                # The edit form never re-sends secret fields the admin left
+                # blank (client_secret / bearer token / api_key are write-only
+                # placeholders). Carry those forward from the stored blob so an
+                # endpoint/scope edit doesn't wipe the secret. This is the bug
+                # that broke X OAuth: editing the connection dropped
+                # client_secret, and the next token exchange failed with
+                # "client_secret_basic requires a client_secret".
+                _SECRET_KEYS = ("client_secret", "oauth_client_secret", "token", "api_key")
+                try:
+                    existing = connection.decrypt_credentials() or {}
+                except Exception:
+                    existing = {}
+                for k in _SECRET_KEYS:
+                    if k not in new_credentials and existing.get(k):
+                        new_credentials[k] = existing[k]
                 connection.encrypt_credentials(new_credentials)
                 connection_changed = True
 
@@ -1469,6 +1484,10 @@ class ConnectionService:
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema"),
                     "output_schema": t.get("output_schema"),
+                    # Providers can hint the policy a newly-discovered tool
+                    # should default to (e.g. custom_api write endpoints → "ask"
+                    # so a post/delete requires confirmation). Absent → "allow".
+                    "default_policy": t.get("default_policy") if isinstance(t, dict) else None,
                 }
 
             # Get existing tools
@@ -1498,7 +1517,10 @@ class ConnectionService:
                         input_schema=payload["input_schema"],
                         output_schema=payload["output_schema"],
                         is_enabled=True,
-                        policy="allow",
+                        # Honor a provider-supplied default (write endpoints →
+                        # "ask"); otherwise allow. Existing tools keep whatever
+                        # policy an admin already set (only new rows are seeded).
+                        policy=payload.get("default_policy") or "allow",
                     )
                     db.add(tool)
                     created_count += 1

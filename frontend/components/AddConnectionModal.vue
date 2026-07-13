@@ -160,6 +160,7 @@
         />
         <CustomAPIConnectionForm
           v-else-if="selectedDataSource?.type === 'custom_api'"
+          :prefill="customApiPrefill"
           @saved="handleToolProviderSaved"
           @cancel="backToSelect"
         />
@@ -285,8 +286,12 @@ const selectedDataSource = ref<any>(null)
 // Curated connector catalog (Notion, Linear, …) — named one-click tiles that
 // prefill the MCP form. Populated from GET /connectors/catalog.
 const catalog = ref<any[]>([])
+// Curated Custom API presets (X Write, …) from GET /connectors/custom-api-presets.
+const customApiCatalog = ref<any[]>([])
 // Prefill passed to MCPConnectionForm when a catalog tile is chosen.
 const mcpPrefill = ref<any | null>(null)
+// Prefill passed to CustomAPIConnectionForm when a Custom API preset is chosen.
+const customApiPrefill = ref<any | null>(null)
 const installingDemo = ref<string | null>(null)
 const createdConnection = ref<any | null>(null)
 const indexingState = ref<ConnectionIndexing | null>(null)
@@ -345,7 +350,19 @@ const allTiles = computed(() => {
     searchText: `${c.title || ''} ${c.key || ''}`.toLowerCase(),
     raw: c,
   }))
-  return [...dsTiles, ...presetTiles]
+  const customApiTiles = (customApiCatalog.value || []).map((c: any) => ({
+    id: `capi-${c.key}`,
+    kind: 'custom_api_preset' as const,
+    title: c.title,
+    category: c.category || 'services',
+    iconType: 'custom_api',
+    connectorKey: c.key,
+    isMcp: false,
+    locked: false,
+    searchText: `${c.title || ''} ${c.key || ''}`.toLowerCase(),
+    raw: c,
+  }))
+  return [...dsTiles, ...presetTiles, ...customApiTiles]
 })
 
 const filteredTiles = computed(() => {
@@ -384,6 +401,7 @@ const customEntries = computed(() =>
 function onTileClick(tile: any) {
   if (tile.locked) return
   if (tile.kind === 'preset') selectCatalogEntry(tile.raw)
+  else if (tile.kind === 'custom_api_preset') selectCustomApiPreset(tile.raw)
   else selectType(tile.raw)
 }
 
@@ -391,10 +409,11 @@ function onTileClick(tile: any) {
 async function fetchDataSources() {
   loadingDataSources.value = true
   try {
-    const [availableRes, demosRes, catalogRes] = await Promise.all([
+    const [availableRes, demosRes, catalogRes, customApiRes] = await Promise.all([
       useMyFetch('/available_data_sources', { method: 'GET' }),
       useMyFetch('/data_sources/demos', { method: 'GET' }),
-      useMyFetch('/connectors/catalog', { method: 'GET' })
+      useMyFetch('/connectors/catalog', { method: 'GET' }),
+      useMyFetch('/connectors/custom-api-presets', { method: 'GET' })
     ])
     if (availableRes.data.value) {
       dataSources.value = availableRes.data.value as any[]
@@ -404,6 +423,9 @@ async function fetchDataSources() {
     }
     if (catalogRes.data.value) {
       catalog.value = catalogRes.data.value as any[]
+    }
+    if (customApiRes.data.value) {
+      customApiCatalog.value = customApiRes.data.value as any[]
     }
   } finally {
     loadingDataSources.value = false
@@ -488,6 +510,26 @@ function selectCatalogEntry(entry: any) {
   step.value = 'form'
 }
 
+// A Custom API preset (X Write, …) opens the Custom API form prefilled with the
+// base URL, endpoints, and OAuth constants — the admin only adds client id/secret.
+function selectCustomApiPreset(entry: any) {
+  selectedDataSource.value = {
+    type: 'custom_api',
+    title: entry.title,
+    connector_key: entry.key,
+  }
+  customApiPrefill.value = {
+    name: entry.title,
+    base_url: entry.base_url,
+    auth: entry.auth || 'oauth_app',
+    headers: entry.headers || {},
+    endpoints: entry.endpoints || [],
+    oauth_defaults: entry.oauth_defaults || null,
+    description: entry.description || '',
+  }
+  step.value = 'form'
+}
+
 function handleToolProviderSaved(connection: any) {
   createdConnection.value = connection
   toast.add({
@@ -503,6 +545,7 @@ function handleToolProviderSaved(connection: any) {
 function backToSelect() {
   selectedDataSource.value = null
   mcpPrefill.value = null
+  customApiPrefill.value = null
   step.value = 'select'
 }
 

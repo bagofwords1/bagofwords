@@ -133,12 +133,13 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "google",
         }
 
-    if conn_type == "mcp":
-        # Pre-configured OAuth client for an MCP server. The admin registered an
-        # OAuth client at the identity provider (which may or may not be the MCP
-        # server itself); the per-user dance is standard authorization-code +
-        # PKCE. RFC 8707 resource indicator is optional but recommended so the
-        # issued token is audience-bound to the MCP server URL.
+    if conn_type in ("mcp", "custom_api"):
+        # Pre-configured OAuth client for an MCP server OR a Custom API (e.g. the
+        # "X Write" preset: POST /2/tweets with the user's X token). The admin
+        # registered an OAuth client at the identity provider (which may or may
+        # not be the server itself); the per-user dance is standard
+        # authorization-code + PKCE. RFC 8707 resource indicator is optional but
+        # recommended so the issued token is audience-bound to the server URL.
         # Endpoints + client may be admin-supplied OR obtained via Dynamic Client
         # Registration (mcp_dcr_service.ensure_mcp_oauth_config, run before this in
         # the authorize route). client_secret is OPTIONAL — DCR public clients
@@ -152,6 +153,19 @@ def get_oauth_params(connection: Connection) -> dict:
                 f"MCP connection {connection.id} OAuth is missing authorize_url / token_url / "
                 "client_id (run discovery + DCR, or supply them in credentials)."
             )
+        # How the token endpoint authenticates the client. Stored on the
+        # connection when the admin OAuth app is configured; DCR public clients
+        # have no secret. Fall back to Basic auth for X (api.x.com) so existing
+        # X connections created before this field existed still work without
+        # being recreated — X rejects client_secret-in-body with 401.
+        token_endpoint_auth_method = creds.get("token_endpoint_auth_method")
+        if not token_endpoint_auth_method:
+            if "api.x.com" in (token_url or ""):
+                token_endpoint_auth_method = "client_secret_basic"
+            elif client_secret:
+                token_endpoint_auth_method = "client_secret_post"
+            else:
+                token_endpoint_auth_method = "none"
         return {
             "authorize_url": authorize_url,
             "token_url": token_url,
@@ -159,6 +173,7 @@ def get_oauth_params(connection: Connection) -> dict:
             "client_secret": client_secret,  # may be None (public client)
             "scopes": creds.get("scopes") or "",
             "audience": creds.get("audience"),
+            "token_endpoint_auth_method": token_endpoint_auth_method,
             "provider_name": "mcp",
         }
 
@@ -185,6 +200,52 @@ def get_oauth_params(connection: Connection) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Client authentication at the token endpoint
+# ---------------------------------------------------------------------------
+
+def _apply_client_auth(oauth_params: dict, data: dict) -> Optional[httpx.BasicAuth]:
+    """Attach client credentials to a token request per its auth method.
+
+    Returns an ``httpx.BasicAuth`` to pass as ``auth=`` (for
+    ``client_secret_basic``) or ``None``. Mutates ``data`` in place:
+      - client_secret_basic → move the secret to the Authorization header,
+        keep client_id OUT of the body (X rejects a body-carried secret with
+        401 unauthorized_client).
+      - client_secret_post  → put client_secret in the body (default).
+      - none                → public client, no secret.
+
+    The method is derived from ``token_endpoint_auth_method`` when present,
+    otherwise inferred from whether a secret exists (backward-compatible with
+    connections created before the field existed).
+    """
+    client_secret = oauth_params.get("client_secret")
+    method = oauth_params.get("token_endpoint_auth_method")
+    if not method:
+        method = "client_secret_post" if client_secret else "none"
+
+    if method == "client_secret_basic":
+        if not client_secret:
+            raise ValueError("client_secret_basic requires a client_secret")
+        # Basic auth carries client_id:client_secret in the header; the body
+        # must not repeat the secret. Drop client_id from the body too — X
+        # authenticates it solely via the header.
+        data.pop("client_id", None)
+        data.pop("client_secret", None)
+        return httpx.BasicAuth(oauth_params["client_id"], client_secret)
+
+    if method == "client_secret_post":
+        if client_secret:
+            data["client_secret"] = client_secret
+        return None
+
+    if method == "none":
+        # Public client — nothing to attach.
+        return None
+
+    raise ValueError(f"Unsupported token_endpoint_auth_method: {method}")
+
+
+# ---------------------------------------------------------------------------
 # Token exchange
 # ---------------------------------------------------------------------------
 
@@ -201,9 +262,7 @@ async def exchange_code_for_tokens(
         "redirect_uri": redirect_uri,
         "client_id": oauth_params["client_id"],
     }
-    # Public clients (DCR token_endpoint_auth_method="none") have no secret.
-    if oauth_params.get("client_secret"):
-        data["client_secret"] = oauth_params["client_secret"]
+    auth = _apply_client_auth(oauth_params, data)
     if code_verifier:
         data["code_verifier"] = code_verifier
     # RFC 8707 resource indicator — audience-binds the token. Used by MCP
@@ -215,6 +274,7 @@ async def exchange_code_for_tokens(
         resp = await client.post(
             oauth_params["token_url"],
             data=data,
+            auth=auth,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
@@ -249,8 +309,7 @@ async def refresh_access_token(
         "refresh_token": refresh_token,
         "client_id": oauth_params["client_id"],
     }
-    if oauth_params.get("client_secret"):
-        data["client_secret"] = oauth_params["client_secret"]
+    auth = _apply_client_auth(oauth_params, data)
     if oauth_params.get("audience"):
         data["resource"] = oauth_params["audience"]
 
@@ -258,6 +317,7 @@ async def refresh_access_token(
         resp = await client.post(
             oauth_params["token_url"],
             data=data,
+            auth=auth,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )

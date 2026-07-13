@@ -2101,6 +2101,17 @@ class MCPOAuthAppCredentials(BaseModel):
         description="Optional RFC 8707 resource indicator — usually the MCP server's URL — to audience-bind the issued token.",
         json_schema_extra={"ui:type": "string"}
     )
+    token_endpoint_auth_method: Optional[str] = Field(
+        None,
+        title="Token Endpoint Auth Method",
+        description=(
+            "How the client authenticates to the token endpoint: "
+            "'client_secret_post' (secret in body, default), "
+            "'client_secret_basic' (HTTP Basic auth — required by X), or "
+            "'none' (public client)."
+        ),
+        json_schema_extra={"ui:type": "select", "options": ["client_secret_post", "client_secret_basic", "none"]}
+    )
 
 
 # Custom API
@@ -2152,6 +2163,17 @@ class CustomAPIKeyCredentials(BaseModel):
         description="Header name for the API key",
         json_schema_extra={"ui:type": "string"}
     )
+
+
+class CustomAPIOAuthAppCredentials(MCPOAuthAppCredentials):
+    """Pre-configured OAuth client for a Custom API (per-user OAuth).
+
+    Same shape as the MCP OAuth-app credentials — the admin registers an OAuth
+    client at the provider (e.g. X), each user signs in, and their per-user
+    access_token is sent as ``Authorization: Bearer`` on every endpoint call.
+    Used by the "X Write" preset (POST /2/tweets with the user's X token).
+    """
+    pass
 
 
 __all__ = [
@@ -2257,4 +2279,5 @@ __all__ = [
     "CustomAPINoAuthCredentials",
     "CustomAPIBearerCredentials",
     "CustomAPIKeyCredentials",
+    "CustomAPIOAuthAppCredentials",
 ]

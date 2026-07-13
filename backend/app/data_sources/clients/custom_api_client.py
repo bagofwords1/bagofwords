@@ -15,11 +15,20 @@ class CustomApiClient(ToolProviderClient):
     which title-cases each word: "custom_api" → "CustomApi" → "CustomApiClient".
     """
 
+    # Auth types that authenticate every request with a Bearer token. `oauth_app`
+    # / `oauth` resolve a per-user OAuth access_token (refreshed upstream in
+    # resolve_credentials); `bearer` uses a static admin token.
+    _BEARER_AUTH_TYPES = ("bearer", "oauth_app", "oauth")
+    # HTTP methods that mutate state — their tools default to "ask" (confirm
+    # before running) so an agent can't silently post/delete on a user's behalf.
+    _WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+
     def __init__(
         self,
         base_url: str,
         auth_type: str = "none",
         token: Optional[str] = None,
+        access_token: Optional[str] = None,
         api_key: Optional[str] = None,
         api_key_header: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -27,7 +36,9 @@ class CustomApiClient(ToolProviderClient):
     ):
         self.base_url = base_url.rstrip("/")
         self.auth_type = auth_type
-        self.token = token
+        # For per-user OAuth (oauth_app/oauth) the token arrives as access_token;
+        # for a static bearer it arrives as token. Accept either.
+        self.token = token or access_token
         self.api_key = api_key
         self.api_key_header = api_key_header or "X-API-Key"
         self.custom_headers = headers or {}
@@ -36,12 +47,26 @@ class CustomApiClient(ToolProviderClient):
     def _build_headers(self) -> Dict[str, str]:
         """Build request headers with auth and custom headers."""
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.auth_type == "bearer" and self.token:
+        if self.auth_type in self._BEARER_AUTH_TYPES and self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         elif self.auth_type == "api_key" and self.api_key:
             headers[self.api_key_header] = self.api_key
         headers.update(self.custom_headers)
         return headers
+
+    def _endpoint_default_policy(self, ep: Dict[str, Any]) -> Optional[str]:
+        """The tool policy a newly-discovered endpoint should default to.
+
+        A write endpoint (POST/PUT/PATCH/DELETE) — or one flagged ``confirm:
+        true`` — defaults to "ask" so it requires confirmation before running.
+        Read endpoints return None (caller keeps its own default, "allow").
+        """
+        if ep.get("confirm") is True:
+            return "ask"
+        if ep.get("confirm") is False:
+            return None
+        method = (ep.get("method") or "GET").upper()
+        return "ask" if method in self._WRITE_METHODS else None
 
     def _find_endpoint(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """Find an endpoint definition by tool name."""
@@ -72,12 +97,18 @@ class CustomApiClient(ToolProviderClient):
             if required:
                 input_schema["required"] = required
 
-            tools.append({
+            tool = {
                 "name": ep["name"],
                 "description": ep.get("description", ""),
                 "input_schema": input_schema,
                 "output_schema": {},
-            })
+            }
+            # Hint the discovery layer to gate write endpoints behind
+            # confirmation. Absent → the caller keeps its own default.
+            default_policy = self._endpoint_default_policy(ep)
+            if default_policy:
+                tool["default_policy"] = default_policy
+            tools.append(tool)
         return tools
 
     def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
