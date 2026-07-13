@@ -128,6 +128,14 @@ class OrganizationSettingsConfig(BaseModel):
 
     signup_policy: SignupPolicy = SignupPolicy()
 
+    # How long (in hours) a Teams 1:1 / WhatsApp conversation keeps reusing the
+    # same report before the next message starts a fresh one. Stored as plain
+    # ints (not FeatureConfig) so they surface on the Channels settings page
+    # rather than the auto-rendered AI-settings list. Range-validated (1-720)
+    # in OrganizationSettingsService.update_settings.
+    teams_session_max_age_hours: int = 120
+    whatsapp_session_max_age_hours: int = 24
+
     # Org-wide default automation policy for agent reliability (the
     # self-learning loop). A plain dict matching AgentAutomationPolicy; agents
     # inherit this and may override per-agent via

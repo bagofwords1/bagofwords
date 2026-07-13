@@ -207,3 +207,53 @@ def test_update_organization_settings_full_workflow(
     assert final_settings["config"]["general"]["icon_key"] is None
 
 
+
+
+@pytest.mark.e2e
+def test_session_staleness_settings_defaults_and_update(
+    test_client,
+    get_organization_settings,
+    update_organization_settings,
+    create_user,
+    login_user,
+    whoami
+):
+    """Teams/WhatsApp session staleness: defaults surface, valid updates persist,
+    out-of-range values are rejected with 400."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    # Defaults are synced into the config on first read.
+    settings = get_organization_settings(user_token=user_token, org_id=org_id)
+    assert settings["config"]["teams_session_max_age_hours"] == 120
+    assert settings["config"]["whatsapp_session_max_age_hours"] == 24
+
+    # Valid updates persist.
+    updated = update_organization_settings(
+        config={"teams_session_max_age_hours": 48, "whatsapp_session_max_age_hours": 12},
+        user_token=user_token,
+        org_id=org_id
+    )
+    assert updated["config"]["teams_session_max_age_hours"] == 48
+    assert updated["config"]["whatsapp_session_max_age_hours"] == 12
+
+    fetched = get_organization_settings(user_token=user_token, org_id=org_id)
+    assert fetched["config"]["teams_session_max_age_hours"] == 48
+    assert fetched["config"]["whatsapp_session_max_age_hours"] == 12
+
+    # Out-of-range / non-integer values are rejected.
+    headers = {"Authorization": f"Bearer {user_token}", "X-Organization-Id": str(org_id)}
+    for key in ("teams_session_max_age_hours", "whatsapp_session_max_age_hours"):
+        for bad in (0, 721, "12"):
+            response = test_client.put(
+                "/api/organization/settings",
+                json={"config": {key: bad}},
+                headers=headers
+            )
+            assert response.status_code == 400, (key, bad, response.json())
+
+    # Rejected updates must not have persisted.
+    final = get_organization_settings(user_token=user_token, org_id=org_id)
+    assert final["config"]["teams_session_max_age_hours"] == 48
+    assert final["config"]["whatsapp_session_max_age_hours"] == 12

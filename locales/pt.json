@@ -1280,7 +1280,11 @@
           "testing": "Testando…",
           "autoLinkEnabled": "Vinculação automática ativada",
           "autoLinkDisabled": "Vinculação automática desativada",
-          "failedToUpdateSetting": "Falha ao atualizar a configuração"
+          "failedToUpdateSetting": "Falha ao atualizar a configuração",
+          "sessionStalenessTitle": "Sessão de conversa",
+          "hoursSuffix": "horas",
+          "sessionStalenessSaved": "Janela de sessão atualizada",
+          "sessionStalenessInvalid": "Insira um número inteiro entre 1 e 720 horas"
         },
         "slack": {
           "title": "Integração com Slack",
@@ -1327,7 +1331,8 @@
           "failedConnect": "Falha ao conectar o Teams",
           "disconnectedToast": "Teams desconectado",
           "disconnectedToastDesc": "Integração com o Microsoft Teams desconectada",
-          "failedDisconnect": "Falha ao desconectar o Teams"
+          "failedDisconnect": "Falha ao desconectar o Teams",
+          "sessionStalenessDesc": "Por quanto tempo um chat 1:1 continua no mesmo relatório de conversa. Mensagens após essa janela iniciam um novo relatório (enviar \"new\" inicia um imediatamente). Padrão: 120 horas (5 dias)."
         },
         "whatsapp": {
           "title": "Integração com o WhatsApp",
@@ -1358,7 +1363,8 @@
           "failedConnect": "Falha ao conectar o WhatsApp",
           "disconnectedToast": "WhatsApp desconectado",
           "disconnectedToastDesc": "Integração com o WhatsApp desconectada",
-          "failedDisconnect": "Falha ao desconectar o WhatsApp"
+          "failedDisconnect": "Falha ao desconectar o WhatsApp",
+          "sessionStalenessDesc": "Por quanto tempo um chat continua no mesmo relatório de conversa. Mensagens após essa janela iniciam um novo relatório (enviar \"new\" inicia um imediatamente). Padrão: 24 horas."
         },
         "email": {
           "title": "Caixa de Correio de IA",

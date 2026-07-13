@@ -1280,7 +1280,11 @@
           "testing": "Test en cours…",
           "autoLinkEnabled": "Liaison automatique activée",
           "autoLinkDisabled": "Liaison automatique désactivée",
-          "failedToUpdateSetting": "Échec de la mise à jour du paramètre"
+          "failedToUpdateSetting": "Échec de la mise à jour du paramètre",
+          "sessionStalenessTitle": "Session de conversation",
+          "hoursSuffix": "heures",
+          "sessionStalenessSaved": "Fenêtre de session mise à jour",
+          "sessionStalenessInvalid": "Saisissez un nombre entier entre 1 et 720 heures"
         },
         "slack": {
           "title": "Intégration Slack",
@@ -1327,7 +1331,8 @@
           "failedConnect": "Échec de la connexion à Teams",
           "disconnectedToast": "Teams déconnecté",
           "disconnectedToastDesc": "Intégration Microsoft Teams déconnectée",
-          "failedDisconnect": "Échec de la déconnexion de Teams"
+          "failedDisconnect": "Échec de la déconnexion de Teams",
+          "sessionStalenessDesc": "Durée pendant laquelle une discussion 1:1 se poursuit dans le même rapport de conversation. Les messages au-delà de cette fenêtre démarrent un nouveau rapport (envoyer \"new\" en démarre un immédiatement). Par défaut : 120 heures (5 jours)."
         },
         "whatsapp": {
           "title": "Intégration WhatsApp",
@@ -1358,7 +1363,8 @@
           "failedConnect": "Échec de la connexion à WhatsApp",
           "disconnectedToast": "WhatsApp déconnecté",
           "disconnectedToastDesc": "Intégration WhatsApp déconnectée",
-          "failedDisconnect": "Échec de la déconnexion de WhatsApp"
+          "failedDisconnect": "Échec de la déconnexion de WhatsApp",
+          "sessionStalenessDesc": "Durée pendant laquelle une discussion se poursuit dans le même rapport de conversation. Les messages au-delà de cette fenêtre démarrent un nouveau rapport (envoyer \"new\" en démarre un immédiatement). Par défaut : 24 heures."
         },
         "email": {
           "title": "Boîte de réception IA",

@@ -1280,7 +1280,11 @@
           "testing": "جارٍ الاختبار…",
           "autoLinkEnabled": "تم تفعيل الربط التلقائي",
           "autoLinkDisabled": "تم تعطيل الربط التلقائي",
-          "failedToUpdateSetting": "فشل تحديث الإعداد"
+          "failedToUpdateSetting": "فشل تحديث الإعداد",
+          "sessionStalenessTitle": "جلسة المحادثة",
+          "hoursSuffix": "ساعات",
+          "sessionStalenessSaved": "تم تحديث نافذة الجلسة",
+          "sessionStalenessInvalid": "أدخل عددًا صحيحًا بين 1 و720 ساعة"
         },
         "slack": {
           "title": "تكامل Slack",
@@ -1327,7 +1331,8 @@
           "failedConnect": "فشل الاتصال بـTeams",
           "disconnectedToast": "تم قطع الاتصال بـTeams",
           "disconnectedToastDesc": "تم قطع تكامل Microsoft Teams",
-          "failedDisconnect": "فشل قطع الاتصال بـTeams"
+          "failedDisconnect": "فشل قطع الاتصال بـTeams",
+          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة الفردية في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 120 ساعة (5 أيام)."
         },
         "whatsapp": {
           "title": "تكامل WhatsApp",
@@ -1358,7 +1363,8 @@
           "failedConnect": "فشل الاتصال بـWhatsApp",
           "disconnectedToast": "تم قطع الاتصال بـWhatsApp",
           "disconnectedToastDesc": "تم قطع تكامل WhatsApp",
-          "failedDisconnect": "فشل قطع الاتصال بـWhatsApp"
+          "failedDisconnect": "فشل قطع الاتصال بـWhatsApp",
+          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة."
         },
         "email": {
           "title": "صندوق بريد الذكاء الاصطناعي",

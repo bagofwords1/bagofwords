@@ -1280,7 +1280,11 @@
           "testing": "Wird getestet…",
           "autoLinkEnabled": "Automatische Verknüpfung aktiviert",
           "autoLinkDisabled": "Automatische Verknüpfung deaktiviert",
-          "failedToUpdateSetting": "Einstellung konnte nicht aktualisiert werden"
+          "failedToUpdateSetting": "Einstellung konnte nicht aktualisiert werden",
+          "sessionStalenessTitle": "Konversationssitzung",
+          "hoursSuffix": "Stunden",
+          "sessionStalenessSaved": "Sitzungsfenster aktualisiert",
+          "sessionStalenessInvalid": "Geben Sie eine ganze Zahl zwischen 1 und 720 Stunden ein"
         },
         "slack": {
           "title": "Slack-Integration",
@@ -1327,7 +1331,8 @@
           "failedConnect": "Teams konnte nicht verbunden werden",
           "disconnectedToast": "Teams getrennt",
           "disconnectedToastDesc": "Microsoft Teams-Integration getrennt",
-          "failedDisconnect": "Teams konnte nicht getrennt werden"
+          "failedDisconnect": "Teams konnte nicht getrennt werden",
+          "sessionStalenessDesc": "Wie lange ein 1:1-Chat im selben Konversationsbericht fortgesetzt wird. Nachrichten nach diesem Zeitfenster starten einen neuen Bericht (mit \"new\" sofort). Standard: 120 Stunden (5 Tage)."
         },
         "whatsapp": {
           "title": "WhatsApp-Integration",
@@ -1358,7 +1363,8 @@
           "failedConnect": "WhatsApp konnte nicht verbunden werden",
           "disconnectedToast": "WhatsApp getrennt",
           "disconnectedToastDesc": "WhatsApp-Integration getrennt",
-          "failedDisconnect": "WhatsApp konnte nicht getrennt werden"
+          "failedDisconnect": "WhatsApp konnte nicht getrennt werden",
+          "sessionStalenessDesc": "Wie lange ein Chat im selben Konversationsbericht fortgesetzt wird. Nachrichten nach diesem Zeitfenster starten einen neuen Bericht (mit \"new\" sofort). Standard: 24 Stunden."
         },
         "email": {
           "title": "KI-Postfach",

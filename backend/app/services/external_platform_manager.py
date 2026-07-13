@@ -307,13 +307,48 @@ class ExternalPlatformManager:
             return False
         return text.strip().lower() in NEW_REPORT_COMMANDS
 
+    async def _get_session_max_age_hours(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_type: str,
+    ) -> int:
+        """Return the org-configured conversation reuse window, in hours.
+
+        Reads ``{platform_type}_session_max_age_hours`` from the org's settings
+        (editable on the Channels settings page), falling back to the schema
+        default (Teams: 120h, WhatsApp: 24h) when unset or invalid.
+        """
+        from app.models.organization_settings import OrganizationSettings
+        from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+        from sqlalchemy import select
+
+        key = f"{platform_type}_session_max_age_hours"
+        default = getattr(OrganizationSettingsConfig(), key)
+        try:
+            result = await db.execute(
+                select(OrganizationSettings)
+                .filter(OrganizationSettings.organization_id == organization_id)
+            )
+            org_settings = result.scalar_one_or_none()
+            value = org_settings.get_config(key, default) if org_settings else default
+            # Tolerate FeatureConfig-shaped storage ({'value': N, ...}).
+            if isinstance(value, dict):
+                value = value.get("value")
+            hours = int(value)
+        except Exception:
+            # The reuse window is auxiliary — never let its lookup break
+            # message handling.
+            return default
+        return hours if hours > 0 else default
+
     async def _find_recent_platform_report(
         self,
         db: AsyncSession,
         organization_id: str,
         user_id: str,
         platform_id: str,
-        max_age_days: int,
+        max_age_hours: int,
     ) -> Optional[Any]:
         """Return the user's most recent report for a platform within the window.
 
@@ -325,7 +360,7 @@ class ExternalPlatformManager:
         from sqlalchemy import select, and_
         import datetime
 
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=max_age_days)
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=max_age_hours)
         result = await db.execute(
             select(Report)
             .filter(
@@ -349,10 +384,12 @@ class ExternalPlatformManager:
         user_mapping: ExternalUserMapping,
         channel_type: str = None,
         force_new: bool = False,
+        max_age_hours: Optional[int] = None,
     ) -> Tuple[Any, bool]:
         """
-        Get a report for a user if one from the platform exists from the last 24 hours,
-        otherwise create a new one.
+        Get a report for a user if one from the platform exists within the reuse
+        window (``max_age_hours``, WhatsApp only — defaults to 24h when not
+        passed), otherwise create a new one.
 
         For channel mentions (channel_type="channel"), only public data sources are used.
         For DMs (channel_type="im" or None), user's accessible data sources are used
@@ -368,17 +405,18 @@ class ExternalPlatformManager:
 
         report_service = ReportService()
 
-        # Check for a report from the last 24 hours for the user from the given platform
-        twenty_four_hours_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
-
         # Find a recent report for this user from the same platform
         platform_name = user_mapping.platform_type.capitalize()
 
         # WhatsApp has no native threading or a stable conversation id, so reuse
-        # the user's most recent report from the last 24h (mirrors Teams'
-        # per-conversation reuse). Other platforms mint a fresh report per
-        # top-level message and rely on thread replies for continuation.
+        # the user's most recent report within the org-configured window
+        # (default 24h; mirrors Teams' per-conversation reuse). Other platforms
+        # mint a fresh report per top-level message and rely on thread replies
+        # for continuation.
         if user_mapping.platform_type == "whatsapp" and not force_new:
+            reuse_cutoff = datetime.datetime.utcnow() - datetime.timedelta(
+                hours=max_age_hours if max_age_hours else 24
+            )
             result = await db.execute(
                 select(Report)
                 .filter(
@@ -386,7 +424,7 @@ class ExternalPlatformManager:
                         Report.external_platform_id == user_mapping.platform_id,
                         Report.organization_id == organization.id,
                         Report.user_id == user.id,
-                        Report.created_at >= twenty_four_hours_ago
+                        Report.created_at >= reuse_cutoff
                     )
                 )
                 .order_by(Report.created_at.desc())
@@ -540,13 +578,16 @@ class ExternalPlatformManager:
 
         if platform_type == "teams" and channel_type == "personal":
             # Teams 1:1 chats have no threading, so reuse the user's most recent
-            # Teams report within a 5-day window (older ones start fresh). This is
-            # report-level rather than keyed on a completion's thread_ts, so a
-            # report just started by a "new" command — which has no completion
-            # yet — is still the one this next message continues.
+            # Teams report within the org-configured window (default 120h / 5
+            # days; older ones start fresh). This is report-level rather than
+            # keyed on a completion's thread_ts, so a report just started by a
+            # "new" command — which has no completion yet — is still the one
+            # this next message continues.
             report = await self._find_recent_platform_report(
                 db, organization.id, user.id, user_mapping.platform_id,
-                max_age_days=5,
+                max_age_hours=await self._get_session_max_age_hours(
+                    db, organization.id, "teams"
+                ),
             )
         elif is_thread_reply and thread_ts and platform_type != "whatsapp":
             # This is a reply in an existing thread - find the associated report.
@@ -562,8 +603,16 @@ class ExternalPlatformManager:
             # Pass channel_type to determine data source filtering:
             # - channel: only public data sources
             # - im/DM: public + user's private data sources
+            # Only WhatsApp reuses by time window inside, so only it needs the
+            # org-configured hours.
+            wa_max_age_hours = (
+                await self._get_session_max_age_hours(db, organization.id, "whatsapp")
+                if platform_type == "whatsapp"
+                else None
+            )
             report, created = await self._get_or_create_conversation_report(
-                db, organization, user, user_mapping, channel_type
+                db, organization, user, user_mapping, channel_type,
+                max_age_hours=wa_max_age_hours,
             )
 
             if created and platform_type != "whatsapp":
@@ -597,7 +646,8 @@ class ExternalPlatformManager:
                     channel_id=response_channel
                 )
 
-        # Teams reuses a single report per 1:1 conversation for up to 5 days, so
+        # Teams reuses a single report per 1:1 conversation for up to the
+        # org-configured window (default 5 days), so
         # a reused report can outlive changes to the user's data-source access:
         # grants made after creation wouldn't appear, and revocations would still
         # be queryable from the stale snapshot. Re-sync the report's attached

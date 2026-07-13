@@ -1370,7 +1370,11 @@
           "testing": "Probando…",
           "autoLinkEnabled": "Vinculación automática activada",
           "autoLinkDisabled": "Vinculación automática desactivada",
-          "failedToUpdateSetting": "No se pudo actualizar el ajuste"
+          "failedToUpdateSetting": "No se pudo actualizar el ajuste",
+          "sessionStalenessTitle": "Sesión de conversación",
+          "hoursSuffix": "horas",
+          "sessionStalenessSaved": "Ventana de sesión actualizada",
+          "sessionStalenessInvalid": "Introduce un número entero entre 1 y 720 horas"
         },
         "slack": {
           "title": "Integración con Slack",
@@ -1417,7 +1421,8 @@
           "failedConnect": "No se pudo conectar Teams",
           "disconnectedToast": "Teams desconectado",
           "disconnectedToastDesc": "Integración con Microsoft Teams desconectada",
-          "failedDisconnect": "No se pudo desconectar Teams"
+          "failedDisconnect": "No se pudo desconectar Teams",
+          "sessionStalenessDesc": "Cuánto tiempo un chat 1:1 continúa en el mismo informe de conversación. Los mensajes posteriores a esta ventana inician un informe nuevo (enviar \"new\" lo inicia de inmediato). Predeterminado: 120 horas (5 días)."
         },
         "whatsapp": {
           "title": "Integración con WhatsApp",
@@ -1448,7 +1453,8 @@
           "failedConnect": "No se pudo conectar WhatsApp",
           "disconnectedToast": "WhatsApp desconectado",
           "disconnectedToastDesc": "Integración con WhatsApp desconectada",
-          "failedDisconnect": "No se pudo desconectar WhatsApp"
+          "failedDisconnect": "No se pudo desconectar WhatsApp",
+          "sessionStalenessDesc": "Cuánto tiempo un chat continúa en el mismo informe de conversación. Los mensajes posteriores a esta ventana inician un informe nuevo (enviar \"new\" lo inicia de inmediato). Predeterminado: 24 horas."
         },
         "email": {
           "title": "Buzón de IA",
