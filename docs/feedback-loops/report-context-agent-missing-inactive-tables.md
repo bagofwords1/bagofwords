@@ -168,6 +168,25 @@ multi-connection agent IS kept (because its SQLite tables are active), its
 network files still never appear in the combined context — `render_combined`
 renders no `file_scopes` for any source.
 
+**The "files glob + active tables" trap (single-connection network_dir).** A
+`network_dir` agent with an `include_globs` pattern indexes each matched file as
+a `DataSourceTable` row — so the agent's schema/tables page shows **active
+tables** and the user reasonably believes it is populated. But those rows all
+belong to the file-source connection, so `_build_file_scopes`
+(`schema_context_builder.py:389`, `:450-515`) moves **every** one of them into
+`file_scopes`, leaving `ds.tables == []`. `render_combined` then drops the whole
+agent. Reproduced with a single `network_dir` agent ("Files Glob Agent",
+`include_globs="*.csv,*.txt"`, 3 files activated) as the **only** source on a
+report — Haiku answered:
+
+> "**No data sources or files are currently attached to this report.** …
+> data_sources: empty, files: empty, resources: empty … you would need to
+> connect a data source."
+
+(`assets/report-context-glob-agent-empty.png`.) This is the case that matches "an
+agent with both files glob and active tables": the active tables ARE the glob
+files, and they never survive into the combined context.
+
 Regression test: `backend/tests/unit/test_report_context_file_source_omitted.py`
 (full render includes the file source; combined render drops it).
 
