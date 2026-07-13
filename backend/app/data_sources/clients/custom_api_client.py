@@ -199,23 +199,50 @@ class CustomApiClient(ToolProviderClient):
             return "text"
         return "json"
 
+    # Auth types that sign in per user (X, …). For these the base URL is an API
+    # root that legitimately answers 4xx (404 no resource at "/", 401/403 auth
+    # required) and there's no user token at setup time — so reaching the host
+    # at all IS the only thing we can, and need to, verify.
+    _PER_USER_OAUTH_TYPES = ("oauth_app", "oauth")
+
     def test_connection(self) -> Dict[str, Any]:
         """Test connectivity by sending a HEAD request to the base URL.
 
-        A response is only a *success* when the API actually answers OK. An
-        error status (404 wrong base URL, 401/403 bad credentials, 5xx) means we
-        reached a host but the connection is not usable, so it must not be
-        reported as green/connected. 405 is treated as reachable because many
-        APIs reject HEAD on the base path while still being valid.
+        For a data API (none/bearer/api_key) a response is only a *success* when
+        the API answers OK — an error status (404 wrong base URL, 401/403 bad
+        credentials, 5xx) means we reached a host but the connection is not
+        usable. 405 is treated as reachable because many APIs reject HEAD on the
+        base path while still being valid.
+
+        For a per-user OAuth API (oauth_app/oauth) the base root commonly answers
+        4xx even when the API is perfectly usable, and the per-user token that
+        would make it 2xx doesn't exist until the user signs in. Getting any
+        (non-5xx) HTTP response there proves the host is reachable — which is the
+        real signal. Treating a root 404 as failure here would wrongly roll back
+        a valid token at the OAuth callback and block sign-in entirely.
         """
         import httpx
+
+        is_per_user_oauth = self.auth_type in self._PER_USER_OAUTH_TYPES
 
         try:
             headers = self._build_headers()
             with httpx.Client(timeout=10.0) as client:
                 response = client.head(self.base_url, headers=headers)
             status = response.status_code
-            if status < 400 or status == 405:
+            reachable = status < 400 or status == 405
+            if is_per_user_oauth and status < 500:
+                # Any answer from the host (incl. 401/403/404) = reachable.
+                reachable = True
+            if reachable:
+                if is_per_user_oauth:
+                    return {
+                        "success": True,
+                        "message": (
+                            f"Server reachable at {self.base_url} — sign-in required. "
+                            f"Tools run with each user's own token after they sign in."
+                        ),
+                    }
                 return {
                     "success": True,
                     "message": f"Connected to API at {self.base_url} (HTTP {status})",
