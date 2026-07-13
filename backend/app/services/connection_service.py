@@ -97,6 +97,29 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
     return any(marker in lowered for marker in _AUTH_CHALLENGE_MARKERS)
 
 
+async def _acount_files_for_validation(client) -> int | None:
+    """Metadata-only file count for validating a file source, or None for
+    non-file clients (callers fall through to get_schemas()).
+
+    File-source clients content-index inside get_schemas(): with the default
+    'content' index mode every PDF/Office document in the source is parsed for
+    keywords — minutes of sequential extraction on a directory full of PDFs —
+    and the connection test only uses len() of the result (real indexing
+    re-runs on save anyway). A plain listing proves connectivity and access
+    just as well. Gated on LIST_FILES-without-QUERY so a hybrid client that
+    also exposes a tabular schema still gets full schema validation.
+    """
+    import asyncio
+
+    from app.data_sources.clients.base import Capability
+
+    caps = getattr(client, "capabilities", None) or set()
+    if Capability.LIST_FILES not in caps or Capability.QUERY in caps:
+        return None
+    files = await asyncio.to_thread(client.list_files)
+    return sum(1 for f in files or [] if not f.get("is_folder"))
+
+
 def _connected_message(connection_type: str, table_count: int) -> str:
     """Build the success message after a connection test.
 
@@ -1399,6 +1422,14 @@ class ConnectionService:
     async def _avalidate_schema_access(self, client) -> dict:
         """Validate that we can read schema metadata (async, offloads to thread)."""
         try:
+            # File sources: count via a metadata-only listing instead of
+            # get_schemas(), which would content-extract every document just to
+            # be len()'d here. An empty-but-readable directory is a valid file
+            # connection (files can arrive later), so zero is a pass.
+            file_count = await _acount_files_for_validation(client)
+            if file_count is not None:
+                return {"success": True, "table_count": file_count}
+
             tables = None
             if hasattr(client, "aget_schemas"):
                 tables = await client.aget_schemas()

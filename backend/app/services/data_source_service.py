@@ -1836,6 +1836,14 @@ class DataSourceService:
         Returns a dict with success status, table count, and optional error message.
         """
         try:
+            # File sources: count via a metadata-only listing instead of
+            # get_schemas(), which would content-extract every PDF/Office doc
+            # just to be len()'d here (real indexing re-runs on save).
+            from app.services.connection_service import _acount_files_for_validation
+            file_count = await _acount_files_for_validation(client)
+            if file_count is not None:
+                return {"success": True, "table_count": file_count}
+
             # Try aget_schemas first (most clients), fall back to get_tables
             tables = None
             if hasattr(client, "aget_schemas"):
