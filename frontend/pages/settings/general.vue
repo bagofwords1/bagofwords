@@ -207,7 +207,7 @@ const fetchSettings = async () => {
             useMyFetch('/api/organization/timezones'),
             useMyFetch('/api/organization/week_start'),
         ])
-        if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
+        if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.detail || t('settings.failedToFetch'))
         const cfg = (settingsResp.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
 
@@ -246,13 +246,13 @@ const saveAll = async () => {
             const formData = new FormData()
             formData.append('icon', pendingIconFile.value)
             const upload = await useMyFetch('/api/organization/general/icon', { method: 'POST', body: formData })
-            if (upload.status.value !== 'success') throw new Error(upload.error?.value?.data?.message || t('settings.uploadFailed'))
+            if (upload.status.value !== 'success') throw new Error(upload.error?.value?.data?.detail || t('settings.uploadFailed'))
             const cfg = (upload.data.value as SettingsResponse)?.config
             form.value.icon_url = cfg?.general?.icon_url || form.value.icon_url
             form.value.icon_key = cfg?.general?.icon_key || form.value.icon_key
         } else if (removeIcon.value) {
             const remove = await useMyFetch('/api/organization/general/icon', { method: 'DELETE' })
-            if (remove.status.value !== 'success') throw new Error(remove.error?.value?.data?.message || t('settings.removeFailed'))
+            if (remove.status.value !== 'success') throw new Error(remove.error?.value?.data?.detail || t('settings.removeFailed'))
             form.value.icon_url = null
             form.value.icon_key = null
         }
@@ -260,13 +260,13 @@ const saveAll = async () => {
         // 2) Save organization name (if changed)
         if (form.value.organization_name) {
             const nameResp = await useMyFetch('/api/organization', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.value.organization_name }) })
-            if (nameResp.status.value !== 'success') throw new Error(nameResp.error?.value?.data?.message || t('settings.failedToUpdate'))
+            if (nameResp.status.value !== 'success') throw new Error(nameResp.error?.value?.data?.detail || t('settings.failedToUpdate'))
         }
 
         // 3) Save textual and toggle settings
         const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
         const response = await useMyFetch('/api/organization/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToUpdate'))
+        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.detail || t('settings.failedToUpdate'))
 
         general.value = ((response.data.value as SettingsResponse)?.config?.general) || form.value
 

@@ -121,6 +121,7 @@ definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings
 
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // Which integration is shown in the right pane (null = empty state)
 const selectedKey = ref<string | null>(null)
@@ -329,10 +330,10 @@ async function toggleMcp(value: boolean) {
     // optimistic v-model flip, so the toggle reflects server truth.
     await fetchSettings()
     applyMcpStateFromSettings()
-  } catch (e) {
+  } catch (e: any) {
     // Revert the optimistic v-model flip on failure.
     mcpEnabled.value = !value
-    toast.add({ title: 'Failed to update MCP setting', color: 'red' })
+    toast.add({ title: 'Failed to update MCP setting', description: getErrorMessage(e), color: 'red' })
   } finally {
     mcpUpdating.value = false
   }
