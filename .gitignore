@@ -76,3 +76,4 @@ frontend/shots*.mjs
 frontend/login*.mjs
 frontend/evidence*.mjs
 frontend/diag*.mjs
+media/pr/state.json
