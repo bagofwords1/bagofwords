@@ -104,17 +104,30 @@ credentials) flips it to PASS. Suggested hardening: persist the generated key
 (file next to the DB) or refuse to start with encrypted rows it cannot
 decrypt, and surface a specific error instead of the generic one.
 
-### 3. Prompt schema hides non-aggregatable text fields (serverless `match_only_text`)
+### 3. Prompt schema hid non-aggregatable text fields (serverless `match_only_text`) — FIXED
 Serverless logsdb maps `message`/`error.message` as `match_only_text` with
-**no** `.keyword` subfield. `_dtype_for` flattens it to `"string"`
-(`elasticsearch_client.py:150`), identical to `keyword`, and the system-prompt
-rule ("use `message.keyword` for terms aggs") assumes a keyword multi-field
-exists. The LLM therefore aggregated on `error.message` and burned a 29s tool
-call on ES 400 `match_only_text fields do not support sorting and
-aggregations` before recovering. The client already collects `raw_types` in
-table metadata — annotating non-aggregatable strings in `prompt_schema()` (or
-mentioning `match_only_text`/runtime-field fallback in `description`) would
-prevent the wasted round-trip.
+**no** `.keyword` subfield. `_dtype_for` flattened it to `"string"`, identical
+to `keyword`, and the system-prompt rule ("use `message.keyword` for terms
+aggs") assumed a keyword multi-field exists. The LLM therefore aggregated on
+`error.message` and burned a 29s tool call on ES 400 `match_only_text fields
+do not support sorting and aggregations` before recovering.
+
+**Fix:** `_flatten_properties` now annotates analyzed text fields
+(`text`/`match_only_text`/`search_as_you_type`) in the dtype the schema
+surfaces — `string (full-text; aggregate/sort on <field>.keyword)` when a
+keyword subfield exists, `string (full-text; NOT aggregatable/sortable)` when
+none does — and the client `description` documents the `runtime_mappings`
+fallback. Unit coverage:
+`test_analyzed_text_dtype_points_at_keyword_subfield` /
+`test_analyzed_text_without_keyword_marked_not_aggregatable`
+(`backend/tests/unit/test_elasticsearch_client.py`).
+
+**Observed flip (live):** the same "top 3 error messages with exact counts"
+prompt that previously 400'd then retried now completes in a single
+`create_data` call — the generated code's own comment reads *"runtime_mappings
+to create a keyword version of error.message for aggregation since
+error.message is marked as 'NOT aggregatable/sortable' (full-text only)"* and
+returns the verbatim messages with exact counts (420/…) directly.
 
 ### 4. `POST /api/connections/{id}/test` reports misleading `schema_access: false`
 The existing-connection test path (`connection_service.py:741`) only calls

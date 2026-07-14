@@ -112,6 +112,36 @@ def test_multifield_keyword_surfaces_as_column(monkeypatch):
     assert "message" in cols and "message.keyword" in cols
 
 
+def test_analyzed_text_dtype_points_at_keyword_subfield(monkeypatch):
+    # A text field WITH a keyword subfield: the schema should route aggs/sort
+    # to the subfield rather than describing the base field as aggregatable.
+    c = ElasticsearchClient(host="h")
+    props = {"message": {"type": "text", "fields": {"keyword": {"type": "keyword"}}}}
+    responses = {"/_mapping": {"idx": _mapping(props)}, "/_alias": {},
+                 "/_data_stream": {"data_streams": []}}
+    monkeypatch.setattr(c, "_request", lambda m, p, json_body=None, params=None: responses.get(p, {}))
+    dtypes = {col.name: col.dtype for col in c.get_tables()[0].columns}
+    assert dtypes["message"] == "string (full-text; aggregate/sort on message.keyword)"
+    assert dtypes["message.keyword"] == "string"
+
+
+def test_analyzed_text_without_keyword_marked_not_aggregatable(monkeypatch):
+    # Serverless logsdb maps message fields as match_only_text with NO keyword
+    # subfield — the schema must say the field cannot be aggregated/sorted,
+    # or the coder writes terms aggs that 400.
+    c = ElasticsearchClient(host="h")
+    props = {
+        "error": {"properties": {"message": {"type": "match_only_text"}}},
+        "level": {"type": "keyword"},
+    }
+    responses = {"/_mapping": {"idx": _mapping(props)}, "/_alias": {},
+                 "/_data_stream": {"data_streams": []}}
+    monkeypatch.setattr(c, "_request", lambda m, p, json_body=None, params=None: responses.get(p, {}))
+    dtypes = {col.name: col.dtype for col in c.get_tables()[0].columns}
+    assert dtypes["error.message"] == "string (full-text; NOT aggregatable/sortable)"
+    assert dtypes["level"] == "string"
+
+
 # ---------- query execution ---------- #
 
 def test_execute_query_search_defaults_and_shape(monkeypatch):
