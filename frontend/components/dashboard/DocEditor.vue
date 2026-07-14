@@ -60,6 +60,7 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef, computed } from 'vue'
 import { Editor, EditorContent, VueNodeViewRenderer } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import CodeBlock from '@tiptap/extension-code-block'
 import Table from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
@@ -67,6 +68,7 @@ import TableHeader from '@tiptap/extension-table-header'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { Markdown } from 'tiptap-markdown'
 import DocVizNodeView from '~/components/dashboard/DocVizNodeView.vue'
+import DocCodeBlockNodeView from '~/components/dashboard/DocCodeBlockNodeView.vue'
 import { detectDocDir } from '~/utils/docDirection'
 
 interface DocViz {
@@ -142,6 +144,18 @@ const VizEmbed = Node.create({
   },
 })
 
+/**
+ * Code block with a Vue node view: ```mermaid fences render as live diagrams
+ * (matching DocViewer), the source appearing only while the caret is inside.
+ * Other fences keep the default <pre><code> rendering. The node keeps its
+ * `codeBlock` name and `language` attr, so the markdown round-trip is exact.
+ */
+const DocCodeBlock = CodeBlock.extend({
+  addNodeView() {
+    return VueNodeViewRenderer(DocCodeBlockNodeView)
+  },
+})
+
 const FENCE_RE = /^\s*(```|~~~)/
 const VIZ_RE = /^\s*\{\{\s*viz:\s*([0-9a-fA-F-]{8,64})\s*\}\}\s*$/
 
@@ -176,7 +190,8 @@ onMounted(() => {
   editor.value = new Editor({
     content: preprocessForEditor(props.markdown),
     extensions: [
-      StarterKit,
+      StarterKit.configure({ codeBlock: false }),
+      DocCodeBlock,
       Table.configure({ resizable: false }),
       TableRow,
       TableCell,

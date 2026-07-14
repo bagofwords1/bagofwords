@@ -3140,7 +3140,8 @@
     "save": "Guardar",
     "cancel": "Cancelar",
     "saved": "Documento guardado",
-    "saveFailed": "No se pudo guardar el documento"
+    "saveFailed": "No se pudo guardar el documento",
+    "editDiagramSource": "Haz clic para editar el código del diagrama"
   },
   "notes": {
     "heading": "Notas",

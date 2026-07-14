@@ -3374,7 +3374,8 @@
     "save": "Save",
     "cancel": "Cancel",
     "saved": "Document saved",
-    "saveFailed": "Failed to save document"
+    "saveFailed": "Failed to save document",
+    "editDiagramSource": "Click to edit diagram source"
   },
   "notes": {
     "heading": "Notes",

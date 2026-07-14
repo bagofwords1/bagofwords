@@ -3033,7 +3033,8 @@
     "save": "Enregistrer",
     "cancel": "Annuler",
     "saved": "Document enregistré",
-    "saveFailed": "Échec de l'enregistrement du document"
+    "saveFailed": "Échec de l'enregistrement du document",
+    "editDiagramSource": "Cliquez pour modifier la source du diagramme"
   },
   "notes": {
     "heading": "Notes",

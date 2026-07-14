@@ -3033,7 +3033,8 @@
     "save": "Speichern",
     "cancel": "Abbrechen",
     "saved": "Dokument gespeichert",
-    "saveFailed": "Dokument konnte nicht gespeichert werden"
+    "saveFailed": "Dokument konnte nicht gespeichert werden",
+    "editDiagramSource": "Klicken, um den Diagramm-Quelltext zu bearbeiten"
   },
   "notes": {
     "heading": "Notizen",

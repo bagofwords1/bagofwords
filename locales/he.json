@@ -3140,7 +3140,8 @@
     "save": "שמירה",
     "cancel": "ביטול",
     "saved": "המסמך נשמר",
-    "saveFailed": "שמירת המסמך נכשלה"
+    "saveFailed": "שמירת המסמך נכשלה",
+    "editDiagramSource": "לחצו לעריכת מקור התרשים"
   },
   "notes": {
     "heading": "הערות",

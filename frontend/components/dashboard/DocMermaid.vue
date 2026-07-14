@@ -22,15 +22,20 @@
 import { ref, watch, onMounted } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const props = defineProps<{ code: string }>()
+// keepLastGood: while the code is being live-edited (doc editor preview), a
+// parse failure keeps the last successful diagram instead of flashing the
+// source fallback on every intermediate keystroke.
+const props = defineProps<{ code: string; keepLastGood?: boolean }>()
 
 const svg = ref<string>('')
 const failed = ref(false)
 let seq = 0
 
 async function render() {
-  failed.value = false
-  svg.value = ''
+  if (!props.keepLastGood) {
+    failed.value = false
+    svg.value = ''
+  }
   const myTicket = ++seq
   try {
     const mermaid = (await import('mermaid')).default
@@ -43,9 +48,9 @@ async function render() {
     })
     const id = `doc-mermaid-${Math.random().toString(36).slice(2)}`
     const { svg: rendered } = await mermaid.render(id, props.code)
-    if (myTicket === seq) svg.value = rendered
+    if (myTicket === seq) { svg.value = rendered; failed.value = false }
   } catch (e) {
-    if (myTicket === seq) failed.value = true
+    if (myTicket === seq && !(props.keepLastGood && svg.value)) failed.value = true
   }
 }
 
