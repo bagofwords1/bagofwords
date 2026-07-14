@@ -42,7 +42,10 @@ class EditDocTool(Tool):
         return ToolMetadata(
             name="edit_doc",
             description=(
-                "Edit an existing document created with create_doc. PREFER surgical `edits` "
+                "Edit an existing document created with create_doc. Unless the doc's current markdown "
+                "is already fully visible in context, call read_artifact first (it returns a doc's "
+                "markdown in the `code` field) so your `find` strings quote the exact current text. "
+                "PREFER surgical `edits` "
                 "(find/replace ops — each `find` must match the current markdown exactly once; all ops "
                 "apply atomically). For restructures too large for surgical edits, pass full `markdown` "
                 "instead. Embedded {{viz:<uuid>}} placeholders are re-validated after the edit. "
