@@ -106,3 +106,40 @@ Pre-existing issues hit along the way (not Splunk-related, reproduce on main):
    provider then re-adding it under the same name is a plausible user flow;
    it should either 409 cleanly or exclude soft-deleted rows from the
    constraint.
+
+## Scale check — 503 sourcetypes in the catalog
+
+Question: what happens with hundreds/thousands of `index::sourcetype` tables?
+
+```bash
+cd backend && uv run python ../tools/agent/splunk-e2e/seed_many_sourcetypes.py  # +500 sourcetypes, 20 events each
+cd frontend && node ../tools/agent/splunk-e2e/ui_reload_tables.mjs              # timed UI "Reload tables"
+```
+
+Observed (Splunk 10.4.1, local container):
+
+- **Full re-discovery of 503 sourcetypes took 9.6s** (backend log,
+  `refresh_schema` start→commit). Cost is bounded by design: Splunk's
+  `_audit` index shows exactly **1 `tstats` catalog search + 50
+  `fieldsummary` samples per reindex** — never one search per table.
+- DB state after: 503 `datasource_tables` rows, **exactly 50 sampled**
+  (top by event volume — the three real sourcetypes ranked first), 453 thin
+  (no columns). `max_sampled_sourcetypes` (default 50, max 1000) is the knob.
+- UI paginates (`Showing 1-100 of 503`) and prior activations are preserved
+  (`3/503 active`) — `14-tables-503.png`.
+- LLM context stays bounded regardless of how many tables are active: the
+  agent renders top-K tables in full (`top_k_schema`, default 10, ranked by
+  usage score) plus a names-only index capped at `INDEX_LIMIT` (1000
+  entries, `agent_v2.py:219`); `describe_tables`/`create_data` pull deeper
+  schemas on demand.
+- Thin tables work end-to-end: activated `web::svc_shipping_493` (0 sampled
+  columns) and asked about its fields — the completion saw `cols="0"`,
+  ran its own discovery query, and answered with all 15 fields + daily
+  counts (`q4-4-final.png`).
+
+Operational finding while restarting the stack: if `BOW_ENCRYPTION_KEY` is
+unset, the backend **generates a fresh Fernet key per process**
+(`app/settings/config.py:72`), so a restart orphans every stored
+credential (connections AND LLM providers fail to decrypt with 500s /
+completion errors). Set a persistent `BOW_ENCRYPTION_KEY` in any deployment
+that stores credentials.

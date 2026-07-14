@@ -1,0 +1,18 @@
+import { chromium } from '@playwright/test';
+const OUT = '/home/user/bagofwords/media/pr/ai-ecstatic-sagan-84i4pc';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const ctx = await b.newContext({ viewport: { width: 1512, height: 950 }, storageState: '/home/user/bagofwords/media/pr/state.json' });
+const page = await ctx.newPage();
+page.setDefaultTimeout(30000);
+await page.goto('http://localhost:3000/agents/661c8398-6069-4562-b1ca-5c0c7f0cd37f/tables', { waitUntil: 'commit' });
+await page.getByPlaceholder(/Search tables/i).waitFor();
+await page.getByPlaceholder(/Search tables/i).fill('svc_shipping_493');
+await page.waitForTimeout(1200);
+await page.locator('input[type=checkbox]').first().check();
+await page.waitForTimeout(500);
+await page.getByText('Save', { exact: true }).click();
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${OUT}/15-thin-table-activated.png` });
+const body = await page.locator('body').innerText();
+console.log('state:', (body.match(/\d+\/\d+ active/) || [])[0]);
+await ctx.close(); await b.close();
