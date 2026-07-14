@@ -87,6 +87,12 @@ Do not use when:
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
         organization = runtime_ctx.get("organization")
+        # The run's user — needed so per-user OAuth connections (custom_api /
+        # mcp with auth_policy=user_required) resolve THIS user's access token
+        # instead of falling back to the connection's system credentials (which,
+        # for an oauth_app connection, carry no user token → the call goes out
+        # unauthenticated and X returns 401).
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
         if not db or not organization:
             yield ToolEndEvent(
                 type="tool.end",
@@ -189,9 +195,11 @@ Do not use when:
             )
 
             if result is None:
-                # Not an internal tool — call via MCP protocol over HTTP
+                # Not an internal tool — call via MCP protocol over HTTP.
+                # Pass the run's user so per-user OAuth credentials resolve to
+                # their token (system creds carry no user token for oauth_app).
                 service = ConnectionService()
-                client = await service.construct_client(db, connection)
+                client = await service.construct_client(db, connection, user)
                 logger.info(f"execute_mcp: Calling remote MCP: {getattr(client, 'server_url', '?')}")
                 result = await client.acall_tool(data.tool_name, data.arguments)
                 logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
