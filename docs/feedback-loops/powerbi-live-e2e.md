@@ -84,12 +84,16 @@ UI flow (Playwright, `chromium.launch({ executablePath: '/opt/pw-browsers/chromi
    (only `_create_models`). Standalone model creation 500s; the UI path works
    because it passes `models` inline to `POST /api/llm/providers`
    (`tools/agent/setup_haiku_llm.py` hits this bug).
-2. **Column-name mangling on whole-table DAX**: `powerbi_client.py`
-   `_execute_dax_internal` cleans headers with `col.strip("[]")`, which turns
-   `Sales[Region]` into `Sales[Region` (leading table prefix keeps the inner
-   bracket). Widgets built from `EVALUATE <Table>` show raw
-   `Table[Column`-style headers; the LLM copes but the UI looks wrong. A
-   regex like `re.sub(r"^.*\[(.+)\]$", r"\1", col)` would restore clean names.
+2. **Column-name mangling on whole-table DAX** — FIXED on this branch.
+   `_execute_dax_internal` cleaned headers with `col.strip("[]")`, which turns
+   `Sales[Region]` into `Sales[Region` (the leading table prefix keeps the
+   inner bracket), so widgets built from `EVALUATE <Table>` showed raw
+   `Table[Column`-style headers. Now `_clean_dax_columns` unwraps both
+   `[Measure]` and `Table[Column]` forms, keeping a qualified `Table.Column`
+   name only when unwrapping would collide within one result set. Unit tests:
+   `tests/unit/test_powerbi_client.py::TestCleanDaxColumns`. Live re-run of the
+   top-5-sales prompt returned clean widget headers
+   (`OrderID, OrderDate, Region, Product, ...`).
 3. **LLM provider delete is soft**: recreating a provider with the same name
    409s on the `llm_providers.organization_id+name` unique constraint even
    after `DELETE` returns 200.

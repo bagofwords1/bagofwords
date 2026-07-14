@@ -1034,9 +1034,8 @@ class PowerBIClient(DataSourceClient):
         if not rows:
             return pd.DataFrame()
 
-        # Clean column names (remove brackets like [ColumnName])
         df = pd.DataFrame(rows)
-        df.columns = [col.strip("[]") for col in df.columns]
+        df.columns = self._clean_dax_columns(list(df.columns))
 
         if max_rows is not None and max_rows > 0 and len(df) > max_rows:
             df = df.head(max_rows)
@@ -1143,6 +1142,37 @@ TOPN(10,
     # ----------------------------
     # Internal helpers
     # ----------------------------
+
+    @staticmethod
+    def _clean_dax_columns(columns: List[str]) -> List[str]:
+        """
+        Unwrap executeQueries column names to bare column names.
+
+        The REST API returns '[Measure]' for measures/aliases and
+        'Table[Column]' for table columns. str.strip("[]") only handles the
+        first form — 'Sales[Region]' became 'Sales[Region'. Unwrap both forms,
+        but keep the qualified 'Table[Column]' name whenever unwrapping would
+        collide with another column in the same result set (e.g. both
+        Customers[Name] and Products[Name] selected).
+        """
+        unwrapped = []
+        for col in columns:
+            m = re.match(r"^(?:[^\[\]]*\[)?([^\[\]]+)\]$", col or "")
+            unwrapped.append(m.group(1) if m else col)
+
+        counts = {}
+        for name in unwrapped:
+            counts[name] = counts.get(name, 0) + 1
+
+        cleaned = []
+        for original, bare in zip(columns, unwrapped):
+            if counts[bare] > 1 and original != f"[{bare}]":
+                # Ambiguous bare name: keep the table-qualified form, just
+                # drop the trailing bracket noise ('Table[Column]' -> 'Table.Column').
+                cleaned.append(original.rstrip("]").replace("[", "."))
+            else:
+                cleaned.append(bare)
+        return cleaned
 
     def _build_headers(self) -> Dict[str, str]:
         if not self._access_token:
