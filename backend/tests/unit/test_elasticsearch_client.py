@@ -172,6 +172,36 @@ def test_stream_discovery_batched_fallback_when_backing_hidden(monkeypatch):
     # A failed batch degrades to "those streams have no table", never an error.
 
 
+def test_stream_discovery_fallback_batches_respect_url_budget(monkeypatch):
+    # Stream names may run to 255 bytes; joined batches must stay under the
+    # engine's ~4kB request-line limit, so long names shrink the batch size.
+    c = ElasticsearchClient(host="h")
+    n = 40
+    long = "logs-" + "x" * 200  # ~205 chars each
+    streams = [{"name": f"{long}-{i:02d}",
+                "indices": [{"index_name": f".ds-{long}-{i:02d}-000001"}]}
+               for i in range(n)]
+    calls = []
+
+    def fake_request(method, path, json_body=None, params=None):
+        calls.append(path)
+        if path in ("/_mapping", "/_alias"):
+            return {}
+        if path == "/_data_stream":
+            return {"data_streams": streams}
+        names = path.strip("/").split("/")[0].split(",")
+        return {f".ds-{nm}-000001": _mapping({"@timestamp": {"type": "date"}})
+                for nm in names}
+
+    monkeypatch.setattr(c, "_request", fake_request)
+    tables = c.get_tables()
+    assert len(tables) == n
+    fallback = [p for p in calls if p not in ("/_mapping", "/_alias", "/_data_stream")]
+    # 40 names x ~208 chars -> multiple batches, every request line under budget.
+    assert len(fallback) > 1
+    assert all(len(p) < 3200 for p in fallback)
+
+
 def test_stream_discovery_failed_fallback_batch_skips_streams(monkeypatch):
     c = ElasticsearchClient(host="h")
     streams = [{"name": "logs-a", "indices": [{"index_name": ".ds-logs-a-000001"}]},

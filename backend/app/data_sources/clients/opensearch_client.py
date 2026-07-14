@@ -252,9 +252,11 @@ class OpenSearchClient(DataSourceClient):
         tables.extend(self._stream_tables(streams, mappings_by_index))
         return tables
 
-    # How many stream names to resolve per fallback `GET /{a,b,c}/_mapping`
-    # call. Bounded by URL length (~4k): stream names run ~20-60 chars.
+    # Fallback `GET /{a,b,c}/_mapping` batching: at most 50 names per call,
+    # and never past ~3000 chars of joined names — stream names may run to
+    # 255 bytes and the engine's request line tops out at 4kB by default.
     _STREAM_MAPPING_BATCH = 50
+    _STREAM_MAPPING_MAX_CHARS = 3000
 
     def _stream_tables(self, streams: List[Dict[str, Any]],
                        mappings_by_index: Dict[str, Any]) -> List[Table]:
@@ -275,8 +277,17 @@ class OpenSearchClient(DataSourceClient):
             if not all((i or {}).get("index_name") in mappings_by_index
                        for i in (s.get("indices") or []))
         ]
-        for start in range(0, len(missing), self._STREAM_MAPPING_BATCH):
-            chunk = missing[start:start + self._STREAM_MAPPING_BATCH]
+        chunk: List[str] = []
+        chunks: List[List[str]] = []
+        for name in missing:
+            if chunk and (len(chunk) >= self._STREAM_MAPPING_BATCH
+                          or len(",".join(chunk)) + len(name) + 1 > self._STREAM_MAPPING_MAX_CHARS):
+                chunks.append(chunk)
+                chunk = []
+            chunk.append(name)
+        if chunk:
+            chunks.append(chunk)
+        for chunk in chunks:
             try:
                 fetched.update(self._request("GET", f"/{','.join(chunk)}/_mapping") or {})
             except Exception:
