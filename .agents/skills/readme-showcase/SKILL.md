@@ -74,10 +74,18 @@ inference is not approved or a repeatable fixture is required, and disclose it.
 
 ### 3. Capture Clean Product States
 
-Use the in-app browser or `tools/agent/capture.mjs`. Keep one signed-in demo
-session and a consistent viewport. Capture at `1280x720` unless the existing
-README uses another stable standard. With the in-app browser, use screenshot
-scale `css` to avoid device-scale artifacts.
+Use Playwright through `tools/agent/capture.mjs` or a task-specific derivative
+that writes PNG files directly. Keep one signed-in demo context and a consistent
+`1600x900` viewport. Set `deviceScaleFactor: 2` for showcase work so every raw
+capture is a true `3200x1800` PNG. Do not use an in-app browser screenshot when
+that path returns JPEG bytes or otherwise re-encodes the page.
+
+Open each target scene in a fresh page within the authenticated context. This
+avoids carrying reactive route, modal, or transition state from one screenshot
+into the next. Wait for network activity, fonts, charts, and the scene's focal
+element before capturing. Do not disable animations in the screenshot call when
+doing so changes backdrop or view-transition rendering; wait for the UI to
+settle instead.
 
 Before each capture:
 
@@ -88,7 +96,9 @@ Before each capture:
 - Verify the screen contains no secret, email beyond the demo identity, or
   unapproved local data.
 
-Inspect every raw screenshot at original resolution before composition.
+Inspect every raw screenshot at original resolution before composition. Verify
+the file signature as well as the extension: PNG begins with
+`89 50 4e 47 0d 0a 1a 0a`.
 
 ### 4. Add Painted Backdrops
 
@@ -99,14 +109,21 @@ gradient shapes, bokeh, and UI elements.
 
 Place each untouched product screenshot over a backdrop with:
 
-- A fixed 16:9 final canvas, normally `1280x720`.
-- Roughly 8-10% breathing room around the screenshot.
+- A fixed 16:9 final canvas, normally `2400x1350`.
+- A product frame that occupies roughly 90-94% of the canvas width.
 - A subtle white edge, 6-8px corner radius, and restrained shadow.
 - No labels or decorative UI outside the product screenshot.
 
-Store final assets under `media/readme/final/`. Keep each PNG below 1 MB where
-possible. Keep raw captures and generated backgrounds outside the repo unless
-the user explicitly asks for source assets.
+Compose with a lossless image pipeline such as Sharp and write the final PNG
+directly. Never load the composition into a browser and screenshot it again.
+Avoid alpha-mask operations that alter flat UI layers; compare the composed
+image against the raw capture and use a square or minimally rounded frame when
+that preserves pixels more reliably.
+
+Store final assets under `media/readme/final/`. Prefer readable UI over an
+arbitrary file-size ceiling; a polished `2400x1350` PNG may reasonably be 1-4
+MB. Keep raw captures and generated backgrounds outside the repo unless the user
+explicitly asks for source assets.
 
 ### 5. Update the README
 
@@ -130,7 +147,7 @@ same screenshot in multiple sections unless it is intentionally the hero.
 
 - Run `git diff --check`.
 - Confirm every README image path exists.
-- Confirm final dimensions are consistent.
+- Confirm raw and final assets are real PNG files and dimensions are consistent.
 - Visually inspect every final image at original resolution.
 - Check `git status --short --untracked-files=all` and keep only intended README
   and `media/readme/final/` changes.
