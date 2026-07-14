@@ -1,14 +1,13 @@
-<div>
-
-<div>
-  <img src="./media/logo-128.png" style="width:128px;" />
-</div>
+<div align="center">
+  <img src="./media/logo-128.png" alt="Bag of Words" width="128" />
 
 ## The open-source agentic analytics platform
 
+BOW connects any LLM to your data and gives agents the context they need to do useful work.
 
+Each agent gets its own data, tools, credentials, instructions, permissions. Start in chat, then run the same agents in reports, dashboards, automations, scheduled tasks, team channels, and MCP clients.
 
-Chat, visualize, and run deep analysis on your data - with memory, rules management, and observability built in.
+Set evals and use self-improving loops to make agents more reliable over time.
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
@@ -16,175 +15,212 @@ Chat, visualize, and run deep analysis on your data - with memory, rules managem
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 </div>
 
-**Features:**
+## Features
 
-- **Memory:** Stores context, preferences, and usage patterns down to table/column level. AI learns over time and surfaces semantic-layer updates, review-gated.
-
-- **Rules:** Define instructions, terms, and guardrails with versioning and approval workflows. Git sync with auto-indexing of dbt, markdown, code, and more.
-
-- **Observability:** Full visibility into agent traces, plans, guardrails, LLM judges, evals, and feedback — debug and improve the loop.
-
-- **Dashboards & sharing:** Build and share dashboards instantly. Share conversations, saved queries, and analysis with your team.
-
-- **Any LLM ↔ Any warehouse:** OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift. Swap or mix without breaking workflows.
-
-- **MCP:** Use from Cursor, Claude Desktop, and other AI clients while reliably tracking requests and data operations.
+- **Analysis:** Create reports and dashboards, generate queries, and run deep or root cause analysis.
+- **Agent context:** Configure each agent with the right data, tools, credentials, instructions, permissions, and starters.
+- **Automations:** Schedule reports, run recurring tasks, and trigger investigations from events and webhooks.
+- **Channels:** Run headlessly via Claude Code, Codex, and other MCP clients, or through Microsoft Teams, Slack, WhatsApp, email, Excel, and the web app.
+- **MCP gateway:** Connect agents to MCP servers and custom APIs, then expose their context and tools to MCP clients through one governed gateway.
+- **Evals and self-improvement:** Set evals for expected behavior. When they fail, agents can draft instruction fixes and re-run the evals; passing changes can wait for approval or be promoted automatically.
+- **Governance:** Control access with RBAC, approvals, audit logs, service accounts, SSO, and model policies.
 
 [Deploy anywhere](https://docs.bagofwords.com/install)
 
-[![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
+[![Bag of Words demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
 
 ---
 
-## Quick Start 🚀
+## Quick Start
 
 ```bash
-# runs with SQLite (default)
+# Run with SQLite (default)
 docker run -p 3000:3000 bagofwords/bagofwords
 ```
 
-### Or, run with a ready PostgreSQL instance
+### Run with PostgreSQL
+
 ```bash
 docker run -p 3000:3000 \
   -e BOW_DATABASE_URL=postgresql://user:password@localhost:5432/dbname \
   bagofwords/bagofwords
 ```
 
-#### Other deployment options
-docker compose and Kubernete deployments are also available (and recommended for servers). See the [docs](https://docs.bagofwords.com/install).
+Docker Compose and Kubernetes deployments are also available and recommended for servers. See the [installation docs](https://docs.bagofwords.com/install).
 
-## Product Overview
+## From Analysis Context to Action
 
-### Chat with any data
-Create reports, deep analysis or quick visuals with an AI interface powered by an agentic-loop with tools, reasoning and reflection built in. 
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/chat.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-    <i></i>
+### Start with chat
+
+Ask questions across your data and get queries, charts, reports, dashboards, deep analysis, and root cause analysis. Agents plan their work, use tools, and reflect on the result.
+
+<div align="center">
+  <img src="./media/chat.png" alt="Chat with data in Bag of Words" width="100%" />
 </div>
 
-### Instructions Registry
-Manage AI rules and instructions with review process, full versioning and tracking. Sync with git to auto-index dbt, Tableau, AGENTS.md and more.
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/instructions-table.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-    <i></i>
+### Give every agent the right context
+
+Choose the data and tools an agent can use, provide the right credentials, and add instructions and starters for its job. Manage shared business definitions and guardrails with versioning, review flows, and Git sync for dbt, markdown, code, and more.
+
+<div align="center">
+  <img src="./media/instructions-table.png" alt="Manage agent instructions in Bag of Words" width="100%" />
 </div>
 
-### Save data and queries to the Catalog
-Leverage the catalog to store, share, and explore reusable queries and datasets. This feature also improves discoverability and searchability for AI, contributing to smarter AI decisions.
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/catalog.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+### Turn analysis into repeatable work
+
+Schedule reports and investigations, trigger agents from webhooks, and send results to the people and systems that need them. The same analysis context is available in chat, automations, channels, and external MCP clients.
+
+### Evaluate and improve
+
+Define eval sets for the behavior that matters and run them as agents change. When an eval fails, a self-improving loop can draft instruction changes and re-run the tests up to a configured limit. Passing candidates can wait for approval or be promoted automatically. Traces, plans, tool calls, LLM judges, and feedback are available for inspection throughout.
+
+<div align="center">
+  <img src="./media/monitoring.png" alt="Monitor agent runs in Bag of Words" width="100%" />
 </div>
 
-### Monitor AI and data operations
-Full observability into queries, feedback, and context — powering self-learning and high quality AI results
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/monitoring.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-</div>
+### Reuse trusted work
 
+Save and share useful queries, datasets, reports, and dashboards. Reusing reviewed work gives both people and agents a stronger starting point for the next analysis.
+
+<div align="center">
+  <img src="./media/catalog.png" alt="Shared data catalog in Bag of Words" width="100%" />
+</div>
 
 ## Architecture
 
-Bag of words acts as a **context-aware analytics layer** that connects to any database or service, works with any LLM, and enriches queries with docs, BI models, or code.
+Bag of Words sits between your models, enterprise data, tools, and channels. It builds a governed analysis context for each agent, then carries that context from an interactive question to a scheduled or event-driven workflow.
 
-The architecture is fully flexible: plug in any data source, any model, and any interface — giving your team maximum freedom of choice, without sacrificing governance or reliability.
+Bring your own models and infrastructure. Connect databases, warehouses, BI systems, files, business apps, MCP servers, and custom APIs without tying the workflow to one provider.
 
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/arch.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+<div align="center">
+  <img src="./media/arch.png" alt="Bag of Words architecture" width="100%" />
 </div>
 
 ## Integrations
 
-### Supported LLM Integrations
+### Bring Any LLM
 
-Bag of words supports a wide range of LLM providers out of the box. You can bring your own API key for any of the following:
+Use your own API keys, endpoints, and model deployments. Multiple providers and models can be configured in the same environment.
 
-| Provider         | Supported Models / APIs         | Notes                                                                 |
-|------------------|---------------------------------|-----------------------------------------------------------------------|
-| **OpenAI**       | GPT models, o-models, etc.    | Any OpenAI-compatible endpoint (including self-hosted, vLLM, etc.)    |
-| **Azure OpenAI** | GPT models, o-models, etc.            | Azure resource/endpoint support, including model deployment names      |
-| **Google Gemini**| Gemini, Flash versions, etc.    | Requires Google Cloud API key                                         |
-| **Anthropic**    | Claude, Sonnet, Haiku    | Just provide the API key          |
-| **Any OpenAI-compatible** | vLLM, LM Studio, Ollama, etc. | Just provide the base URL and API key                                 |
+| Provider | Supported models and APIs | Notes |
+|---|---|---|
+| **OpenAI** | GPT and reasoning models | OpenAI API support |
+| **Azure OpenAI** | GPT and reasoning models | Azure endpoints and deployment names |
+| **Google Gemini** | Gemini and Flash models | Google API key support |
+| **Anthropic** | Claude models | Anthropic API key support |
+| **AWS Bedrock** | Foundation models available through Bedrock | API key, AWS access key, or IAM authentication |
+| **Any OpenAI-compatible API** | Ollama, Groq, Together AI, vLLM, LM Studio, and more | Provide a base URL and optional API key |
 
-> **Tip:** You can configure multiple providers and models, set defaults, and more.
+### Connect Any Data
 
-### Data Sources
+| Connector | Category |
+|---|---|
+| PostgreSQL | Database / warehouse |
+| Snowflake | Database / warehouse |
+| Google BigQuery | Database / warehouse |
+| Databricks SQL | Database / warehouse |
+| Microsoft Fabric | Database / warehouse |
+| MySQL | Database / warehouse |
+| AWS Athena | Database / warehouse |
+| MariaDB | Database / warehouse |
+| DuckDB | Database / warehouse |
+| Microsoft SQL Server | Database / warehouse |
+| ClickHouse | Database / warehouse |
+| Azure Data Explorer | Database / warehouse |
+| Vertica | Database / warehouse |
+| AWS Redshift | Database / warehouse |
+| Trino | Database / warehouse |
+| Apache Pinot | Database / warehouse |
+| Apache Druid | Database / warehouse |
+| Oracle Database | Database / warehouse |
+| MongoDB | Database / warehouse |
+| Sybase SQL Anywhere | Database / warehouse |
+| Teradata Vantage | Database / warehouse |
+| SQLite | Database / warehouse |
+| Spark | Database / warehouse |
+| NetSuite | Business app |
+| Salesforce | Business app |
+| ServiceNow | Business app |
+| AWS Cost Explorer | Business app |
+| PostHog | Business app |
+| Outlook Mail | Business app |
+| Elasticsearch | Search and observability |
+| OpenSearch | Search and observability |
+| Splunk | Search and observability |
+| Zabbix | Monitoring and observability |
+| Jaeger | Tracing and observability |
+| Tableau | BI tool |
+| Power BI | BI tool |
+| Power BI Report Server | BI tool |
+| Qlik Sense | BI tool |
+| Qlik QVD | BI tool |
+| Sisense | BI tool |
+| Oracle BI | BI tool |
+| Infor OLAP | BI tool |
+| Microsoft Analysis Services | BI tool |
+| Timbr AI | Semantic layer |
+| Files and Directories | Files |
+| Amazon S3 | Files |
+| CSV | Files |
+| OneDrive | Files |
+| SharePoint | Files |
 
+### Connect Tools Through MCP
 
-#### Supported Data Sources
+Bag of Words can connect to any MCP server or custom API. Ready-to-connect MCP integrations include:
 
-Below is a list of all data sources supported by Bag of words, as defined in the data source registry. Each entry is marked as either a **Database/Warehouse** or a **Service**.
+| Integration | What it adds |
+|---|---|
+| Monday | Boards, items, updates, and workflows |
+| Notion | Pages, databases, and workspace search |
+| Jira / Atlassian | Jira issues and Confluence pages |
+| Linear | Issues, projects, and cycles |
+| Sentry | Errors, issues, releases, and diagnostics |
+| GitHub | Repositories, issues, and pull requests |
+| Google Drive | File search and content access |
+| Gmail | Messages, threads, labels, and drafts |
+| X | Posts, users, search, and trends |
+| X (Write) | Create and delete posts through a custom API |
+| Custom MCP server | Any compatible remote or self-hosted MCP server |
+| Custom API | Internal and third-party HTTP APIs |
 
-| Title                    | Kind                |
-|--------------------------|---------------------|
-| PostgreSQL               | Database/Warehouse  |
-| Snowflake                | Database/Warehouse  |
-| Google BigQuery          | Database/Warehouse  |
-| Databricks SQL           | Database/Warehouse  |
-| Microsoft Fabric         | Database/Warehouse  |
-| MySQL                    | Database/Warehouse  |
-| AWS Athena               | Database/Warehouse  |
-| MariaDB                  | Database/Warehouse  |
-| DuckDB                   | Database/Warehouse  |
-| Microsoft SQL Server     | Database/Warehouse  |
-| ClickHouse               | Database/Warehouse  |
-| Azure Data Explorer      | Database/Warehouse  |
-| Vertica                  | Database/Warehouse  |
-| AWS Redshift             | Database/Warehouse  |
-| Trino                    | Database/Warehouse  |
-| Apache Pinot             | Database/Warehouse  |
-| Apache Druid             | Database/Warehouse  |
-| Oracle Database          | Database/Warehouse  |
-| MongoDB                  | Database/Warehouse  |
-| Sybase SQL Anywhere      | Database/Warehouse  |
-| Teradata Vantage         | Database/Warehouse  |
-| SQLite                   | Database/Warehouse  |
-| Spark                    | Database/Warehouse  |
-| NetSuite                 | Service             |
-| Salesforce               | Service             |
-| AWS Cost Explorer        | Service             |
-| Tableau                  | Service             |
-| PostHog                  | Service             |
-| Power BI                 | Service             |
-| Power BI Report Server   | Service             |
-| Qlik Sense               | Service             |
-| Qlik (QVD)               | Service             |
-| Sisense                  | Service             |
-| OneDrive                 | Service             |
-| Google Drive             | Service             |
-| SharePoint               | Service             |
-| Timbr AI                 | Service             |
-| Oracle BI                | Service             |
-| MCP Server               | Service             |
-| Custom API               | Service             |
+### Run Anywhere
 
-> **Note:** "Service" refers to APIs, SaaS platforms, and BI tools, while "Database/Warehouse" refers to systems that store and query structured data.
+| Surface | Use |
+|---|---|
+| Web app | Chat, reports, dashboards, evals, and monitoring |
+| Claude Code, Codex, and MCP clients | Use agents headlessly through MCP |
+| Excel | Bring governed analysis into spreadsheets |
+| Microsoft Teams | Ask questions and receive results in Teams |
+| Slack | Ask questions and receive results in Slack |
+| WhatsApp | Run agent conversations from WhatsApp |
+| Email | Ask questions and receive scheduled results by email |
+| Webhooks and APIs | Trigger agents from other systems |
+| Scheduled tasks | Run recurring reports, checks, and investigations |
 
 ## Enterprise
 
-For teams requiring advanced security, compliance, and governance:
+For teams that need stronger security, compliance, and governance:
 
-- **SSO:** Google Workspace and OIDC-compatible identity providers
-- **Self-hosted:** Deploy on your own infrastructure with full data control
-- **RBAC:** Role-based access control for fine-grained permissions
+- **Self-hosted:** Deploy on your own infrastructure and keep control of your data.
+- **SSO and provisioning:** Connect Google Workspace and OIDC-compatible identity providers, with SCIM and LDAP support.
+- **RBAC:** Apply fine-grained permissions to agents, data, tools, and administration.
+- **Approvals and audit:** Review changes and track agent and data operations.
+- **Service access:** Use API keys and service accounts for headless workflows.
+- **Model controls:** Decide which providers and models are available to each organization.
 
-## 🔒 Security & Privacy
-We take data security and privacy seriously.  
+## Security and Privacy
 
-### Telemetry
-By default, Bag of words captures basic usage stats of self-hosted instances to a centralized server. The data helps us improve the product.
-
-You can disable by setting in `bow-config.yaml`
+Bag of Words captures basic usage statistics from self-hosted instances to help improve the product. Disable telemetry in `bow-config.yaml`:
 
 ```yaml
-telemetry
+telemetry:
   enabled: false
 ```
 
-You can also disable the Intercom chat for support
+You can also disable Intercom support chat:
 
 ```yaml
-intercom
+intercom:
   enabled: false
 ```
-
