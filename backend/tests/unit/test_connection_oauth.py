@@ -111,6 +111,47 @@ class TestGetOAuthParams:
         with pytest.raises(ValueError, match="oauth_client_id"):
             get_oauth_params(conn)
 
+    def test_servicenow(self):
+        conn = _make_connection(
+            type="servicenow",
+            credentials={
+                "username": "u", "password": "p",
+                "oauth_client_id": "sc1", "oauth_client_secret": "ss1",
+            },
+        )
+        conn.config = {"instance_url": "https://acme.service-now.com/"}
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "servicenow"
+        assert params["authorize_url"] == "https://acme.service-now.com/oauth_auth.do"
+        assert params["token_url"] == "https://acme.service-now.com/oauth_token.do"
+        assert params["client_id"] == "sc1"
+        assert params["client_secret"] == "ss1"
+        assert params["scopes"] == "useraccount"
+
+    def test_servicenow_config_stored_as_json_string(self):
+        conn = _make_connection(type="servicenow", credentials={"oauth_client_id": "sc1"})
+        conn.config = json.dumps({"instance_url": "https://acme.service-now.com"})
+        params = get_oauth_params(conn)
+        assert params["authorize_url"] == "https://acme.service-now.com/oauth_auth.do"
+
+    def test_servicenow_public_client_needs_no_secret(self):
+        conn = _make_connection(type="servicenow", credentials={"oauth_client_id": "sc1"})
+        conn.config = {"instance_url": "https://acme.service-now.com"}
+        params = get_oauth_params(conn)
+        assert params["client_secret"] is None
+
+    def test_servicenow_missing_client_id_raises(self):
+        conn = _make_connection(type="servicenow", credentials={"username": "u", "password": "p"})
+        conn.config = {"instance_url": "https://acme.service-now.com"}
+        with pytest.raises(ValueError, match="oauth_client_id"):
+            get_oauth_params(conn)
+
+    def test_servicenow_missing_instance_url_raises(self):
+        conn = _make_connection(type="servicenow", credentials={"oauth_client_id": "sc1"})
+        conn.config = {}
+        with pytest.raises(ValueError, match="instance_url"):
+            get_oauth_params(conn)
+
     def test_unsupported_type_raises(self):
         conn = _make_connection(type="postgres", credentials={})
         with pytest.raises(ValueError, match="not supported"):

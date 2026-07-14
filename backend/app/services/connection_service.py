@@ -198,6 +198,12 @@ class ConnectionService:
             from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
             if type in ENTRA_OBO_CONNECTION_TYPES:
                 allowed_user_auth_modes = ["oauth"]
+            elif type == "servicenow" and (credentials or {}).get("oauth_client_id"):
+                # Admin supplied a ServiceNow OAuth app → enable per-user
+                # sign-in; keep userpass so users may bring their own
+                # username/password instead (matches the no-restriction
+                # behavior when modes are unset).
+                allowed_user_auth_modes = ["oauth", "userpass"]
             elif type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
                 # System auth is Kerberos → per-user auth means Kerberos SSO via
                 # constrained delegation (no per-user secret; UPN derived at
@@ -447,6 +453,16 @@ class ConnectionService:
             target_type = updates.get("type", connection.type)
             if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
                 updates["allowed_user_auth_modes"] = ["oauth"]
+            elif target_type == "servicenow" and not (connection.allowed_user_auth_modes or []):
+                # See create_connection: OAuth app configured → per-user sign-in.
+                creds = updates.get("credentials")
+                if not creds:
+                    try:
+                        creds = connection.decrypt_credentials() or {}
+                    except Exception:
+                        creds = {}
+                if (creds or {}).get("oauth_client_id"):
+                    updates["allowed_user_auth_modes"] = ["oauth", "userpass"]
             elif target_type == "MSSQL" and not (connection.allowed_user_auth_modes or []):
                 cfg = updates.get("config")
                 if cfg is None:
