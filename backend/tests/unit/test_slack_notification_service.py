@@ -89,6 +89,31 @@ async def test_large_table_is_sent():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("n_rows", [5, 10, 50])
+async def test_teams_table_is_never_sent(n_rows):
+    # Teams gets the data via the agent's text answer (which renders its own
+    # markdown table), so the pipeline must not send a duplicate raw table —
+    # regardless of row count.
+    step = _make_step("table", n_rows)
+    platform = SimpleNamespace(platform_type="teams", organization_id="org-1")
+    adapter = AsyncMock()
+
+    with (
+        patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform)),
+        patch.object(svc.PlatformAdapterFactory, "create_adapter", return_value=adapter),
+    ):
+        await svc.send_step_result_to_slack(
+            step_id="step-1",
+            external_user_id="U1",
+            organization_id="org-1",
+            platform_type="teams",
+        )
+
+    adapter.send_dm_in_thread.assert_not_called()
+    adapter.send_file_in_thread.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_small_count_is_still_sent():
     # Counts are scalar answers, not tabular data — the threshold must not apply.
     step = _make_step("count", 1)

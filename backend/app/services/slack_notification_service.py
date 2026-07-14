@@ -23,11 +23,13 @@ from app.services.platform_adapters.adapter_factory import PlatformAdapterFactor
 # standard module logger.
 logger = logging.getLogger(__name__)
 
-# Below this row count, we don't send the raw table data to Slack/Teams.
+# Below this row count, we don't send the raw table data to Slack/WhatsApp.
 # The agent's text answer already describes small results in prose (the
 # planner is instructed to do so for small datasets), so attaching a CSV
-# or markdown table on top is noise. Larger results still go through so
-# the user can scan/download them.
+# on top is noise. Larger results still go through so the user can
+# scan/download them. Teams skips table sends entirely (see
+# send_step_result_to_slack): the agent's text answer renders its own
+# markdown table there, so a second raw table is a duplicate.
 MIN_ROWS_TO_SEND = 10
 
 
@@ -163,42 +165,9 @@ def df_to_csv(data: dict) -> str:
         logger.warning("Error creating CSV file: %s", e)
         return None
 
-def _format_markdown_table(data: dict, title: str, max_rows: int = 20) -> str:
-    """Format step data as a markdown table for Teams."""
-    rows = data.get('rows', [])
-    columns = data.get('columns', [])
-    if not rows or not columns:
-        return None
-
-    headers = [col.get('headerName', col.get('field', '')) for col in columns]
-    fields = [col['field'] for col in columns]
-
-    lines = [f"**{title}**\n"]
-    # Header row
-    lines.append("| " + " | ".join(headers) + " |")
-    # Separator row
-    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
-    # Data rows (cap to max_rows)
-    for row in rows[:max_rows]:
-        values = [str(row.get(field, '')) for field in fields]
-        lines.append("| " + " | ".join(values) + " |")
-
-    if len(rows) > max_rows:
-        lines.append(f"\n*Showing {max_rows} of {len(rows)} rows. See full data in the web report.*")
-
-    return "\n".join(lines)
-
-
-async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None, platform_type: str = None):
-    """Handles sending table data, optionally in a thread."""
+async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
+    """Handles sending table data as a CSV file, optionally in a thread."""
     title = step.title or "Table Data"
-
-    # Teams: send as markdown table text (Bot Connector doesn't support data: URLs for file uploads)
-    if platform_type == "teams":
-        md_table = _format_markdown_table(step.data, title)
-        if md_table:
-            return await adapter.send_dm_in_thread(external_user_id, md_table, thread_ts, channel_id=channel_id)
-        return False
 
     file_path = df_to_csv(step.data)
     if not file_path:
@@ -289,6 +258,18 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             success = False
             data_type = step.data_model.get('type')
 
+            # Teams: never send table data. The agent's final text answer
+            # renders its own (better-formatted) markdown table in Teams, so a
+            # separate raw table arrives as a duplicate. Slack/WhatsApp are
+            # unaffected — their data goes out as a CSV attachment, not a
+            # second table in the chat.
+            if data_type == "table" and platform_type == "teams":
+                logger.info(
+                    "SLACK_NOTIFIER: Skipping table send for step %s (Teams gets data via the text answer)",
+                    step_id,
+                )
+                return
+
             # Don't send small table results — the agent's text answer already
             # describes them. Charts (sent as images) and counts (scalar
             # answers) are unaffected.
@@ -300,7 +281,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 return
 
             if data_type == "table":
-                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id, platform_type=platform_type)
+                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
             elif data_type == "count":
                 if step.data and 'rows' in step.data and step.data['rows'] and 'columns' in step.data and step.data['columns']:
                     count_value = step.data['rows'][0].get(step.data['columns'][0].get('field', ''))
