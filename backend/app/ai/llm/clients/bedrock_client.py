@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, AsyncIterator, Optional
 
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import (
@@ -44,17 +46,12 @@ class BedrockClient(LLMClient):
     Auth modes:
       - iam: uses the standard AWS credential chain (IRSA, env vars, instance role, etc.)
       - access_keys: uses explicit AWS access key ID and secret access key
+      - api_key: uses a Bedrock API key as a per-client Bearer token
 
     Supports application inference profiles — pass the profile ARN as model_id.
     """
 
-    # TODO: Add api_key auth mode support.
-    # When boto3 supports passing Bedrock API keys as a client parameter
-    # (see https://github.com/boto/boto3/issues/4723), add api_key auth here.
-    # Current workaround would be os.environ["AWS_BEARER_TOKEN_BEDROCK"] = api_key
-    # but that's process-global and unsafe for multi-tenant setups.
-
-    _SUPPORTED_AUTH_MODES = {"iam", "access_keys"}
+    _SUPPORTED_AUTH_MODES = {"iam", "access_keys", "api_key"}
 
     def __init__(
         self,
@@ -71,7 +68,25 @@ class BedrockClient(LLMClient):
                 f"Supported modes: {', '.join(sorted(self._SUPPORTED_AUTH_MODES))}."
             )
 
-        if auth_mode == "access_keys":
+        if auth_mode == "api_key":
+            if not api_key:
+                raise ValueError("Bedrock auth_mode 'api_key' requires an api_key.")
+            # boto3 has no per-client parameter for Bedrock API keys, and the
+            # AWS_BEARER_TOKEN_BEDROCK env var is process-global — unsafe when
+            # multiple orgs' providers share one process. Skip SigV4 signing
+            # and inject the key as a Bearer token on this client's requests only.
+            self.client = boto3.client(
+                "bedrock-runtime",
+                region_name=region,
+                config=Config(signature_version=UNSIGNED),
+            )
+            def _add_bearer_auth(request, **kwargs):
+                request.headers["Authorization"] = f"Bearer {api_key}"
+
+            self.client.meta.events.register(
+                "request-created.bedrock-runtime.*", _add_bearer_auth
+            )
+        elif auth_mode == "access_keys":
             if not aws_access_key_id or not aws_secret_access_key:
                 raise ValueError(
                     "Bedrock auth_mode 'access_keys' requires both "

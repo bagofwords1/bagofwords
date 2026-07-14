@@ -47,7 +47,7 @@ LLM_PROVIDER_DETAILS = [
      {
          "type": "bedrock",
          "name": "AWS Bedrock",
-         "description": "AWS Bedrock for accessing foundation models via OpenAI-compatible API. Supports API key and IAM authentication.",
+         "description": "AWS Bedrock for accessing Claude and other foundation models. Supports API key, access keys, and IAM authentication.",
          "config": "BedrockConfig",
          "credentials": BedrockCredentials.schema()
      }
