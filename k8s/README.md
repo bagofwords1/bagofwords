@@ -268,6 +268,45 @@ The bind password is never accepted via `values.yaml` — it must be set as
 `BOW_LDAP_BIND_PASSWORD` in the Secret referenced by `config.secretRef`.
 
 
+### Persistent storage for uploaded files
+
+By default the chart does **not** persist user uploads (CSV/Excel files,
+branding logos, avatars): they live on the pod's ephemeral filesystem under
+`/app/backend/uploads` and are lost on every pod restart or rollout, while
+their database records survive — later reads then fail with
+`No such file or directory`. To keep them, enable the uploads volume:
+
+```bash
+--set persistence.uploads.enabled=true
+```
+
+or in `values.yaml`:
+
+```yaml
+persistence:
+  uploads:
+    enabled: true
+    size: 10Gi
+    storageClass: ""        # empty = cluster default
+    # existingClaim: my-uploads-pvc   # use a pre-created PVC instead
+```
+
+Notes:
+
+- The default `ReadWriteOnce` access mode means the volume attaches to a
+  single pod: the chart requires `replicaCount: 1` with autoscaling disabled
+  (rendering fails otherwise) and defaults the deployment strategy to
+  `Recreate` so upgrades don't deadlock waiting for the volume. To run
+  multiple replicas, use a `ReadWriteMany`-capable storage class (EFS, NFS,
+  Azure Files, …) and set `persistence.uploads.accessModes={ReadWriteMany}`.
+- The created PVC is annotated `helm.sh/resource-policy: keep`, so
+  `helm uninstall` leaves it (and your files) in place. Delete it manually if
+  you really want the data gone.
+- An init container seeds the empty volume with the directory layout the app
+  expects and hands ownership to the app user. It runs as root; if your
+  cluster's pod security policy forbids that, pre-provision a writable PVC
+  and pass it via `persistence.uploads.existingClaim`.
+
 ### Service Account annotations
 For adding a SA annotation pass the following flag during `helm install` command
 `--set serviceAccount.annotations.foo=bar`
