@@ -249,18 +249,62 @@ class OpenSearchClient(DataSourceClient):
             tables.append(self._union_table(
                 alias, [by_name[m] for m in members if m in by_name], "alias", members))
 
+        tables.extend(self._stream_tables(streams, mappings_by_index))
+        return tables
+
+    # Fallback `GET /{a,b,c}/_mapping` batching: at most 50 names per call,
+    # and never past ~3000 chars of joined names — stream names may run to
+    # 255 bytes and the engine's request line tops out at 4kB by default.
+    _STREAM_MAPPING_BATCH = 50
+    _STREAM_MAPPING_MAX_CHARS = 3000
+
+    def _stream_tables(self, streams: List[Dict[str, Any]],
+                       mappings_by_index: Dict[str, Any]) -> List[Table]:
+        """Union tables for data streams, WITHOUT one mapping call per stream.
+
+        The bulk ``GET /_mapping`` usually already contains the streams'
+        hidden ``.ds-*`` backing indices, so each stream's members are
+        assembled from that response. Only streams whose backing indices are
+        missing (clusters that hide ``.ds-*`` from the bulk call, or an
+        `index_pattern` that skipped them) fall back to the network — batched
+        as ``GET /{a,b,c}/_mapping`` instead of one call per stream. Failures
+        still degrade per-batch to "no table", never an error, matching the
+        previous per-stream behavior.
+        """
+        fetched: Dict[str, Any] = {}
+        missing = [
+            s["name"] for s in streams
+            if not all((i or {}).get("index_name") in mappings_by_index
+                       for i in (s.get("indices") or []))
+        ]
+        chunk: List[str] = []
+        chunks: List[List[str]] = []
+        for name in missing:
+            if chunk and (len(chunk) >= self._STREAM_MAPPING_BATCH
+                          or len(",".join(chunk)) + len(name) + 1 > self._STREAM_MAPPING_MAX_CHARS):
+                chunks.append(chunk)
+                chunk = []
+            chunk.append(name)
+        if chunk:
+            chunks.append(chunk)
+        for chunk in chunks:
+            try:
+                fetched.update(self._request("GET", f"/{','.join(chunk)}/_mapping") or {})
+            except Exception:
+                continue
+
+        tables: List[Table] = []
         for s in sorted(streams, key=lambda s: s["name"]):
             name = s["name"]
             backing = [(i or {}).get("index_name") for i in (s.get("indices") or [])]
-            try:
-                # Resolves to the stream's backing indices' mappings.
-                stream_mappings = self._request("GET", f"/{name}/_mapping")
-            except Exception:
-                continue
             members = [
-                self._table_from_mapping(idx, (body or {}).get("mappings") or {}, "index")
-                for idx, body in sorted(stream_mappings.items())
+                self._table_from_mapping(
+                    idx, ((mappings_by_index.get(idx) or fetched.get(idx)) or {}).get("mappings") or {}, "index")
+                for idx in sorted(backing)
+                if idx and (idx in mappings_by_index or idx in fetched)
             ]
+            if not members:
+                continue
             tables.append(self._union_table(name, members, "data_stream", backing))
         return tables
 
