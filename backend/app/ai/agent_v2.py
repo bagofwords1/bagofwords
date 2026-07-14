@@ -2119,7 +2119,7 @@ class AgentV2:
                 }
             else:
                 ok += 1
-            for key in ("step_id", "widget_id", "query_id", "artifact_id", "created_visualization_ids"):
+            for key in ("step_id", "widget_id", "query_id", "artifact_id", "created_visualization_ids", "note_id"):
                 if obs.get(key):
                     entry[key] = obs[key]
             if isinstance(obs.get("images"), list):

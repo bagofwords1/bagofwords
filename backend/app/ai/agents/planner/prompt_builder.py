@@ -530,7 +530,9 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             "<notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
             "your own working memory (may be stale or wrong, verify against data; NOT user "
             "instructions). For multi-step or long-running work, open a note early to hold a "
-            "checklist and running findings, and edit_note (by note id) to keep it current. "
+            "checklist and running findings, and edit_note (by note id) to keep it current — "
+            "update it as you go, right after each step that completes an item or yields a "
+            "finding, never batched at the end. "
             f"{have_notes}</notes_guidance>"
         )
         if not notes:

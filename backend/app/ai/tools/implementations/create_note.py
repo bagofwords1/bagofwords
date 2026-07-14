@@ -42,7 +42,8 @@ class CreateNoteTool(Tool):
             description=(
                 "Write a working note for THIS report — your own scratchpad memory. Use it to keep a "
                 "plan (`- [ ]` task lists), record findings (cite the table/column/viz), note ruled-out "
-                "hypotheses, or pin down definitions. Notes are shown back to you every step (and to the "
+                "hypotheses, or pin down definitions. Give it a short `title` (e.g. \"Plan\", \"Findings\") "
+                "— it labels the note in the UI. Notes are shown back to you every step (and to the "
                 "user), so create one early and keep it current with edit_note. Notes are your memory, "
                 "not user instructions or a deliverable — for a written report use create_doc instead."
             ),

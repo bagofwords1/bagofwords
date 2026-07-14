@@ -234,7 +234,7 @@ A "how many" never triggers the RCA loop; a "why" never resolves in one query.
 RCA LOOP (diagnostic asks only; one tool per turn, iterate — don't jump to a conclusion)
 1) Confirm the symptom with data first — quantify the change and its exact window before theorizing; don't trust the premise on faith.
 2) Decompose to localize it — segment the metric across dimensions (time, geography, segment, product, funnel stage) to find WHERE the change concentrates (contribution analysis). A metric-wide move and a single-segment move have different causes.
-3) Enumerate candidate causes, then test each with a targeted query — rule hypotheses in or out on evidence; keep the ruled-out paths, they belong in the writeup.
+3) Enumerate candidate causes, then test each with a targeted query — rule hypotheses in or out on evidence; keep the ruled-out paths, they belong in the writeup. Record each verdict in your working note as it lands (see notes_guidance), not retrospectively.
 4) Drill into the surviving hypothesis — separate correlation from causation and name confounders you cannot rule out. State confidence honestly.
 5) Conclude with the causal chain, your confidence, and a recommended action. For a heavy investigation deliver it via create_doc using the Root-cause structure in DOCUMENT DELIVERABLES; for a quick "why" answer in chat with the evidence cited.
 
@@ -372,20 +372,44 @@ Examples of good behavior (sources are published by default → most asks should
         # Parallel emission: driven by the org's ai_tool_concurrency setting
         # (planner_input.parallel_tools_enabled). BOW_FORCE_PARALLEL_TOOLS
         # remains a sandbox/ops override that forces it on regardless.
-        import os as _os_for_parallel_dbg
-        if planner_input.parallel_tools_enabled or _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+        if PromptBuilderV3._parallel_emission_enabled(planner_input):
+            # A note update records the PREVIOUS action's outcome (already in
+            # last_observation), so it is independent of whatever runs next —
+            # without this rule models file it under "dependent" and batch all
+            # note edits into one call at the very end of the run.
+            note_piggyback = (
+                " A note update (edit_note / create_note recording what the LAST completed "
+                "action produced) is always INDEPENDENT of the next step — piggyback it as an "
+                "extra tool_use block in the same response as the next step's calls instead of "
+                "spending a separate turn on it, and instead of deferring it to the end."
+                if getattr(planner_input, "notes_enabled", False)
+                else ""
+            )
             system = system.replace(
                 "HARD RULE: Emit AT MOST ONE tool_use block per response.",
                 "MULTI-TOOL: When the next step involves several INDEPENDENT operations "
                 "— e.g. the same inspection or creation repeated across different data "
                 "sources — emit ALL of them as tool_use blocks in ONE response instead "
                 "of spreading them across turns; they will run concurrently. Dependent "
-                "steps still go one per turn.",
+                f"steps still go one per turn.{note_piggyback}",
             ).replace(
                 "at most one tool call per turn",
                 "emit independent tool calls together in one turn; dependent ones one per turn",
             )
         return system
+
+    @staticmethod
+    def _parallel_emission_enabled(planner_input: PlannerInput) -> bool:
+        """Whether the planner may emit multiple tool_use blocks per response.
+
+        Mirrors the system-prompt MULTI-TOOL switch: the org's ai_tool_concurrency
+        setting (via planner_input.parallel_tools_enabled) or the
+        BOW_FORCE_PARALLEL_TOOLS sandbox/ops override.
+        """
+        import os as _os
+        return bool(planner_input.parallel_tools_enabled) or _os.environ.get(
+            "BOW_FORCE_PARALLEL_TOOLS", ""
+        ).lower() in ("1", "true", "yes")
 
     @staticmethod
     def _platform_system_directives(planner_input: PlannerInput) -> str:
@@ -475,6 +499,53 @@ Examples of good behavior (sources are published by default → most asks should
             bits.append(f"note: {note}")
         return f"<user_profile>{' | '.join(bits)}</user_profile>"
 
+    # Note-tool names — used to detect whether the last action already touched
+    # the scratchpad (in which case the per-iteration nudge stays quiet).
+    _NOTE_TOOLS = ("create_note", "edit_note")
+
+    @staticmethod
+    def _notes_nudge(planner_input: PlannerInput, notes_ctx: Optional[str]) -> str:
+        """Deterministic per-iteration reminder to keep the plan note current.
+
+        Prompt guidance decays over long runs; this fires exactly at the moment
+        of the mismatch — the last action succeeded, yet the injected notes
+        still show unchecked ``- [ ]`` items. Quiet when there is nothing to
+        tick, when the last action failed (ticking after a failure is wrong),
+        or when the last action already touched a note.
+        """
+        if not notes_ctx:
+            return ""
+        unchecked = notes_ctx.count("- [ ]")
+        if not unchecked:
+            return ""
+        last = planner_input.last_observation
+        if not isinstance(last, dict) or not last:
+            return ""
+        if last.get("error"):
+            return ""
+        if last.get("note_id"):
+            return ""
+        actions = last.get("parallel_actions")
+        if isinstance(actions, list):
+            if any(
+                isinstance(a, dict) and a.get("tool_name") in PromptBuilderV3._NOTE_TOOLS
+                for a in actions
+            ):
+                return ""
+            if all(isinstance(a, dict) and a.get("error") for a in actions):
+                return ""
+        how = (
+            "include an edit_note call alongside your next tool call(s) in THIS response"
+            if PromptBuilderV3._parallel_emission_enabled(planner_input)
+            else "make edit_note your next action"
+        )
+        return (
+            f"<notes_nudge>Your notes still show {unchecked} unchecked `- [ ]` item(s). If the last "
+            f"action completed one of them (or produced a finding worth keeping), {how} — or update "
+            "the note before finalizing if no further tool is needed. Do not save all note updates "
+            "for the end. If nothing changed, proceed without editing.</notes_nudge>"
+        )
+
     @staticmethod
     def _build_user_message(planner_input: PlannerInput) -> str:
         images_context = ""
@@ -553,6 +624,13 @@ Examples of good behavior (sources are published by default → most asks should
         if getattr(planner_input, "notes_enabled", False):
             notes_ctx = getattr(planner_input, "notes_context", None)
             have_notes = "Your current notes are below." if notes_ctx else "You have no notes yet."
+            cadence = (
+                "record it in the SAME response, as an edit_note tool_use block alongside the next "
+                "step's tool calls (a note update is always independent of the next step — it never "
+                "costs a turn)"
+                if PromptBuilderV3._parallel_emission_enabled(planner_input)
+                else "make edit_note your immediate next action before moving on"
+            )
             parts.append(
                 "  <notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
                 "your own working memory (may be stale or wrong, verify against data; NOT user "
@@ -560,10 +638,16 @@ Examples of good behavior (sources are published by default → most asks should
                 "keep it ticked off; (2) a CROSS-STEP ACCUMULATOR — when you page through a large input "
                 "(windowed read_file, a long history) whose earlier parts scroll out of context, write a "
                 "running mid-summary of findings so they survive across steps. edit_note (by note id) "
-                f"keeps either current. {have_notes}</notes_guidance>"
+                "keeps either current. UPDATE TIMING: notes are updated AS YOU GO, never batched for the "
+                "end — the moment a step completes a checklist item or yields a finding worth keeping, "
+                f"{cadence}. A note that goes stale mid-run has failed its purpose. "
+                f"{have_notes}</notes_guidance>"
             )
             if notes_ctx:
                 parts.append(f"  {notes_ctx}")
+            nudge = PromptBuilderV3._notes_nudge(planner_input, notes_ctx)
+            if nudge:
+                parts.append(f"  {nudge}")
         compacted = PromptBuilder._compact_past_observations(planner_input.past_observations)
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"

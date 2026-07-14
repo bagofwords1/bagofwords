@@ -242,6 +242,70 @@ def test_notes_guidance_bootstraps_when_enabled_without_notes():
 
 
 @pytest.mark.e2e
+def test_notes_are_kept_current_mid_run_not_batched_at_the_end():
+    """Mid-run note updates are driven three ways; all must hold:
+
+    1. notes_guidance carries an explicit update-timing rule (as-you-go).
+    2. A deterministic <notes_nudge> fires when the last action succeeded while
+       the injected notes still show unchecked `- [ ]` items — and stays quiet
+       on the first iteration, after a failure, after a note edit, or when the
+       checklist is fully ticked.
+    3. In parallel (MULTI-TOOL) mode the system prompt authorizes piggybacking
+       edit_note alongside the next step's tool calls.
+    """
+    from app.schemas.ai.planner import PlannerInput
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+
+    plan_notes = '<notes><note id="n1" title="Plan">- [x] revenue\n- [ ] genres\n- [ ] countries</note></notes>'
+    done_notes = '<notes><note id="n1" title="Plan">- [x] revenue\n- [x] genres</note></notes>'
+    ok_obs = {"summary": "created viz", "widget_id": "w1"}
+    fail_obs = {"summary": "query failed", "error": {"message": "boom"}}
+    note_obs = {"summary": "Edited note", "note_id": "n1"}
+    batch_with_note = {"summary": "batch", "parallel_actions": [
+        {"tool_name": "create_data", "summary": "ok"},
+        {"tool_name": "edit_note", "summary": "ok", "note_id": "n1"},
+    ]}
+    batch_plain = {"summary": "batch", "parallel_actions": [
+        {"tool_name": "create_data", "summary": "ok"},
+        {"tool_name": "create_data", "summary": "ok"},
+    ]}
+
+    def msg(**kw):
+        return PromptBuilderV3._build_user_message(
+            PlannerInput(user_message="x", notes_enabled=True, notes_context=plan_notes, **kw)
+        )
+
+    # (1) timing rule present whenever notes are enabled
+    assert "AS YOU GO" in msg()
+
+    # (2) the nudge fires exactly when a successful non-note action left
+    #     unchecked items behind
+    assert "notes_nudge" in msg(last_observation=ok_obs)
+    assert "notes_nudge" in msg(last_observation=batch_plain)
+    assert "notes_nudge" not in msg()  # first iteration — nothing ran yet
+    assert "notes_nudge" not in msg(last_observation=fail_obs)
+    assert "notes_nudge" not in msg(last_observation=note_obs)
+    assert "notes_nudge" not in msg(last_observation=batch_with_note)
+    fully_ticked = PromptBuilderV3._build_user_message(PlannerInput(
+        user_message="x", notes_enabled=True, notes_context=done_notes, last_observation=ok_obs))
+    assert "notes_nudge" not in fully_ticked
+    no_notes = PromptBuilderV3._build_user_message(PlannerInput(
+        user_message="x", notes_enabled=True, last_observation=ok_obs))
+    assert "notes_nudge" not in no_notes
+
+    # (3) MULTI-TOOL mode invites the piggyback; only when notes are enabled
+    par_on = PromptBuilderV3._build_system(PlannerInput(
+        user_message="x", notes_enabled=True, parallel_tools_enabled=True))
+    assert "MULTI-TOOL" in par_on and "edit_note" in par_on
+    par_no_notes = PromptBuilderV3._build_system(PlannerInput(
+        user_message="x", notes_enabled=False, parallel_tools_enabled=True))
+    assert "MULTI-TOOL" in par_no_notes and "edit_note" not in par_no_notes
+    serial = PromptBuilderV3._build_system(PlannerInput(
+        user_message="x", notes_enabled=True, parallel_tools_enabled=False))
+    assert "MULTI-TOOL" not in serial
+
+
+@pytest.mark.e2e
 def test_notes_gating_hides_tools_when_disabled():
     """When enable_agent_notes is off, the note tools are stripped from the catalog."""
     from app.ai.registry import ToolRegistry
