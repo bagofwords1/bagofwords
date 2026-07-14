@@ -656,7 +656,17 @@ class NetworkDirClient(DataSourceClient):
         except Exception as e:
             return {"success": False, "message": str(e)}
 
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    @staticmethod
+    def _prior_meta(prior_catalog: dict[str, Any] | None, name: str) -> dict:
+        """The previous run's `network_dir` metadata for a catalog row, or {}."""
+        entry = (prior_catalog or {}).get(name)
+        if isinstance(entry, dict):
+            meta = entry.get("network_dir")
+            if isinstance(meta, dict):
+                return meta
+        return {}
+
+    def get_schemas(self, progress_callback=None, prior_catalog=None) -> List[Table]:
         """Index the directory into catalog rows per the connection's index tier:
 
         - `none`     → no catalog at all (listing/search go live at the tool
@@ -664,13 +674,27 @@ class NetworkDirClient(DataSourceClient):
         - `metadata` → one row per file with name/size/mtime, NO content read.
         - `content`  → metadata + extracted keywords/hash so search_files can
                        match by topic without re-parsing every file.
+
+        `prior_catalog` ({table_name: metadata_json} from the previous index
+        run) makes content indexing INCREMENTAL: a file whose size+mtime match
+        its prior row reuses the stored keywords/hash instead of re-extracting
+        — so a scheduled reindex of an unchanged PDF archive is a stat-only
+        walk, not hours of pypdf. `progress_callback` gets a per-file tick,
+        which doubles as the cancellation checkpoint (the indexing runner's
+        callback raises IndexingCancelled once a cancel is requested).
         """
+        from app.data_sources.clients.progress import make_reporter
+
         if self.index_mode == INDEX_NONE:
             # Live mode: nothing is cached; the tool layer lists/reads directly.
             return []
         root = self._root()
+        files = self.list_files(recursive=self.recursive)
+        reporter = make_reporter(progress_callback)
+        reporter.phase("indexing files", total=len(files))
         tables: List[Table] = []
-        for f in self.list_files(recursive=self.recursive):
+        for f in files:
+            name = f["path"] or f["name"]
             meta = {
                 "file_id": f["id"],
                 "mime_type": f.get("mime_type"),
@@ -682,26 +706,42 @@ class NetworkDirClient(DataSourceClient):
                 f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
             if self.index_content:
-                try:
-                    path = root / f["id"]
-                    text = self._file_text(path)
-                    meta["keywords"] = extract_keywords(text, f["name"], self.max_keywords)
-                    meta["content_hash"] = hashlib.sha1(
-                        (text or "").encode("utf-8", "ignore")
-                    ).hexdigest() if text else None
+                prior = self._prior_meta(prior_catalog, name)
+                if (
+                    prior.get("indexed")
+                    and prior.get("size") == f.get("size")
+                    and prior.get("modified_at") == f.get("modified_at")
+                ):
+                    # Unchanged since the last run — reuse the stored keywords
+                    # and hash instead of re-reading/re-parsing the file.
+                    meta["keywords"] = prior.get("keywords") or []
+                    meta["content_hash"] = prior.get("content_hash")
                     meta["indexed"] = True
-                    if meta["keywords"]:
-                        description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
-                except Exception:
-                    meta["indexed"] = False
+                else:
+                    try:
+                        path = root / f["id"]
+                        text = self._file_text(path)
+                        meta["keywords"] = extract_keywords(text, f["name"], self.max_keywords)
+                        meta["content_hash"] = hashlib.sha1(
+                            (text or "").encode("utf-8", "ignore")
+                        ).hexdigest() if text else None
+                        meta["indexed"] = True
+                    except Exception:
+                        meta["indexed"] = False
+                if meta.get("keywords"):
+                    description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
             tables.append(Table(
-                name=f["path"] or f["name"],
+                name=name,
                 description=description,
                 columns=[],
                 pks=[],
                 fks=[],
                 metadata_json={"network_dir": meta},
             ))
+            # Per-file progress tick — also the cancel checkpoint: the runner's
+            # callback raises IndexingCancelled here once a cancel is requested.
+            reporter.tick(f["id"])
+        reporter.done()
         if self._last_walk_truncated:
             import logging
             logging.getLogger(__name__).warning(

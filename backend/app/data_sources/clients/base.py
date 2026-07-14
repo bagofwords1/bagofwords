@@ -36,18 +36,18 @@ class Capability(str, Enum):
     WRITE_FILE = "write_file"
 
 
-def _accepts_progress_callback(fn) -> bool:
-    """Inspect a `get_schemas`-like method to see if it accepts a
-    `progress_callback` kwarg. Used by the async wrapper so we don't catch a
-    bare `TypeError` raised from inside the call (which would mask real bugs
-    inside the client).
+def _accepts_kwarg(fn, name: str) -> bool:
+    """Inspect a `get_schemas`-like method to see if it accepts the given
+    kwarg (`progress_callback`, `prior_catalog`, …). Used by the async wrapper
+    so we don't catch a bare `TypeError` raised from inside the call (which
+    would mask real bugs inside the client).
     """
     try:
         sig = inspect.signature(fn)
     except (TypeError, ValueError):
         return False
     params = sig.parameters
-    if "progress_callback" in params:
+    if name in params:
         return True
     # Accept anything with **kwargs since it'll silently ignore the kwarg.
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
@@ -114,17 +114,29 @@ class DataSourceClient(ABC):
     async def atest_connection(self):
         return await asyncio.to_thread(self.test_connection)
 
-    async def aget_schemas(self, progress_callback: Optional[ProgressCallback] = None):
-        """Forwards `progress_callback` to the sync `get_schemas` only if it
-        accepts the kwarg, determined by signature introspection.
+    async def aget_schemas(
+        self,
+        progress_callback: Optional[ProgressCallback] = None,
+        prior_catalog: "dict | None" = None,
+    ):
+        """Forwards `progress_callback` / `prior_catalog` to the sync
+        `get_schemas` only if it accepts each kwarg, determined by signature
+        introspection. `prior_catalog` is the previous run's
+        `{table_name: metadata_json}` — file-source clients use it to skip
+        re-extracting unchanged files (incremental indexing).
 
         We do NOT catch a bare `TypeError` from the call: a real `TypeError`
         from inside `get_schemas` (e.g. a bug in a client) should surface,
         not be silently retried without progress.
         """
-        if progress_callback is None or not _accepts_progress_callback(self.get_schemas):
+        kwargs = {}
+        if progress_callback is not None and _accepts_kwarg(self.get_schemas, "progress_callback"):
+            kwargs["progress_callback"] = progress_callback
+        if prior_catalog and _accepts_kwarg(self.get_schemas, "prior_catalog"):
+            kwargs["prior_catalog"] = prior_catalog
+        if not kwargs:
             return await asyncio.to_thread(self.get_schemas)
-        return await asyncio.to_thread(self.get_schemas, progress_callback=progress_callback)
+        return await asyncio.to_thread(self.get_schemas, **kwargs)
 
     async def aget_schema(self, table_name):
         return await asyncio.to_thread(self.get_schema, table_name)
