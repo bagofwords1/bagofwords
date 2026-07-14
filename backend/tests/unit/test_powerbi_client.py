@@ -337,3 +337,56 @@ class TestGetSchemasCache:
         c.get_schemas()
         c.get_schemas(force_refresh=True)
         assert c.list_workspaces.call_count == 2
+
+
+class TestCleanDaxColumns:
+    """executeQueries returns '[Measure]' and 'Table[Column]' headers; both
+    must unwrap to bare column names (the old str.strip("[]") left
+    'Sales[Region]' as 'Sales[Region')."""
+
+    def test_measure_alias_unwrapped(self):
+        assert PowerBIClient._clean_dax_columns(["[TotalRevenue]"]) == ["TotalRevenue"]
+
+    def test_table_qualified_column_unwrapped(self):
+        assert PowerBIClient._clean_dax_columns(
+            ["Sales[Region]", "Sales[Revenue]"]
+        ) == ["Region", "Revenue"]
+
+    def test_mixed_forms(self):
+        assert PowerBIClient._clean_dax_columns(
+            ["Sales[Region]", "[TotalRevenue]", "Month"]
+        ) == ["Region", "TotalRevenue", "Month"]
+
+    def test_table_name_with_spaces(self):
+        assert PowerBIClient._clean_dax_columns(
+            ["Order Details[Unit Price]"]
+        ) == ["Unit Price"]
+
+    def test_collision_keeps_qualified_names(self):
+        # Same bare column from two tables: unwrapping would create duplicate
+        # DataFrame columns, so keep them qualified (dot notation).
+        assert PowerBIClient._clean_dax_columns(
+            ["Customers[Name]", "Products[Name]"]
+        ) == ["Customers.Name", "Products.Name"]
+
+    def test_measure_wins_bare_name_on_collision_with_column(self):
+        assert PowerBIClient._clean_dax_columns(
+            ["[Name]", "Customers[Name]"]
+        ) == ["Name", "Customers.Name"]
+
+    def test_unbracketed_and_malformed_names_pass_through(self):
+        assert PowerBIClient._clean_dax_columns(
+            ["plain", "Sales[Region", ""]
+        ) == ["plain", "Sales[Region", ""]
+
+    def test_execute_dax_uses_cleaned_columns(self):
+        c = _mk_client()
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {
+            "results": [{"tables": [{"rows": [
+                {"Sales[Region]": "East", "[TotalRevenue]": 193327.0},
+            ]}]}]
+        }
+        c._request = MagicMock(return_value=resp)
+        df = c._execute_dax_internal("ws", "ds", "EVALUATE ...")
+        assert list(df.columns) == ["Region", "TotalRevenue"]
