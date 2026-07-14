@@ -128,6 +128,7 @@ prompt that previously 400'd then retried now completes in a single
 to create a keyword version of error.message for aggregation since
 error.message is marked as 'NOT aggregatable/sortable' (full-text only)"* and
 returns the verbatim messages with exact counts (420/…) directly.
+Evidence: `media/es-cloud/24-topmsgs-final-full.png`.
 
 ### 4. `POST /api/connections/{id}/test` reports misleading `schema_access: false`
 The existing-connection test path (`connection_service.py:741`) only calls
