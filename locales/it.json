@@ -3033,7 +3033,8 @@
     "save": "Salva",
     "cancel": "Annulla",
     "saved": "Documento salvato",
-    "saveFailed": "Impossibile salvare il documento"
+    "saveFailed": "Impossibile salvare il documento",
+    "editDiagramSource": "Fai clic per modificare il codice del diagramma"
   },
   "notes": {
     "heading": "Note",

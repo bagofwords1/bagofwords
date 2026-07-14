@@ -3033,7 +3033,8 @@
     "save": "حفظ",
     "cancel": "إلغاء",
     "saved": "تم حفظ المستند",
-    "saveFailed": "فشل حفظ المستند"
+    "saveFailed": "فشل حفظ المستند",
+    "editDiagramSource": "انقر لتحرير مصدر المخطط"
   },
   "notes": {
     "heading": "ملاحظات",

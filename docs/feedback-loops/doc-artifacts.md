@@ -63,6 +63,30 @@ Observed (2026-07-11, claude-sonnet-4-6):
 - UI evidence: `media/pr/doc-artifacts/*.png` (report panel, selector, Summary tab,
   /dashboards badge + Docs filter, /r/[id] public page, TipTap editor before/after).
 
+## Loop C — mermaid in the OWNER's editor view (TipTap)
+
+The report owner's default doc view is the TipTap **DocEditor** (ArtifactFrame
+enters edit mode for owners), not the read-only DocViewer — so mermaid must
+render there too. `DocCodeBlockNodeView.vue` gives the editor's code block a
+node view: ```mermaid fences render as live diagrams (source only while the
+caret is inside; click the diagram to edit), other languages keep the plain
+`<pre><code>` rendering, and the markdown round-trip stays exact.
+
+```bash
+tools/agent/boot_stack.sh --dev
+# Seed a report owned by the login user with a mode='doc' artifact whose
+# markdown contains a ```mermaid fence (POST /api/reports + an artifacts row).
+cd frontend
+node ../tools/agent/verify_doc_editor_mermaid.mjs <reportId>
+```
+
+Observed (2026-07-14): diagram SVG renders in the editor with source hidden;
+click reveals the editable source; typing a new edge updates the diagram after
+the debounce; leaving the block hides the source; Save round-trips the
+```mermaid fence with the edit intact (new doc version, `doc_edit` 200). A
+plain ```sql fence in the same doc stays a normal code block. UI evidence:
+`media/pr/doc-editor-mermaid/*.png`.
+
 ## What this proves / regression notes
 
 - Doc creation/editing is exercised at every layer: tool contract, HTTP route

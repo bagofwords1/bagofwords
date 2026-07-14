@@ -3033,7 +3033,8 @@
     "save": "Spara",
     "cancel": "Avbryt",
     "saved": "Dokument sparat",
-    "saveFailed": "Det gick inte att spara dokumentet"
+    "saveFailed": "Det gick inte att spara dokumentet",
+    "editDiagramSource": "Klicka för att redigera diagrammets källkod"
   },
   "notes": {
     "heading": "Anteckningar",
