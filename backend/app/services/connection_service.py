@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
+from app.data_sources.clients.progress import IndexingCancelled
 from app.models.connection import Connection
 from app.models.connection_table import ConnectionTable
 from app.models.connection_tool import ConnectionTool
@@ -1013,11 +1014,27 @@ class ConnectionService:
                     return []
 
             client = await self.construct_client(db, connection, current_user)
+
+            # Load the existing catalog up front: it powers BOTH the upsert diff
+            # below AND incremental indexing — file-source clients whose
+            # get_schemas accepts `prior_catalog` reuse stored keywords/hashes
+            # for unchanged files instead of re-extracting every document
+            # (base.aget_schemas only forwards the kwarg to clients that take it).
+            connection_id_str = str(connection.id)
+            existing_q = await db.execute(
+                select(ConnectionTable)
+                .filter(ConnectionTable.connection_id == connection_id_str)
+            )
+            existing_tables = {t.name: t for t in existing_q.scalars().all()}
+            prior_catalog = {
+                name: t.metadata_json for name, t in existing_tables.items()
+                if t.metadata_json
+            }
+
             logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
-            if progress_callback is not None:
-                fresh_tables = await client.aget_schemas(progress_callback=progress_callback)
-            else:
-                fresh_tables = await client.aget_schemas()
+            fresh_tables = await client.aget_schemas(
+                progress_callback=progress_callback, prior_catalog=prior_catalog
+            )
 
             logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
             if fresh_tables and len(fresh_tables) > 0:
@@ -1071,15 +1088,8 @@ class ConnectionService:
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
 
-            # Get existing tables - ensure connection_id is string
-            connection_id_str = str(connection.id)
-            logger.info(f"refresh_schema: Looking for existing tables with connection_id={connection_id_str}")
-
-            existing_q = await db.execute(
-                select(ConnectionTable)
-                .filter(ConnectionTable.connection_id == connection_id_str)
-            )
-            existing_tables = {t.name: t for t in existing_q.scalars().all()}
+            # Existing tables were loaded before schema discovery (they also
+            # feed `prior_catalog` for incremental file indexing).
             logger.info(f"refresh_schema: Found {len(existing_tables)} existing ConnectionTable records")
 
             # Upsert tables
@@ -1155,6 +1165,11 @@ class ConnectionService:
 
             return final_tables
 
+        except IndexingCancelled:
+            # Cancellation is control flow, not a failure: let it reach the
+            # indexing runner so the run is finalized as `cancelled` — wrapping
+            # it in the generic 500 below would mark the run failed instead.
+            raise
         except Exception as e:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {e}")
