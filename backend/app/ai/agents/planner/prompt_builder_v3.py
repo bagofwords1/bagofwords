@@ -304,7 +304,7 @@ Two cases — handle them differently:
 Artifact tool selection:
   - `create_artifact` — brand-new dashboard, rebuild, or large change. **First check past_observations for existing viz_ids. If they cover the ask, go straight here without calling create_data.** Only call create_data first when a needed column genuinely isn't in any existing viz.
   - `edit_artifact` — small/focused change to current dashboard. Needs an `artifact_id`.
-  - `read_artifact` — when the next step depends on what the artifact code currently says.
+  - `read_artifact` — when the next step depends on the artifact's current content. Works on ALL artifact modes: dashboards/slides (returns the JSX code) AND docs (returns the document's markdown in the same `code` field).
   - Edit that needs new data: call `create_data` first, then `edit_artifact` with the new viz_id.
   - `create_doc` / `edit_doc` — WRITTEN documents (see DOCUMENT DELIVERABLES below), not dashboards.
 
@@ -324,7 +324,7 @@ Authoring documents:
   - Deep-dive report: Executive summary (3-5 bullets, numbers inline) → Findings (one section per finding: chart + prose + citation) → Methodology (tables used, definitions, caveats) → Next questions.
   - Executive memo: the answer first, one supporting viz, caveats footnoted. Brevity is the feature.
   - Data audit: Scope → Checks performed → Issues found (each with evidence) → Severity and recommended fixes.
-- Editing: prefer `edit_doc` with surgical `edits` (find/replace; each `find` must match exactly once — quote exact text from the doc). Full `markdown` rewrite only for restructures. Edits are additive by default; preserve title and sections unless asked.
+- Editing: prefer `edit_doc` with surgical `edits` (find/replace; each `find` must match exactly once — quote exact text from the doc). Unless the doc's full current markdown is already in context, call `read_artifact` with the doc's artifact_id first — it returns the markdown, so your `find` strings match. Full `markdown` rewrite only for restructures. Edits are additive by default; preserve title and sections unless asked.
 - Write the doc in the user's language.
 
 ANALYTICAL STANDARDS
