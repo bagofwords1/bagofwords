@@ -199,11 +199,11 @@ class ConnectionService:
             if type in ENTRA_OBO_CONNECTION_TYPES:
                 allowed_user_auth_modes = ["oauth"]
             elif type == "servicenow" and (credentials or {}).get("oauth_client_id"):
-                # Admin supplied a ServiceNow OAuth app → enable per-user
-                # sign-in; keep userpass so users may bring their own
-                # username/password instead (matches the no-restriction
-                # behavior when modes are unset).
-                allowed_user_auth_modes = ["oauth", "userpass"]
+                # Admin supplied a ServiceNow OAuth app → per-user auth means
+                # OAuth sign-in (Fabric-style). Without an OAuth app, modes
+                # stay unset so users may still bring their own
+                # username/password (basic-auth-only instances).
+                allowed_user_auth_modes = ["oauth"]
             elif type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
                 # System auth is Kerberos → per-user auth means Kerberos SSO via
                 # constrained delegation (no per-user secret; UPN derived at
@@ -462,7 +462,7 @@ class ConnectionService:
                     except Exception:
                         creds = {}
                 if (creds or {}).get("oauth_client_id"):
-                    updates["allowed_user_auth_modes"] = ["oauth", "userpass"]
+                    updates["allowed_user_auth_modes"] = ["oauth"]
             elif target_type == "MSSQL" and not (connection.allowed_user_auth_modes or []):
                 cfg = updates.get("config")
                 if cfg is None:
