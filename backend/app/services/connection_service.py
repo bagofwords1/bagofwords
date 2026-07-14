@@ -1422,11 +1422,22 @@ class ConnectionService:
             meta_keys = {"auth_policy", "allowed_user_auth_modes"}
             client_params = {k: v for k, v in client_params.items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
-            # Narrow to constructor signature
+            # Narrow to constructor signature — but skip narrowing when the
+            # constructor accepts **kwargs. Thin subclasses like OnedriveClient /
+            # SharepointClient / GraphMailClient are just `__init__(self, **kwargs)`
+            # forwarding to the parent, so their signature reports only `self` +
+            # `kwargs`; narrowing would strip tenant_id/client_id/client_secret and
+            # every other real arg, making the pre-save "Test credentials" fail with
+            # "No access_token and no service-principal credentials configured".
+            # (Mirrors construct_client's accepts_var_kwargs guard.)
             try:
                 import inspect
                 sig = inspect.signature(ClientClass.__init__)
-                client_params = {k: v for k, v in client_params.items() if k in sig.parameters and k != "self"}
+                accepts_var_kwargs = any(
+                    p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if not accepts_var_kwargs:
+                    client_params = {k: v for k, v in client_params.items() if k in sig.parameters and k != "self"}
             except Exception:
                 pass
 
