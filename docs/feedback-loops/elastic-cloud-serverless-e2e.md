@@ -145,6 +145,46 @@ at `connection_service.py:714`) or omit the fields.
 Not reduced to a deterministic loop — noted for whoever next touches
 `LLMService.create_provider`/`delete_provider` session handling.
 
+### 6. Discovery was O(streams) — one mapping call per data stream — FIXED
+`get_tables()` fetched `GET /{stream}/_mapping` once per data stream
+(inherited verbatim from the OpenSearch template), so discovery cost scaled
+with stream count: correct and invisible at sandbox scale, minutes on a real
+observability estate.
+
+**Measured on the live serverless project after seeding 1,000 extra
+`logs-load*-default` streams (`tools/elastic/seed_1k_streams.py` —
+2 docs per stream via `_bulk` auto-create):**
+
+| | tables | HTTP calls | wall clock |
+|---|---|---|---|
+| before | 1,007 | 1,011 | **709.6s** (~12 min — exceeds the 600s indexing ceiling in `connection_indexing_service.py:216`, i.e. connection creation would time out) |
+| after | 1,008 | **3** | **2.5s** |
+
+**Fix:** stream union tables are assembled from the bulk `GET /_mapping`
+response (which already carries the `.ds-*` backing indices — always, on
+serverless); only streams whose backing indices are missing from it fall back
+to the network, comma-batched 50 per `GET /{a,b,c}/_mapping` (stateful
+clusters that hide `.ds-*`). Output metadata is unchanged — same tables,
+same union columns, same `{type: data_stream, indices: [...]}`; failures
+degrade to skipped streams as before. Applied to `elasticsearch_client.py`
+and `opensearch_client.py` (fork parity). Call-count regression tests:
+`test_stream_discovery_reuses_bulk_mapping_no_per_stream_calls`,
+`test_stream_discovery_batched_fallback_when_backing_hidden`,
+`test_stream_discovery_failed_fallback_batch_skips_streams`.
+
+**Observed flip in the product UI** (fresh connection against the
+1,008-stream estate): *Test Connection* → "Connected successfully. Found 1008
+collections."; create → "Discovered **1008 tables in 5s**"; the Select Tables
+page paginates them (100/page, searchable). Evidence:
+`media/es-cloud/30-1k-discovery-5s.png`,
+`media/es-cloud/31-1k-select-tables.png`.
+
+Remaining scale levers (not needed at 1k): the admin-facing `Index Pattern`
+config narrows discovery server-side for larger estates, and a
+`filter_path=*.mappings` trim on the bulk call would cut payload bytes
+(left out deliberately — `filter_path` drops empty branches, which would
+silently hide zero-field indices from the catalog).
+
 ## Observation on answer quality (not a tool bug)
 The generated RCA doc summarized severity as "92 backend errors, 91 frontend
 cascade errors" — those are error-*minutes* from the minute-level aggregation,
