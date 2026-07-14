@@ -343,20 +343,55 @@ class ElasticsearchClient(DataSourceClient):
             member_tables = [concrete[m] for m in members if m in concrete]
             tables.append(self._union_table(alias, member_tables, "alias", members))
 
+        tables.extend(self._stream_tables(streams, mappings_by_index))
+
+        _ = by_name  # retained for parity/debugging; alias union uses concrete
+        return tables
+
+    # How many stream names to resolve per fallback `GET /{a,b,c}/_mapping`
+    # call. Bounded by URL length (~4k): stream names run ~20-60 chars.
+    _STREAM_MAPPING_BATCH = 50
+
+    def _stream_tables(self, streams: List[Dict[str, Any]],
+                       mappings_by_index: Dict[str, Any]) -> List[Table]:
+        """Union tables for data streams, WITHOUT one mapping call per stream.
+
+        The bulk ``GET /_mapping`` usually already contains the streams'
+        hidden ``.ds-*`` backing indices (always, on serverless), so each
+        stream's members are assembled from that response. Only streams whose
+        backing indices are missing (stateful clusters that hide ``.ds-*``
+        from the bulk call, or an `index_pattern` that skipped them) fall back
+        to the network — batched as ``GET /{a,b,c}/_mapping`` instead of one
+        call per stream, so a 2,000-stream estate costs a handful of requests,
+        not 2,000. Failures still degrade per-batch to "no table", never an
+        error, matching the previous per-stream behavior.
+        """
+        fetched: Dict[str, Any] = {}
+        missing = [
+            s["name"] for s in streams
+            if not all((i or {}).get("index_name") in mappings_by_index
+                       for i in (s.get("indices") or []))
+        ]
+        for start in range(0, len(missing), self._STREAM_MAPPING_BATCH):
+            chunk = missing[start:start + self._STREAM_MAPPING_BATCH]
+            try:
+                fetched.update(self._request("GET", f"/{','.join(chunk)}/_mapping") or {})
+            except Exception:
+                continue
+
+        tables: List[Table] = []
         for s in sorted(streams, key=lambda s: s["name"]):
             name = s["name"]
             backing = [(i or {}).get("index_name") for i in (s.get("indices") or [])]
-            try:
-                stream_mappings = self._request("GET", f"/{name}/_mapping")
-            except Exception:
-                continue
             members = [
-                self._table_from_mapping(idx, (body or {}).get("mappings") or {}, "index")
-                for idx, body in sorted(stream_mappings.items())
+                self._table_from_mapping(
+                    idx, ((mappings_by_index.get(idx) or fetched.get(idx)) or {}).get("mappings") or {}, "index")
+                for idx in sorted(backing)
+                if idx and (idx in mappings_by_index or idx in fetched)
             ]
+            if not members:
+                continue
             tables.append(self._union_table(name, members, "data_stream", backing))
-
-        _ = by_name  # retained for parity/debugging; alias union uses concrete
         return tables
 
     def get_schemas(self) -> List[Table]:
