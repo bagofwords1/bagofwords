@@ -26,6 +26,8 @@ one of these tasks:
   and context window must be verified against official docs first.
 - **release-notes** — bump `VERSION` and write a minimal, user-facing
   `CHANGELOG.md` entry after a user-facing change ships.
+- **readme-showcase** — seed a polished product workspace, capture README
+  screenshots, and refresh the product story around current capabilities.
 
 Shared setup scripts (usable by humans too): `tools/agent/boot_stack.sh`
 (run the full stack like CI), `tools/agent/seed_org.py` (seed org/users/demo

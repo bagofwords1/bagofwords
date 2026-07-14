@@ -1,0 +1,4 @@
+interface:
+  display_name: "README Showcase"
+  short_description: "Build polished product README demos and screenshots"
+  default_prompt: "Use $readme-showcase to refresh the README with a seeded product showcase and polished screenshots."
