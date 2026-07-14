@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.457 (July 14, 2026)
+- **Bedrock API key authentication (#657)** — the AWS Bedrock provider gains an API Key auth mode alongside IAM and Access Keys: paste a Bedrock API key (the credential the AWS console now generates by default) and connect — no IAM roles or access-key pairs required. The key is injected as a per-provider Bearer token (never a process-global env var, so multiple orgs' keys stay isolated), and the UI notes that short-term keys expire within 12 hours.
+
 ## Version 0.0.456 (July 13, 2026)
 - **Line-level grep over file sources (#649)** — a new `grep_files` agent tool runs deterministic regex over raw file bytes on Files & Directories and Amazon S3 connections, returning matching lines with line numbers and before/after context plus a total match count, per-file/total match caps, skipped-file reasons (binary, too large, off-scope), and a resumable cursor — so the agent extracts error lines from large log corpora at the source instead of paging whole files through context. Any text file greps regardless of extension (`.log`, `.ndjson`, extensionless); `include_globs` scoping is enforced and off-scope reads are audited.
 - **Tool parameters visible on expand (#649)** — `list_files`, `search_files`, `read_file`, and `grep_files` calls in the report view show the exact arguments the agent passed (pattern, scope, paging cursor) behind a collapsed "Parameters" toggle, and windowed `read_file` calls show a byte-range progress badge.

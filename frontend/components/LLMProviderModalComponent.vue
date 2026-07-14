@@ -96,9 +96,21 @@
                                         :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                                         Access Keys
                                     </button>
+                                    <button type="button" @click="selectedProvider.credentials.auth_mode = 'api_key'"
+                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                        API Key
+                                    </button>
                                 </div>
                                 <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                             </div>
+                            <template v-if="selectedProvider.credentials.auth_mode === 'api_key'">
+                                <div>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Bedrock API Key <span class="text-red-500">*</span></label>
+                                    <input v-model="selectedProvider.credentials.api_key" type="password" placeholder="Keep blank to use stored key"
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Use a long-term API key — short-term keys expire within 12 hours.</p>
+                                </div>
+                            </template>
                             <template v-if="selectedProvider.credentials.auth_mode === 'access_keys'">
                                 <div>
                                     <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
@@ -304,9 +316,21 @@
                                             :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
                                             Access Keys
                                         </button>
+                                        <button type="button" @click="providerForm.credentials.auth_mode = 'api_key'"
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                            API Key
+                                        </button>
                                     </div>
                                     <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                                 </div>
+                                <template v-if="providerForm.credentials.auth_mode === 'api_key'">
+                                    <div>
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Bedrock API Key <span class="text-red-500">*</span></label>
+                                        <input v-model="providerForm.credentials.api_key" type="password" placeholder="Enter Bedrock API key"
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Use a long-term API key — short-term keys expire within 12 hours.</p>
+                                    </div>
+                                </template>
                                 <template v-if="providerForm.credentials.auth_mode === 'access_keys'">
                                     <div>
                                         <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
