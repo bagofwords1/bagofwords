@@ -130,6 +130,38 @@ def test_connection_detects_silent_metadata_acl_failure(client):
     assert "sys_dictionary" in result["message"]
 
 
+# ── auth ─────────────────────────────────────────────────────────────────────
+
+def test_connect_uses_basic_auth_by_default(client):
+    c, session = client(metadata_responder)
+    c.test_connection()
+    assert session.auth == ("u", "p")
+    assert "Authorization" not in session.headers
+
+
+def test_connect_prefers_bearer_token_over_basic_auth(client):
+    """Per-user OAuth: access_token wins even when service-account
+    username/password are also present on the connection."""
+    c, session = client(metadata_responder, access_token="tok-123")
+    c.test_connection()
+    assert session.headers["Authorization"] == "Bearer tok-123"
+    assert session.auth is None
+
+
+def test_connect_without_any_credentials_raises():
+    c = ServiceNowClient(instance_url="https://example.service-now.com")
+    with pytest.raises(RuntimeError, match="no credentials"):
+        with c.connect():
+            pass
+
+
+def test_expired_oauth_token_message_mentions_sign_in(client):
+    c, _ = client(lambda path, params: FakeResponse({}, status_code=401), access_token="tok-123")
+    result = c.test_connection()
+    assert result["success"] is False
+    assert "sign in" in result["message"]
+
+
 # ── schema discovery ─────────────────────────────────────────────────────────
 
 def test_get_schemas_inherits_parent_fields(client):

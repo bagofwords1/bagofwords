@@ -177,6 +177,44 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "mcp",
         }
 
+    if conn_type == "servicenow":
+        # ServiceNow OAuth endpoints are instance-specific (unlike Google /
+        # Microsoft): {instance_url}/oauth_auth.do and /oauth_token.do. The
+        # instance URL lives in the connection *config*, not credentials.
+        import json as _json
+        config = connection.config
+        if isinstance(config, str):
+            try:
+                config = _json.loads(config)
+            except (TypeError, ValueError):
+                config = {}
+        instance_url = ((config or {}).get("instance_url") or "").rstrip("/")
+        if not instance_url:
+            raise ValueError(f"Connection {connection.id} missing instance_url in config for ServiceNow OAuth")
+
+        client_id = creds.get("oauth_client_id")
+        # Secret is optional: a ServiceNow OAuth app marked "public client"
+        # authenticates with PKCE only (no secret at the token endpoint).
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id for ServiceNow OAuth. "
+                "Register an OAuth app in the instance (System OAuth → Application Registry) and save its "
+                "client ID (and secret, unless it's a public client) on the connection."
+            )
+
+        return {
+            "authorize_url": f"{instance_url}/oauth_auth.do",
+            "token_url": f"{instance_url}/oauth_token.do",
+            "client_id": client_id,
+            "client_secret": client_secret,  # None → public client (PKCE only)
+            # `useraccount` is ServiceNow's standard delegated scope: the token
+            # acts as the signing-in user. Refresh tokens are always issued
+            # (default ~100-day lifetime); no offline_access-style scope exists.
+            "scopes": "useraccount",
+            "provider_name": "servicenow",
+        }
+
     if conn_type == "bigquery":
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")

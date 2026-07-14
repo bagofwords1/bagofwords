@@ -484,7 +484,14 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud platform for IT service management, operations, and workflows.",
         config_schema=ServiceNowConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
+            # The userpass schema also carries optional oauth_client_id/secret
+            # (BigQuery pattern): the service account drives catalog indexing,
+            # the OAuth app fields power the per-user "oauth" sign-in below.
             "userpass": AuthVariant(title="Username / Password", schema=ServiceNowCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth: authorization-code flow against the
+            # instance's /oauth_auth.do + /oauth_token.do; queries run as the
+            # signed-in user so Table API ACLs apply natively.
+            "oauth": AuthVariant(title="Sign in with ServiceNow", schema=OAuthDelegatedCredentials, scopes=["user"]),
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",

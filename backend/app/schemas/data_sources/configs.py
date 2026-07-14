@@ -230,8 +230,27 @@ class SalesforceConfig(BaseModel):
 
 # ServiceNow
 class ServiceNowCredentials(BaseModel):
+    """Service-account basic auth, plus an optional OAuth client for per-user
+    sign-in (mirrors BigQueryCredentials). The username/password drive catalog
+    indexing and system-scope queries; the `oauth_*` fields — registered in the
+    instance under System OAuth → Application Registry — enable the "Sign in
+    with ServiceNow" per-user flow and are consumed only by the OAuth
+    authorize/token endpoints (construct_client strips `oauth_`-prefixed keys
+    before they reach the client)."""
     username: str = Field(..., title="Username", description="", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Client ID of an OAuth app registered in ServiceNow (System OAuth → Application Registry) — enables per-user sign-in",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Client Secret of the ServiceNow OAuth app",
+        json_schema_extra={"ui:type": "password"}
+    )
 
 
 class ServiceNowConfig(BaseModel):
