@@ -29,6 +29,17 @@ async def _audit_access_denied(db, user, organization, permission: str, endpoint
         _perm_logger.debug("_audit_access_denied failed", exc_info=True)
 
 
+def _is_view_only_permission(permission) -> bool:
+    """True when every required permission is read-only (view_*).
+
+    Gates the full-admin ownership bypass: admins may SEE any object in
+    their org, but mutating permissions (update/delete/publish) keep the
+    owner-only gate even for admins.
+    """
+    perms = permission if isinstance(permission, (list, tuple, set)) else (permission,)
+    return bool(perms) and all(str(p).startswith("view_") for p in perms)
+
+
 def requires_permission(permission, model=None, owner_only=False, allow_public=False, resource_scoped=False):
     """
     Enhanced decorator that checks:
@@ -68,8 +79,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             memory_id = all_args.get('memory_id')  # For routes with object_id parameter
             instruction_id = all_args.get('instruction_id')
             query_id = all_args.get('query_id')  # For routes with object_id parameter
+            artifact_id = all_args.get('artifact_id')  # For routes with object_id parameter
 
-            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id
+            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id or artifact_id
         
 
             if not all([user, organization, db]):
@@ -104,18 +116,46 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 if owner_only:
                     # Check if object has user_id field (for ownership)
                     if hasattr(obj, 'user_id'):
-                        is_owner = obj.user_id == user.id
-                        
+                        # Objects without their own visibility that hang off a
+                        # report (e.g. Artifact) inherit the parent report's
+                        # visibility, and the report's owner counts as their
+                        # owner. Load the parent org-scoped so a cross-org id
+                        # can never resolve a visibility source.
+                        vis_obj = obj
+                        if not hasattr(obj, 'artifact_visibility') and hasattr(obj, 'report_id'):
+                            from app.models.report import Report
+                            vis_result = await db.execute(
+                                select(Report).options(lazyload("*")).where(
+                                    Report.id == obj.report_id,
+                                    Report.organization_id == organization.id,
+                                )
+                            )
+                            vis_obj = vis_result.scalar_one_or_none()
+
+                        is_owner = obj.user_id == user.id or (
+                            vis_obj is not None and vis_obj is not obj and vis_obj.user_id == user.id
+                        )
+
+                        # Full admins may VIEW any object in their org. The
+                        # bypass only applies to read-only (view_*) permissions:
+                        # mutations stay owner-only, for admins too.
+                        admin_view = False
+                        if not is_owner and _is_view_only_permission(permission):
+                            resolved_admin = await resolve_permissions(db, str(user.id), str(organization.id))
+                            admin_view = FULL_ADMIN in resolved_admin.org_permissions
+
                         # If allow_public, check visibility-based access
-                        if allow_public and hasattr(obj, 'artifact_visibility'):
-                            vis = getattr(obj, 'artifact_visibility', 'none') or 'none'
+                        if admin_view:
+                            pass  # Org admin viewing: skip the ownership gate
+                        elif allow_public and vis_obj is not None and hasattr(vis_obj, 'artifact_visibility'):
+                            vis = getattr(vis_obj, 'artifact_visibility', 'none') or 'none'
                             if vis in ('public', 'internal'):
                                 pass  # Allow org members to access
                             elif vis == 'shared':
                                 # Check if user is in the report's share list
                                 from app.models.report_share import ReportShare
                                 share_stmt = select(ReportShare).where(
-                                    ReportShare.report_id == obj.id,
+                                    ReportShare.report_id == vis_obj.id,
                                     ReportShare.user_id == user.id,
                                     ReportShare.share_type == 'artifact',
                                     ReportShare.deleted_at.is_(None),
