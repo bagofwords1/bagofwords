@@ -501,6 +501,13 @@ def _digest_file_tool(tool_execution, allow_llm_see_data: bool = True) -> str:
         if rj.get('windowed'):
             parts.append(f"window {rj.get('byte_count')}B of {rj.get('total_size')}"
                          + (" eof" if rj.get('eof') else ""))
+        if rj.get('pages_shown'):
+            parts.append(f"pages {rj.get('pages_shown')} of {rj.get('pages_total')}")
+        if ct == 'images':
+            # The pixels were seen in that turn and are gone from context now —
+            # this line is the durable memory that seeing happened, and how to
+            # look again.
+            parts.append("viewed by vision — re-view with read_file")
         sfid = rj.get('session_file_id')
         if sfid:
             parts.append(f"session_file_id: {sfid}")
@@ -583,6 +590,30 @@ class MessageContextBuilder:
         self.report = report
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
+
+    async def _attachments_by_completion(self, completion_ids):
+        """Files uploaded WITH each user message, for temporal grounding in
+        history — 'the screenshot I sent earlier' is unresolvable unless the
+        turn that carried it says so. One batched query; names + ids only
+        (the <files> index owns previews)."""
+        if not completion_ids:
+            return {}
+        try:
+            from app.models.file import File as FileModel
+            from app.models.report_file_association import report_file_association
+            rows = await self.db.execute(
+                select(report_file_association.c.completion_id, FileModel)
+                .join(FileModel, FileModel.id == report_file_association.c.file_id)
+                .where(report_file_association.c.completion_id.in_(list(completion_ids)))
+            )
+            out = {}
+            for cid, f in rows.all():
+                out.setdefault(str(cid), []).append(
+                    f"{getattr(f, 'filename', '?')} ({getattr(f, 'content_type', None) or 'file'}, id={f.id})"
+                )
+            return out
+        except Exception:
+            return {}
 
     async def _load_tool_execution_for_context(self, tool_execution_id: str):
         """Load only the tool result fields needed for conversation context.
@@ -719,14 +750,22 @@ class MessageContextBuilder:
         # Limit to max_messages (considering pairs)
         completions_to_process = completions_to_process[-max_messages:]
         
+        attachments_map = await self._attachments_by_completion(
+            [str(c.id) for c in completions_to_process if c.role == 'user']
+        )
+
         for completion in completions_to_process:
             timestamp = completion.created_at.strftime("%H:%M")
-            
+
             if completion.role == 'user':
                 # User message: show prompt content
                 content = completion.prompt.get('content', '') if completion.prompt else ''
                 if content.strip():
-                    conversation.append(f"User ({timestamp}): {content.strip()}")
+                    line = f"User ({timestamp}): {content.strip()}"
+                    atts = attachments_map.get(str(completion.id))
+                    if atts:
+                        line += "\n[attached: " + "; ".join(atts) + "]"
+                    conversation.append(line)
                     
             elif completion.role == 'system':
                 # System message: get reasoning + assistant from completion blocks + tool executions
@@ -1195,6 +1234,7 @@ class MessageContextBuilder:
         # Batch-load mentions for all user messages to avoid N+1 queries
         # =========================
         user_completion_ids: List[str] = [str(c.id) for c in completions_to_process if c.role == 'user']
+        attachments_map = await self._attachments_by_completion(user_completion_ids)
         mentions_by_completion: Dict[str, List[Mention]] = {}
         file_ids: set[str] = set()
         ds_ids: set[str] = set()
@@ -1354,7 +1394,11 @@ class MessageContextBuilder:
                                 mentions_str = ", ".join(parts[:8]) + ("…" if len(parts) > 8 else "")
                     except Exception:
                         mentions_str = None
-                    items.append(MessageItem(role="user", timestamp=ts, text=content.strip(), mentions=mentions_str))
+                    text = content.strip()
+                    atts = attachments_map.get(str(getattr(completion, 'id', '')))
+                    if atts:
+                        text += "\n[attached: " + "; ".join(atts) + "]"
+                    items.append(MessageItem(role="user", timestamp=ts, text=text, mentions=mentions_str))
             elif completion.role == 'system':
                 # Aggregate blocks like build_context
                 blocks_result = await self.db.execute(

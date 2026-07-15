@@ -63,6 +63,14 @@ def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
     return any(kw in p for kw in THINKING_TRIGGERS)
 
 
+def capabilities_for_report_files(has_files: bool) -> set:
+    """Capabilities the report's OWN file space contributes to the tool
+    catalog. Session files back read_file (lazy content/pages/vision) and
+    grep_files (line sweep) even with no file connector attached; discovery
+    stays with the <files> index, so list/search remain connector-only."""
+    return {"read_file", "grep_files"} if has_files else set()
+
+
 def _observation_failed(observation) -> bool:
     """True when a tool observation signals failure.
 
@@ -440,6 +448,12 @@ class AgentV2:
                             available_capabilities.add(getattr(cap, "value", str(cap)))
                     except Exception:
                         continue
+            # The report's OWN file space also backs read_file / grep_files
+            # (session-file resolution) — an agent with uploaded files but no
+            # file connector still needs the readers in its catalog.
+            available_capabilities |= capabilities_for_report_files(
+                bool(getattr(report, "files", None))
+            )
         except Exception:
             pass
 

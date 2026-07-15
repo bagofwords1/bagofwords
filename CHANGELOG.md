@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.459 (July 15, 2026)
+- **read_file and grep_files work on conversation attachments** — uploaded files (JSON, text, logs, PDFs, images) are now readable by the same read_file/grep_files tools that serve file connections: leave connection_id empty and pass the file's id from the conversation. Windowed reads, PDF `page_range`, and line-level grep all work over attachments, and the tools appear in the agent's catalog whenever the conversation has files — no file connector required.
+- **The agent can look at images — including ones from earlier turns** — read_file on an attached image shows it to a vision-capable model, so "what's in the screenshot I sent earlier?" now works (previously only images attached to the current message were visible, once). Scanned/image-only PDF pages render to vision per requested `page_range` instead of always the first 8 pages.
+- **Attachments are decidable before reading** — the agent's file index now includes a content taste for every type: a 500-char head for JSON/text/logs, dimensions for images, and "N of M pages previewed — use page_range" for long PDFs (previously these rendered as "unsupported"). Conversation history records which files arrived with which message and what was read or viewed (`pages 2-2 of 38`, "viewed by vision"), so later turns can resolve "that file from earlier" by id.
+
 ## Version 0.0.458 (July 14, 2026)
 - **Fix agents re-reading files in a loop** — read_file results (whole-file text/JSON/CSV head, windowed reads, and PDF page reads) now deliver a bounded content excerpt to the model instead of a bare summary line, with an honest trailer naming the session file and how to page the rest; superseded reads compact to a length marker so long file sessions don't bloat context. Verified live: the agent pages forward with offset/length instead of re-issuing identical reads.
 - **PDF page-range reads** — read_file gains `page_range` (e.g. '2' or '10-15') for PDFs on Files & Directories and S3 connections: extracts only the requested pages and reports `pages_total`, so large documents are pageable like large text files instead of all-or-nothing.

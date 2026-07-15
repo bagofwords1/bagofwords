@@ -86,23 +86,24 @@ class ListFilesOutput(BaseModel):
 
 
 class ReadFileInput(BaseModel):
-    connection_id: str = Field(
-        ...,
+    connection_id: Optional[str] = Field(
+        default="",
         description=(
-            "UUID of the file source attached to this agent. Use the value from "
-            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
-            "connection's display name. Either the Connection ID or the DataSource "
-            "(agent) ID is accepted — when the agent has one file connection, "
-            "passing the agent's own ID is the simplest path."
+            "For files on a FILE SOURCE (SharePoint, Drive, network dir, S3): "
+            "the connection UUID from the `id=` attribute of the `<connection>` "
+            "tag (the Connection ID or the DataSource/agent ID both work). "
+            "LEAVE EMPTY to read a file attached to this conversation — pass "
+            "its id from the <files> block as file_id."
         ),
     )
     file_id: str = Field(
         ...,
         description=(
-            "Opaque file ID returned in the `id` field by list_files or "
-            "search_files (NOT the readable `name` field). A filename like "
-            "'Book 7.xlsx' will be resolved as a fallback, but using the id "
-            "is faster and unambiguous."
+            "The file's id: a session file id from the <files> block "
+            "(conversation attachments — leave connection_id empty), or the "
+            "`id` returned by list_files/search_files for a file source (with "
+            "connection_id set). A filename like 'Book 7.xlsx' is resolved as "
+            "a fallback on file sources, but the id is unambiguous."
         ),
     )
     sheet: Optional[str] = Field(
@@ -259,13 +260,13 @@ class SearchFilesOutput(BaseModel):
 
 
 class GrepFilesInput(BaseModel):
-    connection_id: str = Field(
-        ...,
+    connection_id: Optional[str] = Field(
+        default="",
         description=(
-            "UUID of the file source attached to this agent. Use the value from "
-            "the `id=` attribute of the `<connection>` tag in the schema — NOT the "
-            "connection's display name. Either the Connection ID or the DataSource "
-            "(agent) ID is accepted."
+            "For files on a FILE SOURCE: the connection UUID from the `id=` "
+            "attribute of the `<connection>` tag (Connection ID or "
+            "DataSource/agent ID). LEAVE EMPTY to grep the files attached to "
+            "this conversation (the <files> block) instead."
         ),
     )
     pattern: str = Field(

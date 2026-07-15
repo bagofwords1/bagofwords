@@ -15,12 +15,15 @@ from app.data_sources.clients._file_source_common import GlobScopeError
 
 from . import _file_cache
 from ._file_tool_common import (
+    SessionFileClient,
     allow_llm_see_data,
     attach_drive_file_to_session,
     audit_file_access_denied,
     render_file_images,
     render_file_payload,
+    render_pdf_pages_images,
     resolve_file_client,
+    resolve_session_file,
 )
 
 # The planner consumes the OBSERVATION, not the tool output — so the content a
@@ -125,20 +128,37 @@ class ReadFileTool(Tool):
             "connection_id": data.connection_id,
         })
 
-        client, err = await resolve_file_client(
-            runtime_ctx, data.connection_id, Capability.READ_FILE
-        )
-        if err:
-            yield ToolEndEvent(type="tool.end", payload={
-                "output": {
-                    "success": False,
-                    "connection_id": data.connection_id,
-                    "file_id": data.file_id,
-                    "error": err,
-                },
-                "observation": {"summary": err, "success": False},
-            })
-            return
+        # Resolution ladder: the report's OWN file space first (uploads /
+        # attach_file results — only when no connection was named; explicit
+        # beats implicit), then the attached file connections. One verb, two
+        # sources, identical read semantics.
+        session_file = None
+        if not (data.connection_id or "").strip():
+            session_file = resolve_session_file(runtime_ctx, data.file_id)
+            if session_file is None:
+                err = (
+                    f"'{data.file_id}' is not a file attached to this conversation. "
+                    "Pass a session file id from <files>, or a connection_id + "
+                    "file id from list_files/search_files for a file source."
+                )
+                yield self._fail_read(data, err)
+                return
+            client = SessionFileClient(session_file)
+        else:
+            client, err = await resolve_file_client(
+                runtime_ctx, data.connection_id, Capability.READ_FILE
+            )
+            if err:
+                yield ToolEndEvent(type="tool.end", payload={
+                    "output": {
+                        "success": False,
+                        "connection_id": data.connection_id,
+                        "file_id": data.file_id,
+                        "error": err,
+                    },
+                    "observation": {"summary": err, "success": False},
+                })
+                return
 
         # Windowed (ranged) read: pass offset/length through, return the raw
         # byte window + cursor WITHOUT parsing or attaching. For streaming
@@ -242,6 +262,54 @@ class ReadFileTool(Tool):
                 )
                 return
             shown = f"{paged.get('first')}-{paged.get('last')}"
+
+            # Scanned/image-only pages: no usable text came back — rasterize
+            # the REQUESTED pages for a vision model instead of returning an
+            # empty read (the page-level analogue of the whole-file vision
+            # fallback below).
+            from app.data_sources.clients._document_text import doc_text_is_usable
+            model = runtime_ctx.get("model")
+            if (
+                not doc_text_is_usable(paged.get("text"))
+                and model and getattr(model, "supports_vision", False)
+                and allow_llm_see_data(runtime_ctx)
+            ):
+                import asyncio as _asyncio
+                import base64 as _b64
+                try:
+                    raw = await _asyncio.to_thread(client.read_raw_bytes, data.file_id)
+                    raw_bytes = raw[0] if isinstance(raw, tuple) else raw
+                    imgs, total = render_pdf_pages_images(raw_bytes, rng[0], rng[1])
+                except Exception as e:
+                    imgs, total = [], paged.get("pages_total")
+                if imgs:
+                    output = {
+                        "success": True,
+                        "connection_id": data.connection_id,
+                        "file_id": data.file_id,
+                        "content_type": "images",
+                        "image_count": len(imgs),
+                        "pages_total": total,
+                        "pages_shown": shown,
+                    }
+                    blocks = [
+                        {"data": _b64.b64encode(png).decode("utf-8"),
+                         "media_type": mtype, "source_type": "base64"}
+                        for png, mtype in imgs
+                    ]
+                    yield ToolEndEvent(type="tool.end", payload={
+                        "output": output,
+                        "observation": {
+                            "summary": (
+                                f"Read pages {shown} of {total} from {data.file_id} "
+                                "as image(s) for vision (no extractable text)"
+                            ),
+                            "success": True,
+                            "images": blocks,
+                        },
+                    })
+                    return
+
             output = {
                 "success": True,
                 "connection_id": data.connection_id,
@@ -251,7 +319,10 @@ class ReadFileTool(Tool):
                 "pages_total": paged.get("pages_total"),
                 "pages_shown": shown,
             }
-            name = _name_from_path_id(data.file_id)
+            name = (
+                getattr(client, "display_name", None) if session_file is not None
+                else _name_from_path_id(data.file_id)
+            )
             if name:
                 output["file_name"] = name
             summary = (
@@ -280,7 +351,9 @@ class ReadFileTool(Tool):
             and "oauth" in (getattr(conn_obj, "allowed_user_auth_modes", None) or [])
         )
         version = None
-        if not per_user:
+        # Session files are already local + immutable — the connector cache
+        # buys nothing and its keying assumes a connection id.
+        if not per_user and session_file is None:
             try:
                 version = await client.afile_version(data.file_id)
             except GlobScopeError as e:
@@ -329,19 +402,30 @@ class ReadFileTool(Tool):
 
         # Persist the file as a session attachment so the existing analysis
         # stack (inspect_data, read_excel_as_csv, create_data) can pick it up.
-        session_file_id = await _persist_session_file(
-            runtime_ctx, file_id=data.file_id, payload=payload,
-        )
+        # A session file is ALREADY in the space — echo its own id instead of
+        # spawning a duplicate File row on every read.
+        if session_file is not None:
+            session_file_id = str(session_file.id)
+        else:
+            session_file_id = await _persist_session_file(
+                runtime_ctx, file_id=data.file_id, payload=payload,
+            )
 
         # Vision fallback: a file that couldn't be turned into text (scanned /
         # image-based / CID-font PDF, or a picture) comes back as binary — render
         # its pages so a vision model can read it instead of an opaque blob.
+        # Extension dispatch uses the DISPLAY name (a session file's id is a
+        # bare UUID that would never match _RENDERABLE_IMAGE_EXTS).
         image_pngs, pages_total = [], None
         if rendered.get("content_type") == "binary":
             model = runtime_ctx.get("model")
             if model and getattr(model, "supports_vision", False) and allow_llm_see_data(runtime_ctx):
+                render_name = (
+                    getattr(client, "display_name", None)
+                    if session_file is not None else data.file_id
+                )
                 try:
-                    rendered_imgs, pages_total = render_file_images(data.file_id, payload)
+                    rendered_imgs, pages_total = render_file_images(render_name, payload)
                     image_pngs = [png for png, _mtype in rendered_imgs]
                 except Exception:
                     image_pngs, pages_total = [], None
@@ -349,6 +433,8 @@ class ReadFileTool(Tool):
         output, observation = await self._finalize(
             data, runtime_ctx, rendered=rendered, session_file_id=session_file_id,
             image_pngs=image_pngs, pages_total=pages_total, cached=False,
+            source_name=(getattr(client, "display_name", None) if session_file is not None else None),
+            attach_images=(session_file is None),
         )
 
         # Populate the cache. Skip un-rendered binary so a later vision-capable
@@ -380,18 +466,21 @@ class ReadFileTool(Tool):
         })
 
     async def _finalize(self, data, runtime_ctx, *, rendered, session_file_id,
-                        image_pngs, pages_total, cached):
+                        image_pngs, pages_total, cached, source_name=None,
+                        attach_images=True):
         """Assemble the tool output + observation from a rendered payload and any
         page images. Shared by the fresh-read and cache-hit paths so both emit an
-        identical shape. Materializes page images as session files and, when the
+        identical shape. Materializes page images as session files (unless the
+        source is itself a session file — attach_images=False) and, when the
         model supports vision, attaches them as observation image blocks."""
         output = {"success": True, "connection_id": data.connection_id, "file_id": data.file_id}
         output.update({k: v for k, v in (rendered or {}).items() if k != "_pages"})
         if output.get("file_name") is None:
-            # Path-shaped ids (network_dir / s3) carry a human name — surface
-            # it so the UI header isn't a truncated id. Opaque provider ids
-            # (Graph) stay unset; the model-authored title covers those.
-            derived = _name_from_path_id(data.file_id)
+            # Session files carry their upload name; path-shaped connector ids
+            # (network_dir / s3) carry a human name — surface either so the UI
+            # header isn't a truncated id. Opaque provider ids (Graph) stay
+            # unset; the model-authored title covers those.
+            derived = source_name or _name_from_path_id(data.file_id)
             if derived:
                 output["file_name"] = derived
             else:
@@ -410,15 +499,20 @@ class ReadFileTool(Tool):
             output["pages_total"] = pages_total
             file_ids, blocks = [], []
             for i, png in enumerate(image_pngs):
-                fid = await attach_drive_file_to_session(
-                    runtime_ctx, filename=f"{data.file_id}.p{i + 1}.png",
-                    content_bytes=png, mime_type="image/png",
-                )
-                if fid:
-                    file_ids.append(fid)
+                if attach_images:
+                    fid = await attach_drive_file_to_session(
+                        runtime_ctx, filename=f"{data.file_id}.p{i + 1}.png",
+                        content_bytes=png, mime_type="image/png",
+                    )
+                    if fid:
+                        file_ids.append(fid)
                 if supports_vision:
                     blocks.append({"data": base64.b64encode(png).decode("utf-8"),
                                    "media_type": "image/png", "source_type": "base64"})
+            if not attach_images and session_file_id:
+                # The source image is already a session file — point back at it
+                # instead of duplicating the bytes on every look.
+                file_ids = [session_file_id]
             if file_ids:
                 output["image_file_ids"] = file_ids
             if blocks:
