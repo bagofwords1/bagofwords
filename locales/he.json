@@ -2486,7 +2486,9 @@
       "paginationRange": "מציג {start} עד {end} מתוך {total} תוצאות",
       "previous": "הקודם",
       "next": "הבא",
-      "periodAllTime": "כל הזמן"
+      "periodAllTime": "כל הזמן",
+      "filterUsersAll": "כל המשתמשים",
+      "searchPlaceholder": "חיפוש פרומפטים…"
     },
     "title": "ניטור",
     "tabExplore": "סקירה",
@@ -2555,7 +2557,10 @@
       "last7d": "7 הימים האחרונים",
       "last30d": "30 הימים האחרונים",
       "last90d": "90 הימים האחרונים",
-      "customRange": "טווח מותאם"
+      "customRange": "טווח מותאם",
+      "exactDay": "יום מדויק",
+      "from": "מ-",
+      "to": "עד"
     }
   },
   "mcp": {

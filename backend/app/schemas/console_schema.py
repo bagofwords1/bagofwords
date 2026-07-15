@@ -8,6 +8,7 @@ class MetricsQueryParams(BaseModel):
     start_date: Optional[datetime] = Field(None, description="Start date for metrics query")
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
     data_source_ids: Optional[str] = Field(None, description="Comma-separated data source IDs to filter by")
+    user_ids: Optional[str] = Field(None, description="Comma-separated user IDs to filter by")
 
 class SimpleMetrics(BaseModel):
     total_messages: int
@@ -65,6 +66,14 @@ class DiagnosisStatusPoint(BaseModel):
 class DiagnosisTimeSeriesMetrics(BaseModel):
     date_range: DateRange
     points: List[DiagnosisStatusPoint]
+
+class DiagnosisUser(BaseModel):
+    id: str
+    name: str
+    email: str
+
+class DiagnosisUsersResponse(BaseModel):
+    users: List[DiagnosisUser]
 
 class TableUsageData(BaseModel):
     table_name: str
