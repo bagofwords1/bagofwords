@@ -11,6 +11,7 @@ from app.schemas.data_sources.configs import (
     PostgreSQLConfig,
     SQLiteConfig,
     OracleConfig,
+    SapHanaConfig,
     SnowflakeConfig,
     BigQueryConfig,
     NetSuiteConfig,
@@ -136,6 +137,7 @@ from app.schemas.data_sources.configs import (
     PostgreSQLCredentials,
     SQLiteCredentials,
     OracleCredentials,
+    SapHanaCredentials,
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
@@ -387,6 +389,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=OracleCredentials, scopes=["system","user"])
         }),
         client_path=None
+    ),
+    "sap_hana": DataSourceRegistryEntry(
+        type="sap_hana",
+        title="SAP HANA",
+        description="SAP HANA, HANA Cloud, and SAP Datasphere (Open SQL schema / exposed views). Standard SQL over the HANA SQL port.",
+        config_schema=SapHanaConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SapHanaCredentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.sap_hana_client.SapHanaClient",
     ),
     "snowflake": DataSourceRegistryEntry(
         type="snowflake",

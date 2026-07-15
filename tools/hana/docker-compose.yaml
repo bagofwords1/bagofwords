@@ -1,0 +1,42 @@
+# Local SAP HANA, express edition for the sap_hana connector feedback loop.
+# The same client + SQL path serves SAP HANA Cloud and SAP Datasphere (Open
+# SQL schema) — this stands in for both with plain SQL on the tenant port.
+#
+# First boot takes ~4-10 minutes (tenant DB creation); `docker logs -f
+# bow-hana` prints "Startup finished!" when ready. Needs ~8GB RAM free.
+#
+# Before `docker compose up -d`, create the master password file the image
+# requires (SYSTEM user password for both SYSTEMDB and the HXE tenant):
+#   mkdir -p /data/hxe
+#   echo '{"master_password": "HXEHana1"}' > /data/hxe/password.json
+#   chown 12000:79 /data/hxe/password.json && chmod 600 /data/hxe/password.json
+#
+# Then seed demo data: python tools/hana/seed_hana.py
+# Connect: host=localhost port=39041 user=SYSTEM password=HXEHana1 encrypt=false
+services:
+  hana:
+    image: saplabs/hanaexpress:latest
+    container_name: bow-hana
+    command:
+      - --passwords-url
+      - file:///hana/mounts/password.json
+      - --agree-to-sap-license
+    ports:
+      - "39013:39013"   # SYSTEMDB SQL port
+      - "39017:39017"
+      - "39041-39045:39041-39045"   # tenant (HXE) SQL ports
+    volumes:
+      # Must be owned by uid 12000 (hxeadm) — see header.
+      - /data/hxe:/hana/mounts
+    sysctls:
+      kernel.shmmax: 1073741824
+      kernel.shmmni: 4096
+      kernel.shmall: 8388608
+      net.ipv4.ip_local_port_range: "40000 60999"
+    # SAP recommends a high nofile ulimit; HANA Express 2.00.088 boots fine
+    # without one on hosts whose hard limit is low (e.g. sandboxes capped at
+    # 4096). Uncomment on hosts that allow it:
+    # ulimits:
+    #   nofile:
+    #     soft: 1048576
+    #     hard: 1048576

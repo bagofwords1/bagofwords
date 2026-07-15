@@ -47,6 +47,13 @@ DATA_SOURCES = [
     # a local Splunk 9 with an auth token. Splunk's image is heavy and slow to
     # boot, so it's driven from integrations.json rather than a testcontainer.
     "splunk",
+    # Remote mode: `tools/hana/docker-compose.yaml` + `seed_hana.py` stand up a
+    # local SAP HANA Express (also covers SAP Datasphere's SQL path — same
+    # client). ~8GB RAM and minutes to boot, so it's driven from
+    # integrations.json rather than a testcontainer:
+    #   {"sap_hana": {"enabled": true, "host": "localhost", "port": 39041,
+    #                 "user": "SYSTEM", "password": "HXEHana1", "encrypt": false}}
+    "sap_hana",
 ]
 
 

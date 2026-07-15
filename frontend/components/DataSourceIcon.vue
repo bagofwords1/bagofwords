@@ -56,6 +56,7 @@ const normalizeType = (raw: string) => {
     if (t === 'redshift') t = 'aws_redshift'
     if (t === 'fabric' || t === 'microsoft_fabric') t = 'ms_fabric'
     if (t === 'qlik_sense') t = 'qlik'
+    if (t === 'hana' || t === 'saphana' || t === 'sap_datasphere' || t === 'datasphere') t = 'sap_hana'
 
     return t
 }
