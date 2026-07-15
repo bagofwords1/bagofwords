@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.459 (July 15, 2026)
+- **SAP HANA / SAP Datasphere connections** — connect to SAP HANA, HANA Cloud, or an SAP Datasphere space (Open SQL schema) with a database user and query it in plain SQL via SAP's official `hdbcli` driver. Schema discovery covers tables **and views** (Datasphere exposes data as "Expose for Consumption" views) with comments and primary keys, system schemas are filtered out by default, and optional schema scoping accepts a comma-separated list — for Datasphere, the space schema. TLS on port 443 is the default (HANA Cloud/Datasphere); on-premise systems can set a custom port and disable encryption. Includes a reproducible HANA Express environment under `tools/hana/` for local verification.
+
 ## Version 0.0.458 (July 14, 2026)
 - **Fix agents re-reading files in a loop** — read_file results (whole-file text/JSON/CSV head, windowed reads, and PDF page reads) now deliver a bounded content excerpt to the model instead of a bare summary line, with an honest trailer naming the session file and how to page the rest; superseded reads compact to a length marker so long file sessions don't bloat context. Verified live: the agent pages forward with offset/length instead of re-issuing identical reads.
 - **PDF page-range reads** — read_file gains `page_range` (e.g. '2' or '10-15') for PDFs on Files & Directories and S3 connections: extracts only the requested pages and reports `pages_total`, so large documents are pageable like large text files instead of all-or-nothing.

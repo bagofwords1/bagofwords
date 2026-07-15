@@ -43,6 +43,57 @@ class OracleConfig(BaseModel):
     )
 
 
+class SapHanaCredentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User",
+        description="Database user. For SAP Datasphere, a space database user (e.g. MYSPACE#ANALYST).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class SapHanaConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="SQL endpoint host. For SAP HANA Cloud / Datasphere, the instance hostname (…hanacloud.ondemand.com).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    port: int = Field(
+        443,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="SQL port — 443 for HANA Cloud / Datasphere, 3<instance>13 or 3<instance>41 for on-premise HANA.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    database: Optional[str] = Field(
+        None,
+        title="Tenant Database",
+        description="Optional tenant database name when connecting through the system database of a multitenant HANA (leave empty for HANA Cloud / Datasphere).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas (for Datasphere, the space schema).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    encrypt: bool = Field(
+        True,
+        title="Encrypt (TLS)",
+        description="Connect over TLS. Required for HANA Cloud and SAP Datasphere; disable only for on-premise systems without TLS.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server TLS certificate. Disable for certificates signed by an internal CA the backend host does not trust.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
 class PostgreSQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
