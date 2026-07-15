@@ -38,7 +38,8 @@
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
               <Icon name="heroicons-document" class="w-3 h-3 me-1 text-gray-400" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || 'file' }}</div>
-              <span v-if="f.size" class="ms-2 text-[10px] text-gray-400">{{ formatBytes(f.size) }}</span>
+              <span v-if="f.path && f.path !== f.name" class="ms-2 text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
+              <span v-if="f.size" class="ms-2 text-[10px] text-gray-400 shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">

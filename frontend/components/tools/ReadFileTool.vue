@@ -13,6 +13,7 @@
           <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
           <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
           <span v-if="windowed" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
+          <span v-if="pagesShown" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">pages {{ pagesShown }}<template v-if="pagesTotal"> / {{ pagesTotal }}</template></span>
         </span>
       </div>
     </Transition>
@@ -70,10 +71,20 @@ const modelTitle = computed<string>(() => {
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 
 const fileLabel = computed(() => {
-  return rj.value.file_name
-    || props.toolExecution?.arguments_json?.file_id?.slice(0, 8)
-    || 'file'
+  if (rj.value.file_name) return rj.value.file_name
+  const fid = props.toolExecution?.arguments_json?.file_id
+  if (typeof fid === 'string' && fid) {
+    // Path-shaped ids (network_dir / s3) carry a readable name; opaque
+    // provider ids (Graph) fall back to a short prefix.
+    const leaf = fid.split('/').pop() || fid
+    if (fid.includes('/') || leaf.includes('.')) return leaf
+    return fid.slice(0, 8)
+  }
+  return 'file'
 })
+// Page-range (document) reads: show which pages of how many.
+const pagesShown = computed(() => rj.value.pages_shown || '')
+const pagesTotal = computed(() => rj.value.pages_total)
 const contentType = computed(() => rj.value.content_type || '')
 const rowCount = computed(() => rj.value.row_count)
 const colCount = computed(() => rj.value.col_count)

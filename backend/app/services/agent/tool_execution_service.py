@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
+from app.utils.json_sanitize import sanitize_json_strings, sanitize_utf8
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,10 @@ class ToolExecutionService:
             plan_decision_id=plan_decision_id,
             tool_name=tool_name,
             tool_action=tool_action,
-            arguments_json=arguments_json,
+            # Persistence boundary: strings Python tolerates but JSON transport
+            # doesn't (lone surrogates, NUL) must never reach the DB — a single
+            # poisoned row 500s every later load of the report.
+            arguments_json=sanitize_json_strings(arguments_json),
             status='in_progress',
             success=False,
             started_at=datetime.utcnow(),
@@ -57,12 +61,15 @@ class ToolExecutionService:
         te.completed_at = datetime.utcnow()
         if te.started_at and te.completed_at:
             te.duration_ms = (te.completed_at - te.started_at).total_seconds() * 1000.0
-        te.result_summary = result_summary
-        te.result_json = result_json
-        te.artifact_refs_json = artifact_refs_json
+        # Same persistence-boundary guarantee as `start`: tool payloads (file
+        # text, extracted documents, MCP results) must be UTF-8-serializable
+        # before they're stored, or the report becomes permanently unloadable.
+        te.result_summary = sanitize_utf8(result_summary) if result_summary else result_summary
+        te.result_json = sanitize_json_strings(result_json)
+        te.artifact_refs_json = sanitize_json_strings(artifact_refs_json)
         te.created_widget_id = created_widget_id
         te.created_step_id = created_step_id
-        te.error_message = error_message
+        te.error_message = sanitize_utf8(error_message) if error_message else error_message
         te.token_usage_json = token_usage_json
         db.add(te)
         await db.commit()

@@ -31,7 +31,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients._document_text import DOC_EXTS, doc_text_is_usable, extract_document_text
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    extract_document_text,
+    extract_pdf_pages_text,
+)
 from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_METADATA,
@@ -295,11 +300,34 @@ class NetworkDirClient(DataSourceClient):
         offset: Optional[int] = None,
         length: Optional[int] = None,
         max_bytes: Optional[int] = None,
+        page_range: Optional[Tuple[int, int]] = None,
         **_,
     ) -> Any:
         path = self._resolve(file_id, must_exist=True)
         if not path.is_file():
             raise ValueError(f"Not a file: {file_id}")
+
+        # Page-range read for documents: extract just the requested PDF pages.
+        # Returns the sentinel dict shape the read_file tool renders as paged
+        # text (mirrors how windowed reads return a cursor dict, not a str).
+        if page_range is not None:
+            if _ext(path.name) != "pdf":
+                raise ValueError("page_range is supported for PDF files only.")
+            if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
+                raise ValueError(
+                    f"File {file_id} exceeds the "
+                    f"{self.max_file_bytes / 1024 / 1024:.0f} MB limit."
+                )
+            text, pages_total = extract_pdf_pages_text(
+                str(path), page_range[0], page_range[1]
+            )
+            return {
+                "__doc_pages__": True,
+                "text": text,
+                "pages_total": pages_total,
+                "first": max(1, page_range[0]),
+                "last": min(page_range[1], pages_total),
+            }
 
         # Windowed (ranged) read — same contract as S3's _read_window: a raw
         # byte window plus a cursor (next_cursor/total_size/eof) to page through

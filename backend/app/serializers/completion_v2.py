@@ -142,6 +142,12 @@ def serialize_block_v2_sync(
         if isinstance(result_json, dict) and "widget_data" in result_json:
             result_json.pop("widget_data", None)
         te_data["result_json"] = result_json
+        # Read-time tolerance: rows persisted BEFORE the write-side sanitizer
+        # existed can carry lone surrogates (e.g. pypdf output) that crash
+        # JSONResponse's utf-8 encode — scrubbing here keeps old reports
+        # loadable without a data migration.
+        from app.utils.json_sanitize import sanitize_json_strings
+        te_data = sanitize_json_strings(te_data)
 
         # Build widget schema with last_step if provided
         created_widget_schema: Optional[WidgetSchema] = None
