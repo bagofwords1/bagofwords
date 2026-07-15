@@ -59,22 +59,42 @@ ever sees of a read file.
 
 ## The fix
 
-Pending. Proposed (mirrors the `inspect_data`/`grep_files` pattern):
+1. `read_file.py`: observation gains `details` — a bounded excerpt
+   (`_OBS_DETAILS_MAX_CHARS = 4000`) of text/csv, gated on
+   `allow_llm_see_data`, with an honest trailer naming the `session_file_id`
+   and how to page the rest. Windowed reads ship the window text
+   (`_OBS_WINDOW_DETAILS_MAX_CHARS = 8000`) with lossless-paging guidance;
+   page-range document reads reuse the same rendering.
+2. `observation_context_builder.py`: read_file (and grep_files) history
+   compaction — superseded observations collapse `details` to
+   `"N chars (already read — do not re-read…)"`.
+3. The tool description now truthfully says content is shown, tells the model
+   to trust it, and never to re-issue an identical read.
 
-1. read_file observation gains `details` — a bounded excerpt (~4k chars) of
-   text/csv, gated on `allow_llm_see_data`, with an honest trailer naming the
-   `session_file_id` and how to get the rest (inspect_data / windowed reads).
-   Windowed reads put the window text in `details` (that's the point of
-   paging).
-2. `observation_context_builder.py` gains a read_file compaction case (like
-   the existing inspect_data one at line 67-71): superseded observations
-   collapse `details` to `"N chars"`, so 24 reads don't stack 24×4k in
-   context.
-3. The tool description ("Text and JSON are returned inline") is made true.
+Loop A re-run: **2 passed** (`test_read_file_observation_content.py`).
+
+## Live confirmation (Loop B, Anthropic API)
+
+Full stack + `network_dir` source over seeded files; real Claude Haiku runs:
+
+- "read pricing_rules.json, give the verification_code" → agent answered with
+  the exact code buried at char ~8k of the file. Tool trace shows the fix
+  working as designed: `read_file` → excerpt boundary → `read_file(offset=4000)`
+  → `read_file(offset=7817)` → answer. **Deliberate forward paging, no
+  re-read loop.**
+- grep + PDF page scenarios in the sibling doc also confirm observation
+  details end-to-end.
 
 ## What this proves / regression notes
 
-Proves the model-facing channel for read_file carries zero content today, for
-both read modes — the re-read loop needs no LLM misbehavior to explain it.
-The tests survive as regression tests: they assert the general invariant
-("content reaches the observation"), not the incident's specifics.
+Proves the model-facing channel for read_file carried zero content, for both
+read modes — the re-read loop needed no LLM misbehavior to explain it — and
+that with content + honest trailers in the observation, a real model pages
+forward instead of looping. The tests survive as regression tests: they
+assert the general invariant ("content reaches the observation"), not the
+incident's specifics.
+
+Pre-existing unrelated failure (reproduces on clean main with these changes
+stashed): `test_file_tools.py::TestResolveFileClientIdResolution::
+test_rejects_unrelated_id_with_helpful_error` ("'coroutine' object has no
+attribute 'first'").

@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.458 (July 14, 2026)
+- **Fix agents re-reading files in a loop** — read_file results (whole-file text/JSON/CSV head, windowed reads, and PDF page reads) now deliver a bounded content excerpt to the model instead of a bare summary line, with an honest trailer naming the session file and how to page the rest; superseded reads compact to a length marker so long file sessions don't bloat context. Verified live: the agent pages forward with offset/length instead of re-issuing identical reads.
+- **PDF page-range reads** — read_file gains `page_range` (e.g. '2' or '10-15') for PDFs on Files & Directories and S3 connections: extracts only the requested pages and reports `pages_total`, so large documents are pageable like large text files instead of all-or-nothing.
+- **Fix permanent 500 on reports after reading certain PDFs** — PDFs with broken ToUnicode CMaps make pypdf emit lone UTF-16 surrogates, which persisted with the completion and crashed every later load of the report (`UnicodeEncodeError: surrogates not allowed`). Extracted document text is now sanitized at the source, tool payloads are sanitized before persistence, and previously poisoned rows are scrubbed at read time so affected reports load again.
+- **SharePoint/OneDrive search results show clean paths** — file paths in search_files results are now root-relative (`Contracts/acme.pdf`) instead of the raw Graph parentReference (`/drives/b!…/root:/…`), matching listings; file rows in the report view also show the path inline, and read_file headers show the file name instead of a truncated opaque id.
+
 ## Version 0.0.457 (July 14, 2026)
 - **Bedrock API key authentication (#657)** — the AWS Bedrock provider gains an API Key auth mode alongside IAM and Access Keys: paste a Bedrock API key (the credential the AWS console now generates by default) and connect — no IAM roles or access-key pairs required. The key is injected as a per-provider Bearer token (never a process-global env var, so multiple orgs' keys stay isolated), and the UI notes that short-term keys expire within 12 hours.
 

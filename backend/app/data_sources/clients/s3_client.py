@@ -308,6 +308,7 @@ class S3Client(DataSourceClient):
         offset: Optional[int] = None,
         length: Optional[int] = None,
         max_bytes: Optional[int] = None,
+        page_range: Optional[Tuple[int, int]] = None,
         **_,
     ) -> Any:
         """Read an object.
@@ -322,6 +323,22 @@ class S3Client(DataSourceClient):
         key = self._resolve_key(file_id)
         if offset is not None:
             return self._read_window(key, int(offset), length)
+
+        # Page-range read for PDFs — same sentinel contract as network_dir.
+        if page_range is not None:
+            if _ext(key) != "pdf":
+                raise ValueError("page_range is supported for PDF files only.")
+            data, _size = self._get_bytes(key)
+            text, pages_total = _extract_pdf_pages_from_bytes(
+                data, key, page_range[0], page_range[1]
+            )
+            return {
+                "__doc_pages__": True,
+                "text": text,
+                "pages_total": pages_total,
+                "first": max(1, page_range[0]),
+                "last": min(page_range[1], pages_total),
+            }
 
         # Structured read — pull the whole object (size-capped).
         ext = _ext(key)
@@ -699,6 +716,29 @@ class S3Client(DataSourceClient):
         if query:
             return self.read_file(query, sheet=kwargs.get("sheet"))
         raise ValueError("Provide table_name or query (file id) to read an object")
+
+
+def _extract_pdf_pages_from_bytes(data: bytes, key: str, first: int, last: int) -> tuple:
+    """Page-range PDF extraction over in-memory S3 bytes via a temp file
+    (the extractor dispatches on filename). Raises on unreadable PDFs — a
+    targeted page read must fail loudly, not return ''."""
+    import os
+    import tempfile
+
+    from app.data_sources.clients._document_text import extract_pdf_pages_text
+
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as fh:
+            fh.write(data)
+            tmp = fh.name
+        return extract_pdf_pages_text(tmp, first, last)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def extract_document_text_from_bytes(data: bytes, key: str, max_chars: int = 200_000) -> str:

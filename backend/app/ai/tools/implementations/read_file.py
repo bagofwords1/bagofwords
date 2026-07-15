@@ -23,6 +23,62 @@ from ._file_tool_common import (
     resolve_file_client,
 )
 
+# The planner consumes the OBSERVATION, not the tool output — so the content a
+# read is supposed to deliver to the model must be rendered into
+# observation.details (bounded), or the model sees only a summary line and
+# rationally concludes the read returned nothing (then re-reads in a loop).
+# Past observations are compacted to "N chars" by ObservationContextBuilder,
+# so only the latest read pays this context cost in full.
+_OBS_DETAILS_MAX_CHARS = 4000
+# Windowed reads exist for sequential consumption — give them a bigger budget
+# and tell the model how to page losslessly (pass length <= this budget).
+_OBS_WINDOW_DETAILS_MAX_CHARS = 8000
+
+
+def _name_from_path_id(file_id: str) -> str:
+    """Basename of a path-shaped file id ('logs/app/web.log' → 'web.log');
+    '' for opaque provider ids (no slash and no dot in the leaf)."""
+    fid = str(file_id or "")
+    leaf = fid.rsplit("/", 1)[-1]
+    if ("/" in fid or "." in leaf) and leaf:
+        return leaf
+    return ""
+
+
+def _parse_page_range(value: str) -> "Optional[tuple]":
+    """'3' → (3, 3); '10-15' → (10, 15). None for anything malformed."""
+    try:
+        raw = str(value).strip()
+        if "-" in raw:
+            a, b = raw.split("-", 1)
+            first, last = int(a.strip()), int(b.strip())
+        else:
+            first = last = int(raw)
+        if first < 1 or last < first:
+            return None
+        return (first, last)
+    except (ValueError, TypeError):
+        return None
+
+
+def _content_details(output: Dict[str, Any], *, max_chars: int) -> str:
+    """Bounded, model-facing excerpt of a read's content with an honest
+    trailer: what's shown, where the full content lives, how to get the rest."""
+    body = output.get("text") if output.get("text") is not None else output.get("csv")
+    if not isinstance(body, str) or not body:
+        return ""
+    shown = body[:max_chars]
+    if len(body) <= max_chars and not output.get("truncated"):
+        return shown
+    bits = [f"showing first {len(shown):,} of {len(body):,} chars retrieved"]
+    if output.get("truncated"):
+        bits.append("the retrieved content itself was truncated at max_chars/max_rows")
+    sfid = output.get("session_file_id")
+    if sfid:
+        bits.append(f"full file is attached as session_file_id={sfid} (use inspect_data to analyze it)")
+    bits.append("page the rest with windowed reads (offset/length) — do NOT re-run the same read")
+    return shown + "\n[" + "; ".join(bits) + "]"
+
 
 class ReadFileTool(Tool):
     @property
@@ -30,14 +86,18 @@ class ReadFileTool(Tool):
         return ToolMetadata(
             name="read_file",
             description=(
-                "Read a file from a SharePoint / OneDrive / Google Drive connection "
-                "AND attach it to the current conversation as a session file. "
-                "USE THIS — not inspect_data — whenever you need to analyze a file "
-                "that came from list_files or search_files on a Drive connection. "
-                "Tabular files (CSV, Excel, Google Sheets) are returned as CSV plus "
-                "a `session_file_id` you can pass to inspect_data / create_data / "
-                "read_excel_as_csv exactly like an uploaded file. Text and JSON "
-                "are returned inline. Binary files return their size only."
+                "Read a file from a file-based connection (Files & Directories, S3, "
+                "SharePoint, OneDrive, Google Drive) AND attach it to the current "
+                "conversation as a session file. USE THIS — not inspect_data — "
+                "whenever you need to analyze a file that came from list_files or "
+                "search_files. Tabular files (CSV, Excel, Google Sheets) are "
+                "returned as CSV plus a `session_file_id` you can pass to "
+                "inspect_data / create_data / read_excel_as_csv exactly like an "
+                "uploaded file. Text/JSON content (and a CSV head) is shown to you "
+                "directly in the result, up to a bounded excerpt — trust it; the "
+                "same read will return the same content, so never re-issue an "
+                "identical read. For big files, page with offset/length (text) or "
+                "page_range (PDFs/documents). Binary files return their size only."
             ),
             category="research",
             input_schema=ReadFileInput.model_json_schema(),
@@ -136,9 +196,74 @@ class ReadFileTool(Tool):
                 f"Read window {pos} of {total} bytes from {data.file_id}"
                 + (" (eof)" if window.get("eof") else "")
             )
+            observation: Dict[str, Any] = {"summary": summary, "success": True}
+            # Ship the window text itself — paging through a file is useless
+            # to the model if only the cursor arithmetic arrives.
+            if enc == "text" and allow_llm_see_data(runtime_ctx):
+                body = window.get("content") or ""
+                shown = body[:_OBS_WINDOW_DETAILS_MAX_CHARS]
+                details = shown
+                if len(body) > len(shown):
+                    details += (
+                        f"\n[window content clipped to {len(shown):,} of {len(body):,} chars — "
+                        f"request length<={_OBS_WINDOW_DETAILS_MAX_CHARS} to page without loss]"
+                    )
+                elif not window.get("eof"):
+                    details += f"\n[continue from offset={window.get('next_cursor')}]"
+                observation["details"] = details
             yield ToolEndEvent(type="tool.end", payload={
                 "output": output,
-                "observation": {"summary": summary, "success": True},
+                "observation": observation,
+            })
+            return
+
+        # Page-range (document) read: extract ONLY the requested PDF pages.
+        # Like the windowed path: no parsing beyond the range, no attach, no
+        # cache — this is the lazy-read mode for large documents.
+        if data.page_range is not None:
+            rng = _parse_page_range(data.page_range)
+            if rng is None:
+                yield self._fail_read(
+                    data, f"Invalid page_range {data.page_range!r} — use '3' or '10-15' (1-based)."
+                )
+                return
+            try:
+                paged = await client.aread_file(data.file_id, page_range=rng)
+            except Exception as e:
+                if isinstance(e, GlobScopeError):
+                    await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
+                    yield self._fail_read(data, str(e))
+                else:
+                    yield self._fail_read(data, f"read_file (page_range) failed: {e}")
+                return
+            if not isinstance(paged, dict) or not paged.get("__doc_pages__"):
+                yield self._fail_read(
+                    data, "This connection does not support page_range reads."
+                )
+                return
+            shown = f"{paged.get('first')}-{paged.get('last')}"
+            output = {
+                "success": True,
+                "connection_id": data.connection_id,
+                "file_id": data.file_id,
+                "content_type": "text",
+                "text": paged.get("text") or "",
+                "pages_total": paged.get("pages_total"),
+                "pages_shown": shown,
+            }
+            name = _name_from_path_id(data.file_id)
+            if name:
+                output["file_name"] = name
+            summary = (
+                f"Read pages {shown} of {paged.get('pages_total')} from {data.file_id}"
+            )
+            observation = {"summary": summary, "success": True}
+            if allow_llm_see_data(runtime_ctx):
+                details = _content_details(output, max_chars=_OBS_DETAILS_MAX_CHARS)
+                if details:
+                    observation["details"] = details
+            yield ToolEndEvent(type="tool.end", payload={
+                "output": output, "observation": observation,
             })
             return
 
@@ -263,7 +388,14 @@ class ReadFileTool(Tool):
         output = {"success": True, "connection_id": data.connection_id, "file_id": data.file_id}
         output.update({k: v for k, v in (rendered or {}).items() if k != "_pages"})
         if output.get("file_name") is None:
-            output.pop("file_name", None)
+            # Path-shaped ids (network_dir / s3) carry a human name — surface
+            # it so the UI header isn't a truncated id. Opaque provider ids
+            # (Graph) stay unset; the model-authored title covers those.
+            derived = _name_from_path_id(data.file_id)
+            if derived:
+                output["file_name"] = derived
+            else:
+                output.pop("file_name", None)
         if session_file_id:
             output["session_file_id"] = session_file_id
 
@@ -303,6 +435,12 @@ class ReadFileTool(Tool):
         if cached:
             bits.append("cached")
         observation = {"summary": " — ".join(bits), "success": True}
+        # The content itself, bounded — without this the model receives only
+        # the summary line above and re-reads the file forever.
+        if ct in ("text", "json", "tabular") and allow_llm_see_data(runtime_ctx):
+            details = _content_details(output, max_chars=_OBS_DETAILS_MAX_CHARS)
+            if details:
+                observation["details"] = details
         if observation_images:
             observation["images"] = observation_images
         return output, observation

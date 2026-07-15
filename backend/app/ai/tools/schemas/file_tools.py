@@ -138,6 +138,15 @@ class ReadFileInput(BaseModel):
         le=50_000_000,
         description="For windowed reads: number of bytes to fetch from `offset`. Defaults to ~1 MiB.",
     )
+    page_range: Optional[str] = Field(
+        default=None,
+        description=(
+            "For PDF documents: read ONLY these pages, e.g. '3' or '10-15' "
+            "(1-based, inclusive). The result reports pages_total so you can "
+            "page through a large document deliberately — the PDF equivalent "
+            "of offset/length for text files. Mutually exclusive with offset."
+        ),
+    )
     title: Optional[str] = _title_field()
 
 
@@ -201,6 +210,11 @@ class ReadFileOutput(BaseModel):
     image_file_ids: Optional[list[str]] = Field(
         default=None,
         description="Session file ids of the rendered page images, in page order.",
+    )
+    # Page-range (document) reads — set only when `page_range` was passed.
+    pages_shown: Optional[str] = Field(
+        default=None,
+        description="The 1-based inclusive page range actually read, e.g. '10-15'. Compare with pages_total to continue paging.",
     )
     error: Optional[str] = None
 
