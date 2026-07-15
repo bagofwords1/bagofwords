@@ -40,12 +40,16 @@ export function useConnectionSignIn() {
   // Returns { redirecting: true } if we kicked the OAuth redirect, or
   // { redirecting: false, error? } if the caller should fall back to a
   // credentials modal.
-  async function triggerUserSignIn(conn: ConnectionLike | null | undefined): Promise<SignInResult> {
+  async function triggerUserSignIn(conn: ConnectionLike | null | undefined, opts?: { returnTo?: string }): Promise<SignInResult> {
     if (!conn?.id) return { redirecting: false, error: 'Connection has no id' }
     if (!isOAuthOnly(conn)) return { redirecting: false }
 
     try {
-      const { data, error } = await useMyFetch(`/connections/${conn.id}/oauth/authorize`, { method: 'GET' })
+      // returnTo (app-internal path) rides in the signed OAuth state so the
+      // callback lands the user back where they started — e.g. the
+      // agent-creation tables step instead of /agents.
+      const rt = opts?.returnTo && opts.returnTo.startsWith('/') ? `?return_to=${encodeURIComponent(opts.returnTo)}` : ''
+      const { data, error } = await useMyFetch(`/connections/${conn.id}/oauth/authorize${rt}`, { method: 'GET' })
       if (error.value) throw error.value
       const result = data.value as any
       if (result?.authorization_url) {
