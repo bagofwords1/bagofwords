@@ -61,7 +61,37 @@ class ListFilesTool(Tool):
     def output_model(self) -> Type[BaseModel]:
         return ListFilesOutput
 
+    #: Max inventory rows rendered into the model-facing observation. The
+    #: planner consumes the OBSERVATION, not the output — without the names
+    #: and ids here the model re-lists blindly until the repeated-call breaker
+    #: kills the turn (observed live). History compaction collapses this once
+    #: superseded, so only the latest listing pays the cost.
+    _OBS_INVENTORY_MAX_ROWS = 50
+
     def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "") -> ToolEndEvent:
+        observation = {
+            "summary": (
+                f"Listed {len(entries)} file(s) ({source})"
+                + (f" (capped at {_MAX_RESULTS})" if truncated else "")
+                + hint
+            ),
+            "success": True,
+        }
+        if entries:
+            rows = []
+            for e in entries[: self._OBS_INVENTORY_MAX_ROWS]:
+                bits = [str(e.get("name") or "?")]
+                if e.get("path") and e.get("path") != e.get("name"):
+                    bits.append(str(e["path"]))
+                if e.get("size") is not None:
+                    bits.append(f"{e['size']} B")
+                rows.append(" — ".join(bits) + f" [id={e.get('id')}]")
+            if len(entries) > self._OBS_INVENTORY_MAX_ROWS:
+                rows.append(
+                    f"… +{len(entries) - self._OBS_INVENTORY_MAX_ROWS} more — "
+                    "narrow with name_pattern or folder_id to see the rest."
+                )
+            observation["details"] = "\n".join(rows)
         return ToolEndEvent(type="tool.end", payload={
             "output": {
                 "success": True,
@@ -70,14 +100,7 @@ class ListFilesTool(Tool):
                 "files": entries,
                 "truncated": truncated,
             },
-            "observation": {
-                "summary": (
-                    f"Listed {len(entries)} file(s) ({source})"
-                    + (f" (capped at {_MAX_RESULTS})" if truncated else "")
-                    + hint
-                ),
-                "success": True,
-            },
+            "observation": observation,
         })
 
     def _fail(self, connection_id: str, err: str) -> ToolEndEvent:

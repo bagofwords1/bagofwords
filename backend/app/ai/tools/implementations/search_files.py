@@ -219,8 +219,26 @@ class SearchFilesTool(Tool):
 
         yield self._done(data, entries, used_index)
 
+    #: Max hit rows rendered into the model-facing observation (the planner
+    #: never sees the output — names/ids must live here or the model re-searches).
+    _OBS_HITS_MAX_ROWS = 30
+
     def _done(self, data, entries, used_index) -> ToolEndEvent:
         how = "keyword index" if used_index else "live scan"
+        observation = {
+            "summary": f"Found {len(entries)} file(s) matching '{data.query}' ({how})",
+            "success": True,
+        }
+        if entries:
+            rows = []
+            for e in entries[: self._OBS_HITS_MAX_ROWS]:
+                bits = [str(e.get("name") or "?")]
+                if e.get("path") and e.get("path") != e.get("name"):
+                    bits.append(str(e["path"]))
+                rows.append(" — ".join(bits) + f" [id={e.get('id')}]")
+            if len(entries) > self._OBS_HITS_MAX_ROWS:
+                rows.append(f"… +{len(entries) - self._OBS_HITS_MAX_ROWS} more matches")
+            observation["details"] = "\n".join(rows)
         return ToolEndEvent(type="tool.end", payload={
             "output": {
                 "success": True,
@@ -229,8 +247,5 @@ class SearchFilesTool(Tool):
                 "file_count": len(entries),
                 "files": entries,
             },
-            "observation": {
-                "summary": f"Found {len(entries)} file(s) matching '{data.query}' ({how})",
-                "success": True,
-            },
+            "observation": observation,
         })

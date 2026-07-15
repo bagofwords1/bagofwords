@@ -125,6 +125,62 @@ def path_matches_globs(rel_path: str, globs: List[str]) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Legacy filename recovery.
+#
+# Shares written by Windows tools (or zips extracted without a codepage) carry
+# filenames in a legacy encoding (cp1255 Hebrew, cp1252 Western). Python's
+# os.listdir surrogateescapes those bytes, and the persistence sanitizer then
+# (correctly) refuses the lone surrogates — every non-ASCII char degrades to
+# '?', names become unreadable AND un-round-trippable. Recover instead:
+# display/ids get a best-effort legacy decode; resolution re-derives the
+# on-disk byte form from the recovered name.
+
+LEGACY_FILENAME_CHARSETS = ("cp1255", "cp1252")
+
+
+def has_lone_surrogates(s: str) -> bool:
+    return any(0xD800 <= ord(c) <= 0xDFFF for c in s or "")
+
+
+def recover_filename(s: str) -> str:
+    """Best-effort human-readable form of a surrogateescape'd path/name.
+
+    Clean strings pass through untouched. For surrogate-carrying strings the
+    original bytes are recovered and tried against the legacy charsets; the
+    final fallback replaces rather than crashes. Never raises."""
+    if not s or not has_lone_surrogates(s):
+        return s
+    raw = s.encode("utf-8", "surrogateescape")
+    for cs in ("utf-8",) + LEGACY_FILENAME_CHARSETS:
+        try:
+            decoded = raw.decode(cs)
+        except (UnicodeDecodeError, LookupError):
+            continue
+        if not has_lone_surrogates(decoded):
+            return decoded
+    return raw.decode("utf-8", "replace")
+
+
+def legacy_fs_candidates(display: str) -> List[str]:
+    """On-disk (fsdecode/surrogateescape) forms a RECOVERED path may have.
+
+    The inverse of recover_filename: re-encode the display form through each
+    legacy charset and surrogateescape-decode, yielding strings that map back
+    to the original directory-entry bytes. Used by resolve chokepoints when a
+    recovered id doesn't exist verbatim on disk."""
+    out: List[str] = []
+    for cs in LEGACY_FILENAME_CHARSETS:
+        try:
+            raw = display.encode(cs)
+        except (UnicodeEncodeError, LookupError):
+            continue
+        cand = raw.decode("utf-8", "surrogateescape")
+        if cand != display and cand not in out:
+            out.append(cand)
+    return out
+
+
 class GlobScopeError(ValueError):
     """Raised when a resolved path is inside the root but outside the configured
     include-globs. A ValueError subclass so existing `except ValueError` paths
