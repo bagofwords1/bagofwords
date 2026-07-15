@@ -69,7 +69,7 @@ def get_oauth_params(connection: Connection) -> dict:
     creds = connection.decrypt_credentials() or {}
     conn_type = connection.type
 
-    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "onedrive"):
+    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail"):
         tenant_id = creds.get("tenant_id")
         if not tenant_id:
             raise ValueError(f"Connection {connection.id} missing tenant_id in credentials")
@@ -94,6 +94,12 @@ def get_oauth_params(connection: Connection) -> dict:
             # us the user identity + refresh token.
             "sharepoint": "openid profile offline_access Files.Read.All Sites.Read.All User.Read",
             "onedrive": "openid profile offline_access Files.Read.All User.Read",
+            # Outlook mail is surfaced through the same Graph file-tool surface;
+            # `Mail.Read` covers reading + $search over the signed-in user's
+            # messages. Without this entry the authorize route raised "OAuth not
+            # supported for connection type: outlook_mail", so its only usable
+            # auth mode (Sign in with Microsoft) was unreachable.
+            "outlook_mail": "openid profile offline_access Mail.Read User.Read",
         }
 
         return {
@@ -381,7 +387,7 @@ async def refresh_access_token(
 # ---------------------------------------------------------------------------
 
 # Connection types that support OBO auto-provisioning from Entra ID login
-ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive"}
+ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive", "outlook_mail"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
@@ -396,6 +402,10 @@ _OBO_SCOPES = {
     # Microsoft Graph delegated scopes for file access.
     "sharepoint": "https://graph.microsoft.com/.default offline_access",
     "onedrive": "https://graph.microsoft.com/.default offline_access",
+    # Outlook mail reads over Graph use the same Graph resource; `.default`
+    # yields whatever Graph delegated permissions (e.g. Mail.Read) the app
+    # registration was granted.
+    "outlook_mail": "https://graph.microsoft.com/.default offline_access",
 }
 
 
