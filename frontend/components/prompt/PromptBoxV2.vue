@@ -1187,7 +1187,7 @@ function onFilesUploaded(files: any[]) {
 // Cap inline chips to one row's worth; the rest live behind a "+N more"
 // chip that opens the files modal. Images sort first to match display order,
 // so the hidden tail is always the last chips visually.
-const MAX_INLINE_FILES = 4
+const MAX_INLINE_FILES = 2
 const orderedInlineFiles = computed(() => {
     const files = uploadedFiles.value
     return [...files.filter(f => isImageFile(f)), ...files.filter(f => !isImageFile(f))]
