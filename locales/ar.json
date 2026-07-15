@@ -403,6 +403,7 @@
     "connectLLM": "اربط نموذج اللغة أولًا",
     "connectDataOrFile": "اربط بيانات أو ارفع ملفًا",
     "waitingForFiles": "بانتظار اكتمال رفع الملفات…",
+    "moreFiles": "+{count} أخرى",
     "enterMessage": "اكتب رسالة",
     "estimatingContext": "جارٍ تقدير السياق المُستخدَم…",
     "contextSizeUnavailable": "حجم السياق غير متاح",

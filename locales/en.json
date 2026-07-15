@@ -435,6 +435,7 @@
     "connectLLM": "First connect LLM",
     "connectDataOrFile": "Connect data or upload a file",
     "waitingForFiles": "Waiting for files to upload…",
+    "moreFiles": "+{count} more",
     "enterMessage": "Enter a message",
     "estimatingContext": "Estimating context used…",
     "contextSizeUnavailable": "Context size unavailable",

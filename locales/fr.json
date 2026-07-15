@@ -403,6 +403,7 @@
     "connectLLM": "Connectez d'abord un LLM",
     "connectDataOrFile": "Connectez des données ou téléversez un fichier",
     "waitingForFiles": "En attente du téléversement des fichiers…",
+    "moreFiles": "+{count} autres",
     "enterMessage": "Saisissez un message",
     "estimatingContext": "Estimation du contexte utilisé…",
     "contextSizeUnavailable": "Taille du contexte indisponible",

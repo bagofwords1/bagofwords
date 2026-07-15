@@ -418,6 +418,7 @@
     "connectLLM": "חברו קודם LLM",
     "connectDataOrFile": "חברו נתונים או העלו קובץ",
     "waitingForFiles": "ממתין לסיום העלאת קבצים…",
+    "moreFiles": "+{count} נוספים",
     "enterMessage": "הקלידו הודעה",
     "estimatingContext": "מעריך שימוש בקונטקסט…",
     "contextSizeUnavailable": "גודל הקונטקסט אינו זמין",
