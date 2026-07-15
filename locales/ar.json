@@ -403,6 +403,7 @@
     "connectLLM": "اربط نموذج اللغة أولًا",
     "connectDataOrFile": "اربط بيانات أو ارفع ملفًا",
     "waitingForFiles": "بانتظار اكتمال رفع الملفات…",
+    "moreFiles": "+{count} أخرى",
     "enterMessage": "اكتب رسالة",
     "estimatingContext": "جارٍ تقدير السياق المُستخدَم…",
     "contextSizeUnavailable": "حجم السياق غير متاح",
@@ -2394,7 +2395,9 @@
       "paginationRange": "عرض {start} إلى {end} من إجمالي {total} نتيجة",
       "previous": "السابق",
       "next": "التالي",
-      "periodAllTime": "كل الوقت"
+      "periodAllTime": "كل الوقت",
+      "filterUsersAll": "جميع المستخدمين",
+      "searchPlaceholder": "البحث في الموجهات…"
     },
     "title": "المراقبة",
     "tabExplore": "استكشاف",
@@ -2463,7 +2466,10 @@
       "last7d": "آخر 7 أيام",
       "last30d": "آخر 30 يومًا",
       "last90d": "آخر 90 يومًا",
-      "customRange": "نطاق مخصص"
+      "customRange": "نطاق مخصص",
+      "exactDay": "يوم محدد",
+      "from": "من",
+      "to": "إلى"
     }
   },
   "mcp": {

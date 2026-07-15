@@ -403,6 +403,7 @@
     "connectLLM": "Verbinden Sie zuerst ein LLM",
     "connectDataOrFile": "Verbinden Sie Daten oder laden Sie eine Datei hoch",
     "waitingForFiles": "Warten auf Datei-Uploads …",
+    "moreFiles": "+{count} weitere",
     "enterMessage": "Nachricht eingeben",
     "estimatingContext": "Geschätzter verwendeter Kontext …",
     "contextSizeUnavailable": "Kontextgröße nicht verfügbar",
@@ -2394,7 +2395,9 @@
       "paginationRange": "Zeige {start} bis {end} von {total} Ergebnissen",
       "previous": "Vorherige",
       "next": "Nächste",
-      "periodAllTime": "Gesamter Zeitraum"
+      "periodAllTime": "Gesamter Zeitraum",
+      "filterUsersAll": "Alle Benutzer",
+      "searchPlaceholder": "Prompts durchsuchen…"
     },
     "title": "Überwachung",
     "tabExplore": "Erkunden",
@@ -2463,7 +2466,10 @@
       "last7d": "Letzte 7 Tage",
       "last30d": "Letzte 30 Tage",
       "last90d": "Letzte 90 Tage",
-      "customRange": "Benutzerdefinierter Bereich"
+      "customRange": "Benutzerdefinierter Bereich",
+      "exactDay": "Genauer Tag",
+      "from": "Von",
+      "to": "Bis"
     }
   },
   "mcp": {

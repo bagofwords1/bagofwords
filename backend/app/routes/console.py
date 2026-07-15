@@ -7,7 +7,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.ee.license import require_enterprise
-from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, CostMetrics
+from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, DiagnosisUsersResponse, CostMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from app.models.step import Step
@@ -238,6 +238,18 @@ async def get_diagnosis_dashboard_metrics(
 ):
     """Get dashboard metrics for diagnosis page."""
     _result = await console_service.get_diagnosis_dashboard_metrics(db, organization, params)
+    await release_request_db(db)
+    return _result
+
+@router.get("/console/diagnosis/users", response_model=DiagnosisUsersResponse)
+@requires_permission("manage_settings")
+async def get_diagnosis_users(
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Distinct users with agent executions — facet list for the diagnosis user filter."""
+    _result = await console_service.get_diagnosis_users(db, organization)
     await release_request_db(db)
     return _result
 

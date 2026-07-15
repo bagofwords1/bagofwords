@@ -500,6 +500,23 @@ async def get_domain_connections(
             except Exception:
                 cfg = {}
         return cfg if isinstance(cfg, dict) else {}
+    # Include auth policy + the caller's per-connection auth status so the
+    # tables selector can prompt "Connect your account" for delegated (OBO)
+    # connections instead of rendering an unexplained empty list.
+    from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+    _status_svc = UserDataSourceCredentialsService()
+
+    async def _user_status(conn):
+        if (conn.auth_policy or "system_only") != "user_required":
+            return None
+        try:
+            status = await _status_svc.build_user_status_for_connection(
+                db, conn, current_user, live_test=False
+            )
+            return status.model_dump()
+        except Exception:
+            return None
+
     return [
         {
             "id": str(conn.id),
@@ -507,6 +524,9 @@ async def get_domain_connections(
             "type": conn.type,
             "is_active": conn.is_active,
             "config": _safe_config(conn),
+            "auth_policy": conn.auth_policy,
+            "allowed_user_auth_modes": conn.allowed_user_auth_modes,
+            "user_status": await _user_status(conn),
         }
         for conn in connections
     ]

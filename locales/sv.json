@@ -403,6 +403,7 @@
     "connectLLM": "Anslut först LLM",
     "connectDataOrFile": "Anslut data eller ladda upp en fil",
     "waitingForFiles": "Väntar på att filerna ska laddas upp…",
+    "moreFiles": "+{count} till",
     "enterMessage": "Skriv ett meddelande",
     "estimatingContext": "Uppskattar använd kontext…",
     "contextSizeUnavailable": "Kontextstorlek ej tillgänglig",
@@ -2394,7 +2395,9 @@
       "paginationRange": "Visar {start} till {end} av {total} resultat",
       "previous": "Föregående",
       "next": "Nästa",
-      "periodAllTime": "All tid"
+      "periodAllTime": "All tid",
+      "filterUsersAll": "Alla användare",
+      "searchPlaceholder": "Sök prompter…"
     },
     "title": "Övervakning",
     "tabExplore": "Utforska",
@@ -2463,7 +2466,10 @@
       "last7d": "Senaste 7 dagarna",
       "last30d": "Senaste 30 dagarna",
       "last90d": "Senaste 90 dagarna",
-      "customRange": "Anpassat intervall"
+      "customRange": "Anpassat intervall",
+      "exactDay": "Exakt dag",
+      "from": "Från",
+      "to": "Till"
     }
   },
   "mcp": {

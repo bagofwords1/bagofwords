@@ -403,6 +403,7 @@
     "connectLLM": "Сначала подключите LLM",
     "connectDataOrFile": "Подключите данные или загрузите файл",
     "waitingForFiles": "Ожидание загрузки файлов…",
+    "moreFiles": "ещё {count}",
     "enterMessage": "Введите сообщение",
     "estimatingContext": "Оценка использованного контекста…",
     "contextSizeUnavailable": "Размер контекста недоступен",
@@ -2394,7 +2395,9 @@
       "paginationRange": "Показано с {start} по {end} из {total} результатов",
       "previous": "Предыдущая",
       "next": "Следующая",
-      "periodAllTime": "Всё время"
+      "periodAllTime": "Всё время",
+      "filterUsersAll": "Все пользователи",
+      "searchPlaceholder": "Поиск промптов…"
     },
     "title": "Мониторинг",
     "tabExplore": "Исследовать",
@@ -2463,7 +2466,10 @@
       "last7d": "Последние 7 дней",
       "last30d": "Последние 30 дней",
       "last90d": "Последние 90 дней",
-      "customRange": "Свой диапазон"
+      "customRange": "Свой диапазон",
+      "exactDay": "Точный день",
+      "from": "С",
+      "to": "По"
     }
   },
   "mcp": {
