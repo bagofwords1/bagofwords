@@ -225,7 +225,7 @@
             <div v-if="uploadedFiles.length > 0" class="px-3 pb-2 flex flex-wrap gap-2">
                 <!-- Image files - show thumbnail preview -->
                 <div
-                    v-for="file in uploadedFiles.filter(f => isImageFile(f))"
+                    v-for="file in visibleInlineFiles.filter(f => isImageFile(f))"
                     :key="file.id"
                     class="relative group"
                 >
@@ -270,14 +270,14 @@
 
                 <!-- Non-image files - show chip style -->
                 <div
-                    v-for="file in uploadedFiles.filter(f => !isImageFile(f))"
+                    v-for="file in visibleInlineFiles.filter(f => !isImageFile(f))"
                     :key="file.id"
                     class="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-lg text-xs text-gray-700 dark:text-gray-300 group"
                 >
                     <Spinner v-if="file.status === 'processing'" class="w-3 h-3 text-blue-500 flex-shrink-0" />
                     <Icon v-else-if="file.status === 'error'" name="heroicons-exclamation-circle" class="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
                     <Icon v-else name="heroicons-document" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                    <span class="truncate max-w-[150px]">{{ file.filename }}</span>
+                    <span class="truncate max-w-[110px]">{{ file.filename }}</span>
                     <button
                         @click="removeInlineFile(file)"
                         class="ms-0.5 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -286,6 +286,15 @@
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
                     </button>
                 </div>
+
+                <!-- Overflow: remaining files are managed via the files modal -->
+                <button
+                    v-if="hiddenInlineFileCount > 0"
+                    @click="openFilesModal"
+                    class="inline-flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                >
+                    {{ $t('prompt.moreFiles', { count: hiddenInlineFileCount }) }}
+                </button>
             </div>
 
             <!-- Bottom controls -->
@@ -1173,6 +1182,21 @@ function submit() {
 
 function onFilesUploaded(files: any[]) {
     uploadedFiles.value = files || []
+}
+
+// Cap inline chips to one row's worth; the rest live behind a "+N more"
+// chip that opens the files modal. Images sort first to match display order,
+// so the hidden tail is always the last chips visually.
+const MAX_INLINE_FILES = 2
+const orderedInlineFiles = computed(() => {
+    const files = uploadedFiles.value
+    return [...files.filter(f => isImageFile(f)), ...files.filter(f => !isImageFile(f))]
+})
+const visibleInlineFiles = computed(() => orderedInlineFiles.value.slice(0, MAX_INLINE_FILES))
+const hiddenInlineFileCount = computed(() => Math.max(0, orderedInlineFiles.value.length - MAX_INLINE_FILES))
+
+function openFilesModal() {
+    fileUploadRef.value?.open?.()
 }
 
 // Helper to check if a file is an image

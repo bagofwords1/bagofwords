@@ -403,6 +403,7 @@
     "connectLLM": "Anslut först LLM",
     "connectDataOrFile": "Anslut data eller ladda upp en fil",
     "waitingForFiles": "Väntar på att filerna ska laddas upp…",
+    "moreFiles": "+{count} till",
     "enterMessage": "Skriv ett meddelande",
     "estimatingContext": "Uppskattar använd kontext…",
     "contextSizeUnavailable": "Kontextstorlek ej tillgänglig",

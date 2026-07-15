@@ -403,6 +403,7 @@
     "connectLLM": "Collega prima un LLM",
     "connectDataOrFile": "Collega dati o carica un file",
     "waitingForFiles": "In attesa del caricamento dei file…",
+    "moreFiles": "+{count} altri",
     "enterMessage": "Scrivi un messaggio",
     "estimatingContext": "Stima del contesto utilizzato…",
     "contextSizeUnavailable": "Dimensione del contesto non disponibile",

@@ -403,6 +403,7 @@
     "connectLLM": "Verbinden Sie zuerst ein LLM",
     "connectDataOrFile": "Verbinden Sie Daten oder laden Sie eine Datei hoch",
     "waitingForFiles": "Warten auf Datei-Uploads …",
+    "moreFiles": "+{count} weitere",
     "enterMessage": "Nachricht eingeben",
     "estimatingContext": "Geschätzter verwendeter Kontext …",
     "contextSizeUnavailable": "Kontextgröße nicht verfügbar",

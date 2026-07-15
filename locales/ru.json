@@ -403,6 +403,7 @@
     "connectLLM": "Сначала подключите LLM",
     "connectDataOrFile": "Подключите данные или загрузите файл",
     "waitingForFiles": "Ожидание загрузки файлов…",
+    "moreFiles": "ещё {count}",
     "enterMessage": "Введите сообщение",
     "estimatingContext": "Оценка использованного контекста…",
     "contextSizeUnavailable": "Размер контекста недоступен",

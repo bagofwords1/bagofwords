@@ -10,7 +10,7 @@
         </span>
       </button>
       <UModal v-model="isFilesOpen">
-        <div class="p-4 h-72">
+        <div class="p-4 min-h-72 flex flex-col">
           <h2 class="text-md font-semibold pb-2">Upload files</h2>
           <hr />
 
@@ -43,7 +43,7 @@
           </div>
           <ul
             v-if="allFiles.length > 0"
-            class="w-full mt-4"
+            class="w-full mt-4 max-h-64 overflow-y-auto"
             @dragover.prevent="isDragging = true"
             @dragenter.prevent="isDragging = true"
             @dragleave.prevent="isDragging = false"
@@ -52,30 +52,34 @@
               v-for="(file, index) in allFiles" 
               :key="file.id" 
               class="text-xs py-2 text-gray-600 dark:text-gray-400 flex items-center justify-between border-b border-gray-100 dark:border-gray-800 last:border-b-0">
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5 min-w-0 flex-1">
                 <Spinner v-if="file.status === 'processing'" class="w-3 h-3 text-blue-500 flex-shrink-0" />
                 <Icon v-else-if="file.status === 'uploaded'" name="heroicons-check-circle" class="text-blue-500 w-4 h-4 flex-shrink-0" />
                 <Icon v-else-if="file.status === 'error'" name="heroicons-x-circle" class="text-red-500 w-4 h-4 flex-shrink-0" />
 
                 <span class="truncate">{{ file.filename }}</span>
               </div>
-              <div>
+              <div class="flex-shrink-0 ps-2">
               <button @click="removeFile(file)" class="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full ms-auto items-center justify-center">
                 <Icon name="heroicons-x-mark" class="w-4 h-4" />
               </button>
             </div>
             </li>
-            <li 
-              :class="['text-center items-center py-4 mt-3 rounded-lg transition-all cursor-pointer',
-                isDragging ? 'bg-blue-50 dark:bg-blue-950 border-1 border-dashed border-blue-400' : 'border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-950']"
-              v-if="allFiles.length > 0"
-              @click="$refs.fileInput.click()">
-              <div class="text-sm text-blue-500 flex items-center justify-center gap-2 w-full">
-                <Icon name="heroicons-cloud-arrow-up" class="w-5 h-5" />
-                {{ isDragging ? 'Drop files here' : 'Click or drag to upload more' }}
-              </div>
-            </li>
           </ul>
+          <div
+            :class="['text-center items-center py-4 mt-3 rounded-lg transition-all cursor-pointer',
+              isDragging ? 'bg-blue-50 dark:bg-blue-950 border-1 border-dashed border-blue-400' : 'border-2 border-dashed border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-950']"
+            v-if="allFiles.length > 0"
+            @dragover.prevent="isDragging = true"
+            @dragenter.prevent="isDragging = true"
+            @dragleave.prevent="isDragging = false"
+            @drop.prevent="handleDrop"
+            @click="$refs.fileInput.click()">
+            <div class="text-sm text-blue-500 flex items-center justify-center gap-2 w-full">
+              <Icon name="heroicons-cloud-arrow-up" class="w-5 h-5" />
+              {{ isDragging ? 'Drop files here' : 'Click or drag to upload more' }}
+            </div>
+          </div>
         </div>
       </UModal>
     </div>

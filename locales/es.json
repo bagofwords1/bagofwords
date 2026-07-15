@@ -418,6 +418,7 @@
     "connectLLM": "Conecte primero un LLM",
     "connectDataOrFile": "Conecte datos o suba un archivo",
     "waitingForFiles": "Esperando a que terminen las subidas…",
+    "moreFiles": "+{count} más",
     "enterMessage": "Escriba un mensaje",
     "estimatingContext": "Estimando contexto usado…",
     "contextSizeUnavailable": "Tamaño de contexto no disponible",
