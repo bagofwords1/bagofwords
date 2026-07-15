@@ -169,6 +169,16 @@ class TestSessionResolution:
         assert "UNIQUE-B" in (payload["observation"].get("details") or "")
 
     @pytest.mark.asyncio
+    async def test_output_carries_display_path(self, tmp_path):
+        """The expanded UI shows 'Path:' — session reads report the upload
+        filename; path-addressed connector ids double as the path (covered by
+        _display_path fallback)."""
+        f = _mk_file(tmp_path, "q3_rules.json", b'{"a": 1}', "application/json")
+        payload = await _run_read({"connection_id": "", "file_id": f.id}, _runtime_ctx([f]))
+        assert payload["output"]["path"] == "q3_rules.json"
+        assert payload["output"]["file_name"] == "q3_rules.json"
+
+    @pytest.mark.asyncio
     async def test_session_read_does_not_reattach(self, tmp_path):
         f = _mk_file(tmp_path, "a.txt", b"hello world", "text/plain")
         ctx = _runtime_ctx([f])

@@ -29,6 +29,10 @@
         </div>
         <Transition name="fade">
           <div v-if="expanded" class="ps-6 pe-1 pb-1">
+            <div v-if="filePath" class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
+              <span class="text-gray-400 dark:text-gray-500">Path:</span>
+              <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
+            </div>
             <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
             <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
               <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
@@ -85,6 +89,15 @@ const fileLabel = computed(() => {
 // Page-range (document) reads: show which pages of how many.
 const pagesShown = computed(() => rj.value.pages_shown || '')
 const pagesTotal = computed(() => rj.value.pages_total)
+// Human-readable location shown in the expanded view: backend-provided path
+// (source-relative for connectors, upload name for attachments), falling back
+// to a path-shaped file_id from the call args.
+const filePath = computed(() => {
+  if (rj.value.path) return rj.value.path
+  const fid = props.toolExecution?.arguments_json?.file_id
+  if (typeof fid === 'string' && (fid.includes('/') || (fid.split('/').pop() || '').includes('.'))) return fid
+  return ''
+})
 const contentType = computed(() => rj.value.content_type || '')
 const rowCount = computed(() => rj.value.row_count)
 const colCount = computed(() => rj.value.col_count)

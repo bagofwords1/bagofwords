@@ -38,6 +38,19 @@ _OBS_DETAILS_MAX_CHARS = 4000
 _OBS_WINDOW_DETAILS_MAX_CHARS = 8000
 
 
+def _display_path(file_id: str, session_client=None) -> str:
+    """Human-readable location for the expanded UI: the upload filename for
+    session files, the source-relative path for path-addressed connectors
+    (network_dir/S3 ids ARE paths). '' for opaque provider ids (Graph)."""
+    if session_client is not None:
+        return getattr(session_client, "display_name", "") or ""
+    fid = str(file_id or "")
+    leaf = fid.rsplit("/", 1)[-1]
+    if "/" in fid or "." in leaf:
+        return fid
+    return ""
+
+
 def _name_from_path_id(file_id: str) -> str:
     """Basename of a path-shaped file id ('logs/app/web.log' → 'web.log');
     '' for opaque provider ids (no slash and no dot in the leaf)."""
@@ -202,6 +215,7 @@ class ReadFileTool(Tool):
                 "connection_id": data.connection_id,
                 "file_id": data.file_id,
                 "windowed": True,
+                "path": _display_path(data.file_id, client if session_file is not None else None) or None,
                 "content_type": "text" if enc == "text" else "binary",
                 "text": window.get("content"),
                 "encoding": enc,
@@ -291,6 +305,7 @@ class ReadFileTool(Tool):
                         "image_count": len(imgs),
                         "pages_total": total,
                         "pages_shown": shown,
+                        "path": _display_path(data.file_id, client if session_file is not None else None) or None,
                     }
                     blocks = [
                         {"data": _b64.b64encode(png).decode("utf-8"),
@@ -318,6 +333,7 @@ class ReadFileTool(Tool):
                 "text": paged.get("text") or "",
                 "pages_total": paged.get("pages_total"),
                 "pages_shown": shown,
+                "path": _display_path(data.file_id, client if session_file is not None else None) or None,
             }
             name = (
                 getattr(client, "display_name", None) if session_file is not None
@@ -485,6 +501,10 @@ class ReadFileTool(Tool):
                 output["file_name"] = derived
             else:
                 output.pop("file_name", None)
+        if not output.get("path"):
+            p = source_name or _display_path(data.file_id)
+            if p:
+                output["path"] = p
         if session_file_id:
             output["session_file_id"] = session_file_id
 

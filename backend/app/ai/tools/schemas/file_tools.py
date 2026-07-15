@@ -153,9 +153,17 @@ class ReadFileInput(BaseModel):
 
 class ReadFileOutput(BaseModel):
     success: bool
-    connection_id: str
+    connection_id: Optional[str] = ""
     file_id: str
     file_name: Optional[str] = None
+    path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Human-readable location of the file: the source-relative path for "
+            "path-addressed connectors (network_dir/S3), the upload filename "
+            "for conversation attachments. Unset for opaque provider ids."
+        ),
+    )
     content_type: str = Field(
         default="unknown",
         description="One of: tabular, text, json, binary, images, unknown.",
