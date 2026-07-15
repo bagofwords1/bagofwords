@@ -2395,7 +2395,9 @@
       "paginationRange": "Visualizzati da {start} a {end} di {total} risultati",
       "previous": "Precedente",
       "next": "Successivo",
-      "periodAllTime": "Sempre"
+      "periodAllTime": "Sempre",
+      "filterUsersAll": "Tutti gli utenti",
+      "searchPlaceholder": "Cerca prompt…"
     },
     "title": "Monitoraggio",
     "tabExplore": "Esplora",
@@ -2464,7 +2466,10 @@
       "last7d": "Ultimi 7 giorni",
       "last30d": "Ultimi 30 giorni",
       "last90d": "Ultimi 90 giorni",
-      "customRange": "Intervallo personalizzato"
+      "customRange": "Intervallo personalizzato",
+      "exactDay": "Giorno esatto",
+      "from": "Dal",
+      "to": "Al"
     }
   },
   "mcp": {

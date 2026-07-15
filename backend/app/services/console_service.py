@@ -18,7 +18,8 @@ from app.schemas.console_schema import (
     CompactIssuesResponse, CompactIssueItem,
     AgentExecutionSummaryItem, AgentExecutionSummariesResponse,
     LLMUsageMetrics, LLMUsageItem,
-    DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics
+    DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics,
+    DiagnosisUser, DiagnosisUsersResponse
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
@@ -67,6 +68,12 @@ class ConsoleService:
         if not data_source_ids:
             return []
         return [ds_id.strip() for ds_id in data_source_ids.split(',') if ds_id.strip()]
+
+    def _parse_user_ids(self, user_ids: Optional[str]) -> List[str]:
+        """Parse comma-separated user IDs string into a list."""
+        if not user_ids:
+            return []
+        return [u_id.strip() for u_id in user_ids.split(',') if u_id.strip()]
 
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
         """Convert aware datetimes to UTC and strip tzinfo; leave naive as-is.
@@ -2237,6 +2244,7 @@ class ConsoleService:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         base_query = (
             select(
@@ -2270,6 +2278,10 @@ class ConsoleService:
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
             base_query = base_query.where(AgentExecution.report_id.in_(ds_subquery))
+
+        # Apply user filter if specified
+        if parsed_user_ids:
+            base_query = base_query.where(AgentExecution.user_id.in_(parsed_user_ids))
 
         # Security boundary: scope to data sources the caller manages
         if security_data_source_ids is not None:
@@ -2556,6 +2568,7 @@ class ConsoleService:
         """Get dashboard metrics for diagnosis page."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         # Build data source filter subquery if needed
         ds_filter_subquery = None
@@ -2564,6 +2577,13 @@ class ConsoleService:
                 select(report_data_source_association.c.report_id)
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
+
+        def apply_common_filters(query):
+            if ds_filter_subquery is not None:
+                query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+            if parsed_user_ids:
+                query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
+            return query
 
         # Count failed queries (create_data tool failures - includes internal + MCP)
         failed_queries_query = (
@@ -2577,8 +2597,7 @@ class ConsoleService:
                 ToolExecution.success == False
             )
         )
-        if ds_filter_subquery is not None:
-            failed_queries_query = failed_queries_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        failed_queries_query = apply_common_filters(failed_queries_query)
         failed_queries_result = await db.execute(failed_queries_query)
         failed_queries = int(failed_queries_result.scalar() or 0)
 
@@ -2593,8 +2612,7 @@ class ConsoleService:
                 CompletionFeedback.direction == -1
             )
         )
-        if ds_filter_subquery is not None:
-            negative_feedback_query = negative_feedback_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        negative_feedback_query = apply_common_filters(negative_feedback_query)
         negative_feedback_result = await db.execute(negative_feedback_query)
         negative_feedback = int(negative_feedback_result.scalar() or 0)
 
@@ -2607,8 +2625,7 @@ class ConsoleService:
                 AgentExecution.created_at <= end_date
             )
         )
-        if ds_filter_subquery is not None:
-            total_query = total_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        total_query = apply_common_filters(total_query)
         total_result = await db.execute(total_query)
         total_items = int(total_result.scalar() or 0)
 
@@ -2630,8 +2647,7 @@ class ConsoleService:
                 UserCompletion.response_score < 3
             )
         )
-        if ds_filter_subquery is not None:
-            low_confidence_query = low_confidence_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        low_confidence_query = apply_common_filters(low_confidence_query)
         low_confidence_result = await db.execute(low_confidence_query)
         low_confidence = int(low_confidence_result.scalar() or 0)
 
@@ -2651,8 +2667,7 @@ class ConsoleService:
                 UserCompletion2.instructions_effectiveness < 3
             )
         )
-        if ds_filter_subquery is not None:
-            low_instruction_coverage_query = low_instruction_coverage_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        low_instruction_coverage_query = apply_common_filters(low_instruction_coverage_query)
         low_instruction_coverage_result = await db.execute(low_instruction_coverage_query)
         low_instruction_coverage = int(low_instruction_coverage_result.scalar() or 0)
 
@@ -2679,6 +2694,7 @@ class ConsoleService:
         """
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
 
         ds_filter_subquery = None
         if parsed_data_source_ids:
@@ -2686,6 +2702,13 @@ class ConsoleService:
                 select(report_data_source_association.c.report_id)
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
+
+        def apply_common_filters(query):
+            if ds_filter_subquery is not None:
+                query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+            if parsed_user_ids:
+                query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
+            return query
 
         # Fetch all agent executions in range (id, created_at, status)
         ae_query = (
@@ -2696,8 +2719,7 @@ class ConsoleService:
                 AgentExecution.created_at <= end_date
             )
         )
-        if ds_filter_subquery is not None:
-            ae_query = ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        ae_query = apply_common_filters(ae_query)
         ae_result = await db.execute(ae_query)
         ae_rows = ae_result.all()
 
@@ -2712,8 +2734,7 @@ class ConsoleService:
                 ToolExecution.success == False
             )
         )
-        if ds_filter_subquery is not None:
-            failed_ae_query = failed_ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        failed_ae_query = apply_common_filters(failed_ae_query)
         failed_ae_result = await db.execute(failed_ae_query)
         failed_ae_ids = {str(r[0]) for r in failed_ae_result.all()}
 
@@ -2744,3 +2765,29 @@ class ConsoleService:
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
             points=points
         )
+
+    async def get_diagnosis_users(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+    ) -> DiagnosisUsersResponse:
+        """Distinct users that have agent executions in this org (facet for the
+        diagnosis user filter). Deliberately unscoped by date so the dropdown
+        stays stable while the user plays with the time range."""
+        q = (
+            select(
+                User.id,
+                func.coalesce(User.name, 'Unknown User').label('name'),
+                func.coalesce(User.email, '').label('email'),
+            )
+            .join(AgentExecution, AgentExecution.user_id == User.id)
+            .where(AgentExecution.organization_id == organization.id)
+            .group_by(User.id, User.name, User.email)
+            .order_by(func.coalesce(User.name, 'Unknown User'))
+        )
+        res = await db.execute(q)
+        users = [
+            DiagnosisUser(id=str(r.id), name=r.name, email=r.email)
+            for r in res.all()
+        ]
+        return DiagnosisUsersResponse(users=users)
