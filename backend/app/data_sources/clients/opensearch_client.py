@@ -36,6 +36,12 @@ class OpenSearchClient(DataSourceClient):
     # timeout just above the 60s query timeout sent to the engine.
     TIMEOUTS = (5, 65)
 
+    # Analyzed full-text types: never valid in terms aggs / sort. Without a
+    # `.keyword` subfield (log-style templates often omit it) the schema must
+    # say so, or the coder writes aggregations that 400. Mirrors the
+    # Elasticsearch client (fork parity).
+    _ANALYZED_TEXT_TYPES = {"text", "match_only_text", "search_as_you_type"}
+
     def __init__(
         self,
         host: str,
@@ -142,6 +148,14 @@ class OpenSearchClient(DataSourceClient):
                     columns.extend(self._flatten_properties(child_props, f"{full}[]", raw_types))
                 continue
             dtype = self._dtype_for(mtype or "object")
+            if mtype in self._ANALYZED_TEXT_TYPES:
+                kw = next(
+                    (f"{full}.{sub}" for sub, sub_defn in (defn.get("fields") or {}).items()
+                     if (sub_defn or {}).get("type") == "keyword"),
+                    None,
+                )
+                dtype = (f"string (full-text; aggregate/sort on {kw})" if kw
+                         else "string (full-text; NOT aggregatable/sortable)")
             columns.append(TableColumn(name=full, dtype=dtype))
             if raw_types is not None and mtype:
                 raw_types[full] = mtype
@@ -469,7 +483,10 @@ CRITICAL RULES:
 2. Use valid JSON: true/false/null (NOT Python True/False/None)
 3. Aggregate, sort and filter exactly on KEYWORD fields, never on "text" fields.
    When the schema shows both "title" (string) and "title.keyword", use
-   "title.keyword" for terms aggs / sorting and "title" for full-text "match"
+   "title.keyword" for terms aggs / sorting and "title" for full-text "match".
+   Fields marked "NOT aggregatable/sortable" (full-text with no keyword
+   subfield) can NEVER appear in terms aggs or sort — aggregate on a keyword
+   field instead (e.g. an error-type or code field rather than the message)
 4. Fields marked "array" with children under "name[]" are NESTED - queries on
    them must be wrapped: {{"nested": {{"path": "items", "query": {{...}}}}}}
 5. When only aggregations matter, "size" defaults to 0 automatically
