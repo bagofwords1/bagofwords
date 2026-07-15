@@ -5,7 +5,7 @@ const { chromium } = require('@playwright/test');
 
 const BASE = 'http://localhost:3000';
 const API = 'http://localhost:8000';
-const MEDIA = '/tmp/bow-agent/obo-repro-media';
+const MEDIA = process.env.MEDIA_DIR || '/tmp/bow-agent/obo-repro-media';
 const DS_ID = process.env.DS_ID;
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });

@@ -2547,15 +2547,46 @@ class DataSourceService:
                 except Exception:
                     return []
             elif effective_auth == "none":
-                # No proven access (disconnected, expired, revoked) → no tables.
-                # Do NOT leak the canonical catalog.
-                return []
+                # No proven access (disconnected, expired, revoked) → no tables
+                # for a plain member; do NOT leak the canonical catalog to them.
+                # Owner/admin fall through to the canonical catalog below — they
+                # already see it via connection management endpoints, and hiding
+                # it here only breaks agent configuration before first sign-in.
+                if not await self._admin_catalog_access(db, data_source, current_user):
+                    return []
             # effective_auth == "system" → owner/admin via service account:
             # fall through to the canonical full catalog below.
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
 
         return schemas
+
+    async def _admin_catalog_access(self, db: AsyncSession, data_source: DataSource, current_user: User) -> bool:
+        """May this not-yet-connected caller see the CANONICAL catalog for
+        configuration purposes?
+
+        True for the data source's owner and for org admins / manage_connections
+        holders — the same audience `connection_identity.is_admin_or_owner`
+        grants the query-identity toggle to, and the audience that already sees
+        the canonical table list via connection management endpoints. This is a
+        DISPLAY fallback only: query execution still resolves per-user
+        credentials and fails closed ("Connect required")."""
+        try:
+            if str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", "")):
+                return True
+        except Exception:
+            pass
+        try:
+            from app.core.permission_resolver import FULL_ADMIN, resolve_permissions
+            resolved = await resolve_permissions(
+                db, str(current_user.id), str(data_source.organization_id)
+            )
+            return (
+                FULL_ADMIN in resolved.org_permissions
+                or resolved.has_org_permission("manage_connections")
+            )
+        except Exception:
+            return False
 
     async def _resolve_effective_auth(self, db: AsyncSession, data_source: DataSource, current_user: User) -> str:
         """Classify a user's CURRENT access to a (user_required) data source.
@@ -2644,7 +2675,15 @@ class DataSourceService:
                 )
                 overlay_table_ids = [r[0] for r in ov.all()]
             elif eff_auth == "none":
-                overlay_table_ids = []
+                # Not connected yet. For a plain member this fails closed
+                # (nothing). An owner/admin, however, already sees the canonical
+                # catalog through connection management (the Add Connection
+                # modal's "Discovered N tables", GET /connections/{id}/tables) —
+                # hiding the same names here only breaks agent configuration, so
+                # show them the full catalog. Query time stays fail-closed via
+                # resolve_credentials.
+                if not await self._admin_catalog_access(db, data_source, current_user):
+                    overlay_table_ids = []
 
         def _scope(q):
             return q if overlay_table_ids is None else q.where(DataSourceTable.id.in_(overlay_table_ids))
@@ -3783,7 +3822,11 @@ class DataSourceService:
             except Exception:
                 return []
         if effective_auth == "none":
-            # No proven access (disconnected/expired) → nothing to show.
+            # No proven access (disconnected/expired) → nothing to show for a
+            # plain member. Owner/admin get the canonical catalog (display
+            # fallback, same rule as get_data_source_schema_paginated).
+            if await self._admin_catalog_access(db, data_source, current_user):
+                return None
             return []
         # effective_auth == "system": admin via service account → full catalog.
         return None

@@ -158,6 +158,73 @@ The **same** wizard step and the **same** `full_schema` endpoint that returned
 
 ---
 
+## The fix (validated live, 2026-07-15)
+
+Four changes, all display/UX-level — query execution keeps the fail-closed
+"no silent SP fallback" behavior:
+
+1. **Owner/admin sees the canonical catalog before first sign-in.**
+   `DataSourceService._admin_catalog_access` (data source owner, org admin, or
+   `manage_connections`) gates a display fallback in
+   `get_data_source_schema_paginated`, `get_data_source_schema`, and
+   `_refresh_shared_user_overlay`: `effective_auth == "none"` no longer empties
+   the list for that audience (they already see the same names via
+   `GET /connections/{id}/tables`). Plain members without a token still get
+   zero rows.
+2. **Reload works pre-sign-in and errors are surfaced.**
+   `ConnectionService.refresh_schema` indexes with the connection's system
+   creds (`current_user=None`, the background indexer's identity) when the
+   caller has no per-user token, instead of 403ing; deliberate `HTTPException`s
+   are no longer re-wrapped as 500. The frontend (`TablesSelector.onRefresh`)
+   now toasts failures instead of `catch {}`.
+3. **The wizard explains itself.** `TablesSelector` fetches the agent's
+   connections (now served with `auth_policy` / `allowed_user_auth_modes` /
+   `user_status`) and renders: a **"Connect your account"** empty state when a
+   delegated connection has no rows to show, and an admin banner ("You're
+   viewing the full catalog as an admin… connect your account") when the
+   canonical fallback is in effect.
+4. **Sign-in returns to where it started.** `/oauth/authorize?return_to=<path>`
+   rides in the signed OAuth state (`rt` claim, app-internal paths only) and the
+   callback redirects there — e.g. back to `/agents/new/{id}/schema`.
+
+**Observed after the fix (same loop, fresh connection):**
+
+```
+5.  indexing completed, canonical catalog = 6 tables
+6.  wizard Select Tables       -> Showing 1-6 of 6 + admin banner   # was 0
+6b. click Reload               -> /refresh_schema HTTP 200, 6 tables # was 500/403 swallowed
+    select all -> Save         -> agent page shows 6/6 active — all BEFORE sign-in
+    banner Connect             -> GET /connections/{id}/oauth/authorize?return_to=/agents/new/{id}/schema
+    delegated-only conn (no SP catalog) -> "Connect your account" empty state
+    reload on a broken SP      -> red toast with the real Azure AD error     # was silent
+    after sign-in              -> same 6 tables, banner gone (overlay view)
+```
+
+Regression tests (`backend/tests/e2e/test_obo_admin_catalog_before_signin.py`):
+
+```
+[display] token-less owner sees total=2 rows=2; token-less member sees total=0 rows=0
+[reload]  token-less owner reload returned 2 tables (system identity, no 403)
+2 passed
+```
+
+The sibling loop (`test_fabric_second_admin_overlay_repro.py`) still passes.
+Pre-existing, unrelated failures: `tests/unit/test_connection_oauth.py`
+`test_ms_fabric` / `test_obo_exchange_ms_fabric` assert the old
+`api.fabric.microsoft.com` scope (reproduce with the fix stashed).
+
+After-fix screenshots:
+
+| state | file |
+|---|---|
+| Wizard right after creation: **6 tables + admin banner** (no sign-in) | `obo-fixed-01-wizard-tables-pre-signin.png` |
+| Reload now succeeds (HTTP 200, list intact) | `obo-fixed-02-reload-succeeds.png` |
+| Select all pre-sign-in | `obo-fixed-03-select-all-pre-signin.png` |
+| Agent page: 6 tables active, still not signed in | `obo-fixed-04-agent-page-pre-signin.png` |
+| Delegated-only (empty catalog): "Connect your account" empty state | `obo-fixed-05-empty-catalog-connect-prompt.png` |
+| After sign-in: same 6 tables, banner gone (overlay view) | `obo-fixed-06-wizard-after-signin.png` |
+| Reload failure now surfaces a toast with the provider error | `obo-fixed-07-reload-error-toast.png` |
+
 ## What this proves
 
 - The canonical catalog **is** populated at connection creation (SP-seeded

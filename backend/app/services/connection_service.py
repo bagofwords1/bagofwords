@@ -1006,6 +1006,7 @@ class ConnectionService:
             # user_required. Without this exemption an owner/admin refresh of a
             # user_required SQLite domain would skip indexing and return zero
             # tables, since both `credentials` and per-user creds are empty.
+            index_user = current_user
             if connection.auth_policy == "user_required" and not requires_no_credentials(connection.type):
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
@@ -1029,7 +1030,21 @@ class ConnectionService:
                     )
                     return []
 
-            client = await self.construct_client(db, connection, current_user)
+                if not has_creds:
+                    # Caller has no per-user token, but the connection has
+                    # admin/system creds. Index the SHARED canonical catalog with
+                    # the same identity the background indexer uses
+                    # (current_user=None → system-creds fallback) instead of
+                    # letting resolve_credentials 403 on "Connect required" —
+                    # a manual Reload before first sign-in must behave like the
+                    # create-time indexing it re-runs.
+                    logger.info(
+                        f"refresh_schema: connection {connection.id} — caller has no "
+                        "per-user credentials; indexing with the connection's system creds."
+                    )
+                    index_user = None
+
+            client = await self.construct_client(db, connection, index_user)
 
             # Load the existing catalog up front: it powers BOTH the upsert diff
             # below AND incremental indexing — file-source clients whose
@@ -1185,6 +1200,12 @@ class ConnectionService:
             # Cancellation is control flow, not a failure: let it reach the
             # indexing runner so the run is finalized as `cancelled` — wrapping
             # it in the generic 500 below would mark the run failed instead.
+            raise
+        except HTTPException:
+            # Deliberate API errors (e.g. resolve_credentials' 403 "Connect
+            # required") must reach the client with their real status and
+            # message — wrapping them in the generic 500 below hid the reason
+            # the UI needed to show.
             raise
         except Exception as e:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
