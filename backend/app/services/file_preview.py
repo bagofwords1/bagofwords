@@ -30,6 +30,11 @@ MAX_PDF_PAGES = 5
 MAX_PDF_TEXT_CHARS = 5000
 MAX_PDF_PAGE_CHARS = 2000
 
+# Text/JSON head shown in the planner's <files> index — enough to identify
+# the file and decide to read_file it, deliberately small.
+MAX_TEXT_HEAD_CHARS = 500
+JSON_TEXT_TYPES = ["application/json", "application/x-ndjson", "text/markdown"]
+
 
 def generate_file_preview(file) -> Dict[str, Any]:
     """
@@ -50,8 +55,14 @@ def generate_file_preview(file) -> Dict[str, Any]:
             return _preview_excel(path, filename)
         elif content_type in PDF_TYPES:
             return _preview_pdf(path, filename)
-        elif content_type in CSV_TYPES or filename.lower().endswith('.csv'):
+        elif content_type in ("text/csv", "application/csv") or filename.lower().endswith(('.csv', '.tsv')):
             return _preview_csv(path, filename)
+        elif (content_type or "").startswith("image/"):
+            return _preview_image(path, filename, content_type)
+        elif content_type in JSON_TEXT_TYPES or content_type == "text/plain" or filename.lower().endswith(
+            (".json", ".ndjson", ".jsonl", ".txt", ".log", ".md")
+        ):
+            return _preview_text(path, filename, content_type)
         else:
             return {
                 "type": "unsupported",
@@ -299,6 +310,10 @@ def render_file_description(preview: Dict[str, Any], path: str) -> str:
         return _render_csv_description(preview, path)
     elif file_type == "pdf":
         return _render_pdf_description(preview, path)
+    elif file_type == "text":
+        return _render_text_description(preview, path)
+    elif file_type == "image":
+        return _render_image_description(preview, path)
     elif file_type == "unsupported":
         return f"File: {filename} at {path}\nType: {preview.get('content_type', 'unknown')}\n{preview.get('message', '')}"
     
@@ -378,8 +393,81 @@ def _render_pdf_description(preview: Dict[str, Any], path: str) -> str:
     
     if preview.get("text_truncated"):
         lines.append("... (text truncated)")
-    
+
+    total = preview.get("pages", 0)
+    shown = preview.get("preview_pages", 0)
+    if total and shown and total > shown:
+        lines.append(
+            f"({shown} of {total} pages previewed — use read_file with "
+            f"page_range, e.g. '{shown + 1}-{min(shown + 5, total)}', for the rest)"
+        )
     return "\n".join(lines)
+
+
+def _preview_text(path: str, filename: str, content_type: str) -> Dict[str, Any]:
+    """Head preview for JSON/text/log files — enough to identify the file and
+    decide to read_file it; the full content stays lazy."""
+    import os
+    size = os.path.getsize(path)
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        head = fh.read(MAX_TEXT_HEAD_CHARS + 1)
+    truncated = len(head) > MAX_TEXT_HEAD_CHARS
+    return {
+        "type": "text",
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": size,
+        "head": head[:MAX_TEXT_HEAD_CHARS],
+        "head_truncated": truncated,
+    }
+
+
+def _preview_image(path: str, filename: str, content_type: str) -> Dict[str, Any]:
+    """Dimensions + size for images, so the planner knows read_file will show
+    it to a vision model instead of seeing 'unsupported'."""
+    import os
+    size = os.path.getsize(path)
+    width = height = None
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            width, height = im.size
+    except Exception:
+        pass
+    return {
+        "type": "image",
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": size,
+        "width": width,
+        "height": height,
+    }
+
+
+def _render_text_description(preview: Dict[str, Any], path: str) -> str:
+    lines = [
+        f"Text File: {preview.get('filename', 'unknown')}",
+        f"Type: {preview.get('content_type', 'text')}",
+        f"Size: {preview.get('size_bytes', 0):,} bytes",
+        "",
+        "Head:",
+        preview.get("head", ""),
+    ]
+    if preview.get("head_truncated"):
+        lines.append("... (use read_file with this file's id to read the full content)")
+    return "\n".join(lines)
+
+
+def _render_image_description(preview: Dict[str, Any], path: str) -> str:
+    dims = ""
+    if preview.get("width") and preview.get("height"):
+        dims = f", {preview['width']}×{preview['height']}"
+    return (
+        f"Image: {preview.get('filename', 'unknown')} "
+        f"({preview.get('content_type', 'image')}{dims}, "
+        f"{preview.get('size_bytes', 0):,} bytes). "
+        "Call read_file with this file's id to view it."
+    )
 
 
 def _truncate_cell(val: Any, max_len: int = 50) -> Any:

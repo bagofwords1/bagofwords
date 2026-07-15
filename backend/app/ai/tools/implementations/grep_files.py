@@ -33,6 +33,73 @@ from ._file_tool_common import audit_file_access_denied, resolve_file_client
 _SWEEP_TIME_BUDGET_SECONDS = 90.0
 
 
+async def _grep_session_files(data, runtime_ctx: Dict[str, Any]):
+    """Sweep the report's attached files (uploads / attach_file results) with
+    the shared grep engine. Returns None when the report has no files (caller
+    surfaces a routing hint). The candidate list IS the allow-list: only files
+    associated with this report, org-checked, are ever read."""
+    import asyncio as _asyncio
+    import fnmatch
+
+    from app.data_sources.clients._grep_common import run_grep_sweep
+
+    report = runtime_ctx.get("report")
+    organization = runtime_ctx.get("organization")
+    files = list(getattr(report, "files", None) or []) if report else []
+    if not files:
+        return None
+
+    wanted_ids = {str(x) for x in (data.file_ids or [])}
+    pat = (data.name_pattern or "").strip().lower()
+    candidates = []
+    by_id = {}
+    for f in files:
+        f_org = getattr(f, "organization_id", None)
+        if organization is not None and f_org is not None and str(f_org) != str(organization.id):
+            continue
+        fid = str(getattr(f, "id", ""))
+        name = getattr(f, "filename", "") or fid
+        if wanted_ids and fid not in wanted_ids and name not in wanted_ids:
+            continue
+        if pat and not fnmatch.fnmatch(name.lower(), pat):
+            continue
+        by_id[fid] = f
+        entry = {"id": fid, "path": name}
+        try:
+            import os as _os
+            entry["size"] = _os.path.getsize(f.path)
+        except Exception:
+            pass
+        candidates.append(entry)
+
+    def _read(entry):
+        with open(by_id[entry["id"]].path, "rb") as fh:
+            return fh.read()
+
+    scope_key = "|".join([
+        "session", str(getattr(report, "id", "")),
+        str(data.name_pattern or ""), ",".join(sorted(wanted_ids)),
+        data.pattern, str(bool(data.is_regex)), str(bool(data.ignore_case)),
+    ])
+    return await _asyncio.to_thread(
+        run_grep_sweep,
+        candidates=candidates,
+        read_bytes=_read,
+        pattern=data.pattern,
+        is_regex=data.is_regex,
+        ignore_case=data.ignore_case,
+        before=data.before,
+        after=data.after,
+        max_matches=data.max_matches,
+        max_matches_per_file=data.max_matches_per_file,
+        max_files=data.max_files,
+        max_bytes_per_file=data.max_bytes_per_file,
+        scope_key=scope_key,
+        cursor=data.cursor,
+        time_budget_seconds=_SWEEP_TIME_BUDGET_SECONDS,
+    )
+
+
 class GrepFilesTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
@@ -92,46 +159,64 @@ class GrepFilesTool(Tool):
             yield _fail(f"Invalid pattern: {e}")
             return
 
-        client, err = await resolve_file_client(
-            runtime_ctx, data.connection_id, Capability.GREP_FILES
-        )
-        if err:
-            yield _fail(err)
-            return
-
-        try:
-            sweep = await client.agrep_files(
-                data.pattern,
-                is_regex=data.is_regex,
-                ignore_case=data.ignore_case,
-                file_ids=data.file_ids,
-                folder_id=data.folder_id,
-                name_pattern=data.name_pattern,
-                recursive=data.recursive,
-                before=data.before,
-                after=data.after,
-                max_matches=data.max_matches,
-                max_matches_per_file=data.max_matches_per_file,
-                max_files=data.max_files,
-                max_bytes_per_file=data.max_bytes_per_file,
-                cursor=data.cursor,
-                time_budget_seconds=_SWEEP_TIME_BUDGET_SECONDS,
+        # No connection named → sweep the report's OWN file space (uploads /
+        # attachments). Same engine, same accounting; the space is the
+        # allow-list, binary sniffing handles images.
+        if not (data.connection_id or "").strip():
+            try:
+                sweep = await _grep_session_files(data, runtime_ctx)
+            except (re.error, ValueError) as e:
+                yield _fail(str(e))
+                return
+            except Exception as e:
+                yield _fail(f"grep_files failed: {e}")
+                return
+            if sweep is None:
+                yield _fail(
+                    "No files are attached to this conversation to grep. Pass a "
+                    "connection_id to grep a file source instead."
+                )
+                return
+        else:
+            client, err = await resolve_file_client(
+                runtime_ctx, data.connection_id, Capability.GREP_FILES
             )
-        except GlobScopeError as e:
-            await audit_file_access_denied(
-                runtime_ctx, data.connection_id, data.folder_id or "", str(e)
-            )
-            yield _fail(str(e))
-            return
-        except NotImplementedError:
-            yield _fail("This connection does not support line-level grep.")
-            return
-        except (re.error, ValueError) as e:
-            yield _fail(str(e))
-            return
-        except Exception as e:
-            yield _fail(f"grep_files failed: {e}")
-            return
+            if err:
+                yield _fail(err)
+                return
+            try:
+                sweep = await client.agrep_files(
+                    data.pattern,
+                    is_regex=data.is_regex,
+                    ignore_case=data.ignore_case,
+                    file_ids=data.file_ids,
+                    folder_id=data.folder_id,
+                    name_pattern=data.name_pattern,
+                    recursive=data.recursive,
+                    before=data.before,
+                    after=data.after,
+                    max_matches=data.max_matches,
+                    max_matches_per_file=data.max_matches_per_file,
+                    max_files=data.max_files,
+                    max_bytes_per_file=data.max_bytes_per_file,
+                    cursor=data.cursor,
+                    time_budget_seconds=_SWEEP_TIME_BUDGET_SECONDS,
+                )
+            except GlobScopeError as e:
+                await audit_file_access_denied(
+                    runtime_ctx, data.connection_id, data.folder_id or "", str(e)
+                )
+                yield _fail(str(e))
+                return
+            except NotImplementedError:
+                yield _fail("This connection does not support line-level grep.")
+                return
+            except (re.error, ValueError) as e:
+                yield _fail(str(e))
+                return
+            except Exception as e:
+                yield _fail(f"grep_files failed: {e}")
+                return
 
         # Per-file scope denials inside the sweep (explicit off-glob file_ids)
         # are reported as skips — audit each so the trail matches read_file's.
