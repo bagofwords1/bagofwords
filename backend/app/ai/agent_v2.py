@@ -63,6 +63,21 @@ def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
     return any(kw in p for kw in THINKING_TRIGGERS)
 
 
+def repeated_call_final_answer(tool_name: str, times: int) -> str:
+    """Message injected when the repeated-identical-call breaker fires.
+
+    It must NOT claim success — the breaker fires precisely because the model
+    kept re-issuing a call whose result it (apparently) couldn't use, which
+    historically meant the result never reached it. Point at the existing
+    result instead of fabricating an achievement."""
+    return (
+        f"Stopping: the {tool_name} tool was called {times} times with identical "
+        "parameters. Its result was already returned above — use that result "
+        "directly, or call the tool again with different parameters. Do not "
+        "repeat the same call."
+    )
+
+
 def capabilities_for_report_files(has_files: bool) -> set:
     """Capabilities the report's OWN file space contributes to the tool
     catalog. Session files back read_file (lazy content/pages/vision) and
@@ -3919,7 +3934,7 @@ class AgentV2:
                                         analysis_done = True
                                         _obs.update({
                                             "analysis_complete": True,
-                                            "final_answer": f"Task completed successfully. The {_tn} tool has been executed {max_repeated_successes} times with the same parameters, indicating the goal has been achieved."
+                                            "final_answer": repeated_call_final_answer(_tn, max_repeated_successes)
                                         })
 
                                 # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
