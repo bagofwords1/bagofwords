@@ -284,6 +284,21 @@ class ScheduledPromptService:
                 logger.error(f"Scheduled prompt {sp.id}: organization not found")
                 return
 
+            # Membership invariant: don't keep running a departed member's
+            # schedule as them. If the owner is no longer bound to the org
+            # (removed directly or via LDAP/OIDC/SCIM sync), deactivate the
+            # schedule and drop its cron job instead of firing it.
+            from app.core.permission_resolver import principal_belongs_to_org
+            if not await principal_belongs_to_org(db, user, str(organization.id)):
+                logger.warning(
+                    f"Scheduled prompt {sp.id}: owner {sp.user_id} is no longer a "
+                    f"member of org {organization.id}; deactivating schedule."
+                )
+                sp.is_active = False
+                await db.commit()
+                self._remove_job(sp.id)
+                return
+
             # Routing: spawn_new_report = fresh dated report per run (clean
             # snapshot, no context growth), else run in the host report
             # (default — keeps cross-run memory for trend commentary).

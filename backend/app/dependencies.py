@@ -96,8 +96,15 @@ async def get_user_db(session: AsyncSession = Depends(get_async_db)):
     # also lets release_request_db actually free the request's only connection.
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
-async def get_current_organization(request: Request, db: AsyncSession = Depends(get_async_db)) -> Organization:
-    """Get organization from X-Organization-Id header or from API key."""
+async def resolve_organization(request: Request, db: AsyncSession) -> Organization:
+    """Resolve the request's organization from the X-Organization-Id header or
+    API key, WITHOUT enforcing that the caller belongs to it.
+
+    Callers that already establish the principal separately (e.g. MCP auth,
+    which returns (user, org) and enforces membership itself) use this. Regular
+    HTTP routes go through ``get_current_organization``, which layers the
+    membership check on top.
+    """
     organization_id: Optional[str] = request.headers.get("X-Organization-Id")
 
     if organization_id:
@@ -124,6 +131,23 @@ async def get_current_organization(request: Request, db: AsyncSession = Depends(
         raise AppError.unauthorized(ErrorCode.API_KEY_INVALID, "Invalid or expired API key")
 
     raise AppError.bad_request(ErrorCode.ORG_HEADER_REQUIRED, "Organization ID header missing")
+
+
+def __getattr__(name: str):
+    """Lazily expose the enforcing ``get_current_organization`` from core.auth.
+
+    The enforcing dependency needs ``current_user`` as a sub-dependency, which
+    lives in ``app.core.auth`` — and core.auth imports session providers from
+    this module, so importing it eagerly here would be a circular import at load
+    time. PEP 562 module ``__getattr__`` defers that import until the symbol is
+    actually looked up (route-registration time), by which point core.auth has
+    finished loading. Every ``from app.dependencies import get_current_organization``
+    keeps working unchanged.
+    """
+    if name == "get_current_organization":
+        from app.core.auth import get_current_organization
+        return get_current_organization
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _locale_from_org(organization: Optional[Organization]) -> Optional[str]:
@@ -153,9 +177,20 @@ async def get_current_locale(request: Request) -> str:
     return config.settings.bow_config.i18n.default_locale
 
 
+async def _resolve_organization_dep(
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+) -> Organization:
+    """Depends-compatible wrapper around ``resolve_organization`` (no membership
+    enforcement). Used by the locale/MCP-enabled read helpers below, which don't
+    gate access themselves — the route's own ``get_current_organization`` /
+    ``@requires_permission`` dependency enforces membership."""
+    return await resolve_organization(request, db)
+
+
 async def get_org_locale(
     request: Request,
-    organization: Organization = Depends(get_current_organization),
+    organization: Organization = Depends(_resolve_organization_dep),
 ) -> str:
     """Effective locale for authed requests: header override → org → default."""
     enabled = config.settings.bow_config.i18n.enabled_locales
@@ -169,7 +204,7 @@ async def get_org_locale(
 
 
 async def require_mcp_enabled(
-    organization: Organization = Depends(get_current_organization)
+    organization: Organization = Depends(_resolve_organization_dep)
 ) -> Organization:
     """Dependency to ensure MCP is enabled for the organization."""
     if not organization.settings:

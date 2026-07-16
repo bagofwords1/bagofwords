@@ -483,6 +483,15 @@ class CompletionService:
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
 
+            # Membership invariant: the acting user must still belong to the org.
+            # This is the service-layer chokepoint for callers that bypass the
+            # HTTP org dependency — external-platform webhooks (Teams/Slack/
+            # WhatsApp/email) and scheduled prompts both reach completion
+            # creation here without a request-time membership check.
+            if current_user is not None and organization is not None:
+                from app.core.permission_resolver import assert_principal_belongs_to_org
+                await assert_principal_belongs_to_org(db, current_user, organization.id)
+
             # Validate report exists
             result = await db.execute(select(Report).filter(Report.id == report_id))
             report = result.scalar_one_or_none()

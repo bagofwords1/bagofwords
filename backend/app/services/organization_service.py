@@ -23,7 +23,7 @@ from app.models.user import User
 from typing import List
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from app.services.llm_service import LLMService
 from app.services.test_suite_service import TestSuiteService
 from app.settings.config import settings
@@ -485,6 +485,15 @@ class OrganizationService:
         if membership.user_id:
             # RBAC lockout prevention: ensure at least one user keeps full_admin_access
             await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
+            # Revoke the standing artifacts that would otherwise let the removed
+            # user keep acting in the org without a membership: verified external
+            # platform links (Teams/Slack/WhatsApp/email) and their scheduled
+            # prompts. The execution-time membership checks are the real gate;
+            # this proactively tears down convenience access at removal time and
+            # stops departed members' schedules from firing at all.
+            await self._revoke_departed_member_access(
+                db, organization_id, str(membership.user_id)
+            )
         else:
             # Pending invite: clean up any pre-assigned RBAC keyed by this
             # membership. Done explicitly (not via FK cascade) so it holds on
@@ -512,7 +521,71 @@ class OrganizationService:
 
         await db.execute(delete(Membership).where(Membership.id == membership_id))
         await db.commit()
-    
+
+    async def _revoke_departed_member_access(
+        self, db: AsyncSession, organization_id: str, user_id: str
+    ) -> None:
+        """Tear down a removed user's standing access artifacts in this org.
+
+        - Unverify their external-platform mappings (Teams/Slack/WhatsApp/email)
+          so an already-linked chat identity can no longer send queries; the
+          next message re-enters the verify flow, which will fail without a
+          membership.
+        - Deactivate their scheduled prompts on reports in this org and drop the
+          APScheduler jobs, so nothing keeps firing as the departed user.
+
+        Best-effort and self-contained: a failure here must not block the
+        membership removal itself (the execution-time checks still gate access).
+        """
+        from app.models.external_user_mapping import ExternalUserMapping
+        from app.models.scheduled_prompt import ScheduledPrompt
+        from app.models.report import Report
+
+        try:
+            await db.execute(
+                update(ExternalUserMapping)
+                .where(
+                    ExternalUserMapping.organization_id == organization_id,
+                    ExternalUserMapping.app_user_id == user_id,
+                )
+                .values(is_verified=False)
+            )
+        except Exception:
+            logger.warning("Failed to unverify external mappings for removed member", exc_info=True)
+
+        sp_ids: list[str] = []
+        try:
+            result = await db.execute(
+                select(ScheduledPrompt.id)
+                .join(Report, ScheduledPrompt.report_id == Report.id)
+                .where(
+                    Report.organization_id == organization_id,
+                    ScheduledPrompt.user_id == user_id,
+                    ScheduledPrompt.deleted_at == None,
+                    ScheduledPrompt.is_active == True,
+                )
+            )
+            sp_ids = [str(r) for r in result.scalars().all()]
+            if sp_ids:
+                await db.execute(
+                    update(ScheduledPrompt)
+                    .where(ScheduledPrompt.id.in_(sp_ids))
+                    .values(is_active=False)
+                )
+        except Exception:
+            logger.warning("Failed to deactivate scheduled prompts for removed member", exc_info=True)
+
+        await db.commit()
+
+        # Drop the cron jobs after the DB state is committed. Import locally to
+        # avoid a module-level dependency on the scheduler from org management.
+        for sp_id in sp_ids:
+            try:
+                from app.services.scheduled_prompt_service import scheduled_prompt_service
+                scheduled_prompt_service._remove_job(sp_id)
+            except Exception:
+                logger.warning(f"Failed to remove cron job for scheduled prompt {sp_id}", exc_info=True)
+
     async def update_member(self, db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
         from app.core.permission_resolver import assert_full_admin_exists
 

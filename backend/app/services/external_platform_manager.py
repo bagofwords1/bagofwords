@@ -527,6 +527,24 @@ class ExternalPlatformManager:
         if not organization:
             return {"success": False, "error": "Organization not found"}
 
+        # Membership invariant: a verified external mapping is not a standing
+        # grant. If the linked user has since been removed from the org, stop
+        # honoring their messages — unverify the mapping (so the next message
+        # re-runs the link/verify flow) and tell them to ask their admin.
+        from app.core.permission_resolver import principal_belongs_to_org
+        if not await principal_belongs_to_org(db, user, str(organization.id)):
+            user_mapping.is_verified = False
+            await db.commit()
+            try:
+                await adapter.send_dm(
+                    user_mapping.external_user_id,
+                    "Your access to this workspace has been revoked. "
+                    "Ask your admin to re-invite you if this is a mistake.",
+                )
+            except Exception as e:
+                print(f"Failed to send access-revoked DM: {e}")
+            return {"success": False, "error": "User is not a member of this organization"}
+
         # Extract thread context from processed data
         thread_ts = processed_data.get("thread_ts")
         message_ts = processed_data.get("message_ts")

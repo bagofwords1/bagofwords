@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.core.auth import current_user, _jwt_current_user, api_key_header
-from app.dependencies import get_async_db, require_mcp_enabled, get_current_organization
+from app.dependencies import get_async_db, require_mcp_enabled, get_current_organization, resolve_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.ai.tools.mcp import get_mcp_tool, list_mcp_tools
@@ -51,11 +51,20 @@ async def mcp_auth(
     Returns (user, organization). On failure, raises 401 with WWW-Authenticate
     header pointing to the OAuth protected resource metadata.
     """
+    async def _authed(user: User, org: Organization) -> Tuple[User, Organization]:
+        # Same membership invariant as the HTTP org dependency: a principal that
+        # is no longer bound to the org (removed member) can't act via MCP even
+        # with a still-valid JWT / API key / OAuth token. Service accounts pass
+        # via their ServiceAccount row.
+        from app.core.permission_resolver import assert_principal_belongs_to_org
+        await assert_principal_belongs_to_org(db, user, org.id)
+        return user, org
+
     # 1. Try JWT
     if jwt_user is not None:
         try:
-            org = await get_current_organization(request, db)
-            return jwt_user, org
+            org = await resolve_organization(request, db)
+            return await _authed(jwt_user, org)
         except HTTPException:
             pass
 
@@ -67,7 +76,7 @@ async def mcp_auth(
         if user:
             org = await svc.get_organization_by_api_key(db, api_key)
             if org:
-                return user, org
+                return await _authed(user, org)
 
     # 3. Try Bearer token from Authorization header
     auth_header = request.headers.get("Authorization", "")
@@ -82,7 +91,7 @@ async def mcp_auth(
             svc = OAuthServerService()
             result = await svc.validate_access_token(db, token)
             if result:
-                return result  # (user, organization)
+                return await _authed(result[0], result[1])  # (user, organization)
             logger.warning("OAuth token validation failed for token starting with: %s...", token[:16])
 
         # 3b. API key via Bearer
@@ -93,7 +102,7 @@ async def mcp_auth(
             if user:
                 org = await svc.get_organization_by_api_key(db, token)
                 if org:
-                    return user, org
+                    return await _authed(user, org)
 
     # No valid auth — return 401 with OAuth metadata
     resource_url = _resource_metadata_url(request)
