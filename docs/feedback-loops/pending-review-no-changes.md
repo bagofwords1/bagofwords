@@ -88,13 +88,11 @@ The invariant asserted: *an instruction flagged pending by
 
 ## The fix
 
-`backend/app/services/text_hunks.py` — remove the eager
-`if base == main and not rejected: return True` shortcut and fall through to the
-authoritative hunk computation. When `base == main`,
-`rebased_hunks_against_main` uses identity alignment (still cheap) and applies
-the no-op/idempotent skips, so a suggestion that changes nothing against main no
-longer counts as pending. Healthy suggestions still yield ≥1 hunk and stay
-pending — same result as before.
+`backend/app/services/text_hunks.py`, `has_live_hunk_against_main` — remove the
+eager `if base == main and not rejected: return True` shortcut so the predicate
+agrees with the authoritative hunk computation. A suggestion that changes
+nothing against main no longer counts as pending; healthy suggestions still
+yield ≥1 hunk and stay pending.
 
 Re-run Loop A after the fix:
 
@@ -108,6 +106,36 @@ Full instruction suites (regression sweep):
 tests/e2e/test_instruction.py tests/e2e/test_instruction_evidence.py
 tests/e2e/test_instruction_resolve.py  ->  31 passed
 ```
+
+## Performance (why the fix is not the naive one)
+
+Dropping the shortcut naively — always falling through to
+`rebased_hunks_against_main` — is **correct but slow**. `compute_hunks` runs a
+`difflib` word diff whose cost is ~O(n²) on real prose (every whitespace and
+punctuation token is identical, difflib's worst case), and the /agents pending
+sweep (`get_pending_change_instruction_ids`, `instruction_service.py:1485`) runs
+this predicate for *every* pending suggestion on page load. Measured on a
+realistic ~2.4 KB instruction with a one-word edit:
+
+| implementation | µs / suggestion | correct? |
+|---|---:|---|
+| original (buggy shortcut) | 0.3 | no — flags no-op as pending |
+| fix v1 (diff always) | 32,458 | yes |
+| **fix v2 (fast-path, shipped)** | **437** | yes |
+
+So the shipped fix keeps an **O(n) fast-path** for the common case (a suggestion
+forked from current main, no rejects): any deleted main token, or any inserted
+token absent from main, is unambiguously a real reviewable hunk — decided by two
+`Counter`s over the token streams, no diff. Only an *all-duplicate-token*
+insertion is ambiguous (the potential no-op) and falls through to the
+authoritative diff — and that text is small by nature. On large instructions the
+fast-path is 40–215× faster than the naive fix (e.g. ~7 KB: 285 ms → 1.3 ms) and
+stays byte-for-byte consistent with the review pane.
+
+Correctness of the fast-path is pinned by a fuzz test cross-checking it against
+`rebased_hunks_against_main` over 10k+ random edits (including the repeated-token
+boundary cases), covering both `base == main` and drifted `base != main`:
+`tests/unit/test_text_hunks_pending.py` — `28 passed`.
 
 ## What this proves / regression notes
 

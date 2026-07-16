@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import List, Optional, Set, Tuple
 
@@ -293,14 +294,31 @@ def has_live_hunk_against_main(
 
     if proposed == base or proposed == main:
         return False
-    # NB: no `base == main -> return True` shortcut. Even when the suggestion
-    # forked from current main, its change can still apply as a NO-OP against it
-    # (an idempotent insertion of a token already sitting at the anchor, or an
-    # already-present phrase). `rebased_hunks_against_main` performs exactly those
-    # skips, so an eager True here would flag the instruction "Pending review"
-    # while /review-hunks renders zero hunks — pending with nothing to review.
-    # Fall through to the authoritative hunk computation instead (identity
-    # alignment when base == main, so this stays cheap).
+    # We deliberately do NOT shortcut `base == main -> return True`: even when the
+    # suggestion forked from current main, its change can apply as a NO-OP (an
+    # idempotent insertion of a token already at the anchor, an already-present
+    # phrase). Such a suggestion has zero review hunks, so flagging it pending
+    # would strand the instruction on "Pending review" with nothing to review.
+    #
+    # But falling straight to the word diff is expensive: compute_hunks' difflib
+    # pass is ~O(n^2) on real prose (repeated whitespace/punctuation tokens), and
+    # the /agents pending sweep runs this predicate for every pending suggestion.
+    # So for the common case (forked from main, no rejects) take a cheap O(n)
+    # decision first: any deleted main token, or any inserted token absent from
+    # main, is unambiguously a real reviewable hunk (identity alignment holds when
+    # base == main). Only an all-duplicate-token insertion is ambiguous — the
+    # potential no-op — and it alone falls through to the authoritative diff.
+    # This stays byte-for-byte consistent with rebased_hunks_against_main
+    # (fuzzed in tests/unit/test_text_hunks_pending.py).
+    if base == main and not rejected:
+        main_tokens = _tokenize(main)
+        cm, cp = Counter(main_tokens), Counter(_tokenize(proposed))
+        if cm - cp:  # a token present in main was removed/reduced → real change
+            return True
+        main_token_set = set(main_tokens)
+        if any(tok not in main_token_set for tok in (cp - cm)):  # genuinely new token
+            return True
+        # only duplicate tokens inserted → ambiguous, use the authoritative path
     return any(
         hunk["key"] not in rejected
         for hunk in rebased_hunks_against_main(base, proposed, main, cache=cache)
