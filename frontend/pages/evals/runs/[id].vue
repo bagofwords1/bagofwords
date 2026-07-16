@@ -45,6 +45,37 @@
           </div>
         </div>
 
+        <!-- Build-over-build comparison -->
+        <div v-if="compareData && compareData.against_run" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-6">
+          <div class="flex flex-wrap items-center gap-2">
+            <Icon name="heroicons:arrows-right-left" class="w-4 h-4 text-gray-400" />
+            <span class="text-sm font-medium text-gray-900 dark:text-white">Compared to</span>
+            <USelect
+              v-model="selectedCompareBase"
+              :options="compareBaseOptions"
+              size="xs"
+              class="min-w-48"
+              @change="onCompareBaseChange"
+            />
+            <span v-if="compareData.against_run.build_number" class="text-xs text-gray-500 dark:text-gray-400">
+              (build #{{ compareData.against_run.build_number }})
+            </span>
+            <div class="ms-auto flex items-center gap-2 text-xs">
+              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 dark:bg-green-950 text-green-700 border-green-200">{{ compareData.summary?.fixed || 0 }} fixed</span>
+              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 border-red-200">{{ compareData.summary?.regressed || 0 }} regressed</span>
+              <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700">{{ compareData.summary?.same || 0 }} unchanged</span>
+            </div>
+          </div>
+          <ul v-if="compareFlips.length" class="mt-3 space-y-1">
+            <li v-for="c in compareFlips" :key="c.case_id" class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+              <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium" :class="flipBadgeClass(c.flip)">{{ c.flip }}</span>
+              <span class="truncate">{{ c.case_name || c.case_id }}</span>
+              <span class="text-gray-400">{{ c.base_status || '—' }} → {{ c.status || '—' }}</span>
+            </li>
+          </ul>
+          <div v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">No per-case changes vs. the baseline run.</div>
+        </div>
+
         <!-- Each result (case) - collapsed list with expandable single-container split -->
         <div class="space-y-4">
           <div v-for="row in caseRows" :key="row.result.id" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
@@ -615,6 +646,57 @@ const passCount = computed(() => results.value.filter(r => r.status === 'pass').
 const failCount = computed(() => results.value.filter(r => r.status === 'fail').length)
 const errorCount = computed(() => results.value.filter(r => r.status === 'error').length)
 
+// --- Build-over-build comparison -------------------------------------------
+const compareData = ref<any | null>(null)
+const compareLoading = ref(false)
+const compareBaseOptions = ref<Array<{ value: string, label: string }>>([])
+const selectedCompareBase = ref<string>('')
+
+async function loadCompare(againstRunId?: string) {
+  if (!runId.value) return
+  compareLoading.value = true
+  try {
+    const qs = againstRunId ? `?against_run_id=${againstRunId}` : ''
+    const res: any = await useMyFetch(`/api/tests/runs/${runId.value}/compare${qs}`)
+    compareData.value = res?.data?.value || null
+    if (compareData.value?.against_run?.id && !selectedCompareBase.value) {
+      selectedCompareBase.value = compareData.value.against_run.id
+    }
+  } catch (e) {
+    console.error('Failed to load run comparison', e)
+  } finally {
+    compareLoading.value = false
+  }
+}
+
+async function loadCompareBaseOptions() {
+  try {
+    const res: any = await useMyFetch(`/api/tests/runs?limit=20`)
+    const runs = (res?.data?.value || []) as any[]
+    compareBaseOptions.value = runs
+      .filter(r => r.id !== runId.value && ['success', 'error', 'stopped'].includes(r.status))
+      .map(r => ({
+        value: r.id,
+        label: `${r.title || r.id.slice(0, 8)}${r.build_number ? ` · build #${r.build_number}` : ''}`,
+      }))
+  } catch {}
+}
+
+function onCompareBaseChange() {
+  if (selectedCompareBase.value) loadCompare(selectedCompareBase.value)
+}
+
+const compareFlips = computed(() => {
+  const cases = compareData.value?.cases || []
+  return cases.filter((c: any) => c.flip !== 'same')
+})
+
+const flipBadgeClass = (flip: string) => {
+  if (flip === 'fixed') return 'bg-green-100 text-green-800'
+  if (flip === 'regressed') return 'bg-red-100 text-red-800'
+  return 'bg-gray-100 text-gray-700'
+}
+
 // Derive run status from individual result statuses to avoid mismatches with backend aggregate
 const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(() => {
   try {
@@ -628,6 +710,16 @@ const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(
     return (run.value?.status as any) || 'in_progress'
   }
 })
+
+// Load the comparison once the run is terminal (and refresh if it finishes
+// live). Registered after derivedRunStatus's declaration — watch sources
+// evaluate at registration time.
+watch(derivedRunStatus, (s) => {
+  if (s !== 'in_progress' && !compareData.value && !compareLoading.value) {
+    loadCompare()
+    loadCompareBaseOptions()
+  }
+}, { immediate: true })
 
 const _df = useFormatDate()
 const formatDate = (iso?: string | null) => {

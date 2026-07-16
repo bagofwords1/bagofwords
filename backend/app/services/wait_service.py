@@ -82,7 +82,9 @@ async def run_wait_wake(
 
         wake_prompt = (
             f"[Automatic resume after a scheduled wait] The wait you requested has "
-            f"elapsed. Resume the task now: {reason}"
+            f"elapsed. Resume the task now: {reason}\n"
+            f"If conversation history shows this was already handled or superseded, "
+            f"acknowledge briefly and stop — do not redo the work."
         )
         try:
             await completion_service.create_completion(
@@ -145,6 +147,39 @@ class WaitService:
         except JobLookupError:
             # Already fired or already cancelled — idempotent success.
             return False
+
+    def list_waits(self, report_id: str) -> list[dict]:
+        """Pending (not yet fired) waits for a report.
+
+        Job ids are namespaced ``wait:{report_id}:{token}``, so this is a
+        prefix scan over the shared job store. Returns
+        [{job_id, wake_at, reason}, ...] sorted by wake time.
+        """
+        prefix = f"{_JOB_PREFIX}{report_id}:"
+        out: list[dict] = []
+        try:
+            for job in scheduler.get_jobs():
+                if not str(job.id).startswith(prefix):
+                    continue
+                kwargs = getattr(job, "kwargs", {}) or {}
+                wake_at = getattr(job, "next_run_time", None)
+                out.append({
+                    "job_id": str(job.id),
+                    "wake_at": wake_at.isoformat() if wake_at else None,
+                    "reason": kwargs.get("reason"),
+                })
+        except Exception as e:
+            logger.warning("list_waits(%s) failed: %s", report_id, e)
+        out.sort(key=lambda j: j.get("wake_at") or "")
+        return out
+
+    def cancel_waits_for_report(self, report_id: str) -> list[str]:
+        """Cancel every pending wait on a report. Returns the cancelled job ids."""
+        cancelled: list[str] = []
+        for j in self.list_waits(report_id):
+            if self.cancel_wait(j["job_id"]):
+                cancelled.append(j["job_id"])
+        return cancelled
 
 
 wait_service = WaitService()

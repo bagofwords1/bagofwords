@@ -54,13 +54,26 @@ from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSche
 from app.models.organization import Organization
 
 
+# Terminal states, shared by the background finalizer and the SSE streamer.
+RESULT_TERMINAL_STATUSES = {"pass", "fail", "error", "stopped"}
+RUN_TERMINAL_STATUSES = {"success", "error", "stopped"}
+
+# Default org-level cap on simultaneously executing eval runs. Overridable
+# per org via OrganizationSettings.config['max_concurrent_eval_runs'].
+DEFAULT_MAX_CONCURRENT_EVAL_RUNS = 3
+
+# How long the background finalizer waits for a single case's agent turns
+# before marking the result as errored (seconds).
+CASE_WATCH_TIMEOUT_S = 15 * 60
+
+
 class TestRunService:
     def __init__(self) -> None:
         self.completions = CompletionService()
         self.evaluator = TestEvaluationService()
 
     # -------- Helpers --------
-    
+
     async def _save_run_summary(self, db: AsyncSession, run: TestRun, results: List[TestResult]) -> None:
         """Save summary_json with pass/fail counts when a test run completes."""
         passed = sum(1 for r in results if r.status == 'pass')
@@ -476,8 +489,11 @@ class TestRunService:
         
         # Save run summary
         await self._save_run_summary(db, run, list(results))
-        
+
         await db.refresh(run)
+
+        # A stopped run is terminal — notify the origin conversation (if any).
+        asyncio.create_task(self._maybe_fire_wake(str(run.id)))
         return run
 
     # ---- Dashboard helpers (mock data for MVP) ----
@@ -563,21 +579,29 @@ class TestRunService:
         return summaries
 
     # -------- New API: Batch create + execute (background) --------
-    async def create_and_execute_background(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, suite_id: Optional[str] = None, trigger_reason: Optional[str] = "manual", build_id: Optional[str] = None) -> tuple[TestRun, List[TestResult]]:
+    async def create_and_execute_background(
+        self,
+        db: AsyncSession,
+        organization,
+        current_user,
+        case_ids: Optional[List[str]] = None,
+        suite_id: Optional[str] = None,
+        trigger_reason: Optional[str] = "manual",
+        build_id: Optional[str] = None,
+        origin_report_id: Optional[str] = None,
+        origin_user_id: Optional[str] = None,
+        wake_on_finish: bool = False,
+    ) -> tuple[TestRun, List[TestResult]]:
         # Resolve cases from inputs
         cases = await self._resolve_cases_inputs(db, str(organization.id), case_ids, suite_id)
         if not cases:
             raise HTTPException(status_code=400, detail="No test cases found")
 
-        # Create run
-        case_names = [c.name for c in cases]
-        preview = ", ".join(case_names[:2])
-        remaining = max(0, len(case_names) - 2)
-        title = preview + (f" +{remaining} more" if remaining > 0 else "")
-        suite_ids_set = {str(c.suite_id) for c in cases}
-        suite_ids_str = ",".join(sorted(suite_ids_set))
+        requested_case_ids = {str(c.id) for c in cases}
+        in_progress_runs = await self._org_in_progress_runs(db, str(organization.id))
 
-        # Resolve build_id: use provided or get current main build
+        # Resolve build_id up front (provided, else current main) so dedupe
+        # compares what would actually be stored on the run.
         resolved_build_id = build_id
         if not resolved_build_id:
             from app.models.instruction_build import InstructionBuild
@@ -592,6 +616,68 @@ class TestRunService:
             if main_build:
                 resolved_build_id = str(main_build.id)
 
+        # Dedupe: an identical run (same build, same case set) already executing
+        # is returned instead of duplicated — this also absorbs tool retries.
+        for existing in in_progress_runs:
+            if str(existing.build_id or "") != str(resolved_build_id or ""):
+                continue
+            existing_case_ids = set(
+                (await db.execute(
+                    select(TestResult.case_id).where(TestResult.run_id == str(existing.id))
+                )).scalars().all()
+            )
+            if {str(x) for x in existing_case_ids} == requested_case_ids:
+                # Adopt the wake request so the asking conversation still gets
+                # notified when the already-running run finishes.
+                if wake_on_finish and origin_report_id and not getattr(existing, "wake_on_finish", False):
+                    existing.origin_report_id = str(origin_report_id)
+                    existing.origin_user_id = str(origin_user_id) if origin_user_id else None
+                    existing.wake_on_finish = True
+                    db.add(existing)
+                    await db.commit()
+                    await db.refresh(existing)
+                existing_results = (
+                    await db.execute(
+                        select(TestResult).where(TestResult.run_id == str(existing.id)).order_by(TestResult.created_at.asc())
+                    )
+                ).scalars().all()
+                existing.deduped = True  # transient, serialized by TestRunSchema
+                return existing, list(existing_results)
+
+        # Org-level concurrency cap. Runs older than the watch timeout are
+        # excluded — a pre-existing stuck run (e.g. from before the background
+        # finalizer existed) must not consume the budget forever.
+        max_concurrent = DEFAULT_MAX_CONCURRENT_EVAL_RUNS
+        try:
+            settings = await organization.get_settings(db)
+            configured = settings.get_config("max_concurrent_eval_runs", DEFAULT_MAX_CONCURRENT_EVAL_RUNS)
+            if isinstance(configured, (int, float)) and int(configured) > 0:
+                max_concurrent = int(configured)
+        except Exception:
+            pass
+        from datetime import timedelta
+        stale_cutoff = datetime.utcnow() - timedelta(seconds=CASE_WATCH_TIMEOUT_S + 60)
+        countable = [
+            r for r in in_progress_runs
+            if (getattr(r, "started_at", None) or datetime.utcnow()) > stale_cutoff
+        ]
+        if len(countable) >= max_concurrent:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"{len(countable)} eval runs are already in progress "
+                    f"(org limit {max_concurrent}). Wait for one to finish or stop it."
+                ),
+            )
+
+        # Create run
+        case_names = [c.name for c in cases]
+        preview = ", ".join(case_names[:2])
+        remaining = max(0, len(case_names) - 2)
+        title = preview + (f" +{remaining} more" if remaining > 0 else "")
+        suite_ids_set = {str(c.suite_id) for c in cases}
+        suite_ids_str = ",".join(sorted(suite_ids_set))
+
         run = TestRun(
             suite_ids=suite_ids_str,
             requested_by_user_id=str(current_user.id) if current_user else None,
@@ -600,12 +686,16 @@ class TestRunService:
             started_at=datetime.utcnow(),
             title=title,
             build_id=resolved_build_id,
+            origin_report_id=str(origin_report_id) if origin_report_id else None,
+            origin_user_id=str(origin_user_id) if origin_user_id else None,
+            wake_on_finish=bool(wake_on_finish and origin_report_id),
         )
         db.add(run)
         await db.commit()
         await db.refresh(run)
 
         created_results: List[TestResult] = []
+        watches: List[Dict[str, Any]] = []
 
         # For each case: create a report and kick off background completion via CompletionService
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
@@ -685,11 +775,28 @@ class TestRunService:
             )
             db.add(result)
             created_results.append(result)
+            watches.append({
+                "report_id": str(report.id),
+                "expected_turns": 1 + len(additional_turns),
+            })
 
         await db.commit()
         # refresh results to include IDs
         for r in created_results:
             await db.refresh(r)
+        for w, r in zip(watches, created_results):
+            w["result_id"] = str(r.id)
+
+        # Arm the background finalizer: waits for each case's agent turn(s),
+        # evaluates expectations, finalizes the run, fires wake-on-finish.
+        asyncio.create_task(
+            self._watch_and_finalize(
+                run_id=str(run.id),
+                organization_id=str(organization.id),
+                user_id=str(current_user.id),
+                watches=watches,
+            )
+        )
 
         return run, created_results
 
@@ -771,6 +878,479 @@ class TestRunService:
                 if sys_comp is not None and getattr(sys_comp, "status", None) in terminal:
                     return
             await asyncio.sleep(poll_interval_s)
+
+    # -------- Background finalizer (evaluate + finalize without a streaming client) --------
+
+    async def _finalize_run_if_done(self, session: AsyncSession, run_id: str) -> Optional[TestRun]:
+        """Stamp the run terminal (status/finished_at/summary_json) once every
+        TestResult is terminal. Returns the run when it *just* transitioned,
+        None otherwise. Safe to call from multiple watchers/streamers — the
+        first caller to see all-terminal wins; later calls no-op."""
+        run = (
+            await session.execute(
+                select(TestRun).where(TestRun.id == str(run_id)).execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if not run or run.status in RUN_TERMINAL_STATUSES:
+            return None
+        rows = (
+            await session.execute(
+                select(TestResult).where(TestResult.run_id == str(run_id)).execution_options(populate_existing=True)
+            )
+        ).scalars().all()
+        statuses = [getattr(r, "status", "") for r in rows]
+        if not rows or any(s not in RESULT_TERMINAL_STATUSES for s in statuses):
+            return None
+        run.finished_at = run.finished_at or datetime.utcnow()
+        if any(s == "stopped" for s in statuses):
+            run.status = "stopped"
+        else:
+            run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
+        passed = sum(1 for s in statuses if s == "pass")
+        failed = sum(1 for s in statuses if s in ("fail", "error"))
+        run.summary_json = {"total": len(rows), "passed": passed, "failed": failed}
+        session.add(run)
+        await session.commit()
+        await session.refresh(run)
+        return run
+
+    async def _maybe_fire_wake(self, run_id: str) -> None:
+        """Fire the wake-on-finish completion for a terminal run, at most once.
+
+        The flag is flipped off *before* the completion is created so a racing
+        second caller no-ops. Best-effort: a lost wake degrades to the agent
+        polling with get_eval_run (or a user checking the UI) — it must never
+        block or fail run finalization.
+        """
+        async_session = create_async_session_factory()
+        try:
+            async with async_session() as session:
+                run = (
+                    await session.execute(select(TestRun).where(TestRun.id == str(run_id)))
+                ).scalar_one_or_none()
+                if (
+                    not run
+                    or not getattr(run, "wake_on_finish", False)
+                    or not getattr(run, "origin_report_id", None)
+                    or run.status not in RUN_TERMINAL_STATUSES
+                ):
+                    return
+                # Claim the wake before doing anything visible.
+                run.wake_on_finish = False
+                origin_report_id = str(run.origin_report_id)
+                origin_user_id = str(run.origin_user_id) if run.origin_user_id else None
+                summary = dict(run.summary_json or {})
+                run_status = run.status
+                run_title = run.title
+                session.add(run)
+                await session.commit()
+
+            from app.models.user import User
+            from app.models.organization import Organization as _Org
+
+            async with async_session() as session:
+                report = await session.get(Report, origin_report_id)
+                if not report or getattr(report, "deleted_at", None):
+                    logging.warning(f"eval wake {run_id}: origin report gone")
+                    return
+                user = await session.get(User, origin_user_id) if origin_user_id else None
+                organization = await session.get(_Org, str(report.organization_id))
+                if not user or not organization:
+                    logging.warning(f"eval wake {run_id}: origin user/org gone")
+                    return
+
+                passed = summary.get("passed", 0)
+                total = summary.get("total", 0)
+                wake_prompt = (
+                    f"[Eval run finished] Run '{run_title}' ({run_id}) completed with "
+                    f"status {run_status} ({passed}/{total} passed). Read the results "
+                    f"with get_eval_run and report back to the user. If this run was "
+                    f"already handled in the conversation, acknowledge briefly and stop."
+                )
+                # mode='training' — run_eval is training-only, so the origin
+                # conversation is a training session; without it the woken
+                # turn runs in chat mode where get_eval_run isn't in the
+                # catalog and the agent can't actually read the results.
+                await self.completions.create_completion(
+                    db=session,
+                    report_id=str(report.id),
+                    completion_data=CompletionCreate(
+                        prompt=PromptSchema(content=wake_prompt, mode="training")
+                    ),
+                    current_user=user,
+                    organization=organization,
+                    background=False,
+                )
+        except Exception as e:
+            logging.error(f"eval wake for run {run_id} failed: {e}")
+
+    async def _evaluate_report_result(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: str,
+        report_id: str,
+        organization,
+        current_user,
+        org_settings,
+        small_model,
+    ) -> Optional[str]:
+        """Evaluate a finished case report and persist its TestResult.
+
+        Mirrors the terminal-completion branch of ``stream_run``. Returns the
+        persisted status, or None when the result was already terminal
+        (evaluated by a concurrent streamer)."""
+        _run, result_row, case_row, expectations = await self.evaluator.resolve_by_run_and_report(
+            session, str(run_id), str(report_id)
+        )
+        if getattr(result_row, "status", "") in RESULT_TERMINAL_STATUSES:
+            return None
+        snapshot = await self.evaluator.build_final_snapshot(session, str(report_id))
+        try:
+            judge = Judge(model=small_model, organization_settings=org_settings) if small_model else None
+        except Exception:
+            judge = None
+
+        # Latest system completion for this report → AgentExecution metadata
+        agent_execution_id = None
+        run_duration_ms = None
+        agent_meta: Dict[str, Any] = {}
+        try:
+            sys_row = (
+                await session.execute(
+                    select(Completion)
+                    .where(
+                        Completion.report_id == str(report_id),
+                        Completion.role == "system",
+                    )
+                    .order_by(Completion.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if sys_row is not None:
+                res_exec = await session.execute(
+                    select(AgentExecution)
+                    .where(AgentExecution.completion_id == str(sys_row.id))
+                    .order_by(AgentExecution.created_at.desc())
+                    .limit(1)
+                )
+                ae = res_exec.scalar_one_or_none()
+                if ae:
+                    agent_execution_id = str(ae.id)
+                    run_duration_ms = getattr(ae, "total_duration_ms", None)
+                    agent_meta = _agent_metadata_from_execution(ae)
+                    try:
+                        from app.models.plan_decision import PlanDecision as _PD
+                        n_iter = (await session.execute(
+                            select(func.count(_PD.id)).where(_PD.agent_execution_id == str(ae.id))
+                        )).scalar_one() or 0
+                        agent_meta["total_iterations"] = int(n_iter)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        case_prompt_text = ""
+        try:
+            cj = getattr(case_row, "prompt_json", None) or {}
+            case_prompt_text = cj.get("content") or ""
+        except Exception:
+            case_prompt_text = ""
+
+        status, result_json = await self.evaluator.evaluate_final(
+            db=session,
+            expectations=expectations,
+            snapshot=snapshot,
+            report_id=str(report_id),
+            case_prompt_text=case_prompt_text,
+            judge=judge,
+            organization=organization,
+            current_user=current_user,
+            run_duration_ms=run_duration_ms,
+            agent_metadata=agent_meta,
+        )
+        await self.evaluator.persist_result_json(
+            db=session,
+            result=result_row,
+            status=status,
+            result_json=result_json,
+            failure_reason=None,
+            agent_execution_id=agent_execution_id,
+        )
+        return status
+
+    async def _watch_case(
+        self,
+        async_session,
+        *,
+        run_id: str,
+        result_id: str,
+        report_id: str,
+        expected_turns: int,
+        organization_id: str,
+        user_id: str,
+        timeout_s: float = CASE_WATCH_TIMEOUT_S,
+    ) -> None:
+        """Wait for a case's agent turn(s) to finish, then evaluate + persist."""
+        import time as _time
+
+        deadline = _time.monotonic() + timeout_s
+        timed_out = True
+        while _time.monotonic() < deadline:
+            async with async_session() as session:
+                result_row = await session.get(TestResult, str(result_id))
+                if result_row is not None and getattr(result_row, "status", "") in RESULT_TERMINAL_STATUSES:
+                    return  # evaluated elsewhere (e.g. a live stream_run client)
+                sys_rows = (
+                    await session.execute(
+                        select(Completion.status).where(
+                            Completion.report_id == str(report_id),
+                            Completion.role == "system",
+                        )
+                    )
+                ).scalars().all()
+                terminal_n = sum(1 for s in sys_rows if s in {"success", "error", "stopped"})
+                any_in_progress = any(s == "in_progress" for s in sys_rows)
+                if terminal_n >= max(1, int(expected_turns)) and not any_in_progress:
+                    timed_out = False
+                    break
+            await asyncio.sleep(2.0)
+
+        from app.models.user import User
+        from app.models.organization import Organization as _Org
+
+        async with async_session() as session:
+            try:
+                if timed_out:
+                    result_row = await session.get(TestResult, str(result_id))
+                    if result_row is not None and getattr(result_row, "status", "") not in RESULT_TERMINAL_STATUSES:
+                        result_row.status = "error"
+                        result_row.failure_reason = f"Timed out after {int(timeout_s)}s waiting for the agent to finish"
+                        session.add(result_row)
+                        await session.commit()
+                    return
+
+                organization = await session.get(_Org, str(organization_id))
+                current_user = await session.get(User, str(user_id))
+                org_settings = await organization.get_settings(session) if organization else None
+                small_model = None
+                try:
+                    small_model = await self.completions.llm_service.get_default_model(
+                        session, organization, current_user, is_small=True
+                    )
+                except Exception:
+                    small_model = None
+                await self._evaluate_report_result(
+                    session,
+                    run_id=str(run_id),
+                    report_id=str(report_id),
+                    organization=organization,
+                    current_user=current_user,
+                    org_settings=org_settings,
+                    small_model=small_model,
+                )
+            except Exception as e:
+                logging.exception(f"eval watcher: case evaluation failed for result {result_id}: {e}")
+                try:
+                    result_row = await session.get(TestResult, str(result_id))
+                    if result_row is not None and getattr(result_row, "status", "") not in RESULT_TERMINAL_STATUSES:
+                        result_row.status = "error"
+                        result_row.failure_reason = f"Evaluation failed: {e}"
+                        session.add(result_row)
+                        await session.commit()
+                except Exception:
+                    pass
+
+    async def _watch_and_finalize(
+        self,
+        *,
+        run_id: str,
+        organization_id: str,
+        user_id: str,
+        watches: List[Dict[str, Any]],
+    ) -> None:
+        """Background task armed by ``create_and_execute_background``: drive
+        every case to a terminal TestResult, finalize the run, fire the wake.
+
+        This is what makes background runs self-contained — before this,
+        evaluation only ever happened inside ``stream_run``, so a run nobody
+        streamed stayed 'in_progress' forever."""
+        async_session = create_async_session_factory()
+        try:
+            await asyncio.gather(
+                *[
+                    self._watch_case(
+                        async_session,
+                        run_id=str(run_id),
+                        result_id=str(w["result_id"]),
+                        report_id=str(w["report_id"]),
+                        expected_turns=int(w.get("expected_turns") or 1),
+                        organization_id=str(organization_id),
+                        user_id=str(user_id),
+                    )
+                    for w in watches
+                ]
+            )
+        except Exception as e:
+            logging.exception(f"eval watcher: run {run_id} watch failed: {e}")
+        try:
+            async with async_session() as session:
+                finalized = await self._finalize_run_if_done(session, str(run_id))
+            if finalized is not None:
+                await self._maybe_fire_wake(str(run_id))
+        except Exception as e:
+            logging.exception(f"eval watcher: run {run_id} finalize failed: {e}")
+
+    async def _org_in_progress_runs(self, db: AsyncSession, organization_id: str) -> List[TestRun]:
+        """All in-progress runs belonging to this org (scoped via the suite chain)."""
+        rows = (
+            await db.execute(
+                select(TestRun).where(TestRun.status == "in_progress").execution_options(populate_existing=True)
+            )
+        ).scalars().all()
+        out: List[TestRun] = []
+        for run in rows:
+            sids = [s for s in (run.suite_ids or "").split(",") if s]
+            if not sids:
+                continue
+            org_row = (
+                await db.execute(
+                    select(TestSuite.id)
+                    .where(TestSuite.id == sids[0])
+                    .where(TestSuite.organization_id == str(organization_id))
+                )
+            ).first()
+            if org_row is not None:
+                out.append(run)
+        return out
+
+    # -------- Run comparison (build-over-build) --------
+
+    async def compare_runs(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        current_user,
+        run_id: str,
+        against_run_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Compare a run's per-case outcomes against a baseline run.
+
+        Default baseline: the most recent terminal run started before this one
+        that shares at least one case. Flip semantics (relative to baseline →
+        this run): fixed = fail/error→pass, regressed = pass→fail/error,
+        added/removed = case present in only one of the runs.
+        """
+        run = await self.get_run(db, organization_id, current_user, run_id)
+        run_rows = (
+            await db.execute(
+                select(TestResult, TestCase.name)
+                .join(TestCase, TestCase.id == TestResult.case_id)
+                .where(TestResult.run_id == str(run.id))
+            )
+        ).all()
+        run_status_by_case = {str(r.case_id): (r.status or "", name) for r, name in run_rows}
+
+        base_run: Optional[TestRun] = None
+        if against_run_id:
+            base_run = await self.get_run(db, organization_id, current_user, against_run_id)
+        else:
+            candidates = (
+                await db.execute(
+                    select(TestRun)
+                    .where(TestRun.id != str(run.id))
+                    .where(TestRun.status.in_(list(RUN_TERMINAL_STATUSES)))
+                    .where(TestRun.created_at <= run.created_at)
+                    .order_by(TestRun.created_at.desc())
+                    .limit(50)
+                )
+            ).scalars().all()
+            for cand in candidates:
+                # Org scope via suite chain (same guard get_run uses).
+                sids = [s for s in (cand.suite_ids or "").split(",") if s]
+                if not sids:
+                    continue
+                in_org = (
+                    await db.execute(
+                        select(TestSuite.id)
+                        .where(TestSuite.id == sids[0])
+                        .where(TestSuite.organization_id == str(organization_id))
+                    )
+                ).first()
+                if in_org is None:
+                    continue
+                cand_case_ids = set(
+                    (await db.execute(
+                        select(TestResult.case_id).where(TestResult.run_id == str(cand.id))
+                    )).scalars().all()
+                )
+                if {str(x) for x in cand_case_ids} & set(run_status_by_case.keys()):
+                    base_run = cand
+                    break
+
+        def _run_brief(r: Optional[TestRun]) -> Optional[Dict[str, Any]]:
+            if r is None:
+                return None
+            return {
+                "id": str(r.id),
+                "title": r.title,
+                "status": r.status,
+                "build_id": str(r.build_id) if r.build_id else None,
+                "build_number": getattr(r, "build_number", None),
+                "finished_at": r.finished_at.isoformat() if getattr(r, "finished_at", None) else None,
+                "summary": r.summary_json or {},
+            }
+
+        if base_run is None:
+            return {
+                "run": _run_brief(run),
+                "against_run": None,
+                "cases": [],
+                "summary": {"fixed": 0, "regressed": 0, "same": 0, "added": len(run_status_by_case), "removed": 0},
+            }
+
+        base_rows = (
+            await db.execute(
+                select(TestResult, TestCase.name)
+                .join(TestCase, TestCase.id == TestResult.case_id)
+                .where(TestResult.run_id == str(base_run.id))
+            )
+        ).all()
+        base_status_by_case = {str(r.case_id): (r.status or "", name) for r, name in base_rows}
+
+        failing = {"fail", "error"}
+        cases: List[Dict[str, Any]] = []
+        summary = {"fixed": 0, "regressed": 0, "same": 0, "added": 0, "removed": 0}
+        for cid in sorted(set(run_status_by_case) | set(base_status_by_case)):
+            cur = run_status_by_case.get(cid)
+            base = base_status_by_case.get(cid)
+            if cur and not base:
+                flip = "added"
+            elif base and not cur:
+                flip = "removed"
+            else:
+                cur_s, base_s = cur[0], base[0]
+                if base_s in failing and cur_s == "pass":
+                    flip = "fixed"
+                elif base_s == "pass" and cur_s in failing:
+                    flip = "regressed"
+                else:
+                    flip = "same"
+            summary[flip] += 1
+            cases.append({
+                "case_id": cid,
+                "case_name": (cur or base)[1],
+                "base_status": base[0] if base else None,
+                "status": cur[0] if cur else None,
+                "flip": flip,
+            })
+
+        return {
+            "run": _run_brief(run),
+            "against_run": _run_brief(base_run),
+            "cases": cases,
+            "summary": summary,
+        }
 
     # -------- New API: Run status with embedded completions (polling) --------
     async def get_run_status_with_completions(self, db: AsyncSession, organization, current_user, run_id: str, limit: int = 50):
@@ -1489,6 +2069,8 @@ class TestRunService:
             total = len(results)
             # Emit loop: forward completion events and also mirror to result.update when status changes
             terminal = {"pass", "fail", "error", "stopped", "success"}
+            import time as _time
+            last_db_poll = 0.0
             while True:
                 # Prefer event-driven; also periodically emit status updates
                 try:
@@ -1513,29 +2095,56 @@ class TestRunService:
                             pass
                     if len(finished) >= total:
                         try:
-                            run.finished_at = run.finished_at or datetime.utcnow()
-                            # Approximate aggregate
-                            res_ref = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
-                            rows = res_ref.scalars().all()
-                            statuses = [getattr(x, "status", "") for x in rows]
-                            # Preserve 'stopped' if explicitly stopped or any result is stopped
-                            if getattr(run, "status", "") == "stopped" or any(s == "stopped" for s in statuses):
-                                run.status = "stopped"
-                            else:
-                                run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
-                            # Save summary_json with pass/fail counts
-                            passed = sum(1 for r in rows if r.status == 'pass')
-                            failed = sum(1 for r in rows if r.status in ('fail', 'error'))
-                            run.summary_json = {'total': len(rows), 'passed': passed, 'failed': failed}
-                            db.add(run)
-                            await db.commit()
+                            finalized = await self._finalize_run_if_done(db, str(run.id))
+                            await db.refresh(run)
+                            if finalized is not None:
+                                # e.g. a wake-armed run adopted via dedupe but
+                                # driven to completion by this streamer.
+                                asyncio.create_task(self._maybe_fire_wake(str(run.id)))
                         except Exception:
                             pass
                         yield format_sse_event(SSEEvent(event="run.finished", completion_id=str(run.id), data={"run_id": str(run.id), "status": run.status}))
                         break
                 except asyncio.TimeoutError:
-                    # Periodic status diff (optional)
-                    pass
+                    # Periodic DB status diff: the background finalizer (or
+                    # another worker) may persist results this streamer never
+                    # sees as events — poll every ~2s so live clients still
+                    # observe those transitions and the stream terminates.
+                    now = _time.monotonic()
+                    if now - last_db_poll < 2.0:
+                        continue
+                    last_db_poll = now
+                    try:
+                        res_ref = await db.execute(
+                            select(TestResult).where(TestResult.run_id == str(run.id)).execution_options(populate_existing=True)
+                        )
+                        for row in res_ref.scalars().all():
+                            rid = str(row.id)
+                            st = getattr(row, "status", "")
+                            if result_id_to_status.get(rid) == st:
+                                continue
+                            result_id_to_status[rid] = st
+                            payload: dict = {"result_id": rid, "status": st}
+                            if st in terminal:
+                                finished.add(rid)
+                                rj = getattr(row, "result_json", None)
+                                if isinstance(rj, dict) and rj:
+                                    payload["result_json"] = rj
+                                if getattr(row, "failure_reason", None):
+                                    payload["failure_reason"] = row.failure_reason
+                            yield format_sse_event(SSEEvent(event="result.update", completion_id=str(run.id), data=payload))
+                        if len(finished) >= total:
+                            try:
+                                finalized = await self._finalize_run_if_done(db, str(run.id))
+                                await db.refresh(run)
+                                if finalized is not None:
+                                    asyncio.create_task(self._maybe_fire_wake(str(run.id)))
+                            except Exception:
+                                pass
+                            yield format_sse_event(SSEEvent(event="run.finished", completion_id=str(run.id), data={"run_id": str(run.id), "status": run.status}))
+                            break
+                    except Exception:
+                        pass
 
         return StreamingResponse(streamer(), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache",

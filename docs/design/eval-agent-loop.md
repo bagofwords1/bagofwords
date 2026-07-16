@@ -1,5 +1,13 @@
 # Eval agent loop — design (phases 1, 3, 4)
 
+> **Status: implemented** (all slices shipped together). Live verification
+> and the reproduce→fix→verify record live in
+> `docs/feedback-loops/eval-agent-loop.md`. One deviation from the text
+> below: implementation revealed that background runs never evaluated or
+> finalized at all without a streaming client — the background finalizer
+> (`TestRunService._watch_and_finalize`) was added as the engine fix
+> underneath the tool surface described here.
+
 Target workflow: a user creates an agent, adds instructions, sets up evals,
 runs them, checks results, updates instructions, reruns, and iterates to
 green — driven either from chat (training mode) or from the UI. This is CI
