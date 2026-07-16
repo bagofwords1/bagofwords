@@ -10,7 +10,7 @@ from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
@@ -214,6 +214,7 @@ async def set_report_visibility(
     return await report_service.set_visibility(
         db, report_id, share_type, payload.visibility,
         payload.shared_user_ids, current_user, organization,
+        run_identity=payload.run_identity,
     )
 
 
@@ -422,6 +423,26 @@ async def get_public_conversation(
 
 from app.schemas.query_schema import PublicQuerySchema
 from app.schemas.step_schema import PublicStepSchema
+
+
+@router.post("/r/{report_id}/run", response_model=ViewerRunResultSchema)
+async def viewer_run_report(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Run the queries behind this artifact; defaults to the report's latest artifact"),
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(current_user),
+):
+    """Re-run a shared artifact's queries as the viewing user.
+
+    Requires authentication (anonymous public viewers cannot run) and the
+    same artifact share visibility that gates the /r read endpoints. Results
+    are stored per-viewer (step_user_results) — the shared snapshot the owner
+    and other viewers see is never modified. Whose credentials execute is
+    controlled by the report's shared_run_identity setting.
+    """
+    return await report_service.viewer_rerun_report_steps(
+        db, report_id, user, artifact_id=artifact_id,
+    )
 
 
 @router.get("/r/{report_id}/queries", response_model=List[PublicQuerySchema])

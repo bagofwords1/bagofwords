@@ -2,6 +2,7 @@ from typing import Optional, List, Tuple
 import copy
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from app.models.query import Query
 from app.models.widget import Widget
@@ -337,6 +338,7 @@ class QueryService:
         db: AsyncSession,
         query_id: str,
         organization_id: Optional[str] = None,
+        viewer_user_id: Optional[str] = None,
     ) -> Optional[StepSchema]:
         """Return the default step for a query, or a reasonable fallback.
 
@@ -350,6 +352,10 @@ class QueryService:
 
         Scoped to the caller's organization: a query owned by a different
         org returns None (and the route decorator returns 404 first).
+
+        When `viewer_user_id` is set and that user is not the report owner,
+        a per-viewer result row (step_user_results, written by the shared-
+        artifact "Run" flow) overlays the shared Step.data snapshot.
         """
         q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
@@ -357,33 +363,77 @@ class QueryService:
 
         from app.models.step import Step
 
+        step = None
         # If default_step_id is set, use it
         if q.default_step_id:
             stmt = select(Step).where(Step.id == str(q.default_step_id))
             res = await db.execute(stmt)
             step = res.scalar_one_or_none()
-            return _enrich_step_schema(step, StepSchema.from_orm(step)) if step else None
+        if step is None and not q.default_step_id:
+            # Latest successful step for the widget
+            stmt_success = (
+                select(Step)
+                .where(Step.widget_id == str(q.widget_id), Step.status == "success")
+                .order_by(Step.created_at.desc())
+            )
+            res_success = await db.execute(stmt_success)
+            step = res_success.scalars().first()
+            if step is None:
+                # Fallback: latest step
+                stmt_latest = (
+                    select(Step)
+                    .where(Step.widget_id == str(q.widget_id))
+                    .order_by(Step.created_at.desc())
+                )
+                res_latest = await db.execute(stmt_latest)
+                step = res_latest.scalars().first()
+        if step is None:
+            return None
 
-        # Latest successful step for the widget
-        stmt_success = (
-            select(Step)
-            .where(Step.widget_id == str(q.widget_id), Step.status == "success")
-            .order_by(Step.created_at.desc())
-        )
-        res_success = await db.execute(stmt_success)
-        step_success = res_success.scalars().first()
-        if step_success:
-            return _enrich_step_schema(step_success, StepSchema.from_orm(step_success))
+        schema = _enrich_step_schema(step, StepSchema.from_orm(step))
+        schema = await self._overlay_viewer_result(db, q, step, schema, viewer_user_id)
+        return schema
 
-        # Fallback: latest step
-        stmt_latest = (
-            select(Step)
-            .where(Step.widget_id == str(q.widget_id))
-            .order_by(Step.created_at.desc())
-        )
-        res_latest = await db.execute(stmt_latest)
-        step_latest = res_latest.scalars().first()
-        return _enrich_step_schema(step_latest, StepSchema.from_orm(step_latest)) if step_latest else None
+    async def _overlay_viewer_result(
+        self,
+        db: AsyncSession,
+        q: Query,
+        step,
+        schema: StepSchema,
+        viewer_user_id: Optional[str],
+    ) -> StepSchema:
+        """Overlay a non-owner viewer's own step result over the shared snapshot."""
+        if not viewer_user_id or not getattr(q, 'report_id', None):
+            return schema
+
+        from app.models.report import Report
+        owner_row = (await db.execute(
+            select(Report.user_id).where(Report.id == str(q.report_id))
+        )).first()
+        if not owner_row or str(owner_row[0]) == str(viewer_user_id):
+            return schema
+
+        from app.models.step_user_result import StepUserResult
+        row = (await db.execute(
+            select(StepUserResult).options(lazyload("*")).where(
+                StepUserResult.step_id == str(step.id),
+                StepUserResult.user_id == str(viewer_user_id),
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            return schema
+
+        schema.viewer_result = {
+            "status": row.status,
+            "status_reason": row.status_reason,
+            "executed_as": row.executed_as,
+            "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
+        }
+        # A failed viewer run keeps showing the shared snapshot; the error
+        # travels in viewer_result.
+        if row.status == 'success' and row.data:
+            schema.data = row.data
+        return schema
 
     async def preview_query_code(
         self,

@@ -108,12 +108,15 @@ class ReportService:
         shared_user_ids: list[str] | None,
         current_user: User,
         organization: Organization,
+        run_identity: str | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
         share_type: 'artifact' or 'conversation'
         visibility: 'none', 'shared', 'internal', 'public'
         shared_user_ids: list of user IDs (required when visibility == 'shared')
+        run_identity: artifact only — whose credentials viewer-triggered runs
+        use ('viewer' | 'creator'); None leaves the current setting unchanged
         """
         from app.models.report_share import ReportShare
 
@@ -124,6 +127,9 @@ class ReportService:
 
         field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
         setattr(report, field, visibility)
+
+        if share_type == 'artifact' and run_identity in ('viewer', 'creator'):
+            report.shared_run_identity = run_identity
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
@@ -226,6 +232,7 @@ class ReportService:
             "share_type": share_type,
             "visibility": visibility,
             "shared_user_ids": shared_user_ids or [],
+            "shared_run_identity": report.shared_run_identity,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
         }
 
@@ -376,6 +383,7 @@ class ReportService:
             # Sharing visibility
             artifact_visibility=getattr(report, "artifact_visibility", "none") or "none",
             conversation_visibility=getattr(report, "conversation_visibility", "none") or "none",
+            shared_run_identity=getattr(report, "shared_run_identity", "viewer") or "viewer",
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
                 if s.share_type == 'artifact' and s.deleted_at is None
@@ -728,20 +736,12 @@ class ReportService:
                 logger.warning(f"No step found for query {qid}; counting as failed")
         return targets, unresolved
 
-    async def rerun_report_steps(
-        self,
-        db: AsyncSession,
-        report_id: str,
-        current_user: User,
-        organization: Organization,
-        artifact_id: str | None = None,
-        notify_subscribers: bool = False,
-    ) -> dict:
-        logger.info(f"Executing report rerun for report_id: {report_id}")
-        # Load the report without the mapper-level selectin cascade — a rerun
-        # only needs identity/notification columns plus the data sources and
-        # files that step code executes against. The full graph (every step
-        # version's data JSON, completions, artifact versions) must stay cold.
+    async def _load_report_for_rerun(self, db: AsyncSession, report_id: str) -> Report:
+        """Load a report for step re-execution without the mapper-level
+        selectin cascade — a rerun only needs identity/notification columns
+        plus the data sources and files that step code executes against. The
+        full graph (every step version's data JSON, completions, artifact
+        versions) must stay cold."""
         result = await db.execute(
             select(Report)
             .options(
@@ -757,13 +757,19 @@ class ReportService:
         report = result.unique().scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        return report
 
-        # What a report renders is defined by its artifact: the requested one
-        # (interactive refresh of a selected dashboard) or the latest
-        # non-deleted one. Superseded artifact versions live on as rows, so
-        # collecting across all of them would rerun queries the dashboard no
-        # longer shows. (Dashboard-layout visualization blocks are deprecated
-        # and no longer consulted.)
+    async def _artifact_query_ids(
+        self, db: AsyncSession, report_id: str, artifact_id: str | None = None
+    ) -> list[str]:
+        """Resolve the query ids a report rerun must refresh.
+
+        What a report renders is defined by its artifact: the requested one
+        (interactive refresh of a selected dashboard) or the latest
+        non-deleted one. Superseded artifact versions live on as rows, so
+        collecting across all of them would rerun queries the dashboard no
+        longer shows. (Dashboard-layout visualization blocks are deprecated
+        and no longer consulted.)"""
         from app.models.artifact import Artifact
         artifact_stmt = (
             select(Artifact.content)
@@ -796,6 +802,21 @@ class ReportService:
                 )
             )
             query_ids = list(dict.fromkeys(str(q) for (q,) in viz_result.all() if q))
+        return query_ids
+
+    async def rerun_report_steps(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+        artifact_id: str | None = None,
+        notify_subscribers: bool = False,
+    ) -> dict:
+        logger.info(f"Executing report rerun for report_id: {report_id}")
+        report = await self._load_report_for_rerun(db, report_id)
+
+        query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
 
         steps_total = 0
         steps_succeeded = 0
@@ -925,6 +946,162 @@ class ReportService:
             "steps_succeeded": steps_succeeded,
             "steps_failed": steps_failed,
             "last_run_at": report.last_run_at,
+        }
+
+    async def viewer_rerun_report_steps(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        artifact_id: str | None = None,
+    ) -> dict:
+        """Re-execute a shared artifact's steps for a viewer.
+
+        Unlike rerun_report_steps (owner refresh), results land in the
+        viewer's own step_user_results rows — the shared Step.data snapshot
+        and report.last_run_at are never touched, so one viewer's run cannot
+        change what the owner or other viewers see.
+
+        report.shared_run_identity decides whose data-source credentials
+        execute the saved step code: 'viewer' = the caller's own, 'creator' =
+        on behalf of the report owner (opt-in via the share dialog). The
+        executed code is always the step's stored code — viewers cannot
+        inject anything — and access is gated by the artifact's share
+        visibility, so this never widens who can see the report.
+        """
+        logger.info(f"Executing viewer rerun for report_id: {report_id} user: {current_user.id}")
+        report = await self._load_report_for_rerun(db, report_id)
+
+        # Must be allowed to view the shared artifact (owner/shared/internal/public)
+        await self._check_visibility(db, report, 'artifact_visibility', current_user)
+
+        if str(current_user.id) == str(report.user_id):
+            # The owner's refresh updates the shared snapshot via
+            # POST /reports/{id}/rerun; keeping the two paths separate avoids
+            # an owner accidentally producing a private copy of their own data.
+            raise HTTPException(status_code=400, detail="Report owners refresh via the report rerun endpoint")
+
+        identity = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        if identity == 'creator':
+            # Creator-credential runs are limited to members of the report's
+            # org or explicit share recipients — a 'public' dashboard must not
+            # let any signed-in stranger trigger warehouse queries under the
+            # owner's credentials.
+            from app.models.membership import Membership
+            from app.models.report_share import ReportShare
+            member = (await db.execute(
+                select(Membership).where(
+                    Membership.user_id == current_user.id,
+                    Membership.organization_id == report.organization_id,
+                )
+            )).scalar_one_or_none()
+            if not member:
+                shared = (await db.execute(
+                    select(ReportShare).where(
+                        ReportShare.report_id == report.id,
+                        ReportShare.user_id == current_user.id,
+                        ReportShare.share_type == 'artifact',
+                        ReportShare.deleted_at.is_(None),
+                    )
+                )).scalar_one_or_none()
+                if not shared:
+                    raise HTTPException(status_code=403, detail="Running on behalf of the creator requires organization membership")
+            credential_user = await db.get(User, str(report.user_id))
+            if not credential_user:
+                raise HTTPException(status_code=404, detail="Report owner not found")
+        else:
+            credential_user = current_user
+
+        organization = await db.get(Organization, str(report.organization_id))
+        org_settings = await organization.get_settings(db) if organization else None
+
+        # Build clients once for the whole run under the resolved identity.
+        # A source that fails (e.g. the viewer has no stored credentials for
+        # a user_required connection) is reported; steps on other sources
+        # still run.
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        db_clients: dict = {}
+        data_source_errors: list[dict] = []
+        for data_source in report.data_sources:
+            try:
+                ds_clients = await ds_service.construct_clients(db, data_source, current_user=credential_user)
+                db_clients.update(ds_clients)
+            except Exception as e:
+                detail = getattr(e, 'detail', None) or str(e)
+                logger.warning(f"Viewer rerun: failed to construct clients for data source {data_source.id}: {e}; continuing")
+                data_source_errors.append({"data_source": data_source.name, "error": str(detail)})
+
+        steps_total = 0
+        steps_succeeded = 0
+        steps_failed = 0
+
+        query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
+        targets, unrunnable = await self._rerun_target_steps(db, query_ids)
+        for step_id, code in targets:
+            steps_total += 1
+            if not code or not str(code).strip():
+                logger.warning(f"Step code is empty for step {step_id}; counting as failed")
+                steps_failed += 1
+                continue
+            try:
+                row = await self.widget_service.step_service.run_step_to_user_result(
+                    db, step_id,
+                    run_user=current_user, credential_user=credential_user,
+                    executed_as=identity,
+                    report=report, db_clients=db_clients,
+                    organization=organization, organization_settings=org_settings,
+                )
+                if row.status == 'success':
+                    steps_succeeded += 1
+                else:
+                    steps_failed += 1
+            except Exception as e:
+                # run_step_to_user_result persists execution errors on the
+                # row; anything raised here is infrastructural.
+                steps_failed += 1
+                logger.warning(f"Viewer rerun failed for step {step_id}: {e}; continuing")
+        if unrunnable > 0:
+            steps_total += unrunnable
+            steps_failed += unrunnable
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(report.organization_id),
+                action="report.viewer_rerun",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report_id),
+                details={
+                    "executed_as": identity,
+                    "artifact_id": artifact_id,
+                    "steps_total": steps_total,
+                    "steps_succeeded": steps_succeeded,
+                    "steps_failed": steps_failed,
+                },
+            )
+        except Exception:
+            pass
+
+        logger.info(
+            f"Completed viewer rerun for report_id: {report_id} "
+            f"({steps_succeeded}/{steps_total} steps succeeded, {steps_failed} failed)"
+        )
+        if steps_total == 0:
+            message = "No report steps to run"
+        elif steps_failed == 0:
+            message = f"Ran {steps_succeeded} report step{'s' if steps_succeeded != 1 else ''}"
+        else:
+            message = f"Ran {steps_succeeded}/{steps_total} report steps ({steps_failed} failed)"
+        return {
+            "message": message,
+            "steps_total": steps_total,
+            "steps_succeeded": steps_succeeded,
+            "steps_failed": steps_failed,
+            "executed_as": identity,
+            "last_run_at": datetime.utcnow(),
+            "data_source_errors": data_source_errors,
         }
 
     async def _delete_scheduled_prompts_for_reports(self, db: AsyncSession, report_ids: list[str]) -> None:
@@ -1261,14 +1438,41 @@ class ReportService:
         from app.schemas.step_schema import PublicStepSchema
         # Convert view to dict if it's not already
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
+
+        # A viewer who re-ran this step (POST /r/{id}/run) sees their own
+        # result row instead of the shared snapshot; the owner and everyone
+        # else keep seeing Step.data.
+        data = step.data or {}
+        viewer_result = None
+        if user is not None and str(user.id) != str(report.user_id):
+            from app.models.step_user_result import StepUserResult
+            row = (await db.execute(
+                select(StepUserResult).options(lazyload("*")).where(
+                    StepUserResult.step_id == str(step.id),
+                    StepUserResult.user_id == str(user.id),
+                )
+            )).scalar_one_or_none()
+            if row is not None:
+                viewer_result = {
+                    "status": row.status,
+                    "status_reason": row.status_reason,
+                    "executed_as": row.executed_as,
+                    "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
+                }
+                # A failed viewer run keeps showing the shared snapshot;
+                # the error travels in viewer_result.
+                if row.status == 'success' and row.data:
+                    data = row.data
+
         return PublicStepSchema(
             id=step.id,
             title=step.title,
             type=step.type,
             code=step.code,
             data_model=step.data_model or {},
-            data=step.data or {},
+            data=data,
             view=view_dict,
+            viewer_result=viewer_result,
         )
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):

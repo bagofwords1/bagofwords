@@ -93,6 +93,7 @@ from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.report_share import ReportShare
 from app.models.report_star import ReportStar
+from app.models.step_user_result import StepUserResult
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem
 from app.models.notification import Notification

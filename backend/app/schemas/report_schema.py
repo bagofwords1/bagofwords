@@ -56,6 +56,8 @@ class ReportSchema(ReportBase):
     # Sharing visibility
     artifact_visibility: Literal["none", "shared", "internal", "public"] = "none"
     conversation_visibility: Literal["none", "shared", "internal", "public"] = "none"
+    # Whose credentials a shared-artifact viewer's "Run" uses ('viewer' | 'creator')
+    shared_run_identity: Literal["viewer", "creator"] = "viewer"
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
     # Artifact modes (page, slides) that exist for this report
@@ -126,6 +128,23 @@ class ReportVisibilityUpdate(BaseModel):
     """Update visibility for either artifact or conversation sharing."""
     visibility: VISIBILITY_LITERAL
     shared_user_ids: Optional[List[str]] = None  # required when visibility == 'shared'
+    # Artifact sharing only: whose credentials viewer-triggered runs use.
+    # Omitted = leave unchanged.
+    run_identity: Optional[Literal["viewer", "creator"]] = None
+
+
+class ViewerRunResultSchema(BaseModel):
+    """Outcome of POST /r/{id}/run — a shared-artifact viewer's re-execution
+    of the dashboard's queries into their own per-user result rows."""
+    message: str
+    steps_total: int
+    steps_succeeded: int
+    steps_failed: int
+    executed_as: Literal["viewer", "creator"]
+    last_run_at: Optional[datetime] = None
+    # Data sources whose clients could not be constructed for this run
+    # (e.g. the viewer has no stored credentials for a user_required source)
+    data_source_errors: List[dict] = []
 
 
 class ReportShareUserSchema(BaseModel):

@@ -110,23 +110,13 @@ class StepService:
 
         return step_schema
     
-    async def rerun_step(
+    async def _load_step_for_rerun(
         self,
         db: AsyncSession,
         step_id: str,
-        current_user: Optional[User] = None,
         report: Optional[Report] = None,
-        db_clients: Optional[dict] = None,
-        organization=None,
-        organization_settings=None,
-    ):
-        """Re-execute a step's saved code and persist the result in place.
-
-        A report-level rerun passes `report` (with data_sources/files loaded),
-        prebuilt `db_clients`, and the org context so N steps don't each
-        re-hydrate the report graph, re-construct data-source clients, and
-        re-read organization settings.
-        """
+    ) -> tuple[Step, Report]:
+        """Load a step (and its report) for re-execution."""
         if report is not None:
             from sqlalchemy.orm import lazyload
             result = await db.execute(
@@ -142,7 +132,23 @@ class StepService:
             report = step.widget.report
         if not report:
             raise ValueError("Report not found")
+        return step, report
 
+    async def _execute_step_code(
+        self,
+        db: AsyncSession,
+        step: Step,
+        report: Report,
+        current_user: Optional[User] = None,
+        db_clients: Optional[dict] = None,
+        organization=None,
+        organization_settings=None,
+    ) -> dict:
+        """Execute a step's saved code and return the formatted result frame.
+
+        Pure execution — persists nothing. `current_user` decides whose
+        data-source credentials are used when `db_clients` isn't prebuilt.
+        """
         if db_clients is None:
             # Build db_clients using construct_clients for multi-connection support.
             # Run as the user who triggered the rerun so user_required connections use
@@ -187,13 +193,111 @@ class StepService:
             code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
         )
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
+        return df
+
+    async def rerun_step(
+        self,
+        db: AsyncSession,
+        step_id: str,
+        current_user: Optional[User] = None,
+        report: Optional[Report] = None,
+        db_clients: Optional[dict] = None,
+        organization=None,
+        organization_settings=None,
+    ):
+        """Re-execute a step's saved code and persist the result in place.
+
+        A report-level rerun passes `report` (with data_sources/files loaded),
+        prebuilt `db_clients`, and the org context so N steps don't each
+        re-hydrate the report graph, re-construct data-source clients, and
+        re-read organization settings.
+        """
+        step, report = await self._load_step_for_rerun(db, step_id, report)
+
+        df = await self._execute_step_code(
+            db, step, report,
+            current_user=current_user, db_clients=db_clients,
+            organization=organization, organization_settings=organization_settings,
+        )
 
         # Update existing step instead of creating new one
         step.data = df
+
+        # The shared snapshot changed — per-viewer cached results for this
+        # step are now stale. They are a cache of derived data, so hard-delete.
+        from sqlalchemy import delete as sa_delete
+        from app.models.step_user_result import StepUserResult
+        await db.execute(sa_delete(StepUserResult).where(StepUserResult.step_id == str(step_id)))
+
         await db.commit()
         await db.refresh(step)
 
         return StepSchema.from_orm(step)
+
+    async def run_step_to_user_result(
+        self,
+        db: AsyncSession,
+        step_id: str,
+        run_user: User,
+        credential_user: User,
+        executed_as: str,
+        report: Optional[Report] = None,
+        db_clients: Optional[dict] = None,
+        organization=None,
+        organization_settings=None,
+    ):
+        """Re-execute a step's saved code for a shared-artifact viewer.
+
+        The result is persisted to the viewer's own StepUserResult row —
+        never to the shared Step.data snapshot — so one viewer's run cannot
+        change what the owner or other viewers see. `credential_user` decides
+        whose data-source credentials execute the query ('viewer' mode: the
+        viewer; 'creator' mode: the report owner); `run_user` is always the
+        viewer the result row belongs to. Execution errors are persisted on
+        the row (status='error') instead of raised, so the viewer sees why
+        their run failed.
+        """
+        from app.models.step_user_result import StepUserResult
+
+        step, report = await self._load_step_for_rerun(db, step_id, report)
+
+        status = 'success'
+        status_reason = None
+        data = None
+        try:
+            data = await self._execute_step_code(
+                db, step, report,
+                current_user=credential_user, db_clients=db_clients,
+                organization=organization, organization_settings=organization_settings,
+            )
+        except Exception as e:
+            status = 'error'
+            status_reason = str(e)[:2000] or e.__class__.__name__
+
+        existing = await db.execute(
+            select(StepUserResult).where(
+                StepUserResult.step_id == str(step_id),
+                StepUserResult.user_id == str(run_user.id),
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is None:
+            row = StepUserResult(
+                step_id=str(step_id),
+                user_id=str(run_user.id),
+                organization_id=str(report.organization_id),
+                report_id=str(report.id),
+            )
+            db.add(row)
+
+        row.status = status
+        row.status_reason = status_reason
+        row.data = data
+        row.executed_as = executed_as
+        row.last_run_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(row)
+        return row
 
     async def get_steps_by_widget(self, db: AsyncSession, widget_id: str):
         steps = await db.execute(select(Step).filter(Step.widget_id == widget_id))

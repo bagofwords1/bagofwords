@@ -1915,6 +1915,8 @@
     "visibilityInternalDesc": "Todos los miembros de la organización pueden acceder",
     "visibilityPublic": "Cualquiera con el enlace",
     "visibilityPublicDesc": "Cualquiera puede ver",
+    "runOnBehalf": "Ejecutar en mi nombre",
+    "runOnBehalfDesc": "Las ejecuciones de los espectadores usan tus credenciales de datos en lugar de las suyas. Cada espectador sigue viendo solo sus propios resultados.",
     "copyLink": "Copiar enlace",
     "copied": "¡Copiado!",
     "sharingUpdated": "Compartir actualizado",

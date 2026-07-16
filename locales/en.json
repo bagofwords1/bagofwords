@@ -2108,6 +2108,8 @@
     "visibilityInternalDesc": "All org members can access",
     "visibilityPublic": "Anyone with link",
     "visibilityPublicDesc": "Anyone can view",
+    "runOnBehalf": "Run on my behalf",
+    "runOnBehalfDesc": "Viewers' runs use your data credentials instead of their own. Each viewer still sees only their own results.",
     "copyLink": "Copy link",
     "copied": "Copied!",
     "sharingUpdated": "Sharing updated",

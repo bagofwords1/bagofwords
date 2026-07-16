@@ -26,6 +26,12 @@ class Report(BaseSchema):
     artifact_visibility = Column(String, nullable=False, default='none', server_default='none')
     conversation_visibility = Column(String, nullable=False, default='none', server_default='none')
 
+    # Whose data-source credentials a shared-artifact viewer's "Run" uses:
+    # 'viewer' = the viewer's own credentials, 'creator' = on behalf of the
+    # report owner. Results always land in the viewer's step_user_results
+    # rows — never in the shared Step.data snapshot.
+    shared_run_identity = Column(String, nullable=False, default='viewer', server_default='viewer')
+
     cron_schedule = Column(String, nullable=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
     # Last conversation activity: bumped when a new user message is created and
