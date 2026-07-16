@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.461 (July 16, 2026)
+- **DOS-Hebrew and any-encoding filenames now work end to end** — the legacy filename recovery gains cp862 (DOS-Hebrew) and ISO-8859-8, picks the best-quality decode instead of the first that succeeds (so Western `café.pdf` shares can't be misread as Hebrew), and adds an encoding-agnostic fallback that resolves a listed file by display-name match even when the encoding is unknown — a listed file can always be read/grepped, worst case with imperfect glyphs. Unrecoverable names log their raw bytes so the right charset can be identified from server logs without host access.
+- **Repeating an identical tool call no longer ends the run** — the first repeat now injects a corrective note and lets the agent continue with the result it already has; only a further identical repeat stops the turn (previously the second call ended the run immediately, cutting off recoverable plans mid-flight).
+
 ## Version 0.0.460 (July 15, 2026)
 - **File listings reach the agent, not just the UI** — list_files and search_files results (names, paths, sizes, ids) are now visible to the model itself, ending the blind re-list loop where the agent called the same listing repeatedly and the run ended with a false "Task completed successfully" message; that circuit-breaker message now tells the model to use the result it already has instead of claiming success.
 - **Hebrew/legacy filenames recover instead of becoming `?????`** — directories with names stored in a legacy codepage (cp1255/cp1252 — Windows shares, zips extracted without a codepage) now show their real names in listings and answers, and reading/grepping those files round-trips to the on-disk bytes. Previously every non-ASCII character degraded to `?` (and before 0.0.458, permanently crashed the report).

@@ -136,30 +136,83 @@ def path_matches_globs(rel_path: str, globs: List[str]) -> bool:
 # display/ids get a best-effort legacy decode; resolution re-derives the
 # on-disk byte form from the recovered name.
 
-LEGACY_FILENAME_CHARSETS = ("cp1255", "cp1252")
+# Ordered by likelihood; order also breaks score ties. The DOS codepages
+# (cp862) decode ANY byte sequence "successfully", so charset choice cannot be
+# first-success — candidates are QUALITY-SCORED and the best decode wins.
+LEGACY_FILENAME_CHARSETS = ("cp1255", "iso-8859-8", "cp862", "cp1252")
 
 
 def has_lone_surrogates(s: str) -> bool:
     return any(0xD800 <= ord(c) <= 0xDFFF for c in s or "")
 
 
+def _decode_quality(s: str) -> float:
+    """How much a candidate decode looks like a real filename.
+
+    Letters/digits good; control chars, box-drawing/symbol soup, and
+    replacement chars bad; a single word mixing Latin and Hebrew letters is a
+    strong misdecode signal (cp1255 happily turns cp1252's 'é' into a Hebrew
+    letter mid-word)."""
+    import unicodedata
+
+    letters = digits = bad = 0
+    for c in s:
+        if c.isalpha():
+            letters += 1
+        elif c.isdigit():
+            digits += 1
+        else:
+            cat = unicodedata.category(c)
+            if cat in ("Cc", "Co", "Cn") or c == "�" or 0x2500 <= ord(c) <= 0x25FF or cat.startswith("S"):
+                bad += 1
+    # A single word mixing ASCII-Latin letters with letters from ANY other
+    # script (Hebrew ט, Greek Θ, box-adjacent glyphs…) is the fingerprint of
+    # a misdecode — real filenames don't write 'cafΘ'.
+    mixed = 0
+    for word in re.split(r"[\W\d_]+", s):
+        has_ascii = any("a" <= ch.lower() <= "z" for ch in word)
+        has_other = any(ch.isalpha() and not (
+            "a" <= ch.lower() <= "z" or "À" <= ch <= "ÿ" or "Ā" <= ch <= "ɏ"
+        ) for ch in word)
+        if has_ascii and has_other:
+            mixed += 1
+    return letters + 0.5 * digits - 2.0 * bad - 3.0 * mixed
+
+
 def recover_filename(s: str) -> str:
     """Best-effort human-readable form of a surrogateescape'd path/name.
 
     Clean strings pass through untouched. For surrogate-carrying strings the
-    original bytes are recovered and tried against the legacy charsets; the
-    final fallback replaces rather than crashes. Never raises."""
+    original bytes are recovered and every legacy charset that decodes them
+    cleanly becomes a candidate; the highest-QUALITY decode wins (list order
+    breaks ties). The final fallback replaces rather than crashes — and logs
+    the raw bytes so an unknown encoding is diagnosable from server logs
+    without host access. Never raises."""
     if not s or not has_lone_surrogates(s):
         return s
     raw = s.encode("utf-8", "surrogateescape")
-    for cs in ("utf-8",) + LEGACY_FILENAME_CHARSETS:
+    best: Optional[str] = None
+    best_score = float("-inf")
+    for cs in LEGACY_FILENAME_CHARSETS:
         try:
             decoded = raw.decode(cs)
         except (UnicodeDecodeError, LookupError):
             continue
-        if not has_lone_surrogates(decoded):
-            return decoded
-    return raw.decode("utf-8", "replace")
+        if has_lone_surrogates(decoded):
+            continue
+        score = _decode_quality(decoded)
+        if score > best_score:
+            best, best_score = decoded, score
+    if best is not None and best_score > 0:
+        return best
+    import logging
+    logging.getLogger(__name__).warning(
+        "filename recovery: no charset in %s decoded %r acceptably — "
+        "falling back to replacement. Add the right charset to "
+        "LEGACY_FILENAME_CHARSETS to recover these names.",
+        LEGACY_FILENAME_CHARSETS, raw,
+    )
+    return best if best is not None else raw.decode("utf-8", "replace")
 
 
 def legacy_fs_candidates(display: str) -> List[str]:

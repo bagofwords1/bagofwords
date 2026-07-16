@@ -154,6 +154,68 @@ class TestListingObservations:
         )
 
 
+# ------------------------------------------ multi-charset recovery (v2)
+
+
+CP862_NAME = "תלוש 6 - עצמאי.pdf"           # DOS-Hebrew (zip/SMB era)
+CP1252_NAME = "café menu 2024.txt"           # Western — must NOT regress
+
+
+class TestMultiCharsetRecovery:
+    def _write(self, tmp_path, name_bytes: bytes, content: bytes = b"x"):
+        with open(os.path.join(os.fsencode(str(tmp_path)), name_bytes), "wb") as fh:
+            fh.write(content)
+
+    def test_cp862_names_recover(self, tmp_path):
+        self._write(tmp_path, CP862_NAME.encode("cp862"), b"payslip MORTGAGE-CODE-77")
+        c = NetworkDirClient(root_path=str(tmp_path))
+        names = {e["name"] for e in c.list_files()}
+        assert CP862_NAME in names, f"cp862 not recovered: {names}"
+
+    def test_cp862_id_round_trips(self, tmp_path):
+        self._write(tmp_path, CP862_NAME.encode("cp862"), b"payslip MORTGAGE-CODE-77")
+        c = NetworkDirClient(root_path=str(tmp_path))
+        entry = next(e for e in c.list_files() if e["name"] == CP862_NAME)
+        assert c.read_raw_bytes(entry["id"])[0] == b"payslip MORTGAGE-CODE-77"
+
+    def test_cp1252_names_not_misdecoded_as_hebrew(self, tmp_path):
+        """Scoring guard: cp1255 decodes cp1252 bytes 'successfully' into
+        Hebrew glyphs mid-Latin-word; the quality score must prefer cp1252."""
+        self._write(tmp_path, CP1252_NAME.encode("cp1252"))
+        c = NetworkDirClient(root_path=str(tmp_path))
+        names = {e["name"] for e in c.list_files()}
+        assert CP1252_NAME in names, f"cp1252 misdecoded: {names}"
+
+    def test_nested_legacy_dirs_round_trip(self, tmp_path):
+        base = os.fsencode(str(tmp_path))
+        sub = os.path.join(base, "עצמאי".encode("cp862"))
+        os.mkdir(sub)
+        with open(os.path.join(sub, CP862_NAME.encode("cp862")), "wb") as fh:
+            fh.write(b"nested content")
+        c = NetworkDirClient(root_path=str(tmp_path))
+        entry = next(e for e in c.list_files() if e["name"] == CP862_NAME)
+        assert entry["path"] == f"עצמאי/{CP862_NAME}"
+        assert c.read_raw_bytes(entry["id"])[0] == b"nested content"
+
+    def test_unknown_encoding_still_round_trips(self, tmp_path, monkeypatch):
+        """The encoding-agnostic guarantee: even when NO charset candidate
+        matches, an id produced by the listing must resolve back to its file
+        via display-form directory matching."""
+        import app.data_sources.clients._file_source_common as fsc
+        self._write(tmp_path, b"report \x90\x81\x8d final.dat", b"mystery bytes")
+        monkeypatch.setattr(fsc, "LEGACY_FILENAME_CHARSETS", ())
+        c = NetworkDirClient(root_path=str(tmp_path))
+        entries = [e for e in c.list_files() if e["name"].startswith("report")]
+        assert len(entries) == 1
+        assert c.read_raw_bytes(entries[0]["id"])[0] == b"mystery bytes"
+
+    def test_clean_utf8_hebrew_untouched(self, tmp_path):
+        (tmp_path / "חוזה חדש.txt").write_text("clean", encoding="utf-8")
+        c = NetworkDirClient(root_path=str(tmp_path))
+        names = {e["name"] for e in c.list_files()}
+        assert "חוזה חדש.txt" in names
+
+
 # ----------------------------------------------------- breaker honesty
 
 
@@ -166,4 +228,25 @@ class TestRepeatedCallBreakerMessage:
         assert "success" not in msg.lower()
         assert "achieved" not in msg.lower()
         # It should point the model at the result it already has.
+        assert "already" in msg.lower()
+
+    def test_nudge_then_stop_progression(self):
+        """2nd identical call → corrective nudge, turn CONTINUES; only the
+        3rd+ identical call ends the turn."""
+        from app.ai.agent_v2 import repeated_call_action
+
+        assert repeated_call_action(["a:1"], 2) is None
+        assert repeated_call_action(["a:1", "b:2"], 2) is None
+        assert repeated_call_action(["a:1", "a:1"], 2) == "nudge"
+        assert repeated_call_action(["b:2", "a:1", "a:1"], 2) == "nudge"
+        assert repeated_call_action(["a:1", "a:1", "a:1"], 2) == "stop"
+        # A different call resets the streak.
+        assert repeated_call_action(["a:1", "a:1", "b:2"], 2) is None
+
+    def test_nudge_message_is_corrective_not_terminal(self):
+        from app.ai.agent_v2 import repeated_call_nudge
+
+        msg = repeated_call_nudge("list_files")
+        assert "list_files" in msg
+        assert "success" not in msg.lower()
         assert "already" in msg.lower()
