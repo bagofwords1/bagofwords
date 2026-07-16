@@ -131,7 +131,11 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # Tools that start a fresh created-objects scope: each invocation gets an
 # empty ToolInvocationState instead of inheriting the previous tool's
 # query/step/visualization (mirrors the old per-action self.current_* reset).
-_INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity"})
+# write_csv belongs here too: it produces its own Step/Query/Visualization via
+# the data_model_type_determined event. Without a fresh scope it inherits the
+# previous data tool's step, the step-creation guard (`not cur_step`) skips, and
+# every write_csv in a session renders the same stale widget preview.
+_INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
 
 class ToolInvocationState:
