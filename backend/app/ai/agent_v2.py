@@ -63,6 +63,38 @@ def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
     return any(kw in p for kw in THINKING_TRIGGERS)
 
 
+def repeated_call_action(actions: list, threshold: int) -> Optional[str]:
+    """Escalation policy for identical successful tool calls in one turn.
+
+    Trailing streak == threshold → 'nudge' (inject a corrective note, turn
+    CONTINUES — the model gets one chance to use the result it already has);
+    streak > threshold → 'stop' (a genuine loop; end the turn honestly). A
+    different call in between resets the streak."""
+    if not actions:
+        return None
+    last = actions[-1]
+    streak = 0
+    for sig in reversed(actions):
+        if sig != last:
+            break
+        streak += 1
+    if streak == threshold:
+        return "nudge"
+    if streak > threshold:
+        return "stop"
+    return None
+
+
+def repeated_call_nudge(tool_name: str) -> str:
+    """Corrective note injected on the FIRST repeat — not terminal."""
+    return (
+        f"NOTE: this {tool_name} call was identical to the previous one and "
+        "returned the same result, which is already shown above. Use that "
+        "result to continue the task — do not repeat the call. If you need "
+        "different data, change the parameters."
+    )
+
+
 def repeated_call_final_answer(tool_name: str, times: int) -> str:
     """Message injected when the repeated-identical-call breaker fires.
 
@@ -3932,14 +3964,23 @@ class AgentV2:
                             else:
                                 action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                 successful_tool_actions.append(action_signature)
-                                if len(successful_tool_actions) >= max_repeated_successes:
-                                    recent_actions = successful_tool_actions[-max_repeated_successes:]
-                                    if len(set(recent_actions)) == 1:
-                                        analysis_done = True
-                                        _obs.update({
-                                            "analysis_complete": True,
-                                            "final_answer": repeated_call_final_answer(_tn, max_repeated_successes)
-                                        })
+                                # Escalate identical repeats gently: first
+                                # repeat gets a corrective note and the turn
+                                # CONTINUES (the model can use the result it
+                                # already has); only a further repeat ends the
+                                # turn. Ending on the first repeat executed
+                                # perfectly recoverable turns mid-plan.
+                                _repeat = repeated_call_action(
+                                    successful_tool_actions, max_repeated_successes
+                                )
+                                if _repeat == "nudge":
+                                    _obs["repeat_warning"] = repeated_call_nudge(_tn)
+                                elif _repeat == "stop":
+                                    analysis_done = True
+                                    _obs.update({
+                                        "analysis_complete": True,
+                                        "final_answer": repeated_call_final_answer(_tn, max_repeated_successes)
+                                    })
 
                                 # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
                                 if _tn in ("create_artifact", "edit_artifact"):

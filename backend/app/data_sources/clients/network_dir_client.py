@@ -199,6 +199,16 @@ class NetworkDirClient(DataSourceClient):
                     if alt.exists():
                         target = alt
                         break
+            # Encoding-agnostic last resort: walk the path segment by segment
+            # and match directory entries by DISPLAY-form equality. The
+            # listing produced this id with recover_filename, so comparing
+            # recover_filename(entry) == segment round-trips for ANY encoding
+            # — including ones absent from the charset list. Stays under root
+            # by construction; every later check runs on the real path.
+            if not target.exists():
+                scanned = self._scan_resolve(root, raw)
+                if scanned is not None:
+                    target = scanned
         # Resolve symlinks/.. for existing paths; for a not-yet-created write
         # target, resolve the parent and re-append the leaf.
         if target.exists():
@@ -225,6 +235,37 @@ class NetworkDirClient(DataSourceClient):
         if must_exist and not resolved.exists():
             raise ValueError(f"File not found: {rel_or_id}")
         return resolved
+
+    @staticmethod
+    def _scan_resolve(root: Path, rel: str) -> Optional[Path]:
+        """Resolve a recovered display path to the real (possibly
+        legacy-byte-named) file by per-segment directory scan. Returns None
+        when any segment has no display-form match. Two distinct byte names
+        recovering to the same display form collide — first match wins, and
+        we log it (rare enough to accept, loud enough to diagnose)."""
+        cur = root
+        for part in Path(rel).parts:
+            direct = cur / part
+            if direct.exists():
+                cur = direct
+                continue
+            matches = []
+            try:
+                for entry in cur.iterdir():
+                    if recover_filename(entry.name) == part:
+                        matches.append(entry)
+            except OSError:
+                return None
+            if not matches:
+                return None
+            if len(matches) > 1:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "network_dir: %d directory entries recover to %r — using the first",
+                    len(matches), part,
+                )
+            cur = matches[0]
+        return cur
 
     def _rel_id(self, path: Path) -> str:
         """Stable, human-readable file id: POSIX-relative path under root.
