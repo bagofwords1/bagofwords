@@ -9,25 +9,32 @@
             <template v-else>Searching files for {{ queryLabel }}…</template>
           </span>
         </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
+        <span
+          v-else
+          class="text-gray-700 dark:text-gray-300 flex items-center"
+          :class="files.length ? 'cursor-pointer' : ''"
+          @click="files.length && (expanded = !expanded)"
+          :aria-expanded="files.length ? expanded : undefined"
+        >
+          <Icon v-if="files.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <template v-if="modelTitle">
             <span class="align-middle">{{ modelTitle }}</span>
-            <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+            <span v-if="files.length" class="ms-2 text-gray-400">{{ files.length }} {{ files.length === 1 ? 'file' : 'files' }}</span>
           </template>
           <template v-else>
             <span class="align-middle">Searched files for&nbsp;</span>
             <Transition name="fade-in" mode="out-in">
               <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
             </Transition>
-            <span v-if="files.length" class="ms-2 text-gray-400">( {{ files.length }})</span>
+            <span v-if="files.length" class="ms-2 text-gray-400">{{ files.length }} {{ files.length === 1 ? 'file' : 'files' }}</span>
           </template>
         </span>
       </div>
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="files.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="files.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
@@ -99,6 +106,8 @@ const files = computed<any[]>(() => {
 })
 
 const errorMessage = computed(() => props.toolExecution?.result_json?.error || '')
+
+const expanded = ref(false)
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(i: number) {

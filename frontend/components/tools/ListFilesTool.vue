@@ -6,16 +6,23 @@
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
           <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Listing files…' }}</span>
         </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
+        <span
+          v-else
+          class="text-gray-700 dark:text-gray-300 flex items-center"
+          :class="files.length ? 'cursor-pointer' : ''"
+          @click="files.length && (expanded = !expanded)"
+          :aria-expanded="files.length ? expanded : undefined"
+        >
+          <Icon v-if="files.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
           <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
           <span>{{ modelTitle || 'Listed files' }}</span>
-          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">({{ files.length }}{{ truncated ? '+' : '' }})</span>
+          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? 'file' : 'files' }}</span>
         </span>
       </div>
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="files.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="files.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
@@ -78,6 +85,8 @@ const files = computed<any[]>(() => {
 })
 const truncated = computed(() => !!props.toolExecution?.result_json?.truncated)
 const errorMessage = computed(() => props.toolExecution?.result_json?.error || '')
+
+const expanded = ref(false)
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(i: number) {
