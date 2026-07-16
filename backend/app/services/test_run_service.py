@@ -52,6 +52,7 @@ from app.services.test_evaluation_service import TestEvaluationService
 from app.ai.agents.judge.judge import Judge
 from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSchema, RuleSpec
 from app.models.organization import Organization
+from app.models.user import User
 
 
 class TestRunService:
@@ -68,7 +69,53 @@ class TestRunService:
         run.summary_json = {'total': len(results), 'passed': passed, 'failed': failed}
         db.add(run)
         await db.commit()
-    
+
+    async def _maybe_finalize_run(self, async_session, run_id: str) -> None:
+        """Finalize a TestRun iff *every* one of its results is terminal.
+
+        Runs in its own session so it reads freshly-committed TestResult
+        rows rather than a stale identity-map snapshot. (The old inline
+        aggregate in ``stream_run`` re-queried the request session, whose
+        identity map still held the pre-evaluation ``in_progress`` copies,
+        so a run could persist ``status=success`` while a result was
+        ``fail``.)
+
+        Idempotent and safe to call concurrently from multiple result
+        finalizers: it no-ops once the run is terminal or while any result
+        is still running, and concurrent callers that both observe an
+        all-terminal set compute the same aggregate.
+        """
+        terminal = {"pass", "fail", "error", "stopped", "success"}
+        try:
+            async with async_session() as session:
+                run = await session.get(TestRun, str(run_id))
+                if not run:
+                    return
+                if getattr(run, "status", "") in {"success", "error", "stopped"}:
+                    return
+                rows = (
+                    await session.execute(
+                        select(TestResult).where(TestResult.run_id == str(run_id))
+                    )
+                ).scalars().all()
+                statuses = [(getattr(r, "status", "") or "") for r in rows]
+                if not rows or any(s not in terminal for s in statuses):
+                    return
+                # Preserve an explicit stop; otherwise success unless any
+                # result failed/errored.
+                if getattr(run, "status", "") == "stopped" or any(s == "stopped" for s in statuses):
+                    run.status = "stopped"
+                else:
+                    run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
+                run.finished_at = run.finished_at or datetime.utcnow()
+                passed = sum(1 for r in rows if r.status == "pass")
+                failed = sum(1 for r in rows if r.status in ("fail", "error"))
+                run.summary_json = {"total": len(rows), "passed": passed, "failed": failed}
+                session.add(run)
+                await session.commit()
+        except Exception:
+            logging.exception("[_maybe_finalize_run] failed for run=%s", run_id)
+
     async def _resolve_cases_inputs(self, db: AsyncSession, organization_id: str, case_ids: Optional[List[str]], suite_id: Optional[str]) -> List[TestCase]:
         if case_ids and len(case_ids) > 0:
             res = await db.execute(select(TestCase).where(TestCase.id.in_([str(c) for c in case_ids])))
@@ -606,6 +653,9 @@ class TestRunService:
         await db.refresh(run)
 
         created_results: List[TestResult] = []
+        # Params for the per-result server-side finalizer, spawned *after*
+        # the results are committed so it can resolve them by report_id.
+        pending_finalizers: List[Dict[str, Any]] = []
 
         # For each case: create a report and kick off background completion via CompletionService
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
@@ -649,18 +699,23 @@ class TestRunService:
             except Exception:
                 head_id = None
 
-            # Multi-turn: thread remaining turns after turn 1's agent finishes.
-            if additional_turns and head_id:
-                asyncio.create_task(
-                    self._run_additional_turns_background(
-                        report_id=str(report.id),
-                        head_completion_id=str(head_id),
-                        additional_turns=additional_turns,
-                        organization=organization,
-                        current_user=current_user,
-                        build_id=resolved_build_id,
-                    )
-                )
+            # Server-side finalization: once turn 1's background agent
+            # finishes, run any additional turns, evaluate assertions,
+            # persist the TestResult, and finalize the TestRun. Spawned
+            # after commit (below) so the result row exists. Without this
+            # the run only ever finalized when a client opened the run
+            # page (which drives ``stream_run``).
+            if head_id:
+                pending_finalizers.append({
+                    "run_id": str(run.id),
+                    "report_id": str(report.id),
+                    "head_completion_id": str(head_id),
+                    "case_id": str(case.id),
+                    "additional_turns": additional_turns,
+                    "organization_id": str(organization.id),
+                    "current_user_id": str(current_user.id) if current_user else None,
+                    "build_id": resolved_build_id,
+                })
 
             result = TestResult(
                 run_id=str(run.id),
@@ -691,33 +746,47 @@ class TestRunService:
         for r in created_results:
             await db.refresh(r)
 
+        # Now that results are committed, spawn the per-result finalizers.
+        for params in pending_finalizers:
+            asyncio.create_task(self._finalize_result_background(**params))
+
         return run, created_results
 
-    async def _run_additional_turns_background(
+    async def _finalize_result_background(
         self,
         *,
+        run_id: str,
         report_id: str,
         head_completion_id: str,
+        case_id: str,
         additional_turns: List[Dict[str, Any]],
-        organization,
-        current_user,
+        organization_id: str,
+        current_user_id: Optional[str],
         build_id: Optional[str],
     ) -> None:
-        """Run turns 2..N sequentially on the same report once turn 1 finishes.
+        """Drive a background-dispatched eval result to a terminal state.
 
-        Each turn is dispatched via ``CompletionService.create_completion`` with
-        ``background=False`` so we block until the agent terminates before
-        dispatching the next turn. Opens its own async session because the
-        request-scoped session is already closed by the time this runs.
+        Waits for turn 1's agent to finish, runs turns 2..N sequentially,
+        evaluates the case assertions, persists the ``TestResult``, and
+        finalizes the ``TestRun`` once every result is terminal. This makes
+        an eval run self-finalizing on the server so it no longer depends on
+        a client opening the run page (which drives ``stream_run``) to leave
+        ``in_progress``.
+
+        Opens its own sessions because the request-scoped session is closed
+        by the time this task runs.
         """
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
 
         async_session = create_async_session_factory()
         try:
-            # Wait for turn 1's agent to leave in_progress.
+            # 1. Wait for turn 1's agent to reach a terminal state.
             await self._await_head_completion_done(async_session, head_completion_id)
 
-            for turn in additional_turns:
+            # 2. Run turns 2..N sequentially (each blocks until its agent is
+            #    done). A fresh session per turn avoids carrying tainted
+            #    transactional state across blocking agent runs.
+            for turn in (additional_turns or []):
                 p = (turn or {}).get("prompt") or {}
                 prompt = PromptSchema(
                     content=p.get("content") or "",
@@ -728,7 +797,8 @@ class TestRunService:
                     model_id=p.get("model_id"),
                 )
                 async with async_session() as session:
-                    # Synchronous path: blocks until this turn's agent is done.
+                    organization = await session.get(Organization, str(organization_id))
+                    current_user = await session.get(User, str(current_user_id)) if current_user_id else None
                     await self.completions.create_completion(
                         db=session,
                         report_id=str(report_id),
@@ -738,11 +808,179 @@ class TestRunService:
                         background=False,
                         build_id=build_id,
                     )
+
+            # 3. Evaluate assertions and persist the TestResult.
+            await self._evaluate_and_persist_result(
+                async_session,
+                run_id=str(run_id),
+                report_id=str(report_id),
+                head_completion_id=str(head_completion_id),
+                organization_id=str(organization_id),
+                current_user_id=current_user_id,
+            )
         except Exception:
-            # Best-effort; evaluator will observe whatever state the report
-            # reached and mark the TestResult accordingly on the next status
-            # poll / stream.
-            pass
+            logging.exception(
+                "[_finalize_result_background] failed for run=%s report=%s",
+                run_id, report_id,
+            )
+        finally:
+            # 4. Finalize the run if all results are terminal — always
+            #    attempt, even if evaluation raised, so a failed result
+            #    still closes out the run instead of hanging in_progress.
+            await self._maybe_finalize_run(async_session, str(run_id))
+
+    async def _evaluate_and_persist_result(
+        self,
+        async_session,
+        *,
+        run_id: str,
+        report_id: str,
+        head_completion_id: str,
+        organization_id: str,
+        current_user_id: Optional[str],
+    ) -> None:
+        """Evaluate a finished result's assertions and persist status +
+        result_json. Mirrors the evaluation the streaming path performs in
+        ``stream_run``'s ``run_agent_task``. Best-effort: on any failure the
+        result is marked ``error`` so it leaves ``in_progress``.
+        """
+        expectations = None
+        try:
+            async with async_session() as session:
+                organization = await session.get(Organization, str(organization_id))
+                current_user = await session.get(User, str(current_user_id)) if current_user_id else None
+
+                _run, result_row, case_row, expectations = await self.evaluator.resolve_by_run_and_report(
+                    session, str(run_id), str(report_id)
+                )
+                # Idempotency: another path (e.g. an opened stream) may have
+                # already evaluated this result — don't overwrite it.
+                if getattr(result_row, "status", "") in {"pass", "fail", "error", "stopped", "success"}:
+                    return
+
+                org_settings = await organization.get_settings(session)
+                small_model = await self.completions.llm_service.get_default_model(
+                    session, organization, current_user, is_small=True
+                )
+                try:
+                    judge = Judge(model=small_model, organization_settings=org_settings)
+                except Exception:
+                    judge = None
+
+                snapshot = await self.evaluator.build_final_snapshot(session, str(report_id))
+
+                # Agent execution metadata (durations/tokens/iterations) from
+                # turn 1's system completion, mirroring the streaming path.
+                agent_execution_id = None
+                run_duration_ms = None
+                agent_meta: Dict[str, Any] = {}
+                try:
+                    sys_row = (
+                        await session.execute(
+                            select(Completion)
+                            .where(
+                                Completion.parent_id == str(head_completion_id),
+                                Completion.role == "system",
+                            )
+                            .order_by(Completion.created_at.desc())
+                            .limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if sys_row is not None:
+                        res_exec = await session.execute(
+                            select(AgentExecution)
+                            .where(AgentExecution.completion_id == str(sys_row.id))
+                            .order_by(AgentExecution.created_at.desc())
+                            .limit(1)
+                        )
+                        ae = res_exec.scalar_one_or_none()
+                        if ae:
+                            agent_execution_id = str(ae.id)
+                            run_duration_ms = getattr(ae, "total_duration_ms", None)
+                            agent_meta = _agent_metadata_from_execution(ae)
+                            try:
+                                from app.models.plan_decision import PlanDecision as _PD
+                                n_iter = (await session.execute(
+                                    select(func.count(_PD.id)).where(_PD.agent_execution_id == str(ae.id))
+                                )).scalar_one() or 0
+                                agent_meta["total_iterations"] = int(n_iter)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                case_prompt_text = ""
+                try:
+                    cj = getattr(case_row, "prompt_json", None) or {}
+                    case_prompt_text = cj.get("content") or ""
+                except Exception:
+                    case_prompt_text = ""
+
+                status, result_json = await self.evaluator.evaluate_final(
+                    db=session,
+                    expectations=expectations,
+                    snapshot=snapshot,
+                    report_id=str(report_id),
+                    case_prompt_text=case_prompt_text,
+                    judge=judge,
+                    organization=organization,
+                    current_user=current_user,
+                    run_duration_ms=run_duration_ms,
+                    agent_metadata=agent_meta,
+                )
+                await self.evaluator.persist_result_json(
+                    db=session,
+                    result=result_row,
+                    status=status,
+                    result_json=result_json,
+                    failure_reason=None,
+                    agent_execution_id=agent_execution_id,
+                )
+                return
+        except Exception as e:
+            logging.exception(
+                "[_evaluate_and_persist_result] evaluation failed for run=%s report=%s",
+                run_id, report_id,
+            )
+
+        # Error path: persist status=error on a fresh session so the result
+        # leaves in_progress even if the evaluation above poisoned its session.
+        try:
+            async with async_session() as err_session:
+                _run, result_row, _case_row, _expectations = await self.evaluator.resolve_by_run_and_report(
+                    err_session, str(run_id), str(report_id)
+                )
+                if getattr(result_row, "status", "") in {"pass", "fail", "error", "stopped", "success"}:
+                    return
+                exp = _expectations if _expectations is not None else expectations
+                try:
+                    rule_spec = RuleSpec(
+                        spec_version=getattr(exp, "spec_version", 1),
+                        rules=[
+                            (rr.model_dump() if hasattr(rr, "model_dump") else dict(rr))
+                            for rr in (getattr(exp, "rules", []) or [])
+                        ],
+                        order_mode=getattr(exp, "order_mode", None),
+                    )
+                except Exception:
+                    rule_spec = RuleSpec(spec_version=1, rules=[], order_mode=None)
+                await self.evaluator.persist_result_json(
+                    db=err_session,
+                    result=result_row,
+                    status="error",
+                    result_json=TestResultJsonSchema(
+                        spec=rule_spec,
+                        totals=TestResultTotals(total=0, passed=0, failed=0, duration_ms=None),
+                        rule_results=[],
+                    ),
+                    failure_reason="Evaluation failed",
+                    agent_execution_id=None,
+                )
+        except Exception:
+            logging.exception(
+                "[_evaluate_and_persist_result] failed to persist error status for run=%s report=%s",
+                run_id, report_id,
+            )
 
     async def _await_head_completion_done(
         self,
@@ -1512,26 +1750,28 @@ class TestRunService:
                         except Exception:
                             pass
                     if len(finished) >= total:
+                        # Finalize on a fresh session. The request session's
+                        # identity map still holds the pre-evaluation
+                        # ``in_progress`` copies of these results (they were
+                        # persisted in separate sessions), so aggregating off
+                        # ``db`` here would compute a stale status — the bug
+                        # where a run persisted ``success`` while a result was
+                        # ``fail``.
+                        final_status = None
                         try:
-                            run.finished_at = run.finished_at or datetime.utcnow()
-                            # Approximate aggregate
-                            res_ref = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
-                            rows = res_ref.scalars().all()
-                            statuses = [getattr(x, "status", "") for x in rows]
-                            # Preserve 'stopped' if explicitly stopped or any result is stopped
-                            if getattr(run, "status", "") == "stopped" or any(s == "stopped" for s in statuses):
-                                run.status = "stopped"
-                            else:
-                                run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
-                            # Save summary_json with pass/fail counts
-                            passed = sum(1 for r in rows if r.status == 'pass')
-                            failed = sum(1 for r in rows if r.status in ('fail', 'error'))
-                            run.summary_json = {'total': len(rows), 'passed': passed, 'failed': failed}
-                            db.add(run)
-                            await db.commit()
+                            await self._maybe_finalize_run(create_async_session_factory(), str(run.id))
                         except Exception:
                             pass
-                        yield format_sse_event(SSEEvent(event="run.finished", completion_id=str(run.id), data={"run_id": str(run.id), "status": run.status}))
+                        try:
+                            _fs = create_async_session_factory()
+                            async with _fs() as _s:
+                                _r = await _s.get(TestRun, str(run.id))
+                                final_status = getattr(_r, "status", None) if _r else None
+                        except Exception:
+                            final_status = None
+                        if not final_status:
+                            final_status = getattr(run, "status", "success") or "success"
+                        yield format_sse_event(SSEEvent(event="run.finished", completion_id=str(run.id), data={"run_id": str(run.id), "status": final_status}))
                         break
                 except asyncio.TimeoutError:
                     # Periodic status diff (optional)
