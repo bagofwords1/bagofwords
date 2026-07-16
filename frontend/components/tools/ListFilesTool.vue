@@ -16,7 +16,7 @@
           <Icon v-if="files.length" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
           <Icon name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
           <span>{{ modelTitle || 'Listed files' }}</span>
-          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">({{ files.length }}{{ truncated ? '+' : '' }})</span>
+          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? 'file' : 'files' }}</span>
         </span>
       </div>
     </Transition>
