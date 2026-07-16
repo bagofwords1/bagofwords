@@ -30,6 +30,9 @@
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             <UTooltip :text="$t('settings.llms.visionTooltip')">{{ $t('settings.llms.colVision') }}</UTooltip>
                         </th>
+                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            <UTooltip :text="$t('settings.llms.contextTooltip')">{{ $t('settings.llms.colContext') }}</UTooltip>
+                        </th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="canManageAccess">Access</th>
                         <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
                     </tr>
@@ -75,6 +78,47 @@
                                     :disabled="!useCan('manage_llm_settings')"
                                 />
                             </UTooltip>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm" data-testid="llm-context-cell">
+                            <div v-if="editingContextId === model.id" class="flex items-center gap-1">
+                                <input
+                                    v-model.number="contextDraft"
+                                    type="number"
+                                    min="1"
+                                    step="1000"
+                                    :placeholder="$t('settings.llms.contextPlaceholder')"
+                                    class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-28 text-sm focus:outline-none focus:border-blue-500"
+                                    @keyup.enter="saveContextWindow(model)"
+                                    @keyup.escape="editingContextId = null"
+                                />
+                                <button type="button" class="text-blue-500 hover:text-blue-700" @click="saveContextWindow(model)">
+                                    <UIcon name="i-heroicons-check" class="w-4 h-4" />
+                                </button>
+                                <button type="button" class="text-gray-400 hover:text-gray-600" @click="editingContextId = null">
+                                    <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div v-else class="flex items-center gap-1.5">
+                                <UTooltip :text="$t('settings.llms.contextTooltip')">
+                                    <button
+                                        v-if="useCan('manage_llm_settings')"
+                                        type="button"
+                                        class="text-gray-700 dark:text-gray-300 hover:text-blue-600 underline decoration-dotted underline-offset-2"
+                                        @click="startContextEdit(model)"
+                                    >
+                                        {{ formatTokens(model.context_window_tokens) }}
+                                    </button>
+                                    <span v-else class="text-gray-700 dark:text-gray-300">{{ formatTokens(model.context_window_tokens) }}</span>
+                                </UTooltip>
+                                <UTooltip
+                                    v-if="useCan('manage_llm_settings') && model.context_window_tokens_override != null"
+                                    :text="$t('settings.llms.contextResetTooltip')"
+                                >
+                                    <button type="button" class="text-gray-400 hover:text-gray-600" @click="resetContextWindow(model)">
+                                        <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
+                                    </button>
+                                </UTooltip>
+                            </div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="canManageAccess">
                             <button
@@ -156,6 +200,8 @@ type Model = {
   is_enabled: boolean;
   supports_vision: boolean;
   supports_vision_override?: boolean | null;
+  context_window_tokens?: number | null;
+  context_window_tokens_override?: number | null;
   is_restricted?: boolean;
   provider: Provider;
 };
@@ -288,6 +334,56 @@ const toggleVision = async (modelId: string, enabled: boolean) => {
             color: 'red'
         });
     }
+};
+
+const editingContextId = ref<string | null>(null);
+const contextDraft = ref<number | null>(null);
+
+const formatTokens = (n?: number | null) => {
+    if (!n) return '—';
+    if (n >= 1_000_000) return `${parseFloat((n / 1_000_000).toFixed(2))}M`;
+    if (n >= 1_000) return `${parseFloat((n / 1_000).toFixed(1))}K`;
+    return String(n);
+};
+
+const startContextEdit = (model: Model) => {
+    contextDraft.value = model.context_window_tokens ?? null;
+    editingContextId.value = model.id;
+};
+
+const setContextWindow = async (model: Model, tokens: number | null) => {
+    const response = await useMyFetch(`/llm/models/${model.id}/set_context_window`, {
+        method: 'POST',
+        query: tokens != null ? { tokens } : {}
+    });
+    if (response.status.value === 'success') {
+        editingContextId.value = null;
+        await getModels();
+        toast.add({
+            title: 'Model updated',
+            description: tokens != null ? 'Context window updated for this model' : 'Context window reset to default',
+            color: 'green'
+        });
+    } else {
+        toast.add({
+            title: 'Error',
+            description: 'Could not update context window',
+            color: 'red'
+        });
+    }
+};
+
+const saveContextWindow = async (model: Model) => {
+    const tokens = Number(contextDraft.value);
+    if (!Number.isFinite(tokens) || tokens <= 0) {
+        toast.add({ title: 'Error', description: 'Context window must be a positive number of tokens', color: 'red' });
+        return;
+    }
+    await setContextWindow(model, Math.floor(tokens));
+};
+
+const resetContextWindow = async (model: Model) => {
+    await setContextWindow(model, null);
 };
 
 const openManageProvider = (providerId: string) => {
