@@ -293,8 +293,14 @@ def has_live_hunk_against_main(
 
     if proposed == base or proposed == main:
         return False
-    if base == main and not rejected:
-        return True
+    # NB: no `base == main -> return True` shortcut. Even when the suggestion
+    # forked from current main, its change can still apply as a NO-OP against it
+    # (an idempotent insertion of a token already sitting at the anchor, or an
+    # already-present phrase). `rebased_hunks_against_main` performs exactly those
+    # skips, so an eager True here would flag the instruction "Pending review"
+    # while /review-hunks renders zero hunks — pending with nothing to review.
+    # Fall through to the authoritative hunk computation instead (identity
+    # alignment when base == main, so this stays cheap).
     return any(
         hunk["key"] not in rejected
         for hunk in rebased_hunks_against_main(base, proposed, main, cache=cache)

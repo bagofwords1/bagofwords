@@ -979,6 +979,67 @@ def test_accept_and_reject_all_scoped_to_build(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize(
+    "main_text, proposed_text",
+    [
+        # AI proposes a change whose insertion duplicates a token already sitting
+        # next to the anchor, so applying it onto main is a no-op — there is no
+        # LIVE hunk to review. Each pair varies the anchor so the test asserts the
+        # invariant, not one magic string.
+        ("Require a filter on queries", "Require a a filter on queries"),
+        ("alpha beta gamma", "alpha beta beta gamma"),
+        ("lookup by email", "lookup by email email"),
+    ],
+)
+def test_pending_badge_requires_a_live_review_hunk(
+    test_client,
+    create_global_instruction,
+    create_user,
+    login_user,
+    whoami,
+    main_text,
+    proposed_text,
+):
+    """Regression: the "Pending review" badge and the tracked-changes review must
+    agree. The badge (`/instructions/pending-changes`, driving the amber dot and
+    the detail status label) and the diff (`/review-hunks`, what the review pane
+    renders) are two computations of the same fact, so the invariant is:
+
+        an instruction flagged pending MUST have at least one live review hunk.
+
+    A suggestion whose only change is an idempotent insertion (a token already
+    present at the anchor) applies onto main as a no-op — `/review-hunks` yields
+    zero hunks. If `/pending-changes` still lists it, the user sees an instruction
+    stuck on "Pending review" with nothing to review.
+    """
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    instr = create_global_instruction(
+        text=main_text, user_token=token, org_id=org_id, status="published",
+    )
+    iid = instr["id"]
+    _inject_suggestion_build(org_id, iid, proposed_text)
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    total_hunks = sum(len(s["hunks"]) for s in review["suggestions"])
+
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers).json()
+    flagged_pending = iid in sweep["instruction_ids"]
+
+    # The invariant: the badge may only fire when there is a hunk to show.
+    if flagged_pending:
+        assert total_hunks > 0, (
+            "instruction is flagged 'Pending review' by /pending-changes but "
+            f"/review-hunks renders {total_hunks} hunks — pending with nothing to review"
+        )
+    else:
+        assert total_hunks == 0
+
+
+@pytest.mark.e2e
 def test_agent_count_matches_list_under_inaccessible_table(
     test_client,
     create_user,
