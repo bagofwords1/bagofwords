@@ -28,6 +28,12 @@ class Connection(BaseSchema):
     
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime, nullable=True)
+
+    # Secure data tunnel (design D1/A10). tunnel_mode connections are served by
+    # a data edge agent and hold no credentials here; edge_agent_id names the
+    # advertising agent and is the routing token (A3).
+    tunnel_mode = Column(Boolean, nullable=False, default=False)
+    edge_agent_id = Column(String, nullable=True)
     
     # Connection test cache - stores last test result to avoid repeated slow tests
     last_connection_status = Column(String, nullable=True)  # "success", "not_connected", "offline"

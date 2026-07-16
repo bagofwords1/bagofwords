@@ -1,0 +1,137 @@
+version: 1
+filesystem_policy:
+  include_workdir: true
+  read_write:
+  - /app
+  - /sandbox
+  - /dev/null
+  - /dev/shm
+  - /tmp
+  - /var/tmp
+  - /home
+  - /sandbox/app/
+  - /usr/local/bin
+  read_only:
+  - /proc
+  - /sys
+  - /lib
+  - /etc
+  - /usr
+  - /var/run/secrets
+landlock:
+  compatibility: best_effort
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+network_policies:
+  anthropic:
+    name: Anthropic Claude API
+    endpoints:
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: claude.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: auth.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: statsig.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: sentry.io
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - path: /usr/local/bin/claude
+      - path: /usr/bin/claude
+      - path: /usr/bin/curl
+      - path: /usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
+  pypi:
+    name: Python Package Index
+    endpoints:
+      - host: pypi.org
+        port: 443
+        access: read-only
+      - host: files.pythonhosted.org
+        port: 443
+        access: read-only
+      # uv managed-Python downloads (python-build-standalone metadata/redirects)
+      - host: astral.sh
+        port: 443
+        access: read-only
+    binaries:
+      - path: /usr/bin/python3
+      - path: /usr/local/bin/python3
+      - path: /usr/local/bin/pip
+      - path: /usr/local/bin/uv
+      - path: /usr/bin/uv
+  github:
+    name: GitHub
+    endpoints:
+      - host: github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+      - host: objects.githubusercontent.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-only
+    binaries:
+      - path: /usr/bin/git
+  npm:
+    name: NPM and Yarn Registries
+    endpoints:
+      - host: registry.npmjs.org
+        port: 443
+        access: read-only
+      - host: registry.yarnpkg.com
+        port: 443
+        access: read-only
+    binaries:
+      - path: /usr/local/bin/node
+      - path: /usr/local/bin/npm
+      - path: /usr/local/bin/npx
+      - path: /usr/bin/node
+      - path: /usr/bin/npm
+      - path: /usr/bin/npx
+      - path: /usr/local/bin/yarn
+      - path: /usr/bin/yarn
+      - path: /usr/lib/node_modules/yarn/bin/yarn.js
+  kubernetes:
+    name: Kubernetes API
+    endpoints:
+      - host: kubernetes.default.svc
+        port: 443
+        access: full
+      - host: kubernetes.default
+        port: 443
+        access: full
+      - host: kubernetes
+        port: 443
+        access: full
+    binaries:
+      - path: /usr/local/bin/kubectl
+      - path: /usr/bin/kubectl
+  mcp:
+    name: MCP Server
+    endpoints:
+      - host: mcp-server.openshell.svc
+        port: 8080
+        access: full
+    binaries:
+      - path: /usr/local/bin/claude
+      - path: /usr/bin/claude
+      - path: /usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe

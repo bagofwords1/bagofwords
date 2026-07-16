@@ -1,0 +1,46 @@
+[project]
+name = "bow-data-plane"
+version = "0.1.0"
+description = "Bow data plane — components that run in the customer's network"
+requires-python = ">=3.12,<3.15"
+
+# Deliberately narrow. The data plane runs no sandbox, no ORM models and no
+# generated Python — that dependency chain is what forced a fork in the
+# remote-execution design and is the reason this is a separate project rather
+# than a package under backend/.
+#
+# Later phases add the real client classes, which do pull SQLAlchemy and the
+# database drivers. That is expected (see C1 in the design doc): clients are a
+# leaf dependency — a config dict in, a DataFrame out. What must never appear
+# here is `app.models` or anything that reaches the control plane's ORM.
+dependencies = [
+    "nats-py[aiohttp]>=2.9.0,<3",   # aiohttp extra = websocket transport (ws:// / wss://)
+    "pydantic>=2.13.4,<2.14",
+    "pyyaml>=6.0.3,<6.1",
+    # Data source clients. These are the leaf dependency the design anticipates:
+    # a config dict in, a DataFrame out. What must never appear is the control
+    # plane's ORM — see the note above.
+    "sqlalchemy>=2.0.51,<2.1",
+    "psycopg2-binary>=2.9.12,<2.10",
+    "pandas>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2,<8.5",
+    "pytest-asyncio>=0.23.8,<0.24",
+]
+
+[project.scripts]
+data-edge-agent = "data_edge_agent.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["data_edge_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["data_edge_agent/tests"]

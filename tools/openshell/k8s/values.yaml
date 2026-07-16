@@ -1,0 +1,26 @@
+server:
+  disableTls: true
+  workspaceDefaultStorageSize: "10Gi"
+  # Always re-pull sandbox images so rebuilds of a mutable tag (e.g. :dev) are
+  # picked up without evicting the cached image from the node.
+  sandboxImagePullPolicy: "Always"
+  auth:
+    allowUnauthenticatedUsers: true
+    
+supervisor:
+  topology: sidecar
+  sidecar:
+    processBinaryAwareNetworkPolicy: false
+
+sandboxServiceAccount:
+  create: false
+  name: openshell-sandbox
+
+grpcRoute:
+  enabled: true
+  gateway:
+    create: true
+    className: eg
+
+
+

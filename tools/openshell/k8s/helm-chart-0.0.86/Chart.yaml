@@ -1,0 +1,6 @@
+apiVersion: v2
+appVersion: 0.0.86
+description: runtime environment for autonomous agents
+name: helm-chart
+type: application
+version: 0.0.86
