@@ -1,4 +1,5 @@
 import csv
+import re
 import time
 import logging
 import uuid
@@ -19,6 +20,31 @@ from app.ee.audit.tool_audit import log_tool_audit
 from app.dependencies import async_session_maker
 
 logger = logging.getLogger(__name__)
+
+# Fallback display name when no usable title is provided.
+_DEFAULT_CSV_FILENAME = "write_csv_output.csv"
+
+
+def _derive_csv_filename(title: str | None) -> str:
+    """Turn an LLM-provided title into a safe, readable ``*.csv`` display name.
+
+    Sanitizes to a filename-safe slug so the value cannot contain path
+    separators or other unexpected characters, and falls back to the default
+    when the title is missing or slugs to nothing.
+    """
+    if not title:
+        return _DEFAULT_CSV_FILENAME
+
+    # Keep alphanumerics, dashes and underscores; collapse everything else.
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", title.strip())
+    slug = re.sub(r"_+", "_", slug).strip("._-")
+    # Drop any extension the slug may carry so we control the suffix.
+    slug = re.sub(r"\.csv$", "", slug, flags=re.IGNORECASE)
+    slug = slug[:100].strip("._-")
+
+    if not slug:
+        return _DEFAULT_CSV_FILENAME
+    return f"{slug}.csv"
 
 
 class WriteCsvTool(Tool):
@@ -263,15 +289,18 @@ Do not use when:
         info = formatted.get("info", {})
         data_preview = full_df.head(5).to_string() if not full_df.empty else ""
 
+        # Derive a readable display filename from the LLM-provided title.
+        display_filename = _derive_csv_filename(data.title)
+
         # Generate preview
         preview = None
         try:
-            preview = _preview_csv(dest_path, "write_csv_output.csv")
+            preview = _preview_csv(dest_path, display_filename)
         except Exception:
             pass
 
         file = File(
-            filename="write_csv_output.csv",
+            filename=display_filename,
             path=dest_path,
             content_type="text/csv",
             preview=preview,
