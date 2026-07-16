@@ -9,7 +9,7 @@ class WriteCsvInput(BaseModel):
     )
     title: Optional[str] = Field(
         default=None,
-        description="Title for the generated data visualization. If not provided, a default title will be used."
+        description="Title for the generated data visualization. Also used to name the saved CSV file, so prefer a short, descriptive title (e.g. 'Software Houses Income Tax 2025'). If not provided, a default title and filename will be used."
     )
     tables_by_source: Optional[List[Dict[str, Any]]] = Field(
         default=None,
