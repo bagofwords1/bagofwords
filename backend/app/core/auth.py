@@ -28,7 +28,7 @@ from app.models.organization import Organization
 from app.models.membership import Membership
 
 from app.models.user import User
-from app.dependencies import get_user_db, get_async_db
+from app.dependencies import get_user_db, get_async_db, resolve_organization
 from app.models.oauth_account import OAuthAccount
 from fastapi.responses import RedirectResponse
 
@@ -1012,6 +1012,35 @@ async def current_user_optional(
         return await current_user(request, jwt_user, api_key, db)
     except HTTPException:
         return None
+
+
+async def get_current_organization(
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(current_user),
+) -> Organization:
+    """Resolve the request's organization AND enforce that the caller still
+    belongs to it.
+
+    This is the single membership chokepoint for the HTTP surface: every route
+    that depends on it inherits the check, including the ~138 org-scoped routes
+    that carry no ``@requires_permission`` decorator. A user whose membership was
+    removed (directly, or via LDAP/OIDC/SCIM sync) is rejected with 403 the
+    moment they touch any org-scoped endpoint, instead of retaining access to
+    everything gated only on "public within the org".
+
+    Defined in core.auth (next to ``current_user``) rather than in dependencies
+    to avoid a circular import; ``app.dependencies`` re-exports it lazily so
+    ``from app.dependencies import get_current_organization`` keeps working.
+
+    Membership-bootstrap flows (invite acceptance, org creation) do not depend on
+    this — they establish the membership and so must run above the invariant.
+    """
+    from app.core.permission_resolver import assert_principal_belongs_to_org
+
+    org = await resolve_organization(request, db)
+    await assert_principal_belongs_to_org(db, user, org.id)
+    return org
 
 
 async def forbid_service_account_principal(user: User = Depends(current_user)) -> User:
