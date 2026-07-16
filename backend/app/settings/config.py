@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     TESTING: bool = False
     TEST_DATABASE_URL: str = "sqlite:///db/test_{}.db".format(os.getpid())
     ENVIRONMENT: str = os.environ.get("ENVIRONMENT", "development")
+    # Secure data tunnel (design B3/B4). NATS_URL empty = tunnel disabled; the
+    # app starts normally and only tunneled connections are unavailable. The
+    # control plane uses the TCP client port (nats://…:4222), not the edge
+    # agents' websocket port. Token auth matches deploy-nats.sh.
+    NATS_URL: str = os.environ.get("NATS_URL", "")
+    NATS_TOKEN: str = os.environ.get("NATS_TOKEN", "")
     bow_config: BowConfig | None = None
     email_client: FastMail | None = None
 

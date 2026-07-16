@@ -2276,6 +2276,17 @@
     "membersTab": "Access",
     "identityProviderTab": "Identity Provider",
     "smtpTab": "SMTP",
+    "dataTunnelsTab": "Data Tunnels",
+    "dataTunnels": {
+      "title": "Data Tunnels",
+      "subtitle": "Data sources advertised by connected edge agents",
+      "loading": "Loading advertised data sources…",
+      "empty": "No edge agents have advertised any data sources yet.",
+      "noConnections": "This agent is connected but advertises no data sources.",
+      "lastSeen": "last seen",
+      "registered": "Registered",
+      "conflict": "Name conflict"
+    },
     "identityProvider": {
       "scimTitle": "SCIM Provisioning",
       "scimSubtitle": "Automatically provision and deprovision users and groups from your identity provider",

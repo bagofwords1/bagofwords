@@ -1,0 +1,485 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+suite: gateway TOML config shape
+templates:
+  - templates/gateway-config.yaml
+  - templates/deployment.yaml
+  - templates/statefulset.yaml
+release:
+  name: openshell
+  namespace: my-namespace
+
+tests:
+  # Regression for Drew's P2: a ConfigMap-only mutation in `helm upgrade`
+  # must roll the StatefulSet, otherwise pods keep running with stale config.
+  - it: annotates the StatefulSet pod template with a ConfigMap checksum
+    template: templates/statefulset.yaml
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/gateway-config"]
+
+  - it: renders a StatefulSet by default
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: kind
+          value: StatefulSet
+
+  - it: treats a null workload map as the default StatefulSet
+    template: templates/statefulset.yaml
+    set:
+      workload: null
+    asserts:
+      - equal:
+          path: kind
+          value: StatefulSet
+
+  - it: uses a stable gateway container name
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: openshell-gateway
+
+  - it: mounts the OIDC CA bundle when TLS is disabled
+    template: templates/statefulset.yaml
+    set:
+      server.disableTls: true
+      server.oidc.issuer: https://issuer.example.com
+      server.oidc.caConfigMapName: openshell-oidc-ca
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[3].name
+          value: oidc-ca
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[3].mountPath
+          value: /etc/openshell-tls/oidc-ca
+      - equal:
+          path: spec.template.spec.volumes[2].name
+          value: oidc-ca
+      - equal:
+          path: spec.template.spec.volumes[2].configMap.name
+          value: openshell-oidc-ca
+
+  # Regression for the P1 bug Drew flagged: grpc_endpoint MUST live in the
+  # Kubernetes driver table, not in [openshell.gateway]. The gateway-side
+  # schema has `deny_unknown_fields` and no `grpc_endpoint` field, so writing
+  # it at gateway scope makes `config_file::load` reject the default install.
+  - it: renders grpc_endpoint under [openshell.drivers.kubernetes], not [openshell.gateway]
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?grpc_endpoint'
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.gateway\][^\[]*?grpc_endpoint'
+
+  - it: renders the sandbox service account name under [openshell.drivers.kubernetes]
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?service_account_name\s*=\s*"openshell-sandbox"'
+
+  - it: renders combined supervisor topology by default under [openshell.drivers.kubernetes]
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?topology\s*=\s*"combined"'
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'supervisor[_]topology\s*='
+
+  - it: uses the gateway built-in supervisor image by default
+    template: templates/gateway-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'supervisor_image\s*='
+
+  - it: renders a supervisor tag override with the official repository
+    template: templates/gateway-config.yaml
+    set:
+      supervisor.image.tag: 1.2.3
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: 'supervisor_image\s*=\s*"ghcr\.io/nvidia/openshell/supervisor:1\.2\.3"'
+
+  - it: renders a supervisor repository override with the effective gateway tag
+    template: templates/gateway-config.yaml
+    set:
+      image.tag: gateway-build
+      supervisor.image.repository: registry.example.com/openshell/supervisor
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: 'supervisor_image\s*=\s*"registry\.example\.com/openshell/supervisor:gateway-build"'
+
+  - it: renders complete supervisor repository and tag overrides
+    template: templates/gateway-config.yaml
+    set:
+      supervisor.image.repository: registry.example.com/openshell/supervisor
+      supervisor.image.tag: supervisor-build
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: 'supervisor_image\s*=\s*"registry\.example\.com/openshell/supervisor:supervisor-build"'
+
+  - it: renders sidecar supervisor topology under [openshell.drivers.kubernetes]
+    template: templates/gateway-config.yaml
+    set:
+      supervisor.topology: sidecar
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?topology\s*=\s*"sidecar"'
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'supervisor[_]topology\s*='
+
+  - it: renders proxy uid under [openshell.drivers.kubernetes.sidecar]
+    template: templates/gateway-config.yaml
+    set:
+      supervisor.sidecar.proxyUid: 2200
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\.sidecar\].*?proxy_uid\s*=\s*2200'
+
+  - it: renders process binary aware network policy under [openshell.drivers.kubernetes.sidecar]
+    template: templates/gateway-config.yaml
+    set:
+      supervisor.sidecar.processBinaryAwareNetworkPolicy: false
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\.sidecar\].*?process_binary_aware_network_policy\s*=\s*false'
+
+  - it: renders sandbox image pull secrets under [openshell.drivers.kubernetes]
+    template: templates/gateway-config.yaml
+    set:
+      server.sandboxImagePullSecrets:
+        - name: regcred
+        - name: backup-regcred
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?image_pull_secrets\s*=\s*\["regcred", "backup-regcred"\]'
+
+  - it: renders the default sandbox AppArmor profile under [openshell.drivers.kubernetes]
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?app_armor_profile\s*=\s*"Unconfined"'
+
+  - it: omits sandbox AppArmor profile when disabled
+    template: templates/gateway-config.yaml
+    set:
+      server.appArmorProfile: ""
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'app_armor_profile\s*='
+
+  - it: does not reuse gateway image pull secrets for sandbox pods
+    template: templates/gateway-config.yaml
+    set:
+      imagePullSecrets:
+        - name: gateway-regcred
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'image_pull_secrets\s*='
+
+  - it: does not render local mTLS user auth for Kubernetes deployments
+    template: templates/gateway-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: '\[openshell\.gateway\.mtls_auth\]'
+
+  - it: does not allow unauthenticated users by default
+    template: templates/gateway-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: '\[openshell\.gateway\.auth\]'
+
+  - it: renders explicit unauthenticated user dev mode when enabled
+    template: templates/gateway-config.yaml
+    set:
+      server.auth.allowUnauthenticatedUsers: true
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.gateway\.auth\].*?allow_unauthenticated_users\s*=\s*true'
+
+  - it: omits the gRPC rate limit by default
+    template: templates/gateway-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'grpc_rate_limit_requests\s*='
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'grpc_rate_limit_window_seconds\s*='
+
+  - it: renders the gRPC rate limit under [openshell.gateway] when both values are positive
+    template: templates/gateway-config.yaml
+    set:
+      server.grpcRateLimit.requests: 120
+      server.grpcRateLimit.windowSeconds: 60
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.gateway\].*?grpc_rate_limit_requests\s*=\s*120'
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.gateway\].*?grpc_rate_limit_window_seconds\s*=\s*60'
+
+  # The validation lives in gateway-config.yaml but surfaces through the
+  # statefulset checksum include, so the failure is asserted against that
+  # template (mirrors the postgres serviceBindings failure test below).
+  - it: fails to render when only requests is positive
+    template: templates/statefulset.yaml
+    set:
+      server.grpcRateLimit.requests: 120
+    asserts:
+      - failedTemplate:
+          errorMessage: "server.grpcRateLimit requires both requests and windowSeconds to be positive to enable rate limiting, or both 0/unset to disable it"
+
+  - it: fails to render when only windowSeconds is positive
+    template: templates/statefulset.yaml
+    set:
+      server.grpcRateLimit.windowSeconds: 60
+    asserts:
+      - failedTemplate:
+          errorMessage: "server.grpcRateLimit requires both requests and windowSeconds to be positive to enable rate limiting, or both 0/unset to disable it"
+
+  - it: fails to render when requests is negative
+    template: templates/statefulset.yaml
+    set:
+      server.grpcRateLimit.requests: -1
+    asserts:
+      - failedTemplate:
+          errorMessage: "server.grpcRateLimit.requests and server.grpcRateLimit.windowSeconds must not be negative; they map to unsigned gateway settings"
+
+  - it: fails to render when windowSeconds is negative
+    template: templates/statefulset.yaml
+    set:
+      server.grpcRateLimit.windowSeconds: -5
+    asserts:
+      - failedTemplate:
+          errorMessage: "server.grpcRateLimit.requests and server.grpcRateLimit.windowSeconds must not be negative; they map to unsigned gateway settings"
+
+  - it: uses the configured existing sandbox service account name
+    template: templates/gateway-config.yaml
+    set:
+      sandboxServiceAccount.create: false
+      sandboxServiceAccount.name: precreated-sandbox
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '(?ms)\[openshell\.drivers\.kubernetes\].*?service_account_name\s*=\s*"precreated-sandbox"'
+
+  - it: omits server_sans when no DNS SANs are configured
+    template: templates/gateway-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: 'server_sans\s*='
+
+  - it: emits disable_tls=true and omits the [openshell.gateway.tls] section when disableTls is set
+    set:
+      server.disableTls: true
+      certManager.enabled: false
+      pkiInitJob.enabled: false
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: 'disable_tls\s*=\s*true'
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: '\[openshell\.gateway\.tls\]'
+
+  - it: renders server_sans from certManager.serverDnsNames
+    set:
+      certManager.enabled: true
+      certManager.serverDnsNames:
+        - openshell
+        - "*.dev.openshell.localhost"
+      pkiInitJob.enabled: false
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: 'server_sans\s*=\s*\["openshell", "\*\.dev\.openshell\.localhost"\]'
+
+  - it: passes sqlite db-url via --db-url arg by default
+    template: templates/statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "sqlite:/var/openshell/openshell.db"
+
+  - it: fails when legacy postgres.enabled is set
+    template: templates/statefulset.yaml
+    set:
+      postgres.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "postgres.enabled was removed"
+
+  - it: fails when multiple replicas use the default SQLite database
+    template: templates/statefulset.yaml
+    set:
+      replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "replicaCount > 1 requires server.externalDbSecret"
+
+  - it: renders a Deployment for external database-backed gateway workloads
+    template: templates/deployment.yaml
+    set:
+      workload.kind: deployment
+      replicaCount: 2
+      server.externalDbSecret: my-pg-secret
+    asserts:
+      - equal:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.replicas
+          value: 2
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: openshell-gateway
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: openshell-data
+            mountPath: /var/openshell
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OPENSHELL_DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: my-pg-secret
+                key: uri
+
+  - it: fails when a Deployment uses the default SQLite database
+    template: templates/statefulset.yaml
+    set:
+      workload.kind: deployment
+    asserts:
+      - failedTemplate:
+          errorPattern: "workload.kind=deployment requires server.externalDbSecret"
+
+  - it: fails when multiple replicas use a StatefulSet without an override
+    template: templates/statefulset.yaml
+    set:
+      replicaCount: 2
+      server.externalDbSecret: my-pg-secret
+    asserts:
+      - failedTemplate:
+          errorPattern: "replicaCount > 1 with workload.kind=statefulset requires workload.allowMultiReplicaStatefulSet=true"
+
+  - it: allows a multi-replica StatefulSet with an external database and explicit override
+    template: templates/statefulset.yaml
+    set:
+      replicaCount: 2
+      server.externalDbSecret: my-pg-secret
+      workload.allowMultiReplicaStatefulSet: true
+    asserts:
+      - equal:
+          path: kind
+          value: StatefulSet
+      - equal:
+          path: spec.replicas
+          value: 2
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: openshell-data
+            mountPath: /var/openshell
+
+  - it: fails when workload.kind is invalid
+    template: templates/statefulset.yaml
+    set:
+      workload.kind: daemonset
+    asserts:
+      - failedTemplate:
+          errorPattern: "workload.kind must be one of: statefulset, deployment"
+
+  - it: does not pass --db-url in args when externalDbSecret is set
+    template: templates/statefulset.yaml
+    set:
+      server.externalDbSecret: my-pg-secret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--db-url"
+
+  - it: references externalDbSecret when set
+    template: templates/statefulset.yaml
+    set:
+      server.externalDbSecret: my-pg-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OPENSHELL_DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: my-pg-secret
+                key: uri
+
+  - it: renders HA external database configuration from the CI overlay as a Deployment
+    template: templates/deployment.yaml
+    values:
+      - ../ci/values-high-availability.yaml
+    asserts:
+      - equal:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.replicas
+          value: 2
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OPENSHELL_DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: openshell-ha-pg
+                key: uri
+  - it: renders provider SPIFFE token grants while keeping gateway JWT auth
+    set:
+      server.providerTokenGrants.spiffe.enabled: true
+    template: templates/gateway-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: '\[openshell\.gateway\.gateway_jwt\]'
+      - matchRegex:
+          path: data["gateway.toml"]
+          pattern: 'provider_spiffe_workload_api_socket_path\s*=\s*"/spiffe-workload-api/spire-agent\.sock"'
+      - notMatchRegex:
+          path: data["gateway.toml"]
+          pattern: '\[openshell\.gateway\.spiffe\]'
+
+  - it: keeps the gateway sandbox JWT secret mounted when provider SPIFFE grants are enabled
+    set:
+      server.providerTokenGrants.spiffe.enabled: true
+    template: templates/statefulset.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.volumes[1].name
+          pattern: '^sandbox-jwt$'

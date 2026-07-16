@@ -1,0 +1,79 @@
+# Data Edge Agent — sample configuration
+#
+# Copy to config.yaml and edit. Shape lives here; secrets live in the
+# environment, so this file is safe to commit to your own deployment repo.
+#
+#   python -m data_plane.data_edge_agent --config config.yaml
+#
+# Every value below can be overridden by BOW_EDGE_AGENT_<FIELD>, which is what
+# container deployments use. Environment wins over file.
+
+# --- identity -----------------------------------------------------------
+# Both become NATS subject tokens, so: no dots, spaces, '*' or '>'.
+#
+# edge_agent_id must match the user granted in the Bow instance's nats.conf,
+# and must be assigned before first start — the broker grants permissions
+# against it, so an id invented at boot could never connect.
+org_id: cust-b
+edge_agent_id: nyc-01
+edge_agent_name: NYC Office          # display label only; safe to rename
+
+# --- broker -------------------------------------------------------------
+# Production terminates TLS at an ingress: wss://tunnel.your-bow-host.com
+# Local compose has no terminator, so plain ws:// against the NATS port.
+# Pointing wss:// at a no_tls listener fails the handshake with an error that
+# looks like a certificate problem and is not one.
+nats_url: ws://localhost:9443
+
+# Leave unset here. Set BOW_EDGE_AGENT_NATS_TOKEN instead.
+# nats_token: ...
+
+# --- served connections -------------------------------------------------
+# One NATS subject per entry: tunnel.<org_id>.<edge_agent_id>.conn.<name>
+#
+# `name` must be unique within your Bow organization — a second agent
+# advertising a name another already owns is rejected at registration, and an
+# admin has to rename it here.
+#
+# Credentials are NOT configured here. They arrive with the encrypted local
+# config store in a later phase, which is the whole point of the agent: the Bow
+# instance never holds them.
+connections:
+  - name: prod-pg
+    type: postgresql
+    label: NYC Production
+
+    # Non-secret connection detail.
+    config:
+      host: localhost
+      port: 5432
+      database: analytics
+      schema: public              # optional; comma-separated for several
+
+    # Credentials stay on this machine. They are never advertised, never
+    # logged, and never reach the Bow instance — that is the entire point of
+    # running an agent rather than giving Bow a database login.
+    #
+    # Prefer the environment over this file:
+    #   BOW_EDGE_AGENT_CONN_PROD_PG_USER / _PASSWORD
+    credentials:
+      user: bow_reader
+      password: ""
+
+    # Optional. Omit to inherit default_query_timeout_seconds below.
+    query_timeout_seconds: 300
+
+# --- local -------------------------------------------------------------
+admin_port: 9191                     # reserved for the local admin UI
+log_level: INFO                      # DEBUG logs request bodies (credentials redacted)
+
+# --- budgets ------------------------------------------------------------
+# Advertised upward so the control plane can size its own waits. It cannot
+# raise them: a request may ask for less time, never more.
+default_query_timeout_seconds: 300   # per-connection default for execute_query
+index_timeout_seconds: 900           # get_schemas / warm_all, which run for minutes
+
+# How often to re-publish the advertisement. NATS core is at-most-once with no
+# persistence, so one published while Bow is restarting is simply lost; the
+# next cycle heals it.
+advertise_interval_seconds: 60

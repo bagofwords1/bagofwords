@@ -101,6 +101,7 @@ from app.routes import (
     mcp,
     build,
     connection,
+    data_tunnel,
     connection_oauth,
     artifact,
     oauth_server,
@@ -309,6 +310,7 @@ app.include_router(mcp.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
+app.include_router(data_tunnel.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
 app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
@@ -796,6 +798,25 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to start Slack Socket Mode listener: {e}")
 
+    # Secure data tunnel (design B3/B4). Every worker opens its own NATS
+    # connection — it is how that worker's tunneled clients reach an edge agent
+    # — but the advertisement listener is leader-gated: a plain subscribe fans
+    # to every worker, so registration must run in exactly one. NATS_URL empty
+    # means the tunnel is disabled; the app starts normally without it.
+    from app.services.tunnel_client import TunnelClient, set_tunnel_client
+    tunnel_client = TunnelClient()
+    if settings.NATS_URL:
+        try:
+            await tunnel_client.connect(settings.NATS_URL, settings.NATS_TOKEN)
+            if is_scheduler_leader:
+                await tunnel_client.start_advertisement_listener()
+        except Exception:
+            logger.exception("Tunnel unavailable; tunneled connections will fail")
+    else:
+        logger.info("NATS_URL not set — secure data tunnel disabled")
+    app.state.tunnel_client = tunnel_client
+    set_tunnel_client(tunnel_client)
+
     # Load the license key stored in the database (Settings → License), which
     # overrides BOW_LICENSE_KEY, before anything reads the license status.
     from app.services.license_service import load_license_at_startup, run_license_refresher
@@ -878,6 +899,15 @@ async def shutdown_event():
     if license_refresher_task is not None:
         try:
             await license_refresher_task
+        except Exception:
+            pass
+    # Drain the tunnel: let in-flight requests finish and their replies land
+    # before the socket goes away, so a shutdown mid-query surfaces as a
+    # completed query rather than a spurious error (design B4).
+    tunnel_client = getattr(app.state, "tunnel_client", None)
+    if tunnel_client is not None:
+        try:
+            await tunnel_client.drain()
         except Exception:
             pass
     scheduler.shutdown()

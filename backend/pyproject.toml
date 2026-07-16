@@ -89,6 +89,10 @@ dependencies = [
     "python-slugify>=8.0.4,<8.1",
     "python-dotenv>=1.2.2,<1.3",
     "pyyaml>=6.0.3,<6.1",
+    # WebSocket transport (ws:// and wss://) needs the aiohttp extra; the edge
+    # agent always connects over websocket so 443 is the only port a customer
+    # has to allow outbound.
+    "nats-py[aiohttp]>=2.9.0,<3",
     "tiktoken>=0.13.0,<0.14",
     # Model-written regex (search_agents, describe_tables) runs with a timeout; stdlib re has none.
     "regex>=2026.5.9,<2027",

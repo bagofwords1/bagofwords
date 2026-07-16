@@ -1,0 +1,145 @@
+# =============================================================================
+# Development toolbox image for agentic coding (Claude Code, etc.)
+#
+# Pre-installs all runtimes, build tools, and system dependencies.
+# Source code is NOT included — clone the repo at runtime.
+#
+# Build:
+#   docker build -f Dockerfile.dev -t bow-dev .
+#
+# Run:
+#   docker run --rm -it -e ANTHROPIC_API_KEY=sk-... bow-dev bash
+#
+# Then inside the container:
+#   git clone https://x-access-token:$TOKEN@github.com/org/repo.git /app
+#   cd /app/backend && uv sync --frozen --extra kerberos --extra dev
+#   cd /app/frontend && yarn install --frozen-lockfile
+#   bash scripts/download-vendor-libs.sh frontend/public/libs
+#   bash tools/agent/boot_stack.sh --dev
+# =============================================================================
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Create sandbox user (UID 1000) ──────────────────────────────────────────
+RUN usermod -l sandbox -d /sandbox -m ubuntu && \
+    groupmod -n sandbox ubuntu
+
+# ── System packages ──────────────────────────────────────────────────────────
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+      # Python
+      python3 python3-venv python3-dev \
+      # Build essentials
+      build-essential gcc g++ make cmake \
+      # Database client libs (Postgres, ODBC for SQL Server)
+      libpq-dev unixodbc-dev \
+      # Kerberos dev headers (python-gssapi / SQL Server SSO)
+      libkrb5-dev \
+      # General utilities
+      curl ca-certificates gnupg git openssh-client vim-tiny jq sudo \
+      # LibreOffice for PPTX preview tests
+      libreoffice-impress poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 22 + Yarn ───────────────────────────────────────────────────────
+# Add the NodeSource repo deterministically (keyring + sources list) instead of
+# piping setup_22.x, whose internal `apt update` can fail silently and leave the
+# nodejs package unlocatable.
+#RUN mkdir -p /etc/apt/keyrings && \
+#    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+#      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+#    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+#      > /etc/apt/sources.list.d/nodesource.list && \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    npm install --global yarn@1.22.22 && \
+    rm -rf /var/lib/apt/lists/*
+
+# ── uv (Python package manager) ─────────────────────────────────────────────
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+
+# ── Rust toolchain ──────────────────────────────────────────────────────────
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --default-toolchain stable --profile minimal && \
+    chmod -R a+rX /opt/rust && \
+    mkdir -p /opt/rust/cargo/registry && \
+    chmod -R a+w /opt/rust/cargo/registry
+ENV PATH="/opt/rust/cargo/bin:$PATH"
+
+# ── Playwright browser + deps ───────────────────────────────────────────────
+RUN npx playwright install chromium --with-deps && \
+    rm -rf /var/lib/apt/lists/*
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+
+# ── kubectl + Helm ───────────────────────────────────────────────────────────
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
+      -o /usr/local/bin/kubectl && \
+    chmod +x /usr/local/bin/kubectl && \
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# ── Claude Code CLI ──────────────────────────────────────────────────────────
+RUN npm install -g @anthropic-ai/claude-code
+
+# ── Environment ──────────────────────────────────────────────────────────────
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8 \
+    GIT_PYTHON_REFRESH=quiet \
+    ENVIRONMENT=development \
+    UV_LINK_MODE=copy \
+    NUXT_TELEMETRY_DISABLED=1 \
+    HOME=/sandbox
+# ── Prepare working directory ───────────────────────────────────────────────
+WORKDIR /sandbox
+# ── clone repo helper ────────────────────────────────
+COPY <<'EOF' /usr/local/bin/clone.sh
+#!/bin/bash
+set -e
+if [ -n "$GIT_REPO" ] && [ -n "$GIT_BRANCH" ]; then
+  mkdir -p /sandbox/app \
+   && cd /sandbox/app \
+   && git clone -b "$GIT_BRANCH" --single-branch "$GIT_REPO" .
+fi
+EOF
+RUN chmod +x /usr/local/bin/clone.sh
+# ── Pre-seed Claude Code config ──────────────────────────────────────────────
+# Lives under /sandbox (HOME) so clone.sh into /sandbox/app never clobbers it.
+#   .claude.json          -> pre-trust the workspace + register the MCP server at
+#                            local scope (pre-approved, no interactive prompt)
+#   .claude/settings.json -> allow all tools from the bow-k8s MCP server
+# With these baked in, the agent only needs: claude -p "task"
+COPY <<'JSON' /sandbox/.claude.json
+{
+  "projects": {
+    "/sandbox/app": {
+      "hasTrustDialogAccepted": true,
+      "mcpServers": {
+        "bow-k8s": {
+          "type": "sse",
+          "url": "http://mcp-server.openshell.svc:8080/sse"
+        }
+      }
+    }
+  }
+}
+JSON
+COPY <<'JSON' /sandbox/.claude/settings.json
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": ["mcp__bow-k8s"]
+  }
+}
+JSON
+RUN chown -R sandbox:sandbox /sandbox
+USER sandbox
+# ── Git configuration ───────────────────────────────────────────────────────
+RUN git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${GITHUB_TOKEN}"; }; f' && \
+    git config --global user.email "bow@sandbox" && \
+    git config --global user.name "Bow - Agentic Senior Developer"
+
+
