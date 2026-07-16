@@ -2908,6 +2908,85 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 	} finally {
 		completionsLoaded.value = true
 	}
+	// Lazily hydrate step data for whatever tool cards are already on screen
+	await nextTick()
+	observeStepContainers()
+}
+
+// === Lazy step-data hydration ===
+// The completions list embeds only a small PREVIEW of each step's result rows
+// (see serializers/completion_v2.py) so the card paints instantly without the
+// payload scaling with stored data. When a result is marked `truncated`, we
+// fetch the complete set on demand — per widget card as it scrolls into view —
+// via GET /api/steps/{id}, cache by step_id, and patch created_step.data back
+// in reactively so every tool component (ToolWidgetPreview, DescribeEntityTool,
+// WriteCsvTool, …) upgrades from preview to full unchanged. Small or
+// live-streamed results already carry all their rows and are never fetched.
+const stepDataCache = new Map<string, Promise<any>>()
+let stepObserver: IntersectionObserver | null = null
+
+function findToolExecutionByStepId(stepId: string): any | null {
+	for (const m of messages.value) {
+		for (const b of ((m as any).completion_blocks || [])) {
+			const te = b.tool_execution
+			if (!te) continue
+			if (te.created_step?.id === stepId || te.created_step_id === stepId) return te
+		}
+	}
+	return null
+}
+
+function stepNeedsFull(te: any): boolean {
+	// Only the capped preview shipped inline — fetch the rest. Full/small and
+	// live-streamed results have no `truncated` marker and need no request.
+	return !!te?.created_step?.data?.truncated
+}
+
+function hydrateStepData(stepId: string) {
+	if (!stepId || stepDataCache.has(stepId)) return
+	const te = findToolExecutionByStepId(stepId)
+	if (!te || !stepNeedsFull(te)) return
+	const p = (async () => {
+		try {
+			const { data } = await useMyFetch(`/api/steps/${stepId}`)
+			const step = data.value as any
+			const rows = step?.data ?? {}
+			const target = findToolExecutionByStepId(stepId)
+			if (target) {
+				if (target.created_step) target.created_step = { ...target.created_step, data: rows }
+				if (target.created_widget?.last_step) {
+					target.created_widget = {
+						...target.created_widget,
+						last_step: { ...target.created_widget.last_step, data: rows },
+					}
+				}
+			}
+			return rows
+		} catch (e) {
+			stepDataCache.delete(stepId) // allow a later retry
+			return null
+		}
+	})()
+	stepDataCache.set(stepId, p)
+}
+
+function observeStepContainers() {
+	if (typeof IntersectionObserver === 'undefined' || typeof document === 'undefined') return
+	if (!stepObserver) {
+		stepObserver = new IntersectionObserver((entries) => {
+			for (const entry of entries) {
+				if (!entry.isIntersecting) continue
+				const el = entry.target as HTMLElement
+				const stepId = el.getAttribute('data-step-id')
+				if (stepId) hydrateStepData(stepId)
+				stepObserver?.unobserve(el)
+			}
+		}, { rootMargin: '300px' })
+	}
+	document.querySelectorAll<HTMLElement>('.tool-execution-container[data-step-id]').forEach((el) => {
+		const id = el.getAttribute('data-step-id')
+		if (id && !stepDataCache.has(id)) stepObserver!.observe(el)
+	})
 }
 
 // Load previous page (older completions) and prepend while preserving scroll anchor
@@ -2989,6 +3068,9 @@ async function loadPreviousCompletions() {
         }
         hasMore.value = !!response?.has_more
         cursorBefore.value = response?.next_before || null
+        // Observe the newly prepended tool cards for lazy step-data hydration
+        await nextTick()
+        observeStepContainers()
     } catch (e) {
         // keep hasMore as-is on error
     } finally {
@@ -3254,6 +3336,10 @@ onUnmounted(() => {
 	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
+	// Tear down lazy step-data hydration
+	try { stepObserver?.disconnect() } catch {}
+	stepObserver = null
+	stepDataCache.clear()
 })
 
 
