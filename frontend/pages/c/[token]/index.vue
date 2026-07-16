@@ -229,6 +229,19 @@ import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import AttachFileTool from '~/components/tools/AttachFileTool.vue'
+import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
+import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import CreateDocTool from '~/components/tools/CreateDocTool.vue'
+import EditDocTool from '~/components/tools/EditDocTool.vue'
+import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
+import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
+import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
+import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
+import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
+import MCPTool from '~/components/tools/MCPTool.vue'
+import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
+import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -369,6 +382,33 @@ function getToolComponent(toolName: string) {
             return ReadFileTool
         case 'attach_file':
             return AttachFileTool
+        case 'create_artifact':
+            return CreateArtifactTool
+        case 'edit_artifact':
+            return EditArtifactTool
+        case 'read_artifact':
+            return ReadArtifactTool
+        case 'create_doc':
+            return CreateDocTool
+        case 'edit_doc':
+            return EditDocTool
+        case 'write_csv':
+            return WriteCsvTool
+        case 'write_to_excel':
+            return WriteToExcelTool
+        case 'read_excel_range':
+            return ReadExcelRangeTool
+        case 'read_excel_as_csv':
+            return ReadExcelAsCsvTool
+        case 'write_officejs_code':
+            return WriteOfficeJsCodeTool
+        case 'search_mcps':
+        case 'execute_mcp':
+            return MCPTool
+        case 'search_reports':
+            return SearchReportsTool
+        case 'read_report':
+            return ReadReportTool
         case 'execute_code':
         case 'execute_sql':
         case 'create_and_execute_code':
