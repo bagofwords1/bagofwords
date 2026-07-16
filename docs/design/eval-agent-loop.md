@@ -34,73 +34,101 @@ wake-up) and one comparison view.
 
 ## Phase 1 — chat-driven loop, end to end
 
-### 1.1 `read_eval_run` tool (new)
+### 1.1 `get_eval_runs` + `get_eval_run` tools (new)
 
-Single research tool covering both "read one run" and "list runs" (same
-pattern as `search_evals` which is list+search in one).
+Two research tools — a cheap list and a detailed read. Splitting them
+keeps each catalog description crisp and matches how the planner thinks
+("what's running?" vs. "how did run X do?").
 
-- **Input**: `{ run_id?: str, status?: "in_progress"|"success"|"error"|"stopped"|"all" = "all", limit: int = 10, compare_to_previous: bool = false }`
-  - `run_id` given → detail mode: run status, `build_id`/`build_number`,
-    `trigger_reason`, started/finished timestamps, counts
-    (`total/finished/passed/failed`), and per-case results
-    `{case_id, case_name, status, failure_reason}`.
-  - `run_id` omitted → list mode: most recent runs (id, title, status,
-    trigger_reason, build_number, counts from `summary_json`), filtered by
-    `status`. This is "list running evals" for the agent.
-  - `compare_to_previous` (detail mode only) → additionally returns flips
-    vs. the comparison base (see §3.1); this is how the agent answers
-    "did my instruction change fix it?" in one call.
-- **Metadata**: `category="research"`, `idempotent=True`,
-  `allowed_modes=["training"]` (matching `run_eval`; knowledge mode has no
-  business reading runs), `required_permissions=["manage_evals"]`.
-- **Implementation reuse**: `TestRunService.get_run`, `list_runs`,
-  `list_results`. No new service code beyond the compare helper (§3.1).
-- **Progress semantics for a live run**: none needed — the tool returns a
-  snapshot with `finished/total`; the agent compares counts across calls.
-- **Context**: extend `_digest_eval_tool` to digest `read_eval_run`
-  results (mirrors the existing `run_eval` digest: counts + up to 3
-  failure reasons).
+**`get_eval_runs`** — list mode, handles the many-runs case.
 
-### 1.2 Non-blocking `run_eval` (modify)
+- **Input**: `{ status?: "in_progress"|"success"|"error"|"stopped"|"all"
+  = "all", limit: int = 10 }`.
+- **Output**: most recent runs first — `{run_id, title, status,
+  trigger_reason, build_number, started_at, finished_at, counts}` (counts
+  from `summary_json`, or live `TestResult` tallies for in-progress
+  runs). This is "list running evals" for the agent, and it surfaces
+  reliability-automation runs too (`trigger_reason="automation:*"`).
+- Deliberately summary-only: no per-case results, so a long history stays
+  cheap in context.
 
-Two changes to `run_eval`; the run execution engine is untouched.
+**`get_eval_run`** — detail mode.
 
-**(a) Heartbeat.** The poll loop only emits events on case-status
-transitions, so a quiet case >180s trips `ToolRunner`'s idle timeout
-(`TimeoutPolicy(idle_timeout_s=180)` in `agent_v2.py`), which kills the
-generator, *retries the tool* (launching a duplicate TestRun), and orphans
-the first run. Fix: every ~30s of no transitions, emit
-`tool.progress {kind: "eval.heartbeat", run_id, finished_so_far, total}`.
-The frontend ignores unknown kinds; ToolRunner's idle timer resets.
+- **Input**: `{ run_id: str, compare_to_previous: bool = false }`.
+- **Output**: run status, `build_id`/`build_number`, `trigger_reason`,
+  started/finished timestamps, counts (`total/finished/passed/failed`),
+  and per-case results `{case_id, case_name, status, failure_reason}`.
+  With `compare_to_previous` → additionally returns flips vs. the
+  comparison base (see §3.1); this is how the agent answers "did my
+  instruction change fix it?" in one call.
+- **Live-run semantics**: returns a snapshot with `finished/total`; the
+  agent compares counts across calls. No streaming needed.
 
-**(b) Detach budget.** New input field `wait_s: int = 120`
-(clamped to `[0, 600]`; `0` = fire-and-forget).
+Shared metadata for both: `category="research"`, `idempotent=True`,
+`allowed_modes=["training"]` (matching `run_eval`; knowledge mode has no
+business reading runs), `required_permissions=["manage_evals"]`.
+Implementation reuse: `TestRunService.get_run`, `list_runs`,
+`list_results` — no new service code beyond the compare helper (§3.1).
+Context: extend `_digest_eval_tool` to digest both (mirrors the existing
+`run_eval` digest: counts + up to 3 failure reasons).
 
-- Run completes within `wait_s` → exactly today's behavior (inline
-  results, live per-case progress).
+### 1.2 Background-by-default `run_eval` (modify)
+
+`run_eval` becomes **fire-and-forget by default**: it creates the run,
+emits a start event with the case list, and ends immediately with
+`{status: "in_progress", run_id, total}`. The run execution engine is
+untouched. Three parts:
+
+**(a) Default = background.** New input field `wait_s: int = 0`
+(clamped to `[0, 600]`). Default `0` = kick off and return immediately.
+The agent (or the planner, for a one-case smoke check) can opt into a
+short inline wait — with `wait_s > 0`, today's behavior applies within
+the budget: live per-case progress streamed to chat, inline results if
+the run finishes in time.
+
 - Deadline passes and the run is not terminal → emit
   `tool.progress {kind: "eval.run_detached", ...}` then `tool.end` with
   output `{success: true, status: "in_progress", run_id, total, finished,
-  passed, failed, message: "Run still executing; check later with
-  read_eval_run(run_id=...) — use the wait tool for longer gaps."}`.
+  passed, failed, message: "Run executing in background; check with
+  get_eval_run(run_id=...) — use the wait tool for longer gaps."}`.
   **Do not** call `stop_run` (unlike today's hard-timeout path — detach
   is not a failure).
 - The existing `_PER_CASE_TIMEOUT_S`/`_MAX_TIMEOUT_S` deadline logic and
   its `stop_run` cascade are removed from the *tool*; runaway-run
   protection belongs to the run engine / org concurrency caps (§3.4), not
   to whichever tool happens to be watching.
-- Sigkill cascade stays as-is while attached. After detach the run keeps
-  executing server-side; stopping it is an explicit action (UI button or
-  `stop_eval_run`, §1.5). Document this in the tool description.
-- Output schema: `RunEvalOutput` gains `detached: bool = false`;
+- Sigkill cascade applies only while attached (`wait_s > 0`). A
+  background run keeps executing server-side; stopping it is an explicit
+  action (UI button or `stop_eval_run`, §1.5). Document this in the tool
+  description.
+- Output schema: `RunEvalOutput` gains `detached: bool`;
   `success` keeps meaning "the tool did its job" (kicked off and reported
   truthfully), while `status` carries the run state.
 
-**Planner guidance (description text)**: "If the result says
-`in_progress`, the run detached: continue with other work or call
-`read_eval_run` later; for waits longer than a few minutes use the `wait`
-tool with a reason like 'check eval run <id> via read_eval_run and report
-the results'."
+**(b) Heartbeat (for attached waits).** The poll loop only emits events
+on case-status transitions, so a quiet case >180s trips `ToolRunner`'s
+idle timeout (`TimeoutPolicy(idle_timeout_s=180)` in `agent_v2.py`),
+which kills the generator, *retries the tool* (launching a duplicate
+TestRun), and orphans the first run. Fix: every ~30s of no transitions,
+emit `tool.progress {kind: "eval.heartbeat", run_id, finished_so_far,
+total}`. The frontend ignores unknown kinds; ToolRunner's idle timer
+resets. Only relevant when `wait_s > 180`, but harmless always.
+
+**(c) Chat card follows the run, not the tool.** With background as the
+default, the chat tool card can no longer rely on `tool.progress` events
+for live pass/fail ticking. The card renders the start state ("Run
+started — N cases") with a link to `/evals/runs/{id}`, and switches to
+the existing run-level streaming/polling (`/runs/{id}/status` or
+`/runs/{id}/stream`) for live counts — the same source the run detail
+page already uses. This is a frontend change to the run_eval tool card
+component only.
+
+**Planner guidance (description text)**: "The run executes in the
+background: continue with other work or call `get_eval_run` later; for
+waits longer than a few minutes use the `wait` tool with a reason like
+'check eval run <id> via get_eval_run and report the results'. A
+completion wake-up will notify this conversation when the run finishes
+(§4.1), so prefer not to arm a wait for the same run."
 
 ### 1.3 `cancel_wait` tool (new)
 
@@ -143,8 +171,8 @@ counts. Used when the user says "stop that run" in chat, and by the agent
 when a detached run is superseded by a new instruction edit.
 
 **Phase 1 exit criterion**: in one chat session — create eval → `run_eval`
-(detaches) → `wait 10m` → auto-resume → `read_eval_run` → edit
-instructions → `run_eval` (pinned to new build) → `read_eval_run
+(returns immediately) → `wait 10m` → auto-resume → `get_eval_run` → edit
+instructions → `run_eval` (pinned to new build) → `get_eval_run
 compare_to_previous=true` → report fixed/regressed. No UI required.
 
 ---
@@ -177,7 +205,7 @@ overlapping runs labeled by build number + date (default preselected);
 summary chips ("3 fixed, 1 regressed"); per-row flip badge next to the
 existing status pill. Read-only, no state changes.
 
-**Agent**: exposed via `read_eval_run(compare_to_previous=true)` (§1.1) —
+**Agent**: exposed via `get_eval_run(compare_to_previous=true)` (§1.1) —
 same service call, no separate tool.
 
 ### 3.2 `edit_eval` tool (new)
@@ -240,18 +268,23 @@ same service call, no separate tool.
 Goal: a detached `run_eval` resumes the originating conversation when the
 run finishes, replacing poll-or-wait in the common case.
 
+With background as `run_eval`'s default (§1.2), this is the mechanism
+that closes the loop without polling, so it moves up in priority (see
+sequencing).
+
 - **Schema** (one migration): `TestRun.origin_report_id` (nullable FK),
   `TestRun.origin_user_id` (nullable FK), `TestRun.wake_on_finish`
-  (bool, default false). Set by `run_eval` at creation time; `wake_on_finish`
-  flips true only when the tool actually detaches (no wake needed for
-  inline results).
+  (bool, default false). Set by `run_eval` at creation time;
+  `wake_on_finish` is true whenever the tool returns before the run is
+  terminal (the default background path), false when results were
+  delivered inline within `wait_s`.
 - **Firing point**: the tail of `create_and_execute_background`'s
   background task (after `_save_run_summary`) and `stop_run` — i.e. every
   transition to a terminal status. Fire = create a completion on the
   origin report (module-level function mirroring `run_wait_wake`,
   including the cross-worker claim) with prompt:
   `"[Eval run finished] Run <id> completed with status <status>
-  (<passed>/<total> passed). Read the results with read_eval_run and
+  (<passed>/<total> passed). Read the results with get_eval_run and
   report back. If this was already handled in the conversation,
   acknowledge briefly and stop."`
 - **Double-wake avoidance**: `run_eval`'s detach message tells the agent a
@@ -264,24 +297,18 @@ run finishes, replacing poll-or-wait in the common case.
   a lost wake degrades to the phase-1 poll/wait path, never blocks run
   completion.
 
-### 4.2 `create_suite` tool + uniqueness (new)
+### 4.2 Suite creation: deliberately skipped
 
-- **Tool input**: `{ name, description? }`; `allowed_modes=["training"]`;
-  org-level `manage_evals` only (suite creation is an org-shaping act;
-  per-DS admins organize within existing suites).
-- **Semantics**: find-or-create on case-insensitive name match — an
-  existing suite returns `{created: false, suite_id, ...}` instead of an
-  error. LLM-driven creation must be idempotent-by-name or duplicate spam
-  is inevitable.
-- **Migration**: unique index on `(organization_id, lower(name))` where
-  `deleted_at IS NULL`, preceded by a data cleanup renaming existing
-  duplicates (`"Name (2)"`). This also hardens the existing
-  `get_or_create_drafts_suite` race noted in `test_case_service.py`.
-- **Grouping strategy** (decision, no code): suites stay *optional
-  folders / run-sets*; fine-grained grouping (smoke/complex/regression)
-  uses `tags_json`, which already exists and is now searchable (§3.3).
-  Selection-by-query (agent + tags + status) is phase 2, alongside the
-  association table.
+No `create_suite` tool in this scope. Agent-authored cases keep landing
+in an explicit existing `suite_id` or the lazy-created "Drafts" suite;
+suite management stays a UI/API concern. Grouping strategy (decision, no
+code): suites stay *optional folders / run-sets*; fine-grained grouping
+(smoke/complex/regression) uses `tags_json`, which already exists and
+becomes searchable via §3.3. Selection-by-query (agent + tags + status)
+is phase 2, alongside the association table. If LLM-driven suite
+creation is ever added, it must be find-or-create-by-name backed by a
+`(organization_id, lower(name))` unique index — noted here so the
+constraint lands before the tool does.
 
 ### 4.3 Instruction-change → affected evals: already built
 
@@ -291,7 +318,7 @@ run finishes, replacing poll-or-wait in the common case.
 cases (`list_agent_eval_case_ids`), runs them against the candidate build,
 and promotes/pends/self-heals on the outcome, recording
 `trigger_reason="automation:<trigger>"`. **No new work in this phase.**
-The only touchpoint: `read_eval_run`'s list mode surfaces automation runs
+The only touchpoint: `get_eval_runs` surfaces automation runs
 (they're ordinary `TestRun` rows), which closes the visibility loop for
 chat users.
 
@@ -299,36 +326,39 @@ chat users.
 
 ## Sequencing (PR-sized slices)
 
-1. **PR 1 — core loop**: heartbeat + `wait_s` detach in `run_eval`;
-   `read_eval_run` tool; digests. (Unit tests mirror
+1. **PR 1 — core loop**: `run_eval` background-by-default (`wait_s`,
+   detach, heartbeat) + chat-card switch to run-level streaming;
+   `get_eval_runs` + `get_eval_run` tools; digests. (Unit tests mirror
    `test_run_eval_input.py` / `test_wait_tool.py` patterns.)
-2. **PR 2 — cancel & stop**: `cancel_wait` tool + `WaitService.list_waits`
+2. **PR 2 — wake-up**: `TestRun` origin columns migration +
+   terminal-status wake firing + `run_eval` integration. Promoted to
+   second because with background as the default, the wake-up *is* the
+   loop's return path; poll/wait is the fallback.
+3. **PR 3 — cancel & stop**: `cancel_wait` tool + `WaitService.list_waits`
    + job_id in wait summary; `stop_eval_run` tool; the three guidance
    lines.
-3. **PR 3 — comparison**: `compare_runs` service + endpoint + run-detail
-   UI + `compare_to_previous` in `read_eval_run`.
-4. **PR 4 — authoring**: `edit_eval` tool; `search_evals` widening.
-5. **PR 5 — hygiene**: dedupe + org concurrency cap in the run service.
-6. **PR 6 — wake-up**: `TestRun` origin columns migration + terminal-status
-   wake firing + `run_eval` integration.
-7. **PR 7 — suites**: duplicate cleanup + unique index migration +
-   `create_suite` tool.
+4. **PR 4 — comparison**: `compare_runs` service + endpoint + run-detail
+   UI + `compare_to_previous` in `get_eval_run`.
+5. **PR 5 — authoring**: `edit_eval` tool; `search_evals` widening.
+6. **PR 6 — hygiene**: dedupe + org concurrency cap in the run service.
 
-PRs 1–2 alone make the chat loop usable; each later PR is independently
-shippable.
+PR 1 alone makes the chat loop usable (via poll or wait); each later PR
+is independently shippable.
 
 ## Open questions
 
-1. `wait_s` default (proposed 120s) and max (proposed 600s — still below
-   any sane planner-turn budget; ToolRunner's idle timer is defeated by
-   the heartbeat either way).
+1. `wait_s` max (proposed 600s — ToolRunner's idle timer is defeated by
+   the heartbeat either way). Default is settled: `0`, background.
 2. Concurrency cap default (proposed 3) and whether rejection should
    instead auto-attach to the newest in-progress run when case sets
    overlap but aren't equal.
-3. Should `read_eval_run` also be available in `chat` mode for read-only
-   "how did last night's evals do?" questions, or does that stay a
-   training-mode conversation? (Proposed: training-only until someone
-   asks.)
+3. Should `get_eval_runs`/`get_eval_run` also be available in `chat` mode
+   for read-only "how did last night's evals do?" questions, or does that
+   stay a training-mode conversation? (Proposed: training-only until
+   someone asks.)
 4. Comparison default base: "most recent terminal run sharing ≥1 case"
    vs. "most recent run on the same build lineage". Proposed the former —
    simpler and matches "did my change help?" intuition.
+5. Should PR 1 ship before PR 2 exists — i.e., is poll/wait acceptable as
+   the interim return path? (Proposed: yes; the wait tool already covers
+   it.)
