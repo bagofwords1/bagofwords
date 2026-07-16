@@ -539,6 +539,7 @@
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
+					:initialModel="report?.model_id || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? {} : undefined"
 					:isStopping="false"

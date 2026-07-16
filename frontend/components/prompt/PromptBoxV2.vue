@@ -1051,6 +1051,24 @@ async function refreshContextEstimate(force = false) {
 
 function selectModel(modelId: string) {
     selectedModel.value = modelId
+    persistModel()
+}
+
+async function persistModel() {
+    // Persist the report-level LLM override. Only for real reports, not the
+    // landing page (report_id is empty there). Sends the backend model id;
+    // resolution precedence at run time is
+    // prompt.model_id > report.model_id > user default > org default.
+    if (!props.report_id) return
+    try {
+        await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_id: selectedModel.value || '' })
+        })
+    } catch (e) {
+        console.error('Failed to persist model:', e)
+    }
 }
 
 async function persistMode() {
@@ -1432,6 +1450,20 @@ watch(() => props.textareaContent, (newVal) => {
 watch(() => props.initialMode, (newVal) => {
     if (newVal && newVal !== mode.value) {
         mode.value = newVal
+    }
+}, { immediate: true })
+
+// Adopt the report's saved model when it arrives (report data often loads
+// after loadModels() has already picked a user/org default). Only apply a
+// known, enabled model; ignore a stale/absent id so a deleted or restricted
+// report model degrades to the default the selector already holds. Sets the
+// ref directly (not selectModel) so hydrating from the report never triggers
+// a persist back.
+watch([() => props.initialModel, models], ([newModel, list]) => {
+    if (!newModel) return
+    if (newModel === selectedModel.value) return
+    if (Array.isArray(list) && list.find((m: any) => m.id === newModel)) {
+        selectedModel.value = newModel
     }
 }, { immediate: true })
 

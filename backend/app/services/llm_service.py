@@ -1408,7 +1408,80 @@ class LLMService:
         db.add(membership)
         await db.commit()
         return membership.default_llm_model_id
-    
+
+    async def get_default_model_for_report(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        report,
+    ):
+        """Effective default model for a completion run in a given report.
+
+        Precedence: the report-level override wins when it is still enabled, its
+        provider is alive, and the user running the completion can use it (a
+        model can be disabled/restricted after being picked, or set by a
+        teammate with access this user lacks). Anything stale falls back
+        silently to the per-user default, then the org default — a report
+        preference must never break chat. This mirrors
+        get_default_model_for_user, layered one tier above it.
+        """
+        report_model_id = getattr(report, "model_id", None) if report is not None else None
+        if report_model_id:
+            result = await db.execute(
+                select(LLMModel)
+                .join(LLMModel.provider)
+                .filter(LLMModel.id == report_model_id)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.deleted_at == None)
+                .filter(LLMModel.is_enabled == True)
+                .filter(LLMProvider.deleted_at == None)
+                .filter(LLMProvider.is_enabled == True)
+            )
+            model = result.unique().scalar_one_or_none()
+            if model is not None:
+                # No user (system/scheduled path) → honor the report model as-is;
+                # with a user, gate on their access like the user-default path.
+                if user is None:
+                    return model
+                from app.core.permission_resolver import user_can_use_model
+                if await user_can_use_model(db, user.id, organization.id, model):
+                    return model
+        return await self.get_default_model_for_user(db, organization, user)
+
+    async def validate_model_for_user(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        model_id: str,
+    ) -> LLMModel:
+        """Strict validation used when a user *sets* a model reference (e.g. the
+        report-level override). Unlike resolution, this raises: the model must
+        exist in the org, be enabled, and be usable by this user — restricted
+        models require a grant even though defaults bypass that check at read
+        time. Returns the validated model.
+        """
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.id == model_id)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMProvider.is_enabled == True)
+        )
+        model = result.unique().scalar_one_or_none()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if not model.is_enabled:
+            raise HTTPException(status_code=400, detail="Model is not enabled")
+        if user is not None:
+            from app.core.permission_resolver import user_can_use_model
+            if not await user_can_use_model(db, user.id, organization.id, model):
+                raise HTTPException(status_code=403, detail="You do not have access to this model")
+        return model
+
     async def set_default_models_from_config(
         self,
         db: AsyncSession,
