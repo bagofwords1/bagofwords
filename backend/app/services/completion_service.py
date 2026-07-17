@@ -400,6 +400,16 @@ class CompletionService:
             if model_limit and model_limit > 0:
                 context_usage_pct = round((prompt_tokens / model_limit) * 100, 2)
 
+            compaction_state = None
+            try:
+                from app.services.context_compaction_service import ContextCompactionService
+                from app.schemas.completion_v2_schema import CompactionStateSchema
+                compaction_state = CompactionStateSchema(
+                    **await ContextCompactionService.get_ui_state(db, report_id)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load compaction state for estimate: {e}")
+
             _result = CompletionContextEstimateSchema(
                 model_id=getattr(model, "model_id", ""),
                 model_name=getattr(model, "name", None),
@@ -408,6 +418,7 @@ class CompletionService:
                 remaining_tokens=remaining_tokens,
                 near_limit=near_limit,
                 context_usage_pct=context_usage_pct,
+                compaction=compaction_state,
             )
             # Populate cache; prune stale entries opportunistically so the
             # dict doesn't grow unbounded across many users/reports.
@@ -1340,11 +1351,12 @@ class CompletionService:
                 # Webhook provenance
                 webhook_id=getattr(c, 'webhook_id', None),
                 external_platform=getattr(c, 'external_platform', None),
+                message_type=getattr(c, 'message_type', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
                 fork_asset_refs=getattr(c, 'fork_asset_refs', None),
-                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external') else None,
+                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external' or getattr(c, 'message_type', None) == 'context_compaction') else None,
             )
             v2_completions.append(v2)
 
@@ -1709,6 +1721,7 @@ class CompletionService:
                 user_feedback=None,  # Not available without current_user context
                 # Scheduled prompt
                 scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
+                message_type=getattr(c, 'message_type', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),

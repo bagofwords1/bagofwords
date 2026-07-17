@@ -43,6 +43,52 @@ async def estimate_completion_tokens(
         organization,
     )
 
+@router.post("/api/reports/{report_id}/context/compact")
+@requires_permission('create_reports')
+async def compact_report_context(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """On-demand context compaction: fold turns older than the recent window
+    into the report's rolling summary. Idle-only — 409 while an agent
+    execution is streaming on this report (auto-compaction covers end-of-turn
+    pressure). force=True skips the token threshold, not the recent-tail rule."""
+    from sqlalchemy import select
+    from app.services.context_compaction_service import context_compaction_service, ContextCompactionService
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if await ContextCompactionService.is_report_busy(db, report_id):
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+
+    small_model = await completion_service.llm_service.get_default_model(db, organization, current_user, is_small=True)
+    if not small_model:
+        small_model = await completion_service.llm_service.get_default_model(db, organization, current_user)
+    if not small_model:
+        raise HTTPException(status_code=400, detail="No LLM model configured for this organization.")
+
+    result = await context_compaction_service.compact(
+        db, report, organization, small_model, force=True,
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message", "Compaction failed"))
+
+    # The estimate cache may hold a pre-compaction context figure; drop it so
+    # the usage popover refreshes with the compacted state immediately.
+    try:
+        completion_service._estimate_cache.clear()
+    except Exception:
+        pass
+
+    result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
+    return result
+
+
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports')
 async def create_completion(

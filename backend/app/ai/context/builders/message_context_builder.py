@@ -591,6 +591,30 @@ class MessageContextBuilder:
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
 
+    async def _compaction_state(self):
+        """Load the report's rolling-compaction state.
+
+        Returns (summary_text, watermark_created_at); (None, None) when the
+        report has never been compacted. Fail-open: any error renders the
+        full window exactly as before compaction existed."""
+        try:
+            from app.services.context_compaction_service import (
+                ContextCompactionService, render_summary_for_prompt,
+            )
+            if not self.report:
+                return None, None
+            state = await ContextCompactionService.get_state(self.db, str(self.report.id))
+            if not state:
+                return None, None
+            watermark_created_at = None
+            if state.covers_until_completion_id:
+                wm = await self.db.get(Completion, state.covers_until_completion_id)
+                watermark_created_at = wm.created_at if wm is not None else None
+            summary_text = render_summary_for_prompt(state.summary_json or {})
+            return (summary_text or None), watermark_created_at
+        except Exception:
+            return None, None
+
     async def _attachments_by_completion(self, completion_ids):
         """Files uploaded WITH each user message, for temporal grounding in
         history — 'the screenshot I sent earlier' is unresolvable unless the
@@ -725,12 +749,17 @@ class MessageContextBuilder:
         # Fetch only the most recent window instead of ALL completions then
         # slicing [-max_messages:] in Python (was O(conversation length) every
         # iteration). +1 covers dropping a trailing in-progress user completion.
-        report_completions = (await self.db.execute(
+        summary_text, watermark_created_at = await self._compaction_state()
+        completions_query = (
             select(Completion)
             .filter(Completion.report_id == self.report.id)
+            .filter(Completion.message_type != 'context_compaction')
             .order_by(Completion.created_at.desc())
             .limit(max_messages + 1)
-        )).scalars().all()
+        )
+        if watermark_created_at is not None:
+            completions_query = completions_query.filter(Completion.created_at > watermark_created_at)
+        report_completions = (await self.db.execute(completions_query)).scalars().all()
         report_completions = list(reversed(report_completions))  # restore chronological order
 
         # Skip the last completion if it's from a user (current incomplete conversation)
@@ -1184,20 +1213,33 @@ class MessageContextBuilder:
         
         # Join all conversation parts
         conversation_text = "\n".join(conversation) if conversation else "No conversation history available"
-        
+
         # Only truncate the entire final context if it's too long (like old agent.py approach)
         max_context_length = 8000  # Reasonable limit for LLM context
         if len(conversation_text) > max_context_length:
             conversation_text = conversation_text[:max_context_length] + "...\n[Context truncated due to length]"
-        
+
+        # Prepend the rolling compaction summary (historical context for turns
+        # older than the detailed window). Not counted against the window cap.
+        if summary_text:
+            conversation_text = (
+                "[Summary of earlier compacted turns]\n" + summary_text + "\n\n" + conversation_text
+            )
+
         return conversation_text
 
     async def build(
         self,
         max_messages: int = 20,
-        role_filter: Optional[List[str]] = None
+        role_filter: Optional[List[str]] = None,
+        completion_ids: Optional[List[str]] = None,
     ) -> MessagesSection:
-        """Build object-based messages section using the same data path as build_context."""
+        """Build object-based messages section using the same data path as build_context.
+
+        When `completion_ids` is given, exactly those completions are rendered
+        (chronological order) with no compaction summary attached — used by
+        ContextCompactionService to digest the turns being folded into the
+        rolling summary."""
         from app.models.completion_block import CompletionBlock
 
         items: List[MessageItem] = []
@@ -1210,18 +1252,33 @@ class MessageContextBuilder:
             except Exception:
                 allow_llm_see_data = False
 
-        # Most-recent window only (was fetch-all + slice in Python).
-        report_completions = (await self.db.execute(
-            select(Completion)
-            .filter(Completion.report_id == self.report.id)
-            .order_by(Completion.created_at.desc())
-            .limit(max_messages + 1)
-        )).scalars().all()
-        report_completions = list(reversed(report_completions))
+        summary_text = None
+        if completion_ids is not None:
+            report_completions = (await self.db.execute(
+                select(Completion)
+                .filter(Completion.id.in_([str(cid) for cid in completion_ids]))
+                .order_by(Completion.created_at.asc())
+            )).scalars().all()
+            report_completions = list(report_completions)
+        else:
+            # Most-recent window only (was fetch-all + slice in Python),
+            # scoped past the compaction watermark when one exists.
+            summary_text, watermark_created_at = await self._compaction_state()
+            completions_query = (
+                select(Completion)
+                .filter(Completion.report_id == self.report.id)
+                .filter(Completion.message_type != 'context_compaction')
+                .order_by(Completion.created_at.desc())
+                .limit(max_messages + 1)
+            )
+            if watermark_created_at is not None:
+                completions_query = completions_query.filter(Completion.created_at > watermark_created_at)
+            report_completions = (await self.db.execute(completions_query)).scalars().all()
+            report_completions = list(reversed(report_completions))
 
         completions_to_process = (
             report_completions[:-1]
-            if report_completions and report_completions[-1].role == 'user'
+            if completion_ids is None and report_completions and report_completions[-1].role == 'user'
             else report_completions
         )
 
@@ -1750,7 +1807,7 @@ class MessageContextBuilder:
                 if system_parts:
                     items.append(MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts)))
 
-        return MessagesSection(items=items)
+        return MessagesSection(items=items, history_summary=summary_text)
     
     async def get_message_count(self, role_filter: Optional[List[str]] = None) -> int:
         """Get total number of messages for this report."""

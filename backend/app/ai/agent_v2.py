@@ -1534,6 +1534,51 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
+    async def _run_auto_compaction(self):
+        """Fold turns older than the recent window into the report's rolling
+        summary (ContextCompactionService). Runs after completion.finished is
+        emitted so it never delays the UI, in its own DB session (report and
+        organization re-fetched by id — self.report/self.organization may be
+        detached here, same pitfall as title generation). Fail-open: any error
+        logs and leaves the next turn rendering context exactly as today."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            if not self.report:
+                return
+            model = self.small_model or self.model
+            if model is None:
+                return
+            from app.services.context_compaction_service import context_compaction_service
+            from app.models.organization import Organization
+            report_id = str(self.report.id)
+            organization_id = str(self.organization.id) if self.organization else None
+            SessionLocal = self._session_maker
+            async with SessionLocal() as session:
+                from sqlalchemy.orm import lazyload as _lazyload
+                report = (await session.execute(
+                    select(Report).where(Report.id == report_id).options(_lazyload("*"))
+                )).scalar_one_or_none()
+                organization = None
+                if organization_id:
+                    # Organization.settings is lazy='joined', so this re-fetch
+                    # carries the settings the digest path needs.
+                    organization = (await session.execute(
+                        select(Organization).where(Organization.id == organization_id)
+                    )).scalar_one_or_none()
+                if report is None or organization is None:
+                    return
+                result = await context_compaction_service.compact(
+                    session, report, organization, model, force=False,
+                )
+                if result.get("status") == "compacted":
+                    logger.info(
+                        f"Auto-compacted report {report_id}: "
+                        f"{result.get('compacted_turns')} turns, ~{result.get('tokens_compacted')} tokens"
+                    )
+        except Exception as e:
+            logger.warning(f"Auto compaction skipped: {e}")
+
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
@@ -4262,7 +4307,13 @@ class AgentV2:
                     self._drain_bg_writes(),
                     name="agent.post_finished_drain",
                 )
-            
+
+            # Rolling context compaction (auto, threshold-gated). Awaited —
+            # not create_task — so the write can't be lost to task GC (the
+            # title-generation lesson); ordered after completion.finished so
+            # the user-visible turn is never delayed by the small-model call.
+            await self._run_auto_compaction()
+
         except Exception as e:
             # Handle errors and finish execution with error status
             if self.current_execution:
