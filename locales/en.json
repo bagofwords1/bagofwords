@@ -467,12 +467,8 @@
     "clickToPublish": "click to publish",
     "saveChanges": "Save changes",
     "queued": "Queued",
-    "queueTooltip": "Add to queue — runs after the current completion finishes (Enter)",
-    "steerTooltip": "Steer — send into the running completion now",
     "steerNow": "Steer into the running completion now",
-    "removeFromQueue": "Remove from queue",
-    "queue": "Queue",
-    "steer": "Steer"
+    "removeFromQueue": "Remove from queue"
   },
   "reports": {
     "title": "Reports",

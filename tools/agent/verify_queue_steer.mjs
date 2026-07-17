@@ -70,24 +70,21 @@ await promptInput.press('Enter');
 // Thinking indicator = run started
 await page.locator('.thinking-shimmer').waitFor({ state: 'visible', timeout: 60000 });
 await page.waitForTimeout(2500);
-// Type the next prompt so the queue/steer buttons show alongside Stop
+// Type the next prompt — the input stays live while the run streams
 await promptInput.fill('Now show the top 5 customers by total order amount.');
-await page.locator('[data-testid="queue-button"]').waitFor({ state: 'visible', timeout: 15000 });
-await page.locator('[data-testid="steer-button"]').waitFor({ state: 'visible', timeout: 15000 });
-await shot(page, '1-running-with-queue-steer-buttons', 'completion running; input stays live with Queue (list icon), Steer (bolt) and Stop buttons');
+await shot(page, '1-running-with-queue-steer-buttons', 'completion running; input stays live (Enter queues), stop button in the action row');
 
-// ============ STAGE 2: queue the second prompt ============
-await page.locator('[data-testid="queue-button"]').click();
+// ============ STAGE 2: queue the second prompt (Enter routes to queue) ============
+await promptInput.press('Enter');
 await page.locator('[data-testid="queued-prompt-chip"]').waitFor({ state: 'visible', timeout: 30000 });
 await shot(page, '2-prompt-queued', 'second prompt sits in the queue chip while the first completion streams');
 
-// ============ STAGE 3: steer the running completion ============
-// Park the cursor first: the queued chip's tooltip (still open from the
-// queue click) can overlap and intercept the steer button.
-await page.mouse.move(10, 10);
-await page.waitForTimeout(400);
+// ============ STAGE 3: steer the running completion via a chip's bolt ============
 await promptInput.fill('Also mention which region has the fewest orders. Keep the final answer short.');
-await page.locator('[data-testid="steer-button"]').click();
+await promptInput.press('Enter');
+await page.locator('[data-testid="queued-prompt-chip"]').nth(1).waitFor({ state: 'visible', timeout: 30000 });
+// Promote the second (steer-text) chip into the live run
+await page.locator('[data-testid="queued-steer-button"]').nth(1).click();
 await page.locator('[data-testid="steering-badge"]').first().waitFor({ state: 'visible', timeout: 30000 });
 await shot(page, '3-steered-into-running-completion', 'steer message injected into the live run (amber badge + bordered bubble), queue chip still pending');
 

@@ -450,12 +450,8 @@
     "clickToPublish": "clic para publicar",
     "saveChanges": "Guardar cambios",
     "queued": "En cola",
-    "queueTooltip": "Añadir a la cola: se ejecuta cuando termine la respuesta actual (Enter)",
-    "steerTooltip": "Dirigir: enviar ahora a la respuesta en curso",
     "steerNow": "Dirigir ahora a la respuesta en curso",
-    "removeFromQueue": "Quitar de la cola",
-    "queue": "En cola",
-    "steer": "Dirigir"
+    "removeFromQueue": "Quitar de la cola"
   },
   "reports": {
     "title": "Informes",
