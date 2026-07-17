@@ -27,8 +27,9 @@ from app.ai.utils.token_counter import count_tokens
 
 logger = logging.getLogger(__name__)
 
-# Marker completions inserted by compaction; excluded from LLM context and
-# from future compaction scope, rendered as a divider in the UI.
+# Legacy marker completions (early builds inserted one per compaction). No
+# longer created — the UI divider is derived from covers_until_completion_id —
+# but existing rows must stay excluded from LLM context and compaction scope.
 COMPACTION_MESSAGE_TYPE = "context_compaction"
 
 # ---------------------------------------------------------------------------
@@ -491,17 +492,6 @@ class ContextCompactionService:
         state.tokens_compacted_total = (state.tokens_compacted_total or 0) + digest_tokens
         state.last_compaction_at = now
 
-        marker_text = f"Compacted {len(scope)} turns (~{self._fmt_tokens(digest_tokens)} tokens)"
-        marker = Completion(
-            prompt={"content": ""},
-            completion={"content": marker_text},
-            status="success",
-            model="system",
-            role="system",
-            message_type=COMPACTION_MESSAGE_TYPE,
-            report_id=report_id,
-        )
-        db.add(marker)
         await db.commit()
 
         # The estimate cache may hold a pre-compaction context figure; drop it
@@ -518,26 +508,25 @@ class ContextCompactionService:
             "status": "compacted",
             "compacted_turns": len(scope),
             "tokens_compacted": digest_tokens,
-            "marker_id": str(marker.id),
-            "marker_text": marker_text,
-            "marker_created_at": marker.created_at.isoformat() if marker.created_at else None,
             **self._state_payload(state),
         }
 
     @staticmethod
-    def _fmt_tokens(n: int) -> str:
-        if n >= 1000:
-            return f"{round(n / 1000)}k"
-        return str(n)
-
-    @staticmethod
     def _state_payload(state: Optional[ReportContextState]) -> dict:
         if state is None:
-            return {"tokens_compacted_total": 0, "covered_turns": 0, "last_compaction_at": None}
+            return {
+                "tokens_compacted_total": 0,
+                "covered_turns": 0,
+                "last_compaction_at": None,
+                "covers_until_completion_id": None,
+            }
         return {
             "tokens_compacted_total": int(state.tokens_compacted_total or 0),
             "covered_turns": int(state.covered_turns or 0),
             "last_compaction_at": state.last_compaction_at.isoformat() if state.last_compaction_at else None,
+            # The fold boundary: the UI renders the compaction divider right
+            # after this completion (state-derived, never an event row).
+            "covers_until_completion_id": str(state.covers_until_completion_id) if state.covers_until_completion_id else None,
         }
 
 

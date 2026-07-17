@@ -1379,6 +1379,18 @@ class CompletionService:
         span.set_attribute("completions.total_blocks", total_blocks)
         span.add_event("assembly_done")
 
+        # Rolling-compaction state (single-row lookup) so the transcript can
+        # place the watermark-anchored divider on load.
+        compaction_state = None
+        try:
+            from app.services.context_compaction_service import ContextCompactionService
+            from app.schemas.completion_v2_schema import CompactionStateSchema
+            compaction_state = CompactionStateSchema(
+                **await ContextCompactionService.get_ui_state(db, report_id)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load compaction state for completions list: {e}")
+
         return CompletionsV2Response(
             report_id=report_id,
             completions=v2_completions,
@@ -1390,6 +1402,7 @@ class CompletionService:
             latest_completion=latest,
             has_more=has_more,
             next_before=earliest,
+            compaction=compaction_state,
         )
 
     async def _assemble_v2_for_completion_ids(self, db: AsyncSession, completion_ids: list[str]) -> list[CompletionV2Schema]:

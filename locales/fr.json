@@ -420,6 +420,7 @@
     "compactTooltip": "Résumer les anciens tours pour libérer du contexte",
     "compactNothing": "Rien à compacter pour l'instant",
     "compactedTurns": "{turns} tours compactés (~{tokens} jetons)",
+    "compactedHistoryAbove": "Historique compacté ci-dessus",
     "tokens": "Jetons",
     "data": "Données",
     "connections": "Connexions",

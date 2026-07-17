@@ -420,6 +420,7 @@
     "compactTooltip": "Суммировать старые ходы, чтобы освободить контекст",
     "compactNothing": "Пока нечего сжимать",
     "compactedTurns": "Сжато {turns} ходов (~{tokens} токенов)",
+    "compactedHistoryAbove": "Сжатая история выше",
     "tokens": "Токены",
     "data": "Данные",
     "connections": "Подключения",

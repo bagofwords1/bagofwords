@@ -420,6 +420,7 @@
     "compactTooltip": "Resumir turnos antigos para liberar contexto",
     "compactNothing": "Nada para compactar ainda",
     "compactedTurns": "{turns} turnos compactados (~{tokens} tokens)",
+    "compactedHistoryAbove": "Histórico compactado acima",
     "tokens": "Tokens",
     "data": "Dados",
     "connections": "Conexões",

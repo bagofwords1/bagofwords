@@ -420,6 +420,7 @@
     "compactTooltip": "Riassumi i turni precedenti per liberare contesto",
     "compactNothing": "Niente da compattare per ora",
     "compactedTurns": "Compattati {turns} turni (~{tokens} token)",
+    "compactedHistoryAbove": "Cronologia compattata sopra",
     "tokens": "Token",
     "data": "Dati",
     "connections": "Connessioni",

@@ -452,6 +452,7 @@
     "compactTooltip": "Summarize older turns to free up context",
     "compactNothing": "Nothing to compact yet",
     "compactedTurns": "Compacted {turns} turns (~{tokens} tokens)",
+    "compactedHistoryAbove": "Compacted history above",
     "tokens": "Tokens",
     "data": "Data",
     "connections": "Connections",

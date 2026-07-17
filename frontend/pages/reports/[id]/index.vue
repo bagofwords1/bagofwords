@@ -108,15 +108,9 @@
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
 					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
-						<!-- Context compaction divider -->
-						<div v-if="(m as any).message_type === 'context_compaction'" class="flex items-center gap-3 my-3" data-testid="compaction-divider">
-							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider">
-								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
-								{{ (m as any).completion?.content || $t('prompt.compacted') }}
-							</span>
-							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-						</div>
+						<!-- Legacy compaction marker rows: hidden (the divider is
+						     state-derived from the watermark, rendered below) -->
+						<template v-if="(m as any).message_type === 'context_compaction'"></template>
 
 						<!-- Fork summary card (special rendering) -->
 						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
@@ -443,6 +437,23 @@
 								</div>
 							</template>
 						</div>
+
+						<!-- Compaction boundary: everything above this line (up to the
+						     watermark) is summarized for the agent; below is verbatim
+						     context. State-derived — moves when the watermark advances,
+						     never interleaves with streaming content. -->
+						<div
+							v-if="compactionWatermarkId && m.id === compactionWatermarkId"
+							class="flex items-center gap-3 my-4"
+							data-testid="compaction-divider"
+						>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
+								{{ $t('prompt.compactedHistoryAbove') }}
+							</span>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+						</div>
 					</li>
 			</ul>
 			<div v-else class="mt-32 fade-in">
@@ -561,6 +572,7 @@
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
+					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
@@ -1065,6 +1077,11 @@ const summaryInstructions = ref<any[]>([])
 // Separate from summaryInstructions (which is pending-only) so the Summary
 // tab can keep showing accepted instructions after the build is approved.
 const reportInstructions = ref<any[]>([])
+// Fold boundary of rolling context compaction: the transcript divider renders
+// right after this completion. State-derived (from the completions payload,
+// the context.compacted SSE, and manual compaction responses).
+const compactionWatermarkId = ref<string | null>(null)
+
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
 const isPublishingBuild = ref(false)
@@ -2794,18 +2811,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'context.compacted':
-			// Rolling context compaction ran at end of turn: append the transcript
-			// divider live and refresh the usage popover (compacted counter +
-			// context bar) without waiting for a reload.
-			if (payload?.marker_id && !messages.value.some(m => m.id === payload.marker_id)) {
-				messages.value.push({
-					id: payload.marker_id,
-					role: 'system' as ChatRole,
-					status: 'success' as ChatStatus,
-					message_type: 'context_compaction',
-					completion: { content: payload.content || '' },
-					created_at: payload.created_at || new Date().toISOString(),
-				})
+			// Rolling context compaction ran (background, mid-run): move the
+			// watermark-anchored divider and refresh the usage popover
+			// (compacted counter + context bar) without waiting for a reload.
+			if (payload?.covers_until_completion_id) {
+				compactionWatermarkId.value = payload.covers_until_completion_id
 			}
 			promptBoxRef.value?.refreshContextEstimate?.(true)
 			break
@@ -2982,6 +2992,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// Update cursors
 		hasMore.value = !!response?.has_more
 		cursorBefore.value = response?.next_before || null
+		// Place the compaction boundary from server state
+		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
         await nextTick()
         safeScrollToBottom()
 		if (!skipEstimate) {

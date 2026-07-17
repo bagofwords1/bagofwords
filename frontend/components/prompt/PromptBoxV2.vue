@@ -629,7 +629,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted'])
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -1143,6 +1143,12 @@ async function compactContext() {
         const response = await useMyFetch(`/reports/${props.report_id}/context/compact`, { method: 'POST' })
         const errorValue = (response as any)?.error?.value
         if (errorValue) throw errorValue
+        // Tell the page so the transcript's watermark-anchored divider moves
+        // with the manual compaction, not just on reload.
+        const result = (response as any)?.data?.value
+        if (result?.covers_until_completion_id) {
+            emit('contextCompacted', result)
+        }
         // Refresh the estimate so the context bar drops and the compacted
         // total rises — the visible payoff of the click.
         await refreshContextEstimate(true)

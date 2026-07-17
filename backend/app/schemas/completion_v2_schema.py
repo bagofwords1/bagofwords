@@ -75,6 +75,9 @@ class CompactionStateSchema(BaseModel):
     covered_turns: int = 0
     last_compaction_at: Optional[str] = None
     can_compact: bool = False
+    # Fold boundary: the transcript renders the compaction divider directly
+    # after this completion (state-derived — there are no divider rows).
+    covers_until_completion_id: Optional[str] = None
 
 
 class CompletionContextEstimateSchema(BaseModel):
@@ -210,5 +213,7 @@ class CompletionsV2Response(BaseModel):
     # Cursor pagination
     has_more: bool = False
     next_before: Optional[datetime] = None
+    # Rolling-compaction state so the transcript can place the divider on load
+    compaction: Optional[CompactionStateSchema] = None
 
 

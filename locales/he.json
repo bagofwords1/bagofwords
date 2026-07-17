@@ -435,6 +435,7 @@
     "compactTooltip": "סיכום תורות ישנים כדי לפנות מקום בהקשר",
     "compactNothing": "אין מה לכווץ עדיין",
     "compactedTurns": "כווצו {turns} תורות (~{tokens} טוקנים)",
+    "compactedHistoryAbove": "היסטוריה מכווצת למעלה",
     "tokens": "טוקנים",
     "data": "נתונים",
     "connections": "חיבורים",
