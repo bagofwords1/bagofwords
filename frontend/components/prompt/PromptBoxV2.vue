@@ -224,7 +224,6 @@
                     data-testid="queued-steer-button"
                     @click="emit('steerQueuedPrompt', qp.id)"
                 >
-                    <Icon name="heroicons-bolt" class="w-3 h-3" />
                     {{ $t('prompt.sendNow') }}
                 </button>
                 <button
