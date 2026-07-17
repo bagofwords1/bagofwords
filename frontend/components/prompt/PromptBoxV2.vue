@@ -215,17 +215,17 @@
             >
                 <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                 <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
-                <span class="text-[10px] uppercase tracking-wide text-gray-400 flex-shrink-0">{{ $t('prompt.queued') }}</span>
                 <!-- Native title tooltips here: UTooltip's popper can overlap and
                      intercept clicks on these small targets. -->
                 <button
                     v-if="latestInProgressCompletion"
-                    class="text-amber-500 hover:text-amber-600 flex-shrink-0"
+                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
                     :title="$t('prompt.steerNow')"
                     data-testid="queued-steer-button"
                     @click="emit('steerQueuedPrompt', qp.id)"
                 >
-                    <Icon name="heroicons-bolt" class="w-3.5 h-3.5" />
+                    <Icon name="heroicons-bolt" class="w-3 h-3" />
+                    {{ $t('prompt.sendNow') }}
                 </button>
                 <button
                     class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
