@@ -27,7 +27,7 @@
     <Transition name="fade" appear>
       <div
         v-if="succeeded"
-        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-xl"
+        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-2xl"
       >
         <!-- Card header: name, status, badges -->
         <div class="px-3 pt-2.5 pb-2 border-b border-gray-100 dark:border-gray-800">
@@ -70,31 +70,38 @@
             </button>
           </div>
 
-          <!-- Tables tab -->
-          <div v-if="activeTab === 'tables'" class="py-1.5 max-h-48 overflow-y-auto">
-            <ul v-if="tableItems.length" class="space-y-0.5 leading-snug text-[11px]">
-              <li v-for="tbl in tableItems" :key="tbl.id || tbl.name" class="flex items-center py-0.5">
-                <span class="w-1.5 h-1.5 rounded-full me-1.5 flex-shrink-0" :class="tbl.is_active ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-700'"></span>
-                <span class="text-gray-700 dark:text-gray-300 truncate">{{ tbl.name }}</span>
-              </li>
-            </ul>
-            <div v-else class="text-[11px] text-gray-400 py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+          <!-- Tables tab — the real selector: server-side search, schema filter,
+               sort and pagination, so connections with thousands of tables stay
+               navigable and editable right from the card. -->
+          <div v-if="activeTab === 'tables'" class="py-1.5 create-agent-selector">
+            <TablesSelector
+              :key="agentId"
+              :ds-id="agentId"
+              schema="full"
+              :can-update="true"
+              :show-refresh="false"
+              :show-save="true"
+              :show-stats="false"
+              :page-size="15"
+              max-height="280px"
+            />
           </div>
 
-          <!-- Tools tab -->
-          <div v-if="activeTab === 'tools'" class="py-1.5 max-h-48 overflow-y-auto">
-            <ul v-if="toolRows.length" class="space-y-0.5 leading-snug text-[11px]">
-              <li v-for="tool in toolRows" :key="tool.id || tool.name" class="flex items-center py-0.5">
-                <span class="w-1.5 h-1.5 rounded-full me-1.5 flex-shrink-0" :class="tool.is_enabled ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-700'"></span>
-                <span class="text-gray-700 dark:text-gray-300 font-mono truncate">{{ tool.name }}</span>
-                <span v-if="tool.policy && tool.policy !== 'allow'" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">{{ tool.policy }}</span>
-              </li>
-            </ul>
+          <!-- Tools tab — the real per-agent tool overlay editor. -->
+          <div v-if="activeTab === 'tools'" class="py-1.5 create-agent-selector">
+            <ToolsSelector
+              v-if="toolConns.length"
+              :key="agentId"
+              :ds-id="agentId"
+              :connections="toolConns"
+              :can-update="true"
+              :show-header="false"
+            />
             <div v-else class="text-[11px] text-gray-400 py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Files tab -->
-          <div v-if="activeTab === 'files'" class="py-1.5 max-h-48 overflow-y-auto">
+          <div v-if="activeTab === 'files'" class="py-1.5 max-h-64 overflow-y-auto">
             <ul v-if="fileNames.length" class="space-y-0.5 leading-snug text-[11px]">
               <li v-for="f in fileNames" :key="f" class="flex items-center py-0.5">
                 <Icon name="heroicons-document" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
@@ -123,6 +130,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import TablesSelector from '~/components/datasources/TablesSelector.vue'
+import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 
 interface ToolExecution {
   id: string
@@ -149,18 +158,24 @@ const connections = computed<string[]>(() => Array.isArray(result.value?.connect
 const unresolved = computed<string[]>(() => Array.isArray(result.value?.unresolved) ? result.value.unresolved : [])
 const requiresConnect = computed<boolean>(() => !!result.value?.requires_user_connect)
 
-// Live agent state (status + tabs). Falls back to the tool result payload.
+const FILE_TYPES = ['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail']
+const TOOL_TYPES = ['mcp', 'custom_api']
+
+// Live agent state (connection list drives the tabs; files list is card-local).
 const agentActive = ref<boolean>(true)
-const tableItems = ref<any[]>([])
-const toolRows = ref<any[]>([])
+const connRows = ref<any[]>([])
 const fileNames = ref<string[]>([])
 const loaded = ref(false)
 
+const toolConns = computed(() => connRows.value.filter((c: any) =>
+  TOOL_TYPES.includes(c.type) || c.data_shape === 'tools'))
+const fileConns = computed(() => connRows.value.filter((c: any) => FILE_TYPES.includes(c.type)))
+
 const visibleTabs = computed<string[]>(() => {
   const tabs: string[] = []
-  if (tableItems.value.length || (result.value?.tables_total || 0) > 0) tabs.push('tables')
-  if (toolRows.value.length || (result.value?.tools_total || 0) > 0) tabs.push('tools')
-  if (fileNames.value.length) tabs.push('files')
+  if ((result.value?.tables_total || 0) > 0 || (!toolConns.value.length && !fileConns.value.length)) tabs.push('tables')
+  if (toolConns.value.length || (result.value?.tools_total || 0) > 0) tabs.push('tools')
+  if (fileConns.value.length || fileNames.value.length) tabs.push('files')
   return tabs.length ? tabs : ['tables']
 })
 const activeTab = ref('tables')
@@ -168,13 +183,13 @@ watch(visibleTabs, (tabs) => { if (!tabs.includes(activeTab.value)) activeTab.va
 
 function tabCount(tab: string): string {
   if (tab === 'tables') {
-    const active = tableItems.value.length ? tableItems.value.filter((t) => t.is_active).length : (result.value?.tables_active || 0)
-    const total = tableItems.value.length || result.value?.tables_total || 0
+    const active = result.value?.tables_active || 0
+    const total = result.value?.tables_total || 0
     return total ? `${active}/${total}` : ''
   }
   if (tab === 'tools') {
-    const enabled = toolRows.value.length ? toolRows.value.filter((t) => t.is_enabled).length : (result.value?.tools_enabled || 0)
-    const total = toolRows.value.length || result.value?.tools_total || 0
+    const enabled = result.value?.tools_enabled || 0
+    const total = result.value?.tools_total || 0
     return total ? `${enabled}/${total}` : ''
   }
   return fileNames.value.length ? String(fileNames.value.length) : ''
@@ -183,31 +198,20 @@ function tabCount(tab: string): string {
 async function loadAgentState() {
   if (!agentId.value || loaded.value) return
   loaded.value = true
-  // Seed from the tool result so the card renders even if fetches fail.
-  tableItems.value = (result.value?.active_table_sample || []).map((n: string) => ({ name: n, is_active: true }))
   try {
-    const [{ data: schemaData }, { data: toolsData }, { data: connsData }] = await Promise.all([
-      useMyFetch(`/data_sources/${agentId.value}/full_schema?page=1&page_size=100&sort_by=is_active&sort_dir=desc`, { method: 'GET' }),
-      useMyFetch(`/data_sources/${agentId.value}/tools`, { method: 'GET' }),
-      useMyFetch(`/data_sources/${agentId.value}/connections`, { method: 'GET' }),
-    ])
-    const schema: any = schemaData?.value
-    if (schema?.tables?.length) tableItems.value = schema.tables
-    const tools: any = toolsData?.value
-    if (Array.isArray(tools)) toolRows.value = tools
+    const { data: connsData } = await useMyFetch(`/data_sources/${agentId.value}/connections`, { method: 'GET' })
     const conns: any = connsData?.value
-    const fileConns = Array.isArray(conns) ? conns.filter((c: any) => ['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail'].includes(c.type)) : []
-    if (fileConns.length) {
-      const lists = await Promise.all(fileConns.map((c: any) =>
+    if (Array.isArray(conns)) connRows.value = conns
+    if (fileConns.value.length) {
+      const lists = await Promise.all(fileConns.value.map((c: any) =>
         useMyFetch(`/data_sources/${agentId.value}/connections/${c.id}/files?limit=30`, { method: 'GET' }).then((r: any) => r?.data?.value).catch(() => null)
       ))
       fileNames.value = lists.flatMap((l: any) => Array.isArray(l?.files) ? l.files.map((f: any) => f.name || f.path || String(f)) : (Array.isArray(l) ? l.map((f: any) => f.name || f.path || String(f)) : []))
     }
-    // Agent health from the connections payload when present.
-    const anyDown = Array.isArray(conns) && conns.some((c: any) => c.last_connection_status === 'error')
+    const anyDown = connRows.value.some((c: any) => c.last_connection_status === 'error')
     agentActive.value = !anyDown
   } catch {
-    /* card still renders from the tool result */
+    /* header still renders from the tool result */
   }
 }
 
@@ -225,4 +229,6 @@ watch(succeeded, (ok) => { if (ok) loadAgentState() })
 @keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
+/* Keep the embedded selectors compact inside the chat card. */
+.create-agent-selector :deep(table) { font-size: 11px; }
 </style>

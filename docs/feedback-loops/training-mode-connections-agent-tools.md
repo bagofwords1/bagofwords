@@ -177,6 +177,39 @@ three real completions.
    proves the create→attach→query lifecycle: clients for the new agent are
    built on the next run, exactly as the tool's observation states.
 
+
+### Scale + tools variant (embedded selectors)
+
+The agent card embeds the REAL `TablesSelector` / `ToolsSelector` in its tabs
+(a `show-header` prop was added to `ToolsSelector` for compact embedding), so a
+huge catalog stays navigable and editable right in the chat:
+
+- **Big Warehouse** (seeded: 2,400 tables across 7 schemas) → *"Create a new
+  agent … named 'Finance Mart' with only the finance schema active"* →
+  `create_agent(schemas=["finance"])` returned `tables_total: 2400,
+  tables_active: 180`. The card's Tables tab shows the full selector —
+  "Showing 1-15 of 2400", "180/2400 active", server-side search
+  (`fin_table_00` → "100 matching"), schema filter, sort, pagination, bulk
+  select, Save.
+
+  ![scale tables selector](assets/training-connections-agent/06_scale_tables_selector.png)
+  ![scale tables search](assets/training-connections-agent/07_scale_tables_search.png)
+
+- **Ops Tools (MCP)** (seeded: 20 tools with allow/confirm/deny defaults) →
+  *"…named 'Ops Assistant' with only the read tools enabled"* → the model
+  enumerated the get/list/search tools and `create_agent(tools=[…])` returned
+  `tools_total: 20, tools_enabled: 12`. The card's Tools tab is the live
+  per-agent overlay editor: filter, per-tool enable checkboxes, admin policy
+  dropdowns, reset-to-default, and the user's own policy column.
+
+  ![tools selector card](assets/training-connections-agent/08_tools_selector_card.png)
+
+  Note (seed artifact): a connection with an *invalid config* attached to a
+  report makes the next turn's client construction 500
+  (`PostgresqlClient.__init__` missing args) — pre-existing behavior for any
+  broken connection on a report, hit here only because the seeded demo
+  connection initially had an empty config.
+
 **DB/API truth after the run:**
 ```
 active tables of the new agent: ['Invoice', 'InvoiceLine']   (all others inactive)

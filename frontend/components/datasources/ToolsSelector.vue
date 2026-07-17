@@ -1,7 +1,7 @@
 <template>
   <div class="w-full">
     <!-- Header -->
-    <div class="mb-4 flex items-center justify-between">
+    <div v-if="showHeader" class="mb-4 flex items-center justify-between">
       <div>
         <h1 class="text-lg font-semibold">External Tools</h1>
         <p class="text-gray-500 dark:text-gray-400 text-sm">External tools available to the AI agent for this data source.</p>
@@ -215,11 +215,14 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   dsId: string
   connections: any[]
   canUpdate: boolean
-}>()
+  // Hide the "External Tools" heading + Add buttons when embedded in compact
+  // surfaces (e.g. the create_agent chat card).
+  showHeader?: boolean
+}>(), { showHeader: true })
 
 defineEmits(['add-mcp', 'add-custom-api', 'edit-connection', 'delete-connection'])
 
