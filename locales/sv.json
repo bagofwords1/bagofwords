@@ -970,6 +970,49 @@
       "queryThisAgent": "den här agenten",
       "queryAll": "alla prompter"
     },
+    "listConnections": {
+      "listing": "Listar anslutningar…",
+      "listed": "Anslutningar listade",
+      "count": "{count} tillgängliga",
+      "schemas": "Scheman",
+      "agents": "Agenter",
+      "empty": "Inga anslutningar du kan bygga en agent på.",
+      "tableCount": "{count} tabeller",
+      "toolCount": "{count} verktyg",
+      "fileCount": "{count} filer"
+    },
+    "getConnection": {
+      "inspecting": "Inspekterar anslutning…",
+      "inspected": "Anslutningen {name} inspekterad",
+      "matchCount": "{count} träffar",
+      "page": "sida {page}",
+      "tokenScoped": "Omfattningen bestäms av varje användares inloggade konto.",
+      "scopeBase": "Bas",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexering",
+      "columns": "{count} kolumner",
+      "empty": "Inget matchade."
+    },
+    "createAgent": {
+      "creating": "Skapar agent {name}…",
+      "created": "Agent skapad",
+      "failed": "Det gick inte att skapa agenten",
+      "statusActive": "Aktiv",
+      "statusInactive": "Inaktiv",
+      "public": "Offentlig",
+      "private": "Privat",
+      "on": "På:",
+      "requiresConnect": "Varje användare måste ansluta innan verktyg körs.",
+      "unresolved": "Val utan träff: {items}",
+      "tab": {
+        "tables": "Tabeller",
+        "tools": "Verktyg",
+        "files": "Filer"
+      },
+      "emptyTab": "Inget här ännu.",
+      "open": "Öppna agent",
+      "editHint": "Finjustera tabeller och verktyg på agentsidan."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

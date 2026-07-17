@@ -970,6 +970,49 @@
       "queryThisAgent": "cet agent",
       "queryAll": "tous les prompts"
     },
+    "listConnections": {
+      "listing": "Liste des connexions…",
+      "listed": "Connexions listées",
+      "count": "{count} disponibles",
+      "schemas": "Schémas",
+      "agents": "Agents",
+      "empty": "Aucune connexion sur laquelle créer un agent.",
+      "tableCount": "{count} tables",
+      "toolCount": "{count} outils",
+      "fileCount": "{count} fichiers"
+    },
+    "getConnection": {
+      "inspecting": "Inspection de la connexion…",
+      "inspected": "Connexion {name} inspectée",
+      "matchCount": "{count} correspondances",
+      "page": "page {page}",
+      "tokenScoped": "Le périmètre est défini par le compte connecté de chaque utilisateur.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexation",
+      "columns": "{count} col.",
+      "empty": "Aucune correspondance."
+    },
+    "createAgent": {
+      "creating": "Création de l'agent {name}…",
+      "created": "Agent créé",
+      "failed": "Échec de la création de l'agent",
+      "statusActive": "Actif",
+      "statusInactive": "Inactif",
+      "public": "Public",
+      "private": "Privé",
+      "on": "Sur :",
+      "requiresConnect": "Chaque utilisateur doit se connecter avant d'exécuter des outils.",
+      "unresolved": "Sélection sans correspondance : {items}",
+      "tab": {
+        "tables": "Tables",
+        "tools": "Outils",
+        "files": "Fichiers"
+      },
+      "emptyTab": "Rien ici pour l'instant.",
+      "open": "Ouvrir l'agent",
+      "editHint": "Affinez tables et outils sur la page de l'agent."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

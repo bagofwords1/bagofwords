@@ -1075,6 +1075,49 @@
       "queryThisAgent": "this agent",
       "queryAll": "all prompts"
     },
+    "listConnections": {
+      "listing": "Listing connections…",
+      "listed": "Listed connections",
+      "count": "{count} available",
+      "schemas": "Schemas",
+      "agents": "Agents",
+      "empty": "No connections you can build an agent on.",
+      "tableCount": "{count} tables",
+      "toolCount": "{count} tools",
+      "fileCount": "{count} files"
+    },
+    "getConnection": {
+      "inspecting": "Inspecting connection…",
+      "inspected": "Inspected {name}",
+      "matchCount": "{count} matching",
+      "page": "page {page}",
+      "tokenScoped": "Scope is defined by each user's signed-in account.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexing",
+      "columns": "{count} cols",
+      "empty": "Nothing matched."
+    },
+    "createAgent": {
+      "creating": "Creating agent {name}…",
+      "created": "Agent created",
+      "failed": "Agent creation failed",
+      "statusActive": "Active",
+      "statusInactive": "Inactive",
+      "public": "Public",
+      "private": "Private",
+      "on": "On:",
+      "requiresConnect": "Each user must connect before tools run.",
+      "unresolved": "Unmatched selection: {items}",
+      "tab": {
+        "tables": "Tables",
+        "tools": "Tools",
+        "files": "Files"
+      },
+      "emptyTab": "Nothing here yet.",
+      "open": "Open agent",
+      "editHint": "Refine tables & tools on the agent page."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

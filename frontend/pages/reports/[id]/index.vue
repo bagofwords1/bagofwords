@@ -785,6 +785,9 @@ import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vu
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
 import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
+import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
+import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
+import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
@@ -1674,6 +1677,12 @@ function getToolComponent(toolName: string) {
 			return EditPromptTool
 		case 'search_prompts':
 			return SearchPromptsTool
+		case 'list_connections':
+			return ListConnectionsTool
+		case 'get_connection':
+			return GetConnectionTool
+		case 'create_agent':
+			return CreateAgentTool
 		case 'search_evals':
 			return SearchEvalsTool
 		case 'create_eval':

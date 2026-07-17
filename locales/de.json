@@ -970,6 +970,49 @@
       "queryThisAgent": "dieser Agent",
       "queryAll": "alle Prompts"
     },
+    "listConnections": {
+      "listing": "Verbindungen werden aufgelistet…",
+      "listed": "Verbindungen aufgelistet",
+      "count": "{count} verfügbar",
+      "schemas": "Schemata",
+      "agents": "Agenten",
+      "empty": "Keine Verbindungen, auf denen du einen Agenten erstellen kannst.",
+      "tableCount": "{count} Tabellen",
+      "toolCount": "{count} Tools",
+      "fileCount": "{count} Dateien"
+    },
+    "getConnection": {
+      "inspecting": "Verbindung wird geprüft…",
+      "inspected": "Verbindung {name} geprüft",
+      "matchCount": "{count} Treffer",
+      "page": "Seite {page}",
+      "tokenScoped": "Der Umfang wird durch das angemeldete Konto jedes Nutzers bestimmt.",
+      "scopeBase": "Basis",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indizierung",
+      "columns": "{count} Spalten",
+      "empty": "Keine Treffer."
+    },
+    "createAgent": {
+      "creating": "Agent {name} wird erstellt…",
+      "created": "Agent erstellt",
+      "failed": "Agent konnte nicht erstellt werden",
+      "statusActive": "Aktiv",
+      "statusInactive": "Inaktiv",
+      "public": "Öffentlich",
+      "private": "Privat",
+      "on": "Auf:",
+      "requiresConnect": "Jeder Nutzer muss sich verbinden, bevor Tools ausgeführt werden.",
+      "unresolved": "Auswahl ohne Treffer: {items}",
+      "tab": {
+        "tables": "Tabellen",
+        "tools": "Tools",
+        "files": "Dateien"
+      },
+      "emptyTab": "Hier ist noch nichts.",
+      "open": "Agent öffnen",
+      "editHint": "Tabellen und Tools auf der Agentenseite verfeinern."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

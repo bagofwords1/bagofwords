@@ -992,6 +992,49 @@
       "queryThisAgent": "este agente",
       "queryAll": "todos los prompts"
     },
+    "listConnections": {
+      "listing": "Listando conexiones…",
+      "listed": "Conexiones listadas",
+      "count": "{count} disponibles",
+      "schemas": "Esquemas",
+      "agents": "Agentes",
+      "empty": "No hay conexiones sobre las que puedas crear un agente.",
+      "tableCount": "{count} tablas",
+      "toolCount": "{count} herramientas",
+      "fileCount": "{count} archivos"
+    },
+    "getConnection": {
+      "inspecting": "Inspeccionando conexión…",
+      "inspected": "Conexión {name} inspeccionada",
+      "matchCount": "{count} coincidencias",
+      "page": "página {page}",
+      "tokenScoped": "El alcance lo define la cuenta con la que inicia sesión cada usuario.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexación",
+      "columns": "{count} cols",
+      "empty": "Sin coincidencias."
+    },
+    "createAgent": {
+      "creating": "Creando agente {name}…",
+      "created": "Agente creado",
+      "failed": "Error al crear el agente",
+      "statusActive": "Activo",
+      "statusInactive": "Inactivo",
+      "public": "Público",
+      "private": "Privado",
+      "on": "En:",
+      "requiresConnect": "Cada usuario debe conectarse antes de ejecutar herramientas.",
+      "unresolved": "Selección sin coincidencias: {items}",
+      "tab": {
+        "tables": "Tablas",
+        "tools": "Herramientas",
+        "files": "Archivos"
+      },
+      "emptyTab": "Aún no hay nada aquí.",
+      "open": "Abrir agente",
+      "editHint": "Ajusta tablas y herramientas en la página del agente."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

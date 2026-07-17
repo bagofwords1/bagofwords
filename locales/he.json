@@ -992,6 +992,49 @@
       "queryThisAgent": "סוכן זה",
       "queryAll": "כל הפרומפטים"
     },
+    "listConnections": {
+      "listing": "מציג חיבורים…",
+      "listed": "החיבורים הוצגו",
+      "count": "{count} זמינים",
+      "schemas": "סכימות",
+      "agents": "סוכנים",
+      "empty": "אין חיבורים שאפשר לבנות עליהם סוכן.",
+      "tableCount": "{count} טבלאות",
+      "toolCount": "{count} כלים",
+      "fileCount": "{count} קבצים"
+    },
+    "getConnection": {
+      "inspecting": "בודק חיבור…",
+      "inspected": "החיבור {name} נבדק",
+      "matchCount": "{count} תואמים",
+      "page": "עמוד {page}",
+      "tokenScoped": "ההיקף נקבע לפי החשבון המחובר של כל משתמש.",
+      "scopeBase": "בסיס",
+      "scopeGlobs": "תבניות",
+      "indexMode": "אינדוקס",
+      "columns": "{count} עמודות",
+      "empty": "לא נמצאו תוצאות."
+    },
+    "createAgent": {
+      "creating": "יוצר סוכן {name}…",
+      "created": "הסוכן נוצר",
+      "failed": "יצירת הסוכן נכשלה",
+      "statusActive": "פעיל",
+      "statusInactive": "לא פעיל",
+      "public": "ציבורי",
+      "private": "פרטי",
+      "on": "על:",
+      "requiresConnect": "כל משתמש חייב להתחבר לפני הרצת כלים.",
+      "unresolved": "בחירה ללא התאמה: {items}",
+      "tab": {
+        "tables": "טבלאות",
+        "tools": "כלים",
+        "files": "קבצים"
+      },
+      "emptyTab": "אין כאן עדיין כלום.",
+      "open": "פתח סוכן",
+      "editHint": "כוונון טבלאות וכלים בעמוד הסוכן."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
