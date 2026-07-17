@@ -84,6 +84,68 @@ Evidence (committed under `media/pr/claude-artifact-steps-user-identity-hxe3tx/`
 | 4 | `4-viewer-after-run.png` | After clicking Run: fresh 2024 rows, "Refreshed just now" |
 | 5 | `5-owner-after-viewer-run.png` | Owner on `/r/{id}` after the viewer's run: still the untouched creator snapshot (and no Run button — owners refresh via /rerun) |
 
+## Loop C — per-user credentials against real Postgres RLS
+
+Loop B proves storage isolation but both identities execute the same
+pandas code — it cannot show *credential-differentiated data*. Loop C does,
+using a real `user_required` Postgres source where row-level security
+returns different rows per database login.
+
+```bash
+# 1. Postgres (no Docker in cloud sandboxes, so run the local PG 16 binary
+#    as the postgres system user; a testcontainer works identically):
+su postgres -c '/usr/lib/postgresql/16/bin/initdb -D /tmp/bow-pg/data -U postgres --auth=trust'
+su postgres -c '/usr/lib/postgresql/16/bin/pg_ctl -D /tmp/bow-pg/data -l /tmp/bow-pg/pg.log \
+  -o "-p 55432 -c listen_addresses=localhost -k /tmp/bow-pg" start'
+psql -h localhost -p 55432 -U postgres <<'SQL'
+CREATE DATABASE salesdb;
+\c salesdb
+CREATE USER alice PASSWORD 'alice-pass-1';
+CREATE USER bob   PASSWORD 'bob-pass-1';
+CREATE TABLE monthly_revenue (month text NOT NULL, revenue int NOT NULL, sales_rep text NOT NULL);
+INSERT INTO monthly_revenue VALUES
+  ('2024-01',1250,'alice'),('2024-02',1810,'alice'),('2024-03',2140,'alice'),
+  ('2024-01', 310,'bob'),  ('2024-02', 420,'bob'),  ('2024-03', 375,'bob');
+ALTER TABLE monthly_revenue ENABLE ROW LEVEL SECURITY;
+CREATE POLICY per_rep ON monthly_revenue FOR SELECT USING (sales_rep = current_user);
+GRANT CONNECT ON DATABASE salesdb TO alice, bob;
+GRANT USAGE ON SCHEMA public TO alice, bob;
+GRANT SELECT ON monthly_revenue TO alice, bob;
+SQL
+
+# 2. user_required auth is enterprise-licensed: generate a throwaway RSA
+#    keypair, overwrite backend/app/ee/license_public_key.pem with the public
+#    half (LOCAL ONLY — restore with git checkout afterwards), start the
+#    backend with BOW_LICENSE_KEY=bow_lic_<RS256 JWT tier=enterprise> (same
+#    shape as tests/e2e/test_license.py::_create_test_license).
+
+# 3. Seed the data source + report + per-user credentials, materialize the
+#    owner snapshot (runs as alice via the owner's stored my-credentials):
+cd backend && TESTING=true ENVIRONMENT=production \
+  TEST_DATABASE_URL=sqlite:///db/agent.db \
+  uv run python ../tools/agent/seed_rls_report.py   # prints {report_id,...}
+
+# 4. Drive the UI:
+PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+  node tools/agent/verify_rls_run.mjs <report_id> <out_dir>
+```
+
+Observed: the owner's snapshot holds alice's rows (1250/1810/2140,
+`sales_rep=alice`); the viewer initially sees that snapshot; the viewer's
+**Run** under `run_identity='viewer'` returns **bob's rows** (310/420/375,
+`sales_rep=bob`) — same SQL, different database login, RLS decides; after
+the owner flips "Run on my behalf" (`run_identity='creator'`), the same
+viewer's Run returns **alice's rows** and the viewer's result row is
+stamped `executed_as='creator'`. The owner's shared snapshot is unchanged
+throughout (verified via API).
+
+| # | Screenshot | Shows |
+|---|------------|-------|
+| C1 | `rls-1-owner-alice-rows.png` | Owner: shared snapshot, alice's rows |
+| C2 | `rls-2-viewer-before-run-sees-snapshot.png` | Viewer before Run: the creator snapshot |
+| C3 | `rls-3-viewer-own-credentials-bob-rows.png` | Viewer after Run (viewer identity): bob's rows via RLS |
+| C4 | `rls-4-viewer-run-on-behalf-alice-rows.png` | Viewer after Run with "Run on my behalf" on: alice's rows, `executed_as='creator'` |
+
 ## What this proves / regression notes
 
 - The two UI surfaces work end-to-end against the real stack: the share-dialog
