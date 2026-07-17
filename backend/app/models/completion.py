@@ -94,6 +94,13 @@ class Completion(BaseSchema):
     # hidden from the timeline via (webhook_id IS NOT NULL AND role='user').
     webhook_id = Column(String(36), ForeignKey('webhooks.id'), nullable=True, index=True)
 
+    # Generic machine-turn provenance ('eval_run', 'wait', ...). Same
+    # three-completion idiom as webhooks: the visible role='external' event
+    # entry, the hidden role='user' trigger prompt (filtered out of the
+    # timeline via trigger_source IS NOT NULL AND role='user'), and the
+    # agent's role='system' reply. Null for human-initiated turns.
+    trigger_source = Column(String, nullable=True, index=True)
+
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID
@@ -196,6 +203,7 @@ def after_insert_completion(mapper, connection, target):
             "external_channel_id": target.external_channel_id,
             "external_channel_type": target.external_channel_type,
             "webhook_id": str(target.webhook_id) if target.webhook_id else None,
+            "trigger_source": target.trigger_source,
         }
 
 
@@ -234,6 +242,7 @@ def after_update_completion(mapper, connection, target):
             "external_channel_id": target.external_channel_id,
             "external_channel_type": target.external_channel_type,
             "webhook_id": str(target.webhook_id) if target.webhook_id else None,
+            "trigger_source": target.trigger_source,
         }
 
         if target.widget_id:

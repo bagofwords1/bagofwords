@@ -1303,6 +1303,9 @@ function webhookSourceIcon(source?: string): string {
 	switch ((source || '').toLowerCase()) {
 		case 'github': return 'heroicons-code-bracket-square'
 		case 'jira': return 'heroicons-bug-ant'
+		// Machine-turn events (trigger_source doubles as external_platform)
+		case 'eval_run': return 'heroicons-beaker'
+		case 'wait': return 'heroicons-clock'
 		default: return 'heroicons-bolt'
 	}
 }

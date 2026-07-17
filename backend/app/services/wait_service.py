@@ -60,14 +60,10 @@ async def run_wait_wake(
         return
 
     from app.dependencies import async_session_maker
-    from app.services.completion_service import CompletionService
-    from app.schemas.completion_v2_schema import CompletionCreate
-    from app.schemas.completion_schema import PromptSchema
+    from app.services.machine_turn import run_machine_turn
     from app.models.user import User
     from app.models.report import Report
     from app.models.organization import Organization
-
-    completion_service = CompletionService()
 
     async with async_session_maker() as db:
         report = await db.get(Report, report_id)
@@ -87,13 +83,17 @@ async def run_wait_wake(
             f"acknowledge briefly and stop — do not redo the work."
         )
         try:
-            await completion_service.create_completion(
-                db=db,
-                report_id=report.id,
-                completion_data=CompletionCreate(prompt=PromptSchema(content=wake_prompt)),
-                current_user=user,
+            # Machine turn: visible "wait elapsed" event strip + hidden
+            # trigger prompt, instead of a synthetic user bubble.
+            await run_machine_turn(
+                db,
+                report=report,
+                user=user,
                 organization=organization,
-                background=False,
+                summary=f"Wait elapsed — resuming: {reason}"[:300],
+                trigger_source="wait",
+                message_type="wait_resume_event",
+                instruction=wake_prompt,
             )
         except Exception as e:
             logger.error("wait wake %s: resume failed: %s", job_id, e)

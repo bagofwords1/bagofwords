@@ -967,19 +967,26 @@ class TestRunService:
                     f"with get_eval_run and report back to the user. If this run was "
                     f"already handled in the conversation, acknowledge briefly and stop."
                 )
-                # mode='training' — run_eval is training-only, so the origin
-                # conversation is a training session; without it the woken
-                # turn runs in chat mode where get_eval_run isn't in the
-                # catalog and the agent can't actually read the results.
-                await self.completions.create_completion(
-                    db=session,
-                    report_id=str(report.id),
-                    completion_data=CompletionCreate(
-                        prompt=PromptSchema(content=wake_prompt, mode="training")
-                    ),
-                    current_user=user,
+                # Machine turn: a visible event strip + hidden trigger, not a
+                # fake user bubble. mode='training' — run_eval is training-only,
+                # so the origin conversation is a training session; without it
+                # the woken turn runs in chat mode where get_eval_run isn't in
+                # the catalog and the agent can't actually read the results.
+                from app.services.machine_turn import run_machine_turn
+
+                await run_machine_turn(
+                    session,
+                    report=report,
+                    user=user,
                     organization=organization,
-                    background=False,
+                    summary=(
+                        f"Eval run '{run_title}' finished — "
+                        f"{passed}/{total} passed ({run_status})"
+                    ),
+                    trigger_source="eval_run",
+                    message_type="eval_run_event",
+                    instruction=wake_prompt,
+                    mode="training",
                 )
         except Exception as e:
             logging.error(f"eval wake for run {run_id} failed: {e}")
