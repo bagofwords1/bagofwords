@@ -2777,9 +2777,11 @@ class AgentV2:
             except Exception:
                 prev_tool_name_before_last_user = None
 
-            # Use cached instructions from prime_static() - no duplicate build
+            # Use cached instructions from prime_static() - no duplicate build.
+            # The planner can call read_instruction/search_instructions, so it
+            # also gets the <available_instructions> catalog.
             inst_section = view.static.instructions
-            instructions = inst_section.render() if inst_section else ""
+            instructions = inst_section.render(include_catalog=True) if inst_section else ""
 
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
@@ -4612,7 +4614,7 @@ class AgentV2:
             view = self.context_hub.get_view()
 
         instructions_section = await self.context_hub.instruction_builder.build()
-        instructions = instructions_section.render()
+        instructions = instructions_section.render(include_catalog=True)
 
         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 

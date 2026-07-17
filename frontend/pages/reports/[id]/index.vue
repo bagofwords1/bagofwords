@@ -803,6 +803,7 @@ import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
 import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
@@ -1745,6 +1746,8 @@ function getToolComponent(toolName: string) {
 			return ListAgentExecutionsTool
 		case 'search_instructions':
 			return SearchInstructionsTool
+		case 'read_instruction':
+			return ReadInstructionTool
 		case 'create_prompt':
 			return CreatePromptTool
 		case 'edit_prompt':

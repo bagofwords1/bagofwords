@@ -898,6 +898,11 @@
       "empty": "No se encontraron instrucciones que coincidan.",
       "untitled": "Sin título"
     },
+    "readInstruction": {
+      "reading": "Leyendo instrucción…",
+      "read": "Instrucción leída",
+      "failed": "No se pudo leer la instrucción"
+    },
     "createEval": {
       "drafting": "Redactando evaluación",
       "draftingNamed": "Redactando evaluación \"{name}\"",

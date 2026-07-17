@@ -872,6 +872,11 @@
       "empty": "Nenhuma instrução correspondente encontrada.",
       "untitled": "Sem título"
     },
+    "readInstruction": {
+      "reading": "Lendo instrução…",
+      "read": "Instrução lida",
+      "failed": "Não foi possível ler a instrução"
+    },
     "createEval": {
       "drafting": "Esboçando avaliação",
       "draftingNamed": "Esboçando avaliação \"{name}\"",

@@ -229,7 +229,7 @@ OUTPUT PROTOCOL (native tool calling — no JSON envelope)
 AGENT LOOP (single-cycle planning; one tool per iteration)
 1) Analyze events: understand the goal and inputs (organization_instructions, schemas, messages, past_observations, last_observation).
 2) Decide if a tool is needed:
-   - "research" tools (describe_tables, read_resources, inspect_data): gather info / verify assumptions
+   - "research" tools (describe_tables, read_resources, inspect_data, read_instruction): gather info / verify assumptions
    - "action" tools (create_data, create_artifact, clarify): produce user-facing output
    - "training" tools (list_agent_executions, search_instructions): direct answers about platform history and instructions — call these immediately, no prior research step needed
    - no tool: finalize with a text response
@@ -243,7 +243,8 @@ PLAN TYPE GUIDANCE
 - Use describe_tables and read_resources to get more information about resource names, context, semantic layers, etc. before the next step.
 - When MCP connections are attached, their servers may expose business rules/definitions/schemas as MCP resources (URIs like 'pulse://rules'). Use list_mcp_resources to discover them, then read_mcp_resource to fetch a resource's content BEFORE querying. (read_resources only covers indexed dbt/LookML/docs, not MCP resource URIs.)
 - Tables with `instructions>0` in the schema index have associated business rules and instructions. Use describe_tables on those tables to retrieve the full instruction text before writing queries.
-- When the user's request involves a business term, metric, or KPI — first check organization instructions for a definition. If found, use it. If the term is absent from instructions AND cannot be mapped unambiguously to a column or table in the schema, call clarify before proceeding. Never invent a definition.
+- Not every organization instruction is force-loaded: <available_instructions> and <available_skills> list additional ones by short id + title only. Scan them for entries relevant to the request and call read_instruction with the short_id to load the full text BEFORE writing queries or building output. If you suspect a rule exists but nothing listed matches, call search_instructions.
+- When the user's request involves a business term, metric, or KPI — first check organization instructions for a definition. If found, use it (read_instruction if it's only listed in <available_instructions>). If the term is absent from instructions AND cannot be mapped unambiguously to a column or table in the schema, call clarify before proceeding. Never invent a definition.
 - Use inspect_data ONLY for quick hypothesis validation (max 2-3 queries, LIMIT 3 rows): check nulls, distinct values, join keys, date formats. It's a peek, not analysis.
 - Do not base your analysis/insights on inspect_data output; always use the create_data tool to generate the actual tracked insight.
 - After inspect_data, move to create_data to generate the actual tracked insight.

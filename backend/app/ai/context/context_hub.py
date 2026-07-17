@@ -574,6 +574,41 @@ class ContextHub:
     # --------------------------------------------------------------
     # Simple lifecycle helpers to prime static and refresh warm
     # --------------------------------------------------------------
+    async def _instruction_query(self, query: str | None, max_messages: int = 3) -> str | None:
+        """Combine the current prompt with the last few user prompts of this
+        report, so intelligent-instruction matching sees the conversation topic
+        rather than just the newest message."""
+        if not self.report:
+            return query
+        try:
+            from sqlalchemy import select
+            from app.models.completion import Completion
+            result = await self.db.execute(
+                select(Completion.prompt)
+                .where(
+                    Completion.report_id == self.report.id,
+                    Completion.role == "user",
+                    Completion.deleted_at.is_(None),
+                )
+                .order_by(Completion.created_at.desc())
+                .limit(max_messages)
+            )
+            parts: list[str] = []
+            for (prompt,) in result.all():
+                content = prompt.get("content") if isinstance(prompt, dict) else None
+                if content and isinstance(content, str):
+                    parts.append(content)
+            # Oldest first; the current prompt is usually the newest row already,
+            # but include `query` explicitly in case it isn't persisted yet.
+            parts.reverse()
+            if query and (not parts or parts[-1] != query):
+                parts.append(query)
+            combined = " \n".join(p for p in parts if p).strip()
+            return combined or query
+        except Exception as e:
+            _hub_logger.warning(f"[context_hub] _instruction_query failed: {e}")
+            return query
+
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
 
@@ -617,7 +652,12 @@ class ContextHub:
             _SCHEMA_CACHE[cache_key] = (time.monotonic(), built)
             return built
 
-        instr_key = (org_id, ds_ids, str(self.build_id) if self.build_id else None, str(query or ""))
+        # Enrich the instruction-search query with recent user prompts from this
+        # report so follow-ups ("now break it down by month") keep matching the
+        # instructions the opening message matched.
+        instr_query = await self._instruction_query(query)
+
+        instr_key = (org_id, ds_ids, str(self.build_id) if self.build_id else None, str(instr_query or ""))
         instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
 
         async def _build_or_get_instructions():
@@ -627,7 +667,7 @@ class ContextHub:
                 )
                 return instr_cached[1]
             t = time.monotonic()
-            built = await self.instruction_builder.build(query, build_id=self.build_id)
+            built = await self.instruction_builder.build(instr_query, build_id=self.build_id)
             _hub_logger.info(
                 f"[context_hub:prime_static] instructions done (cache miss) +{(time.monotonic()-t)*1000:.0f}ms"
             )

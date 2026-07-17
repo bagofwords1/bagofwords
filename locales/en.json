@@ -982,6 +982,11 @@
       "empty": "No matching instructions found.",
       "untitled": "Untitled"
     },
+    "readInstruction": {
+      "reading": "Reading instruction…",
+      "read": "Read instruction",
+      "failed": "Could not read instruction"
+    },
     "createEval": {
       "drafting": "Drafting eval",
       "draftingNamed": "Drafting eval \"{name}\"",

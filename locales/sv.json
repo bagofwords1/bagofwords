@@ -872,6 +872,11 @@
       "empty": "Inga matchande instruktioner hittades.",
       "untitled": "Namnlös"
     },
+    "readInstruction": {
+      "reading": "Läser instruktion…",
+      "read": "Instruktion läst",
+      "failed": "Kunde inte läsa instruktionen"
+    },
     "createEval": {
       "drafting": "Utformar utvärdering",
       "draftingNamed": "Utformar utvärderingen ”{name}”",

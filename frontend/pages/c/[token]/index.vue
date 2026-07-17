@@ -242,6 +242,8 @@ import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
 import MCPTool from '~/components/tools/MCPTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
+import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -417,6 +419,10 @@ function getToolComponent(toolName: string) {
             return WebFetchTool
         case 'web_search':
             return WebSearchTool
+        case 'search_instructions':
+            return SearchInstructionsTool
+        case 'read_instruction':
+            return ReadInstructionTool
         default:
             return null
     }
