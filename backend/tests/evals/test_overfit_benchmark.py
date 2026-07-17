@@ -172,10 +172,11 @@ def _collect_outcomes(org_id: str, pre_existing_ids: set) -> Dict[str, Any]:
                 "success": bool(success),
                 "status": status,
             })
-        # Diagnostics: every tool call in the run + whether the knowledge
-        # harness phase produced plan decisions. Not part of the metric.
+        # Diagnostics: every tool call in the run (grouped per agent
+        # execution) + whether the knowledge harness phase produced plan
+        # decisions. Not part of the metric.
         cur.execute(
-            "SELECT te.tool_name, COALESCE(pd.phase, 'main'), te.success "
+            "SELECT ae.id, te.tool_name, COALESCE(pd.phase, 'main'), te.success "
             "FROM tool_executions te "
             "JOIN agent_executions ae ON ae.id = te.agent_execution_id "
             "JOIN reports r ON r.id = ae.report_id "
@@ -184,7 +185,8 @@ def _collect_outcomes(org_id: str, pre_existing_ids: set) -> Dict[str, Any]:
             (str(org_id),),
         )
         all_tools = [
-            {"tool": t, "phase": ph, "success": bool(s)} for t, ph, s in cur.fetchall()
+            {"execution": ae[:8], "tool": t, "phase": ph, "success": bool(s)}
+            for ae, t, ph, s in cur.fetchall()
         ]
         return {"persisted": persisted, "attempted": attempted, "all_tools": all_tools}
     finally:
@@ -275,6 +277,12 @@ def test_overfit_benchmark_case(
     score["knowledge_phase_ran"] = any(
         t["phase"] == "knowledge_harness" for t in outcomes["all_tools"]
     )
+
+    if os.getenv("BENCH_KEEP_DB") == "1":
+        import shutil
+        dst = Path(_report_path()).parent / f"benchdb_{case_name}_{trial}.db"
+        shutil.copyfile(_db_file_from_env(), dst)
+        print(f"[bench] kept DB snapshot: {dst}", flush=True)
 
     entry = {
         "case": case_name,
