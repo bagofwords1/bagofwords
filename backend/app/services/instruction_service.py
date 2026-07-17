@@ -1413,10 +1413,29 @@ class InstructionService:
             main_vid = str(row[0])
             meta_src = await self.version_service.get_version(db, main_vid)
             return (row[1] or ""), main_vid, meta_src
-        # Fallback: no main build content (legacy) — use the cached row / version.
+        # No main-build content row for this instruction — two distinct cases.
         meta_src = None
         if instruction.current_version_id:
             meta_src = await self.version_service.get_version(db, instruction.current_version_id)
+        has_main_build = (await db.execute(
+            select(InstructionBuild.id).where(
+                InstructionBuild.organization_id == str(instruction.organization_id),
+                InstructionBuild.is_main == True,  # noqa: E712
+                InstructionBuild.deleted_at == None,  # noqa: E711
+            ).limit(1)
+        )).scalar_one_or_none()
+        if has_main_build:
+            # The org HAS a main build and this instruction isn't in it: a NEW
+            # instruction that so far exists only in pending suggestion builds.
+            # Its live baseline is EMPTY text. The row/current-version cache
+            # holds the staged draft itself, so falling back to it would diff
+            # the proposal against its own text and collapse the review to zero
+            # hunks ("no pending changes" for a change nobody has approved).
+            # meta_src still comes from the staged version so accept flows
+            # preserve its title/status/references when creating the live one.
+            return "", None, meta_src
+        # Legacy: the org predates main-build content — the cached row/current
+        # version IS the live text.
         main_text = (meta_src.text if meta_src else getattr(instruction, "text", "")) or ""
         main_vid = str(instruction.current_version_id) if instruction.current_version_id else None
         return main_text, main_vid, meta_src
@@ -1666,9 +1685,13 @@ class InstructionService:
 
         cand_ids = list({str(iid) for iid, _b, _t in sug_rows})
 
-        # (3) Live main text per candidate (authoritative is_main build content),
-        #     with a fallback to the live instruction row for legacy instructions
-        #     that predate main-build content — mirrors _main_text_of().
+        # (3) Live main text per candidate (authoritative is_main build content).
+        #     Mirrors _main_text_of(): a candidate absent from the org's main
+        #     build is NOT live — its baseline is empty text, so a NEW pending
+        #     instruction counts as one whole-text insertion. Falling back to
+        #     the live row (which caches the staged draft itself) would diff
+        #     the proposal against its own text and hide it. The row fallback
+        #     only applies to legacy orgs that predate main-build content.
         main_text: dict = {}
         for iid, t in (await db.execute(
             select(BuildContent.instruction_id, _IV.text)
@@ -1684,10 +1707,18 @@ class InstructionService:
             main_text[str(iid)] = t or ""
         missing_main = [i for i in cand_ids if i not in main_text]
         if missing_main:
-            for iid, txt in (await db.execute(
-                select(Instruction.id, Instruction.text).where(Instruction.id.in_(missing_main))
-            )).all():
-                main_text[str(iid)] = txt or ""
+            has_main_build = (await db.execute(
+                select(InstructionBuild.id).where(and_(
+                    InstructionBuild.organization_id == org_id,
+                    InstructionBuild.is_main.is_(True),
+                    InstructionBuild.deleted_at.is_(None),
+                )).limit(1)
+            )).scalar_one_or_none()
+            if not has_main_build:
+                for iid, txt in (await db.execute(
+                    select(Instruction.id, Instruction.text).where(Instruction.id.in_(missing_main))
+                )).all():
+                    main_text[str(iid)] = txt or ""
 
         # (4) Pure-Python pass — no awaits in the loop.
         # Process conclusive unchanged-main suggestions first. Once one such row

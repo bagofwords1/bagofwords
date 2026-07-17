@@ -1213,6 +1213,22 @@ async def get_instruction_pending_builds(
                 select(InstructionVersion.text).where(InstructionVersion.id == main_version_id)
             )
         ).scalar_one_or_none()
+    else:
+        # Instruction absent from main. When the org HAS a main build this is a
+        # CREATE suggestion whose live baseline is empty text — run it through
+        # the same per-hunk rule as edits (mirrors _main_text_of), so a create
+        # rejected in the per-hunk review resolves here too instead of
+        # resurfacing as a whole snapshot. main_text stays None only for legacy
+        # orgs that predate main-build content.
+        has_main_build = (await db.execute(
+            select(InstructionBuild.id).where(and_(
+                InstructionBuild.organization_id == str(organization.id),
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+            )).limit(1)
+        )).scalar_one_or_none()
+        if has_main_build:
+            main_text = ""
 
     where_clauses = [
         BuildContent.instruction_id == instruction_id,
