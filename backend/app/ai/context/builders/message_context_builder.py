@@ -828,11 +828,13 @@ class MessageContextBuilder:
         # Fetch only the most recent window instead of ALL completions then
         # slicing [-max_messages:] in Python (was O(conversation length) every
         # iteration). +1 covers dropping a trailing in-progress user completion.
+        # Queued prompts are not part of the conversation yet — they run later.
         summary_text, watermark_created_at = await self._compaction_state()
         completions_query = (
             select(Completion)
             .filter(Completion.report_id == self.report.id)
             .filter(Completion.message_type != 'context_compaction')
+            .filter(Completion.status != 'queued')
             .order_by(Completion.created_at.desc())
             .limit(max_messages + 1)
         )
@@ -1350,11 +1352,13 @@ class MessageContextBuilder:
         else:
             # Most-recent window only (was fetch-all + slice in Python),
             # scoped past the compaction watermark when one exists.
+            # Queued prompts are not part of the conversation yet — they run later.
             summary_text, watermark_created_at = await self._compaction_state()
             completions_query = (
                 select(Completion)
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.message_type != 'context_compaction')
+                .filter(Completion.status != 'queued')
                 .order_by(Completion.created_at.desc())
                 .limit(max_messages + 1)
             )

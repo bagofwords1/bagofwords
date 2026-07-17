@@ -97,6 +97,12 @@ class PlannerInput(BaseModel):
     # Rendered <notes> block (per-report agent scratchpad), injected near
     # last_observation. Populated in both the main loop and the knowledge harness.
     notes_context: Optional[str] = None
+    # Rendered <steering_updates> block: user instructions injected into the
+    # RUNNING completion (Codex-style steer). Placed at the end of the prompt,
+    # next to last_observation — the position the planner actually drives from —
+    # because inside <original_user_prompt> it gets demoted to background
+    # context after the first iteration and ignored on plan-driven runs.
+    steering_context: Optional[str] = None
     # A compact dictionary describing the most recent tool observation (if any)
     last_observation: Optional[Dict[str, Any]] = None
     # Full list of recorded tool observations in execution order

@@ -411,6 +411,20 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
+        # Steering: user messages injected into this run while it executes
+        # (role='user', message_type='steering', parent_id=system_completion.id
+        # rows). The websocket broadcast is the same-worker fast path; the main
+        # loop also polls the DB each iteration so steers submitted through
+        # another uvicorn worker still land.
+        self._steering_pending: dict[str, str] = {}   # id -> content, from WS fast path
+        self._steering_seen_ids: set[str] = set()     # ids already injected
+        self._steering_texts: list[str] = []          # injected texts, arrival order
+        # Hard steer: set on same-worker steering arrival so the in-flight
+        # planner stream can abort and re-plan immediately instead of waiting
+        # for the current decision to finish. (Cross-worker steers land at the
+        # next loop-top DB poll — they can't interrupt mid-stream.)
+        self._steering_interrupt = asyncio.Event()
+
         # SSE event queue for streaming
         self.event_queue = event_queue
 
@@ -1804,8 +1818,119 @@ class AgentV2:
                 and data.get("sigkill") is not None
             ):
                 self.sigkill_event.set()
+            # Steering fast path: a steering row targeting this run was
+            # inserted (new message) or updated (queued row promoted to steer).
+            if (
+                data.get("event") in ("insert_completion", "update_completion")
+                and data.get("message_type") == "steering"
+                and str(data.get("parent_id") or "") == str(self.system_completion.id)
+            ):
+                cid = str(data.get("completion_id"))
+                prompt = data.get("prompt")
+                content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                if cid not in self._steering_seen_ids and content.strip():
+                    self._steering_pending[cid] = content.strip()
+                    self._steering_interrupt.set()
         except Exception:
             pass
+
+    async def _collect_steering_messages(self, poll_db: bool = True) -> list[str]:
+        """Drain steering messages that arrived since the last checkpoint.
+
+        Merges the in-process websocket fast path with a DB backstop (needed
+        when the steer request landed on another uvicorn worker), dedupes by
+        completion id, appends new texts to self._steering_texts (which
+        _effective_user_message renders into every subsequent planner input),
+        and acks over SSE so the UI can show "steering applied".
+        """
+        fresh: dict[str, str] = dict(self._steering_pending)
+        self._steering_pending.clear()
+        if poll_db:
+            # Use a dedicated short-lived session: self.db may sit inside a
+            # transaction opened before the steer was committed, whose snapshot
+            # (SQLite WAL, repeatable-read setups) would never show the new row.
+            try:
+                from sqlalchemy import select as _select
+                from app.settings.database import create_async_session_factory as _casf
+                async with _casf()() as _poll_session:
+                    rows = await _poll_session.execute(
+                        _select(Completion.id, Completion.prompt).where(
+                            Completion.parent_id == str(self.system_completion.id),
+                            Completion.role == 'user',
+                            Completion.message_type == 'steering',
+                        )
+                    )
+                    for cid, prompt in rows.all():
+                        cid = str(cid)
+                        if cid in self._steering_seen_ids or cid in fresh:
+                            continue
+                        content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                        if content.strip():
+                            fresh[cid] = content.strip()
+            except Exception:
+                logger.exception("steering: DB backstop poll failed")
+
+        new_texts = []
+        new_ids = []
+        for cid, content in fresh.items():
+            if cid in self._steering_seen_ids:
+                continue
+            self._steering_seen_ids.add(cid)
+            self._steering_texts.append(content)
+            new_texts.append(content)
+            new_ids.append(cid)
+
+        if new_texts:
+            try:
+                await self._emit_sse_event(SSEEvent(
+                    event="completion.steering.applied",
+                    completion_id=str(self.system_completion.id),
+                    data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
+                ))
+            except Exception:
+                pass
+        return new_texts
+
+    def _render_steering_context(self) -> str | None:
+        """Rendered <steering_updates> block for PlannerInput.steering_context.
+
+        Placed by the prompt builder AFTER <last_observation> — the position
+        the planner is told to drive from — so steers actually override an
+        in-flight plan instead of being demoted with <original_user_prompt>.
+        """
+        if not self._steering_texts:
+            return None
+        items = "\n".join(f"    - {t}" for t in self._steering_texts)
+        return (
+            "<steering_updates>\n"
+            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "working. They override <original_user_prompt> and your current plan/notes "
+            "where they conflict. Re-evaluate your plan against them in THIS decision — "
+            "do not simply continue the previous plan. If you keep a plan note, update "
+            "it to reflect them. Your final answer must visibly address them:\n"
+            f"{items}\n"
+            "  </steering_updates>"
+        )
+
+    def _effective_user_message(self) -> str:
+        """The head prompt plus any steering updates injected mid-run."""
+        base = ""
+        try:
+            base = (self.head_completion.prompt or {}).get("content", "")
+        except Exception:
+            base = ""
+        if not self._steering_texts:
+            return base
+        additions = "\n".join(f"- {t}" for t in self._steering_texts)
+        return (
+            f"{base}\n\n<steering_updates>\n"
+            "URGENT — the user sent these instructions WHILE you were working. "
+            "Do not simply continue your previous plan: re-evaluate it against "
+            "these updates in your VERY NEXT decision and adjust course now. "
+            "Where they conflict with the original request, the steering updates "
+            "take precedence. Your final answer must visibly address them:\n"
+            f"{additions}\n</steering_updates>"
+        )
 
     async def _persist_planning_block_partial(
         self,
@@ -2705,6 +2830,14 @@ class AgentV2:
                 if self.sigkill_event.is_set():
                     break
 
+                # Pick up any steering messages sent while the previous step ran
+                # — they flow into this iteration's planner input via
+                # _effective_user_message().
+                try:
+                    await self._collect_steering_messages()
+                except Exception:
+                    pass
+
                 # Release the pooled DB connection before this iteration's long
                 # planner LLM call + tool execution so concurrent completions
                 # don't starve the connection pool (idle-in-transaction).
@@ -2785,7 +2918,8 @@ class AgentV2:
                         locale=self.org_locale,
                         week_start=self.org_week_start,
                         instructions=instructions,
-                        user_message=self.head_completion.prompt["content"],
+                        user_message=self._effective_user_message(),
+                        steering_context=self._render_steering_context(),
                         schemas_excerpt=None,
                         schemas_combined=schemas_excerpt,
                         schemas_names_index=None,
@@ -2988,6 +3122,24 @@ class AgentV2:
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
                         break
+
+                    # Hard steer: a steering message arrived while this decision
+                    # was streaming. Abort it and re-plan immediately with the
+                    # steer in context (same contract as the retry flow below:
+                    # set observation, break, outer loop continues).
+                    if self._steering_interrupt.is_set():
+                        self._steering_interrupt.clear()
+                        _steers = await self._collect_steering_messages()
+                        if _steers:
+                            await _cancel_skeleton_block("steering")
+                            observation = {
+                                "summary": (
+                                    "INTERRUPTED: the user sent steering instructions while "
+                                    "you were planning. See <steering_updates> and re-plan "
+                                    "now incorporating them."
+                                ),
+                            }
+                            break
 
                     # Handle typed events
                     if evt.type == "planner.tokens":
@@ -3384,6 +3536,21 @@ class AgentV2:
 
                         # Only treat analysis_complete as terminal if there's NO action
                         if decision.analysis_complete and not action:
+                            # Late steering: a steer may have arrived while this
+                            # final plan streamed. Don't finalize over it — pick
+                            # it up and give the planner another iteration.
+                            try:
+                                _late_steers = await self._collect_steering_messages()
+                            except Exception:
+                                _late_steers = []
+                            if _late_steers:
+                                observation = {
+                                    "summary": (
+                                        "The user sent a steering update while you were "
+                                        "finalizing. Re-plan and incorporate it before finishing."
+                                    ),
+                                }
+                                break
                             # Final answer path (no tool to execute)
                             invalid_retry_count = 0
 

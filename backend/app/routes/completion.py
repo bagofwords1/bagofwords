@@ -104,6 +104,14 @@ async def create_completion(
     - Streams if: body `stream: true`, or `Accept: text/event-stream`, or `?stream=true`
     - Otherwise returns JSON response
     """
+    # Queue mode: persist the prompt as a queued row instead of starting a
+    # second concurrent run; the dispatcher starts it when the current run
+    # finishes. Never streams.
+    if getattr(completion, "queue", False):
+        return await completion_service.create_queued_completion(
+            db, report_id, completion, current_user, organization
+        )
+
     accept_header = request.headers.get("accept", "")
     body_stream_flag = getattr(completion, "stream", None)
     query_stream_flag = request.query_params.get("stream", "false").lower() == "true"
@@ -209,6 +217,34 @@ async def get_completions_v2(
 @router.post("/api/completions/{completion_id}/sigkill")
 async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
+
+
+@router.delete("/api/completions/{completion_id}/queued")
+@requires_permission('create_reports')
+async def delete_queued_completion(
+    completion_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Remove a prompt from the report's queue (only while still queued)."""
+    return await completion_service.delete_queued_completion(db, completion_id, current_user, organization)
+
+
+@router.post("/api/completions/{completion_id}/steer")
+@requires_permission('create_reports')
+async def steer_completion(
+    completion_id: str,
+    body: dict,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Inject a user message into the running completion (``completion_id`` is
+    the in-progress system completion). Body: ``{content}`` to steer with new
+    text, or ``{queued_completion_id}`` to promote a queued prompt into the
+    live run. Falls back to enqueueing when the run already finished."""
+    return await completion_service.steer_completion(db, completion_id, body, current_user, organization)
 
 
 @requires_permission('create_reports')
