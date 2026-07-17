@@ -42,6 +42,11 @@ RUN rm -f /app/backend/db/app.db
 RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
     "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
+# Bake the local embedding model (semantic file/instruction search) for
+# airgapped environments — same pattern as tiktoken. Override the model with
+# BOW_EMBEDDINGS_MODEL, or skip with BOW_EMBEDDINGS_ENABLED=false.
+RUN BOW_EMBEDDINGS_CACHE_DIR=/opt/bow-models python3 scripts/download_embedding_model.py
+
 # Install Playwright browser (chromium only to save space)
 RUN playwright install chromium --with-deps
 
@@ -186,6 +191,10 @@ COPY --from=qvd2parquet-builder /build/qvd2parquet/target/release/qvd2parquet /u
 # Copy pre-cached tiktoken encodings for airgapped environments
 COPY --from=backend-builder --chown=app:app /opt/tiktoken_cache /opt/tiktoken_cache
 ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache
+
+# Copy pre-baked embedding model for airgapped environments
+COPY --from=backend-builder --chown=app:app /opt/bow-models /opt/bow-models
+ENV BOW_EMBEDDINGS_CACHE_DIR=/opt/bow-models
 
 # Copy Playwright browser binaries from builder
 COPY --from=backend-builder --chown=app:app /root/.cache/ms-playwright /home/app/.cache/ms-playwright

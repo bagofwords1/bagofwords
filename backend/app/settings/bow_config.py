@@ -240,6 +240,18 @@ def generate_fernet_key():
     key = secrets.token_bytes(32)
     return base64.urlsafe_b64encode(key).decode()
 
+class EmbeddingsConfig(BaseModel):
+    """Local (self-hosted) text embeddings for semantic file/instruction search.
+
+    No cloud calls: inference runs in-process via fastembed/ONNX. `model` must
+    be a fastembed-supported id; `cache_dir` points at a pre-baked model dir
+    for air-gapped installs (see scripts/download_embedding_model.py).
+    """
+    enabled: bool = True
+    model: str = "BAAI/bge-small-en-v1.5"   # multilingual: intfloat/multilingual-e5-small
+    cache_dir: Optional[str] = None
+
+
 class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
     base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
@@ -264,6 +276,7 @@ class BowConfig(BaseModel):
     license: LicenseConfig = LicenseConfig()
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
+    embeddings: EmbeddingsConfig = EmbeddingsConfig()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):
