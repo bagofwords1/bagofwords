@@ -670,7 +670,11 @@
     "analysisCompleted": "Analysis Completed",
     "analysisMarkedComplete": "Analysis marked complete.",
     "decisionAnalysisCompleted": "Decision: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM usage for this conversation",
+    "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "turnUsageTooltip": "LLM usage for this turn"
   },
   "reportView": {
     "tabChat": "Chat",

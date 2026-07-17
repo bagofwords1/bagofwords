@@ -618,7 +618,11 @@
     "analysisCompleted": "הניתוח הושלם",
     "analysisMarkedComplete": "הניתוח סומן כהושלם.",
     "decisionAnalysisCompleted": "החלטה: הניתוח הושלם",
-    "block": "בלוק"
+    "block": "בלוק",
+    "tokensCount": "{count} טוקנים",
+    "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
+    "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
+    "turnUsageTooltip": "שימוש ב-LLM בסבב זה"
   },
   "reportView": {
     "tabChat": "צ'אט",

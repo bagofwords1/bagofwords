@@ -596,7 +596,11 @@
     "analysisCompleted": "Analys slutförd",
     "analysisMarkedComplete": "Analysen är markerad som slutförd.",
     "decisionAnalysisCompleted": "Beslut: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM-användning för denna konversation",
+    "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "turnUsageTooltip": "LLM-användning för denna tur"
   },
   "reportView": {
     "tabChat": "Chatt",

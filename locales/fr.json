@@ -596,7 +596,11 @@
     "analysisCompleted": "Analyse terminée",
     "analysisMarkedComplete": "Analyse marquée comme terminée.",
     "decisionAnalysisCompleted": "Décision : analysis_completed",
-    "block": "Bloc"
+    "block": "Bloc",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "Utilisation du LLM pour cette conversation",
+    "turnTokensTooltip": "Tokens LLM du planificateur pour ce tour",
+    "turnUsageTooltip": "Utilisation du LLM pour ce tour"
   },
   "reportView": {
     "tabChat": "Conversation",
