@@ -575,6 +575,16 @@ async def resolve_permissions_bulk(
         return result
 
 
+def invalidate_rbac_memo(db: AsyncSession, user_id: str, org_id: str) -> None:
+    """Drop the memoized resolution for (user, org) after granting/revoking
+    permissions mid-session (e.g. the AI create_agent tool grants the creator
+    `manage` on the new data source and later tool calls in the same run must
+    see it)."""
+    memo = _rbac_memo(db)
+    if isinstance(memo, dict):
+        memo.pop((str(user_id), str(org_id)), None)
+
+
 def _rbac_memo(db: AsyncSession):
     """Per-request (per-session) memo dict for resolved permissions, or None.
 

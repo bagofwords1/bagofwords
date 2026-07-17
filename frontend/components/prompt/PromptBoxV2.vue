@@ -168,6 +168,19 @@
             </button>
         </div>
 
+        <!-- Thinking indicator (visible while a completion is running) -->
+        <Transition name="thinking-fade">
+            <div
+                v-if="isThinking"
+                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
+                aria-live="polite"
+            >
+                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+            </div>
+        </Transition>
+
         <!-- Minimalist prompt container -->
         <div
             class="border rounded-xl bg-white dark:bg-gray-900 transition-colors relative"
@@ -702,6 +715,47 @@ function ordSuffix(n: number): string {
     return r === 1 ? 'st' : r === 2 ? 'nd' : r === 3 ? 'rd' : 'th'
 }
 let dragCounter = 0 // Track enter/leave for nested elements
+
+// Thinking indicator: covers the whole run, from the moment the user submits
+// (isSubmitting) through the in-progress completion reported by the parent.
+const isThinking = computed(() => isSubmitting.value || !!props.latestInProgressCompletion)
+const thinkingStartedAt = ref<number | null>(null)
+const thinkingElapsedSeconds = ref(0)
+let thinkingTimer: ReturnType<typeof setInterval> | null = null
+
+// immediate: also starts the timer when the component mounts mid-run
+// (e.g. page refresh while a completion is streaming).
+watch(isThinking, (active) => {
+    if (active) {
+        if (thinkingTimer) return // submit → in-progress handoff: keep counting
+        thinkingStartedAt.value = Date.now()
+        thinkingElapsedSeconds.value = 0
+        thinkingTimer = setInterval(() => {
+            if (thinkingStartedAt.value !== null) {
+                thinkingElapsedSeconds.value = Math.floor((Date.now() - thinkingStartedAt.value) / 1000)
+            }
+        }, 1000)
+    } else {
+        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
+        thinkingStartedAt.value = null
+        thinkingElapsedSeconds.value = 0
+    }
+}, { immediate: true })
+
+const thinkingElapsedLabel = computed(() => {
+    const s = thinkingElapsedSeconds.value
+    if (s < 60) return `${s}s`
+    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+})
+
+// "Thinking" until the completion streams its first visible output (the parent
+// passes hasFirstToken on latestInProgressCompletion), then "Working".
+const thinkingLabel = computed(() => {
+    const completion: any = props.latestInProgressCompletion
+    return completion?.hasFirstToken
+        ? t('prompt.working', 'Working')
+        : t('prompt.thinking', 'Thinking')
+})
 
 // Excel selection hint
 const { isExcel, excelSelection } = useExcel()
@@ -1358,6 +1412,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
     window.removeEventListener('keydown', handleEscKey)
     if (compactRO) { compactRO.disconnect(); compactRO = null }
+    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
@@ -1493,4 +1548,24 @@ async function createReport() {
 
 <style scoped>
 .placeholder-gray-400::placeholder { color: #9ca3af; }
+
+/* Shining "Thinking" label, à la Codex */
+.thinking-shimmer {
+    background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: thinking-shimmer 2s linear infinite;
+}
+/* RTL locales (he/ar): sweep the shine in reading direction, right to left. */
+[dir="rtl"] .thinking-shimmer {
+    animation-direction: reverse;
+}
+@keyframes thinking-shimmer {
+    0% { background-position: -100% 0; }
+    100% { background-position: 100% 0; }
+}
+.thinking-fade-enter-active, .thinking-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.thinking-fade-enter-from, .thinking-fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

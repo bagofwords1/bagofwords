@@ -86,6 +86,16 @@ class TestRun(BaseSchema):
     finished_at = Column(DateTime, nullable=True)
     summary_json = Column(JSON, nullable=True, default=dict)
     
+    # Origin of an agent-initiated run (``run_eval``): the conversation to
+    # notify when the run reaches a terminal status. Nullable — UI/API runs
+    # have no origin conversation and never wake anyone.
+    origin_report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
+    origin_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
+    # True when the origin conversation was told results would arrive later
+    # (the run_eval tool returned before the run finished). The background
+    # finalizer fires a wake completion on origin_report_id exactly once.
+    wake_on_finish = Column(Boolean, nullable=False, default=False)
+
     # Build system: which instruction build was used for this test run
     # Enables comparison of test results across different instruction versions
     build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True, index=True)

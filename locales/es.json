@@ -395,6 +395,8 @@
   },
   "prompt": {
     "placeholderDefault": "Pida datos, un panel o un análisis detallado",
+    "thinking": "Pensando",
+    "working": "Trabajando",
     "placeholderCompact": "Pida cualquier dato",
     "instructions": "Instrucciones",
     "loadingReportContext": "Cargando contexto del informe…",
@@ -900,6 +902,47 @@
       "stopTitle": "Detener la ejecución (también detiene el bucle del agente)",
       "openRun": "Abrir ejecución"
     },
+    "getEvalRun": {
+      "reading": "Leyendo ejecución de evaluación",
+      "read": "Ejecución de evaluación",
+      "notFound": "Ejecución no encontrada",
+      "pass": "{count} aprobadas",
+      "fail": "{count} fallidas",
+      "vsPrevious": "vs anterior:",
+      "fixed": "{count} corregidas",
+      "regressed": "{count} regresiones",
+      "openRun": "Abrir ejecución"
+    },
+    "getEvalRuns": {
+      "listing": "Listando ejecuciones",
+      "listed": "Ejecuciones de evaluación",
+      "runSingular": "{count} ejecución",
+      "runPlural": "{count} ejecuciones",
+      "empty": "No se encontraron ejecuciones"
+    },
+    "stopEvalRun": {
+      "stopping": "Deteniendo ejecución",
+      "stopped": "Ejecución detenida",
+      "failed": "No se pudo detener la ejecución",
+      "passedAtStop": "aprobadas antes de detener",
+      "openRun": "Abrir ejecución"
+    },
+    "editEval": {
+      "editing": "Actualizando evaluación",
+      "edited": "Evaluación actualizada",
+      "failed": "Evaluación no actualizada",
+      "unnamed": "Evaluación sin título",
+      "changed": "Cambios: {fields}",
+      "statusDraft": "Borrador",
+      "statusActive": "Activa",
+      "statusArchived": "Archivada"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelando espera",
+      "cancelledSingular": "Se canceló {count} espera pendiente",
+      "cancelledPlural": "Se cancelaron {count} esperas pendientes",
+      "nothingPending": "No hay esperas pendientes"
+    },
     "searchEvals": {
       "searching": "Buscando evaluaciones",
       "searchingFor": "Buscando evaluaciones para {query}",
@@ -991,6 +1034,53 @@
       "queryScope": "prompts de {scope}",
       "queryThisAgent": "este agente",
       "queryAll": "todos los prompts"
+    },
+    "listConnections": {
+      "listing": "Listando conexiones…",
+      "listed": "Conexiones listadas",
+      "count": "{count} disponibles",
+      "schemas": "Esquemas",
+      "agents": "Agentes",
+      "empty": "No hay conexiones sobre las que puedas crear un agente.",
+      "tableCount": "{count} tablas",
+      "toolCount": "{count} herramientas",
+      "fileCount": "{count} archivos"
+    },
+    "getConnection": {
+      "inspecting": "Inspeccionando conexión…",
+      "inspected": "Conexión {name} inspeccionada",
+      "matchCount": "{count} coincidencias",
+      "page": "página {page}",
+      "tokenScoped": "El alcance lo define la cuenta con la que inicia sesión cada usuario.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexación",
+      "columns": "{count} cols",
+      "empty": "Sin coincidencias.",
+      "showResults": "Mostrar {count} resultados",
+      "hideResults": "Ocultar resultados"
+    },
+    "createAgent": {
+      "creating": "Creando agente {name}…",
+      "created": "Agente creado",
+      "failed": "Error al crear el agente",
+      "statusActive": "Activo",
+      "statusInactive": "Inactivo",
+      "public": "Público",
+      "private": "Privado",
+      "on": "En:",
+      "requiresConnect": "Cada usuario debe conectarse antes de ejecutar herramientas.",
+      "unresolved": "Selección sin coincidencias: {items}",
+      "tab": {
+        "tables": "Tablas",
+        "tools": "Herramientas",
+        "files": "Archivos",
+        "instructions": "Instrucciones",
+        "evals": "Evaluaciones"
+      },
+      "emptyTab": "Aún no hay nada aquí.",
+      "open": "Abrir agente",
+      "editHint": "Ajusta tablas y herramientas en la página del agente."
     },
     "wait": {
       "waiting": "Waiting",
@@ -1747,15 +1837,22 @@
       "colModel": "Modelo",
       "colProvider": "Proveedor",
       "colStatus": "Estado",
+      "colVision": "Visión",
       "colActions": "Acciones",
       "badgeDefault": "Predeterminado",
       "badgeSmallDefault": "Predeterminado (pequeño)",
+      "badgeVision": "Visión",
       "emptyTitle": "Sin modelos integrados",
       "emptyHint": "Comienza integrando tu proveedor de LLM y tus modelos",
       "makeDefault": "Hacer predeterminado",
       "makeSmallDefault": "Hacer predeterminado (pequeño)",
       "manageProvider": "Administrar proveedor",
       "smallDefaultTooltip": "Usado para LLM Judge, pruebas y otras tareas menores",
+      "visionTooltip": "Indica si este modelo acepta imágenes como entrada. Controla lo que la aplicación envía al proveedor; no cambia la capacidad real del modelo.",
+      "colContext": "Contexto",
+      "contextTooltip": "Máximo de tokens (entrada + salida) que la aplicación presupuesta para este modelo. Redúcelo para ajustarlo a los límites del proveedor, por ejemplo, despliegues de Bedrock limitados a 100k.",
+      "contextPlaceholder": "p. ej. 100000",
+      "contextResetTooltip": "Restablecer al valor predeterminado del catálogo",
       "modelIdLabel": "ID del modelo"
     },
     "licensePage": {
@@ -2437,7 +2534,16 @@
       "agoSeconds": "hace {n}s",
       "agoMinutes": "hace {n}m",
       "agoHours": "hace {n}h",
-      "agoDays": "hace {n}d"
+      "agoDays": "hace {n}d",
+      "compareTo": "Comparado con",
+      "compareFixed": "{n} corregidas",
+      "compareRegressed": "{n} regresiones",
+      "compareUnchanged": "{n} sin cambios",
+      "compareNoChanges": "Sin cambios por caso respecto a la ejecución base.",
+      "flip_fixed": "corregida",
+      "flip_regressed": "regresión",
+      "flip_added": "añadida",
+      "flip_removed": "eliminada"
     },
     "op": {
       "textContains": "texto contiene",
@@ -3168,5 +3274,9 @@
     "policyInherit": "heredar ({policy})",
     "reset": "restablecer",
     "resetTip": "Restablecer al valor predeterminado de la conexión"
+  },
+  "events": {
+    "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
+    "waitResumed": "La espera terminó — reanudando: {reason}"
   }
 }

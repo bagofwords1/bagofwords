@@ -174,6 +174,8 @@ class CompletionV2Schema(BaseModel):
     # Webhook provenance (for compact event-entry rendering + source badge)
     webhook_id: Optional[str] = None
     external_platform: Optional[str] = None
+    # Machine-turn provenance ('eval_run', 'wait', ...) for event entries.
+    trigger_source: Optional[str] = None
 
     # Fork summary fields
     is_fork_summary: Optional[str] = None

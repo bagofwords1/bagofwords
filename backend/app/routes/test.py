@@ -422,6 +422,13 @@ async def create_run_batch(payload: TestRunBatchCreate, db: AsyncSession = Depen
     return run
 
 
+@router.get("/runs/{run_id}/compare")
+@requires_permission('manage_evals')
+async def compare_runs(run_id: str, against_run_id: Optional[str] = Query(None), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    """Per-case diff of this run vs. a baseline (default: latest prior terminal run sharing >=1 case)."""
+    return await run_service.compare_runs(db, str(organization.id), current_user, run_id, against_run_id=against_run_id)
+
+
 @router.get("/runs/{run_id}/status", response_model=TestRunStatusResponse)
 @requires_permission('manage_evals')
 async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
