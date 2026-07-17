@@ -1080,7 +1080,8 @@
       },
       "emptyTab": "Aún no hay nada aquí.",
       "open": "Abrir agente",
-      "editHint": "Ajusta tablas y herramientas en la página del agente."
+      "editHint": "Ajusta tablas y herramientas en la página del agente.",
+      "needsSelection": "¿Qué datos debe cubrir este agente?"
     },
     "wait": {
       "waiting": "Waiting",

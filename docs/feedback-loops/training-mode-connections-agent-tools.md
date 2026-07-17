@@ -268,6 +268,41 @@ Fernet key is generated per process, so a backend restart orphans every stored
 credential (LLM provider keys decode as `InvalidToken`). Pin the env var in
 `backend/.env` before storing credentials in a dev sandbox.
 
+
+### v3 — guided (interactive) agent creation
+
+"Create an agent on X" with no coverage stated is now a conversation, not a
+guess. Two layers:
+
+- **Guardrail (deterministic):** `create_agent` on a tables catalog over 25
+  tables (or a tool set over 15) with no `schemas`/`tables`/`tools` and no
+  `use_defaults` returns `rejected_reason="needs_selection"` with
+  `selection_groups` — schema names + counts, name-prefix globs for schemaless
+  catalogs (DuckDB/SQLite), or tool verb-prefix globs — and creates nothing.
+  The observation tells the planner to offer exactly those groups via the
+  clarify tool's clickable options (plus "Everything" → `use_defaults=true`).
+  The offered globs are valid create_agent inputs as-is.
+- **Interview protocol (planner prompt):** the training block instructs a
+  friendly one-line plan → `get_connection` → `clarify` with chips (+ name
+  question when missing) → `create_agent` with the mapped choice; fully
+  specified requests skip the interview. The card renders `needs_selection`
+  as a neutral "Which data should this agent cover?" state with the group
+  chips, not as a failure.
+
+Loop B additions (all PASS — 12 passed):
+- Large catalog, no selection → `needs_selection` with `{sales: 20, analytics: 10}`,
+  nothing created; `use_defaults=true` → created; small catalog (4 tables) →
+  created directly with no interview.
+- Schemaless catalog → prefix groups `{fin_*: 18, ops_*: 12}` and the offered
+  glob works verbatim on retry (18 active); 16-tool MCP connection → verb
+  groups `{get_*: 10, send_*: 6}`, retry with `tools=["get_*"]` → 10 enabled.
+
+Live LLM leg: blocked at the time of writing — the sandbox Anthropic key ran
+out of credits mid-loop ("credit balance is too low"); the failed request
+payload confirms the interview block ships in the planner system prompt.
+Re-run the Loop C prompts ("Create an agent on Big Warehouse called 'Sales
+Hub'", answer a chip) once a funded key is configured.
+
 ## What this proves
 
 - The three tools exist **only** in training mode (Loop A), enforce the same

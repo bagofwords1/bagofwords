@@ -31,15 +31,24 @@ from app.ai.tools.schemas.events import (
     ToolErrorEvent,
 )
 from app.ai.tools.implementations.connection_catalog_common import (
+    FILE_SOURCE_TYPES,
     can_create_agents,
     can_create_on_connection,
     compile_patterns,
+    conn_data_shape,
     table_schema_of,
+    table_selection_groups,
+    tool_selection_groups,
 )
 
 logger = logging.getLogger(__name__)
 
 ACTIVE_SAMPLE_LIMIT = 20
+# Above these catalog sizes an unselected create is rejected with a coverage
+# menu (needs_selection) instead of silently producing a near-empty agent —
+# the auto-select cap for agents on existing connections is 0.
+TABLES_MENU_THRESHOLD = 25
+TOOLS_MENU_THRESHOLD = 15
 
 
 class CreateAgentTool(Tool):
@@ -56,7 +65,10 @@ class CreateAgentTool(Tool):
                 "(names or globs like 'sales.*') for table connections, or `tools` (names or "
                 "globs) for MCP/API connections — anything else stays inactive/disabled. "
                 "Run list_connections / get_connection FIRST to pick the connection and "
-                "selection. Cannot create connections or accept credentials. Requires "
+                "selection. On a large catalog with NO selection this rejects with "
+                "`needs_selection` + coverage groups — ask the user via clarify (clickable "
+                "options) and retry; pass use_defaults=true only when they explicitly choose "
+                "'everything'. Cannot create connections or accept credentials. Requires "
                 "create-agent access on every referenced connection. Querying the new agent's "
                 "data starts on the NEXT message; instructions/prompts scope to it immediately."
             ),
@@ -179,6 +191,70 @@ class CreateAgentTool(Tool):
                     yield self._reject(
                         f"You don't have create-agent access on connection '{conn.name}'.",
                         "permission_denied",
+                    )
+                    return
+
+            # ---- Interview guardrail: no silent near-empty agents ----
+            # On a large catalog with no selection (and no explicit
+            # use_defaults), reject with a coverage menu the planner can turn
+            # into a clickable clarify question. Nothing is created here.
+            if not data.use_defaults:
+                conns = [conns_by_id[str(c)] for c in data.connection_ids]
+                tables_conn_ids = [
+                    str(c.id) for c in conns
+                    if conn_data_shape(c.type) in ("tables", "objects") and c.type not in FILE_SOURCE_TYPES
+                ]
+                tools_conn_ids = [str(c.id) for c in conns if conn_data_shape(c.type) == "tools"]
+
+                menu: List[dict] = []
+                if tables_conn_ids and not (data.schemas or data.tables):
+                    from app.models.connection_table import ConnectionTable
+                    from sqlalchemy import func as _f
+                    n = (await db.execute(
+                        select(_f.count(ConnectionTable.id)).where(
+                            ConnectionTable.connection_id.in_(tables_conn_ids)
+                        )
+                    )).scalar() or 0
+                    if n > TABLES_MENU_THRESHOLD:
+                        menu.extend(await table_selection_groups(db, tables_conn_ids))
+                if tools_conn_ids and not data.tools:
+                    from app.models.connection_tool import ConnectionTool as _CT
+                    from sqlalchemy import func as _f2
+                    n = (await db.execute(
+                        select(_f2.count(_CT.id)).where(_CT.connection_id.in_(tools_conn_ids))
+                    )).scalar() or 0
+                    if n > TOOLS_MENU_THRESHOLD:
+                        menu.extend(await tool_selection_groups(db, tools_conn_ids))
+
+                if menu:
+                    menu_txt = ", ".join(f"{g['label']} ({g['count']})" for g in menu)
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": CreateAgentOutput(
+                                success=False,
+                                name=data.name,
+                                message=(
+                                    "This connection has a large catalog and no selection was given. "
+                                    f"Coverage groups: {menu_txt}. Ask the user which to include "
+                                    "(clarify with these as clickable options plus 'Everything'), "
+                                    "then retry with schemas/tables/tools — or use_defaults=true if "
+                                    "they choose everything."
+                                ),
+                                rejected_reason="needs_selection",
+                                selection_groups=menu,
+                            ).model_dump(),
+                            "observation": {
+                                "summary": (
+                                    f"create_agent needs a selection for '{data.name}': offer the user "
+                                    f"these coverage groups via clarify (clickable options): {menu_txt}, "
+                                    "plus 'Everything'. Then retry create_agent with their choice."
+                                ),
+                                "artifacts": [
+                                    {"type": "agent_selection_menu", "groups": menu, "name": data.name}
+                                ],
+                            },
+                        },
                     )
                     return
 
