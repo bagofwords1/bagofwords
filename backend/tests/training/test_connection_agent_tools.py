@@ -299,6 +299,40 @@ async def test_create_agent_with_schema_selection_and_report_attach():
 
 
 @pytest.mark.asyncio
+async def test_agent_with_tool_overlays_can_be_deleted():
+    """Deleting an agent whose tool selection created overlay rows must work —
+    the ORM cascades the DataSourceConnectionTool rows instead of NULLing
+    their NOT NULL FK (SQLite doesn't enforce the DDL ON DELETE CASCADE)."""
+    from app.services.data_source_service import DataSourceService
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        ctx = {"db": db, "organization": org, "user": admin}
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Disposable {ids['suffix']}",
+            "connection_ids": [ids["conn_mcp"]],
+            "tools": ["get_*"],
+        }, ctx)
+        ds_id = ev.payload["output"]["data_source_id"]
+        overlays = (await db.execute(
+            select(DataSourceConnectionTool).where(DataSourceConnectionTool.data_source_id == ds_id)
+        )).scalars().all()
+        assert overlays, "selection must have created overlay rows"
+
+        await DataSourceService().delete_data_source(db, ds_id, org, admin)
+
+        assert (await db.execute(
+            select(DataSource).where(DataSource.id == ds_id)
+        )).scalar_one_or_none() is None
+        assert not (await db.execute(
+            select(DataSourceConnectionTool).where(DataSourceConnectionTool.data_source_id == ds_id)
+        )).scalars().all()
+
+
+@pytest.mark.asyncio
 async def test_instruction_after_create_agent_scopes_to_new_agent():
     """The keystone integration: an instruction created later in the SAME run
     (same ctx/report) attaches to the just-created agent, not org-wide."""
