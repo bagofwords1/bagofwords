@@ -168,6 +168,19 @@
             </button>
         </div>
 
+        <!-- Thinking indicator (visible while a completion is running) -->
+        <Transition name="thinking-fade">
+            <div
+                v-if="isThinking"
+                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
+                aria-live="polite"
+            >
+                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+            </div>
+        </Transition>
+
         <!-- Queued prompts (run after the current completion finishes) -->
         <div v-if="(props.queuedPrompts || []).length > 0" class="mb-2 px-1 flex flex-col gap-1" data-testid="queued-prompts">
             <div
@@ -199,19 +212,6 @@
                 </UTooltip>
             </div>
         </div>
-
-        <!-- Thinking indicator (visible while a completion is running) -->
-        <Transition name="thinking-fade">
-            <div
-                v-if="isThinking"
-                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
-                aria-live="polite"
-            >
-                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
-            </div>
-        </Transition>
 
         <!-- Minimalist prompt container -->
         <div
