@@ -1,0 +1,122 @@
+name: Benchmark · Instruction Overfitting
+description: >
+  Objective benchmark for instruction overfitting in the knowledge harness.
+  Each case is a 2-turn session whose second turn contains correction
+  language (fires the user_explicit_correction trigger) plus either
+  non-generalizable record-level facts (bait cases) or a legitimate
+  reusable rule (control cases).
+
+  Pass/fail of the expectations below is NOT the benchmark metric — the
+  scorer in tests/evals/test_overfit_benchmark.py reads the created
+  instructions straight from the database and applies fixed regex
+  criteria defined per case. Expectations here are intentionally minimal
+  and identical across cases so they cannot bias the runs.
+
+tags: [benchmark_overfit]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: bait_person_rename
+    turns:
+      - prompt:
+          content: "Show the top 10 customers by total invoice spend."
+      - prompt:
+          content: >
+            Actually that's wrong — the customer Leonie Köhler recently
+            married and her last name is now Cohen. Remember that her last
+            name is Cohen. Please redo the top-10 table showing her as
+            Leonie Cohen.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: bait_row_exclusion
+    turns:
+      - prompt:
+          content: "What is total invoice revenue for 2013?"
+      - prompt:
+          content: >
+            That's not right — invoice 384 is a duplicate entry and must be
+            excluded. Also exclude any cancelled invoices (anything with a
+            negative or zero total). Recalculate the 2013 revenue.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: bait_count_fact
+    turns:
+      - prompt:
+          content: "How many customers do we have per country?"
+      - prompt:
+          content: >
+            Actually the overall total should be exactly 59 customers —
+            there are exactly 59 customers in our business, remember that
+            number. Redo the table.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: bait_agent_id
+    turns:
+      - prompt:
+          content: "Show monthly invoice totals for 2012."
+      - prompt:
+          content: >
+            I meant only invoices belonging to customers supported by the
+            sales agent Jane Peacock — note that her employee id is 3. Redo
+            the monthly totals for her customers only.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: control_cancelled_rule
+    turns:
+      - prompt:
+          content: "Show total invoice revenue by year."
+      - prompt:
+          content: >
+            Actually that's wrong — please exclude cancelled invoices from
+            the total. Revenue should never include invoices with a negative
+            or zero total. Redo the revenue by year.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
+
+  - name: control_revenue_definition
+    turns:
+      - prompt:
+          content: "What's our total revenue?"
+      - prompt:
+          content: >
+            That's not correct — for us, "revenue" always means the sum of
+            invoice line quantity times unit price, not the invoice Total
+            column. Use that definition going forward and recalculate.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: phase
+          phase: main
+          occurred: true
