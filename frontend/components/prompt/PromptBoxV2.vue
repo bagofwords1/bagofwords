@@ -1558,6 +1558,10 @@ async function createReport() {
     color: transparent;
     animation: thinking-shimmer 2s linear infinite;
 }
+/* RTL locales (he/ar): sweep the shine in reading direction, right to left. */
+[dir="rtl"] .thinking-shimmer {
+    animation-direction: reverse;
+}
 @keyframes thinking-shimmer {
     0% { background-position: -100% 0; }
     100% { background-position: 100% 0; }
