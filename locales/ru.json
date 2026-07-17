@@ -972,6 +972,53 @@
       "queryThisAgent": "этот агент",
       "queryAll": "все промпты"
     },
+    "listConnections": {
+      "listing": "Список подключений…",
+      "listed": "Подключения показаны",
+      "count": "{count} доступно",
+      "schemas": "Схемы",
+      "agents": "Агенты",
+      "empty": "Нет подключений, на которых можно создать агента.",
+      "tableCount": "{count} таблиц",
+      "toolCount": "{count} инструментов",
+      "fileCount": "{count} файлов"
+    },
+    "getConnection": {
+      "inspecting": "Проверка подключения…",
+      "inspected": "Подключение {name} проверено",
+      "matchCount": "{count} совпадений",
+      "page": "страница {page}",
+      "tokenScoped": "Область определяется учетной записью каждого пользователя.",
+      "scopeBase": "База",
+      "scopeGlobs": "Шаблоны",
+      "indexMode": "Индексация",
+      "columns": "{count} столбцов",
+      "empty": "Ничего не найдено.",
+      "showResults": "Показать {count} результатов",
+      "hideResults": "Скрыть результаты"
+    },
+    "createAgent": {
+      "creating": "Создание агента {name}…",
+      "created": "Агент создан",
+      "failed": "Не удалось создать агента",
+      "statusActive": "Активен",
+      "statusInactive": "Неактивен",
+      "public": "Публичный",
+      "private": "Приватный",
+      "on": "На:",
+      "requiresConnect": "Каждый пользователь должен подключиться перед запуском инструментов.",
+      "unresolved": "Выбор без совпадений: {items}",
+      "tab": {
+        "tables": "Таблицы",
+        "tools": "Инструменты",
+        "files": "Файлы",
+        "instructions": "Инструкции",
+        "evals": "Оценки"
+      },
+      "emptyTab": "Здесь пока пусто.",
+      "open": "Открыть агента",
+      "editHint": "Настройте таблицы и инструменты на странице агента."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

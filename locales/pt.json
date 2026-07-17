@@ -972,6 +972,53 @@
       "queryThisAgent": "este agente",
       "queryAll": "todos os prompts"
     },
+    "listConnections": {
+      "listing": "Listando conexões…",
+      "listed": "Conexões listadas",
+      "count": "{count} disponíveis",
+      "schemas": "Esquemas",
+      "agents": "Agentes",
+      "empty": "Nenhuma conexão sobre a qual você possa criar um agente.",
+      "tableCount": "{count} tabelas",
+      "toolCount": "{count} ferramentas",
+      "fileCount": "{count} arquivos"
+    },
+    "getConnection": {
+      "inspecting": "Inspecionando conexão…",
+      "inspected": "Conexão {name} inspecionada",
+      "matchCount": "{count} correspondências",
+      "page": "página {page}",
+      "tokenScoped": "O escopo é definido pela conta conectada de cada usuário.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexação",
+      "columns": "{count} col.",
+      "empty": "Nada correspondeu.",
+      "showResults": "Mostrar {count} resultados",
+      "hideResults": "Ocultar resultados"
+    },
+    "createAgent": {
+      "creating": "Criando agente {name}…",
+      "created": "Agente criado",
+      "failed": "Falha ao criar o agente",
+      "statusActive": "Ativo",
+      "statusInactive": "Inativo",
+      "public": "Público",
+      "private": "Privado",
+      "on": "Em:",
+      "requiresConnect": "Cada usuário precisa se conectar antes de executar ferramentas.",
+      "unresolved": "Seleção sem correspondência: {items}",
+      "tab": {
+        "tables": "Tabelas",
+        "tools": "Ferramentas",
+        "files": "Arquivos",
+        "instructions": "Instruções",
+        "evals": "Avaliações"
+      },
+      "emptyTab": "Nada aqui ainda.",
+      "open": "Abrir agente",
+      "editHint": "Refine tabelas e ferramentas na página do agente."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",

@@ -830,6 +830,9 @@ class CompletionService:
                         latest_completion=latest,
                     )
                 except Exception as e:
+                    # str(e) alone can be empty (e.g. bare Exception subclasses) —
+                    # keep the traceback, it's the only record of what killed the run.
+                    logging.exception("Agent execution failed for report %s", report.id)
                     await self._create_error_completion(db, head_completion, str(e))
                     raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
 

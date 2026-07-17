@@ -972,6 +972,53 @@
       "queryThisAgent": "هذا الوكيل",
       "queryAll": "كل المطالبات"
     },
+    "listConnections": {
+      "listing": "جارٍ سرد الاتصالات…",
+      "listed": "تم سرد الاتصالات",
+      "count": "{count} متاحة",
+      "schemas": "المخططات",
+      "agents": "الوكلاء",
+      "empty": "لا توجد اتصالات يمكنك إنشاء وكيل عليها.",
+      "tableCount": "{count} جداول",
+      "toolCount": "{count} أدوات",
+      "fileCount": "{count} ملفات"
+    },
+    "getConnection": {
+      "inspecting": "جارٍ فحص الاتصال…",
+      "inspected": "تم فحص الاتصال {name}",
+      "matchCount": "{count} مطابقة",
+      "page": "صفحة {page}",
+      "tokenScoped": "يُحدَّد النطاق بحساب تسجيل الدخول لكل مستخدم.",
+      "scopeBase": "الأساس",
+      "scopeGlobs": "الأنماط",
+      "indexMode": "الفهرسة",
+      "columns": "{count} أعمدة",
+      "empty": "لا توجد نتائج مطابقة.",
+      "showResults": "عرض {count} نتيجة",
+      "hideResults": "إخفاء النتائج"
+    },
+    "createAgent": {
+      "creating": "جارٍ إنشاء الوكيل {name}…",
+      "created": "تم إنشاء الوكيل",
+      "failed": "فشل إنشاء الوكيل",
+      "statusActive": "نشط",
+      "statusInactive": "غير نشط",
+      "public": "عام",
+      "private": "خاص",
+      "on": "على:",
+      "requiresConnect": "يجب على كل مستخدم الاتصال قبل تشغيل الأدوات.",
+      "unresolved": "تحديد بلا مطابقة: {items}",
+      "tab": {
+        "tables": "الجداول",
+        "tools": "الأدوات",
+        "files": "الملفات",
+        "instructions": "التعليمات",
+        "evals": "التقييمات"
+      },
+      "emptyTab": "لا يوجد شيء هنا بعد.",
+      "open": "فتح الوكيل",
+      "editHint": "اضبط الجداول والأدوات في صفحة الوكيل."
+    },
     "wait": {
       "waiting": "Waiting",
       "resuming": "Resuming…",
