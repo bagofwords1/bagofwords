@@ -20,6 +20,15 @@ class Report(BaseSchema):
     theme_name = Column(String, nullable=True, default=None)
     theme_overrides = Column(JSON, nullable=True, default=dict)
     mode = Column(String, nullable=False, default='chat')  # 'chat' | 'deep' | 'training'
+    # Report-level LLM override. Soft reference to llm_models.id (no FK, same
+    # convention as prompt.model_id / membership.default_llm_model_id): a stale
+    # value — model disabled/restricted/deleted after being picked, or set by a
+    # teammate with access the current user lacks — degrades silently to the
+    # user/org default at resolve time and never breaks chat. null = fall back
+    # to the user preference, then the org default. Precedence when running a
+    # completion: prompt.model_id (explicit per-message) > report.model_id >
+    # user default > org default.
+    model_id = Column(String(36), nullable=True)
     
     # Sharing visibility: 'none' | 'shared' | 'internal' | 'public'
     # 'none' = only owner, 'shared' = specific users, 'internal' = org, 'public' = anyone

@@ -310,7 +310,7 @@ class CompletionService:
             if completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
             else:
-                model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
+                model = await self.llm_service.get_default_model_for_report(db, organization, current_user, report)
 
             if not model:
                 raise HTTPException(
@@ -526,7 +526,7 @@ class CompletionService:
             if completion_data.prompt and completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
             else:
-                model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
+                model = await self.llm_service.get_default_model_for_report(db, organization, current_user, report)
 
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
 
@@ -1925,7 +1925,7 @@ class CompletionService:
             if completion_data.prompt and completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
             else:
-                model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
+                model = await self.llm_service.get_default_model_for_report(db, organization, current_user, report)
 
             if not model:
                 raise HTTPException(

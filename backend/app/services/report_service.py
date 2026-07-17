@@ -370,6 +370,8 @@ class ReportService:
             theme_name=report.theme_name,
             theme_overrides=report.theme_overrides,
             mode=getattr(report, "mode", "chat"),
+            # Report-level LLM override (null = user/org default resolves at run time)
+            model_id=getattr(report, "model_id", None),
             # Conversation sharing
             conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
             conversation_share_token=getattr(report, "conversation_share_token", None),
@@ -633,6 +635,21 @@ class ReportService:
                         detail="You need manage access on this agent to enter training mode",
                     )
             report.mode = report_data.mode
+        # Persist report-level LLM override if present in payload.
+        #   None          -> field omitted, leave the current value untouched
+        #   "" (empty)    -> clear the override back to user/org default
+        #   <model id>    -> set, after strict validation (the user setting it
+        #                    must be able to use that model, mirroring the
+        #                    per-user default write path)
+        if hasattr(report_data, 'model_id') and report_data.model_id is not None:
+            if report_data.model_id == "":
+                report.model_id = None
+            else:
+                from app.services.llm_service import LLMService
+                await LLMService().validate_model_for_user(
+                    db, organization, current_user, report_data.model_id
+                )
+                report.model_id = report_data.model_id
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             await self.set_data_sources_for_report(db, report, report_data.data_sources, current_user, organization)
