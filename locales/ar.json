@@ -380,6 +380,7 @@
   },
   "prompt": {
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
+    "thinking": "جارٍ التفكير",
     "placeholderCompact": "اطلب أي بيانات",
     "instructions": "التعليمات",
     "loadingReportContext": "جارٍ تحميل سياق التقرير…",

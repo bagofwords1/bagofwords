@@ -395,6 +395,7 @@
   },
   "prompt": {
     "placeholderDefault": "Pida datos, un panel o un análisis detallado",
+    "thinking": "Pensando",
     "placeholderCompact": "Pida cualquier dato",
     "instructions": "Instrucciones",
     "loadingReportContext": "Cargando contexto del informe…",

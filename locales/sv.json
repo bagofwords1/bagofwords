@@ -380,6 +380,7 @@
   },
   "prompt": {
     "placeholderDefault": "Be om data, en instrumentpanel eller en djupanalys",
+    "thinking": "Tänker",
     "placeholderCompact": "Be om vilken data som helst",
     "instructions": "Instruktioner",
     "loadingReportContext": "Laddar rapportkontext…",

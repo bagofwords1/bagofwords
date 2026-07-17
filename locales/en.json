@@ -412,6 +412,7 @@
   },
   "prompt": {
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
+    "thinking": "Thinking",
     "placeholderCompact": "Ask for any data",
     "instructions": "Instructions",
     "loadingReportContext": "Loading report context…",

@@ -395,6 +395,7 @@
   },
   "prompt": {
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
+    "thinking": "חושב",
     "placeholderCompact": "בקשו נתונים",
     "instructions": "הנחיות",
     "loadingReportContext": "טוען קונטקסט של הדוח…",

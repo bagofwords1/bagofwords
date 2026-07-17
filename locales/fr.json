@@ -380,6 +380,7 @@
   },
   "prompt": {
     "placeholderDefault": "Demandez des données, un tableau de bord ou une analyse approfondie",
+    "thinking": "Réflexion",
     "placeholderCompact": "Demandez n'importe quelle donnée",
     "instructions": "Instructions",
     "loadingReportContext": "Chargement du contexte du rapport…",

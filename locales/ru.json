@@ -380,6 +380,7 @@
   },
   "prompt": {
     "placeholderDefault": "Запросите данные, дашборд или глубокий анализ",
+    "thinking": "Думаю",
     "placeholderCompact": "Запросите любые данные",
     "instructions": "Инструкции",
     "loadingReportContext": "Загрузка контекста отчёта…",
