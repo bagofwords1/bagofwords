@@ -1,5 +1,18 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
+        <!-- Thinking indicator (visible while a completion is running) — above the pills row -->
+        <Transition name="thinking-fade">
+            <div
+                v-if="isThinking"
+                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
+                aria-live="polite"
+            >
+                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+            </div>
+        </Transition>
+
         <!-- Query pills + Excel hint (above container) — hidden for now -->
         <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
@@ -167,19 +180,6 @@
                 <span class="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
-
-        <!-- Thinking indicator (visible while a completion is running) -->
-        <Transition name="thinking-fade">
-            <div
-                v-if="isThinking"
-                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
-                aria-live="polite"
-            >
-                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
-            </div>
-        </Transition>
 
         <!-- Minimalist prompt container -->
         <div
