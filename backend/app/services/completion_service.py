@@ -1379,7 +1379,6 @@ class CompletionService:
                 # Webhook / machine-turn provenance
                 webhook_id=getattr(c, 'webhook_id', None),
                 external_platform=getattr(c, 'external_platform', None),
-                message_type=getattr(c, 'message_type', None),
                 trigger_source=getattr(c, 'trigger_source', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
@@ -1751,7 +1750,6 @@ class CompletionService:
                 user_feedback=None,  # Not available without current_user context
                 # Scheduled prompt
                 scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
-                message_type=getattr(c, 'message_type', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
