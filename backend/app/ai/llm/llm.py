@@ -1,7 +1,7 @@
 import asyncio
 import re
 import time
-from typing import AsyncGenerator, Optional, Callable
+from typing import AsyncGenerator, Optional, Callable, Union
 
 from .clients.openai_client import OpenAi
 from .clients.openai_responses_client import OpenAIResponsesClient
@@ -346,7 +346,7 @@ class LLM:
         *,
         model_id: Optional[str] = None,
         messages: list[Message],
-        system: Optional[str] = None,
+        system: Optional[Union[str, list[str]]] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
@@ -370,13 +370,26 @@ class LLM:
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
 
+            # `system` may arrive as an ordered list of blocks (cache-friendly
+            # split, most stable first). Only clients that declare
+            # `supports_system_blocks` receive the list — everyone else gets
+            # the byte-equivalent joined string.
+            system_joined = (
+                "\n\n".join(system) if isinstance(system, list) else (system or "")
+            )
+            client_system: Union[str, list[str], None] = system
+            if isinstance(system, list) and not getattr(
+                self.client, "supports_system_blocks", False
+            ):
+                client_system = system_joined
+
             prompt_tokens = (
                 prompt_tokens_estimate
                 if prompt_tokens_estimate is not None
                 else 0
             )
             if not prompt_tokens:
-                prompt_parts = [system or ""]
+                prompt_parts = [system_joined]
                 for message in messages or []:
                     content = getattr(message, "content", "")
                     prompt_parts.append(content if isinstance(content, str) else str(content))
@@ -401,7 +414,7 @@ class LLM:
                 async for evt in self.client.inference_stream_v2(
                     model_id=target_model_id,
                     messages=messages,
-                    system=system,
+                    system=client_system,
                     tools=tools,
                     images=images,
                     thinking=thinking,

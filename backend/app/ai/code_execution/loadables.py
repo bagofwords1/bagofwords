@@ -175,11 +175,86 @@ class LoadablesResolver:
         """
         if not self.enable_load_step:
             return None
+        # Project only the metadata the listing needs. Steps carry their full
+        # result rows in `data`; hydrating whole Step rows here (up to `limit`
+        # of them, on EVERY planner iteration) made pre-first-token latency
+        # grow with the report's data volume. `data['columns']` /
+        # `data['info']['total_rows']` / json_array_length compile to native
+        # JSON ops on both Postgres and SQLite.
+        try:
+            items = await self._list_for_discovery_projected(limit=limit)
+        except Exception:
+            items = await self._list_for_discovery_hydrated(limit=limit)
+        if not items:
+            return None
+        return StepsSection(items=items)
+
+    async def _list_for_discovery_projected(self, *, limit: int) -> List[StepItem]:
+        from sqlalchemy import func
+        import json as _json
+
+        stmt = (
+            select(
+                Step.id,
+                Step.title,
+                Step.slug,
+                Step.data["columns"].label("columns_json"),
+                Step.data["info"]["total_rows"].label("total_rows"),
+                func.json_array_length(Step.data["rows"]).label("rows_len"),
+            )
+            .join(Query, Step.query_id == Query.id)
+            .where(
+                Query.report_id == str(self.report.id),
+                Step.id == Query.default_step_id,
+                Step.status == "success",
+            )
+            .order_by(Step.created_at.desc())
+        )
+        if self.step_max_age_seconds and self.step_max_age_seconds > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.step_max_age_seconds)
+            stmt = stmt.where(Step.created_at >= cutoff.replace(tzinfo=None))
+        if limit:
+            stmt = stmt.limit(limit)
+        res = await self.db.execute(stmt)
+
+        items: List[StepItem] = []
+        for row in res.all():
+            columns_raw = row.columns_json
+            if isinstance(columns_raw, str):
+                try:
+                    columns_raw = _json.loads(columns_raw)
+                except Exception:
+                    columns_raw = []
+            columns = [
+                c.get("field")
+                for c in (columns_raw or [])
+                if isinstance(c, dict) and c.get("field")
+            ]
+            row_count = row.total_rows
+            if isinstance(row_count, str):
+                try:
+                    row_count = int(row_count)
+                except Exception:
+                    row_count = None
+            if row_count is None:
+                row_count = row.rows_len or 0
+            items.append(
+                StepItem(
+                    id=str(row.id),
+                    title=row.title or "",
+                    slug=row.slug,
+                    row_count=row_count,
+                    columns=columns,
+                )
+            )
+        return items
+
+    async def _list_for_discovery_hydrated(self, *, limit: int) -> List[StepItem]:
+        """Fallback: full-entity load (original behavior) for dialects where
+        the JSON projection fails."""
         steps = await self._report_default_steps(
             limit=limit, max_age_seconds=self.step_max_age_seconds
         )
-        if not steps:
-            return None
         items: List[StepItem] = []
         for step in steps:
             data = step.data if isinstance(step.data, dict) else {}
@@ -201,7 +276,7 @@ class LoadablesResolver:
                     columns=columns,
                 )
             )
-        return StepsSection(items=items)
+        return items
 
     # ------------------------------------------------------------------ #
     # Resolution (indexed) — the refs the generated code actually names.   #

@@ -683,50 +683,7 @@ class AgentV2:
 
             visualizations = []
             if viz_ids:
-                viz_rows = await self.db.execute(
-                    select(Visualization).where(Visualization.id.in_(viz_ids))
-                )
-                viz_by_id = {str(v.id): v for v in viz_rows.scalars().all()}
-                for vid in viz_ids:
-                    viz = viz_by_id.get(vid)
-                    if not viz:
-                        continue
-                    step = None
-                    try:
-                        q = viz.query
-                        step = q.default_step if q and q.default_step else (q.steps[-1] if q and q.steps else None)
-                    except Exception:
-                        step = None
-
-                    columns = []
-                    row_count = None
-                    step_type = None
-                    if step is not None:
-                        step_type = step.type
-                        data_model = step.data_model if isinstance(step.data_model, dict) else None
-                        if data_model:
-                            cols = data_model.get("columns") or []
-                            columns = [c.get("name") for c in cols if isinstance(c, dict) and c.get("name")]
-                        data_payload = step.data if isinstance(step.data, dict) else None
-                        if data_payload:
-                            rows = data_payload.get("rows")
-                            if isinstance(rows, list):
-                                row_count = len(rows)
-                            if not columns:
-                                data_cols = data_payload.get("columns") or []
-                                columns = [
-                                    c.get("field") or c.get("name")
-                                    for c in data_cols
-                                    if isinstance(c, dict) and (c.get("field") or c.get("name"))
-                                ]
-
-                    visualizations.append({
-                        "viz_id": vid,
-                        "viz_title": viz.title or "",
-                        "step_type": step_type,
-                        "row_count": row_count,
-                        "columns": columns,
-                    })
+                visualizations = await self._summarize_artifact_visualizations(viz_ids)
 
             return {
                 "artifact_id": str(artifact.id),
@@ -739,6 +696,114 @@ class AgentV2:
         except Exception:
             logger.exception("_get_active_artifact failed")
             return None
+
+    async def _summarize_artifact_visualizations(self, viz_ids: list) -> list:
+        """Column/row summaries for the active artifact's visualizations.
+
+        Uses column projections instead of loading Visualization/Query/Step
+        entities: those relationships are lazy="selectin", so hydrating N
+        visualizations cascaded into loading every query, its FULL step list
+        and each step's `data` JSON (all result rows) — a pre-first-token cost
+        that grew with every artifact edit. Only metadata is selected here;
+        row counts come from JSON ops evaluated in the database.
+        """
+        import json as _json
+        from sqlalchemy import func as _sa_func
+        from app.models.query import Query as _Query
+        from app.models.visualization import Visualization as _Viz
+
+        viz_rows = (await self.db.execute(
+            select(_Viz.id, _Viz.title, _Viz.query_id).where(_Viz.id.in_(viz_ids))
+        )).all()
+        viz_by_id = {str(r.id): r for r in viz_rows}
+
+        query_ids = [str(r.query_id) for r in viz_rows if r.query_id]
+        step_id_by_query: dict = {}
+        if query_ids:
+            q_rows = (await self.db.execute(
+                select(_Query.id, _Query.default_step_id).where(_Query.id.in_(query_ids))
+            )).all()
+            step_id_by_query = {
+                str(r.id): str(r.default_step_id) for r in q_rows if r.default_step_id
+            }
+            missing = [qid for qid in query_ids if qid not in step_id_by_query]
+            if missing:
+                ranked = (
+                    select(
+                        Step.query_id.label("query_id"),
+                        Step.id.label("step_id"),
+                        _sa_func.row_number()
+                        .over(partition_by=Step.query_id, order_by=Step.created_at.desc())
+                        .label("rn"),
+                    )
+                    .where(Step.query_id.in_(missing))
+                    .subquery()
+                )
+                latest = (await self.db.execute(
+                    select(ranked.c.query_id, ranked.c.step_id).where(ranked.c.rn == 1)
+                )).all()
+                step_id_by_query.update({str(r.query_id): str(r.step_id) for r in latest})
+
+        steps_by_id: dict = {}
+        step_ids = list({sid for sid in step_id_by_query.values() if sid})
+        if step_ids:
+            try:
+                step_rows = (await self.db.execute(
+                    select(
+                        Step.id,
+                        Step.type,
+                        Step.data_model,
+                        Step.data["columns"].label("data_columns"),
+                        _sa_func.json_array_length(Step.data["rows"]).label("rows_len"),
+                    ).where(Step.id.in_(step_ids))
+                )).all()
+                steps_by_id = {str(r.id): r for r in step_rows}
+            except Exception:
+                logger.warning("artifact viz step projection failed; omitting step summaries", exc_info=True)
+                steps_by_id = {}
+
+        def _load_json(value):
+            if isinstance(value, str):
+                try:
+                    return _json.loads(value)
+                except Exception:
+                    return None
+            return value
+
+        visualizations = []
+        for vid in viz_ids:
+            viz = viz_by_id.get(str(vid))
+            if viz is None:
+                continue
+            step = steps_by_id.get(step_id_by_query.get(str(viz.query_id) if viz.query_id else ""))
+
+            columns = []
+            row_count = None
+            step_type = None
+            if step is not None:
+                step_type = step.type
+                data_model = _load_json(step.data_model)
+                if isinstance(data_model, dict):
+                    cols = data_model.get("columns") or []
+                    columns = [c.get("name") for c in cols if isinstance(c, dict) and c.get("name")]
+                if isinstance(step.rows_len, int):
+                    row_count = step.rows_len
+                if not columns:
+                    data_cols = _load_json(step.data_columns) or []
+                    columns = [
+                        c.get("field") or c.get("name")
+                        for c in data_cols
+                        if isinstance(c, dict) and (c.get("field") or c.get("name"))
+                    ]
+
+            visualizations.append({
+                "viz_id": str(vid),
+                "viz_title": viz.title or "",
+                "step_type": step_type,
+                "row_count": row_count,
+                "columns": columns,
+            })
+        return visualizations
 
     async def _build_scheduled_context(self) -> Optional[dict]:
         """Build scheduled execution context if this completion is from a scheduled prompt."""

@@ -182,6 +182,12 @@ class PlannerInputV3(BaseModel):
     a list of structured messages, and a list of tool specs.
     """
     system: str
+    # Cache-oriented split of `system`: ordered blocks, most stable first
+    # (agent behavior prompt, then report-level context like schemas /
+    # instructions). Providers that support prompt-cache breakpoints
+    # (Anthropic) cache each block prefix; others join with blank lines —
+    # byte-equivalent to `system`. None means "no split available".
+    system_blocks: Optional[List[str]] = None
     messages: List[Dict[str, Any]] = []   # serialized Message objects (role + content)
     tools: List[Dict[str, Any]] = []      # serialized ToolSpec objects
 

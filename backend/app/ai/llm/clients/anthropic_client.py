@@ -1,5 +1,5 @@
 import json
-from typing import Any, AsyncGenerator, AsyncIterator, Optional
+from typing import Any, AsyncGenerator, AsyncIterator, Optional, Union
 
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 
@@ -229,11 +229,15 @@ class Anthropic(LLMClient):
             for t in tools
         ]
 
+    # The LLM facade checks this before forwarding `system` as a list of
+    # blocks (cache-friendly split); clients without it get a joined string.
+    supports_system_blocks = True
+
     async def inference_stream_v2(
         self,
         model_id: str,
         messages: list[Message],
-        system: Optional[str] = None,
+        system: Optional[Union[str, list[str]]] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         enable_cache: bool = True,
@@ -291,18 +295,26 @@ class Anthropic(LLMClient):
             if budget and request_kwargs.get("max_tokens", 0) <= budget:
                 request_kwargs["max_tokens"] = budget + 4096
 
-        # Prompt caching: place a cache_control breakpoint on the system block
-        # and on the last tool. This caches the entire (system + tools) prefix.
-        # Both blocks are static across iterations within a session, so the
-        # prefix is byte-identical → cache hits on iteration 2+.
+        # Prompt caching: place a cache_control breakpoint on each system block
+        # and on the last tool, caching the (tools + system) prefix.
+        # `system` may be a list of blocks ordered most-stable-first (agent
+        # behavior prompt, report context, per-turn instructions); a breakpoint
+        # per block means a change in a later block still reuses the cached
+        # prefix up to the previous one. Anthropic allows 4 breakpoints total;
+        # one is spent on the last tool, so mark at most 3 system blocks.
         # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
         if system:
+            system_blocks = system if isinstance(system, list) else [system]
+            system_blocks = [b for b in system_blocks if b]
             if enable_cache:
-                request_kwargs["system"] = [
-                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}},
+                marked = [
+                    {"type": "text", "text": b, "cache_control": {"type": "ephemeral"}}
+                    for b in system_blocks[:3]
                 ]
+                unmarked = [{"type": "text", "text": b} for b in system_blocks[3:]]
+                request_kwargs["system"] = marked + unmarked
             else:
-                request_kwargs["system"] = system
+                request_kwargs["system"] = "\n\n".join(system_blocks)
         if tools:
             translated = self._translate_tools(tools)
             if enable_cache and translated:

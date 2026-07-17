@@ -168,7 +168,7 @@ class PlannerV3:
             async for evt in self.llm.inference_stream_v2(
                 model_id=None,  # LLM facade resolves from self.llm.model
                 messages=messages,
-                system=v3_input.system,
+                system=v3_input.system_blocks or v3_input.system,
                 tools=tools,
                 images=v3_input.images,
                 thinking=thinking,

@@ -61,12 +61,21 @@ class PromptBuilderV3:
     @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
         system = PromptBuilderV3._build_system(planner_input)
+        report_context = PromptBuilderV3._build_report_context_block(planner_input)
+        instructions_block = PromptBuilderV3._build_instructions_block(planner_input)
         user_content = PromptBuilderV3._build_user_message(planner_input)
         tools = _tool_specs_from_catalog(planner_input.tool_catalog)
 
+        # Ordered most-stable-first so prompt-cache breakpoints survive as long
+        # as possible: behavior prompt (static per mode) -> schemas/files/
+        # resources (stable per report) -> instructions (stable per turn).
+        # The user message keeps only per-turn/per-iteration content.
+        system_blocks = [b for b in (system, report_context, instructions_block) if b]
+
         msg = Message(role="user", content=user_content)
         return PlannerInputV3(
-            system=system,
+            system="\n\n".join(system_blocks),
+            system_blocks=system_blocks,
             messages=[{"role": msg.role, "content": msg.content}],
             tools=[{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools],
             images=planner_input.images,
@@ -559,6 +568,46 @@ Examples of good behavior (sources are published by default → most asks should
         )
 
     @staticmethod
+    def _build_report_context_block(planner_input: PlannerInput) -> str:
+        """Report-level context that is stable across planner iterations and,
+        typically, across turns (schemas are cached ~10min; files/resources
+        change only when the report's attachments change). Kept in its own
+        system block so providers with prompt caching reuse it instead of
+        re-processing it on every planner call."""
+        parts: List[str] = []
+        if not getattr(planner_input, "allow_llm_see_data", True):
+            parts.append(
+                "<data_visibility>Data privacy mode is ON for this organization "
+                "(allow_llm_see_data is off). Data tools (create_data, read_query) "
+                "return only columns, row_count and aggregate stats (counts, "
+                "mean/std/sum, date ranges) — never raw rows; inspect_data is "
+                "disabled. This is expected, not an error: do not retry to \"see\" "
+                "the data or attempt to retrieve individual values. Reason from the "
+                "structure and aggregates provided, and answer without quoting raw "
+                "rows.</data_visibility>"
+            )
+        if getattr(planner_input, "schemas_combined", None):
+            parts.append(planner_input.schemas_combined)
+        if getattr(planner_input, "files_context", None):
+            parts.append(planner_input.files_context)
+        if getattr(planner_input, "resources_combined", None):
+            parts.append(planner_input.resources_combined)
+        if getattr(planner_input, "tools_context", None):
+            parts.append(planner_input.tools_context)
+        if not parts:
+            return ""
+        return "<report_context>\n" + "\n".join(parts) + "\n</report_context>"
+
+    @staticmethod
+    def _build_instructions_block(planner_input: PlannerInput) -> str:
+        """Org/report instructions. Stable within a turn (all iterations see the
+        same set) but may vary between turns (query-driven instruction search),
+        so it sits AFTER the report context block in the cache order."""
+        if not planner_input.instructions:
+            return ""
+        return planner_input.instructions
+
+    @staticmethod
     def _build_user_message(planner_input: PlannerInput) -> str:
         images_context = ""
         if planner_input.images:
@@ -589,27 +638,9 @@ Examples of good behavior (sources are published by default → most asks should
         parts.append("<context>")
         parts.append(f"  <platform>{platform}</platform>")
         parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
-        if planner_input.instructions:
-            parts.append(f"  {planner_input.instructions}")
-        if not getattr(planner_input, "allow_llm_see_data", True):
-            parts.append(
-                "  <data_visibility>Data privacy mode is ON for this organization "
-                "(allow_llm_see_data is off). Data tools (create_data, read_query) "
-                "return only columns, row_count and aggregate stats (counts, "
-                "mean/std/sum, date ranges) — never raw rows; inspect_data is "
-                "disabled. This is expected, not an error: do not retry to \"see\" "
-                "the data or attempt to retrieve individual values. Reason from the "
-                "structure and aggregates provided, and answer without quoting raw "
-                "rows.</data_visibility>"
-            )
-        if getattr(planner_input, "schemas_combined", None):
-            parts.append(f"  {planner_input.schemas_combined}")
-        if getattr(planner_input, "files_context", None):
-            parts.append(f"  {planner_input.files_context}")
-        if getattr(planner_input, "resources_combined", None):
-            parts.append(f"  {planner_input.resources_combined}")
-        if getattr(planner_input, "tools_context", None):
-            parts.append(f"  {planner_input.tools_context}")
+        # NOTE: instructions, data-visibility, schemas, files, resources and
+        # tools context moved to cached system blocks — see
+        # _build_report_context_block / _build_instructions_block.
         parts.append(
             f"  {planner_input.mentions_context if planner_input.mentions_context else '<mentions>No mentions for this turn</mentions>'}"
         )

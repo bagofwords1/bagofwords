@@ -676,6 +676,7 @@ class MessageContextBuilder:
                 ToolExecution.created_widget_id,
                 ToolExecution.created_step_id,
                 ToolExecution.error_message,
+                ToolExecution.arguments_json,
             )
             .where(ToolExecution.id == tool_execution_id)
         )
@@ -692,11 +693,14 @@ class MessageContextBuilder:
             created_widget_id=row.created_widget_id,
             created_step_id=row.created_step_id,
             error_message=row.error_message,
+            arguments_json=_json_value(row.arguments_json),
             result_json=None,
         )
 
         if tool_execution.tool_name == "create_data":
             tool_execution.result_json = await self._load_create_data_result_projection(tool_execution_id)
+        elif tool_execution.tool_name in ("create_artifact", "edit_artifact", "read_artifact"):
+            tool_execution.result_json = await self._load_artifact_result_projection(tool_execution_id)
         else:
             result = await self.db.execute(
                 select(ToolExecution.result_json).where(ToolExecution.id == tool_execution_id)
@@ -733,7 +737,40 @@ class MessageContextBuilder:
         )
         result = await self.db.execute(stmt, {"tool_execution_id": tool_execution_id})
         return _json_value(result.scalar_one_or_none()) or {}
-    
+
+    async def _load_artifact_result_projection(self, tool_execution_id: str) -> Dict[str, Any]:
+        """Artifact tool results carry the full generated code (tens of KB per
+        execution, growing with the artifact). History digests only need the
+        light metadata keys, so project them on Postgres instead of hydrating
+        the whole JSON for every history rebuild."""
+        if not _is_postgres_session(self.db):
+            result = await self.db.execute(
+                select(ToolExecution.result_json).where(ToolExecution.id == tool_execution_id)
+            )
+            return _json_value(result.scalar_one_or_none()) or {}
+
+        stmt = text(
+            """
+            SELECT json_build_object(
+                'success', result_json->'success',
+                'title', result_json->'title',
+                'mode', result_json->'mode',
+                'artifact_id', result_json->'artifact_id',
+                'visualization_ids', result_json->'visualization_ids',
+                'version', result_json->'version',
+                'diff_applied', result_json->'diff_applied',
+                'artifact_preview', json_build_object(
+                    'visualization_ids', result_json->'artifact_preview'->'visualization_ids'
+                ),
+                'errors', result_json->'errors'
+            ) AS result_json
+            FROM tool_executions
+            WHERE id = :tool_execution_id
+            """
+        )
+        result = await self.db.execute(stmt, {"tool_execution_id": tool_execution_id})
+        return _json_value(result.scalar_one_or_none()) or {}
+
     async def build_context(
         self,
         max_messages: int = 20,
@@ -1364,6 +1401,20 @@ class MessageContextBuilder:
             except Exception:
                 pass
 
+        # Batch-load completion blocks for all system messages in one query
+        # (was one query per system completion, per planner iteration).
+        from app.models.completion_block import CompletionBlock as _CB
+        system_completion_ids = [str(c.id) for c in completions_to_process if c.role == 'system']
+        blocks_by_completion: Dict[str, list] = {}
+        if system_completion_ids:
+            blocks_rows = await self.db.execute(
+                select(_CB)
+                .filter(_CB.completion_id.in_(system_completion_ids))
+                .order_by(_CB.completion_id, _CB.block_index.asc())
+            )
+            for block in blocks_rows.scalars().all():
+                blocks_by_completion.setdefault(str(block.completion_id), []).append(block)
+
         for completion in completions_to_process:
             ts = completion.created_at.strftime("%H:%M") if getattr(completion, 'created_at', None) else None
             if completion.role == 'user':
@@ -1444,13 +1495,8 @@ class MessageContextBuilder:
                         text += "\n[attached: " + "; ".join(atts) + "]"
                     items.append(MessageItem(role="user", timestamp=ts, text=text, mentions=mentions_str))
             elif completion.role == 'system':
-                # Aggregate blocks like build_context
-                blocks_result = await self.db.execute(
-                    select(CompletionBlock)
-                    .filter(CompletionBlock.completion_id == completion.id)
-                    .order_by(CompletionBlock.block_index.asc())
-                )
-                blocks = blocks_result.scalars().all()
+                # Aggregate blocks like build_context (batch-loaded above)
+                blocks = blocks_by_completion.get(str(completion.id), [])
                 system_parts: List[str] = []
                 in_knowledge_wrap = False
                 for block in blocks:
@@ -1466,11 +1512,9 @@ class MessageContextBuilder:
                     if block.content and block.content.strip():
                         system_parts.append(f"Response: {block.content.strip()}")
                     if block.tool_execution_id:
-                        from app.models.tool_execution import ToolExecution
-                        tool_result = await self.db.execute(
-                            select(ToolExecution).filter(ToolExecution.id == block.tool_execution_id)
-                        )
-                        tool_execution = tool_result.scalars().first()
+                        # Projected load: skips the full result_json for tools
+                        # whose payloads grow with data/artifact size.
+                        tool_execution = await self._load_tool_execution_for_context(block.tool_execution_id)
                         if tool_execution:
                             tool_info = f"Tool: {tool_execution.tool_name}"
                             if tool_execution.tool_action:
@@ -1499,15 +1543,27 @@ class MessageContextBuilder:
                                 tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_data' and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
+                                # Prefer preview/stats over the full data payload —
+                                # the projected loader omits `data` (full result
+                                # rows) on Postgres; `data` is only a fallback for
+                                # dialects that still hydrate it.
+                                preview = rj.get('data_preview') or {}
+                                stats = rj.get('stats') or {}
                                 data_obj = rj.get('data') or {}
-                                columns = data_obj.get('columns', []) or []
+                                columns = preview.get('columns') or data_obj.get('columns', []) or []
                                 rows = data_obj.get('rows', []) or []
+                                preview_rows = preview.get('rows') or []
                                 col_names = [
                                     (c.get('field') or c.get('headerName'))
                                     for c in columns
                                     if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
                                 ]
-                                row_count = len(rows)
+                                row_count = (
+                                    stats.get('total_rows')
+                                    or preview.get('row_count')
+                                    or len(rows)
+                                    or len(preview_rows)
+                                )
                                 digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                 if col_names:
                                     head_cols = ", ".join(col_names[:10])
