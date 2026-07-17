@@ -16,6 +16,14 @@ class ClarifyQuestion(BaseModel):
             "Include an 'Other…' entry when the list may not be exhaustive."
         ),
     )
+    multi_select: bool = Field(
+        False,
+        description=(
+            "Set true when the user may pick several of `options` at once "
+            "(select-all-that-apply, e.g. 'which metrics should the dashboard include?'). "
+            "Ignored for free-form questions. Defaults to single choice."
+        ),
+    )
 
 
 class ClarifyInput(BaseModel):

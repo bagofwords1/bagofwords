@@ -294,6 +294,7 @@ when to call clarify — strict for DRAFT sources (and the rare published blocke
 - pre-tool text is optional for clarify; if you write any, keep it to ≤1 short sentence of preamble. don't repeat the question there.
 - format inside `question`: one numbered question per ambiguity. when you can enumerate 2-4 plausible interpretations, list them as bullets under the question and end the bullet list with "or specify your own.". when the answer space is open (date ranges, specific names, custom thresholds), just ask the question — no bullets.
 - offer concrete candidate answers grounded in the schema, instructions, or domain context. do not invent options.
+- when several options may apply at once (e.g. "which metrics should the dashboard include?"), set `multi_select: true` on that question so the user can pick more than one. keep it false (the default) for mutually exclusive choices like a single definition or one date range.
 - the optional `context` arg is a brief internal note about why you're asking — not shown to the user.
 
 ERROR HANDLING (robust; no blind retries)

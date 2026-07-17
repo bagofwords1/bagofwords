@@ -1136,6 +1136,12 @@
       "diff": "diff",
       "rewrite": "שכתוב",
       "failed": "העריכה נכשלה"
+    },
+    "clarify": {
+      "clarifying": "שאלות הבהרה למשתמש",
+      "placeholder": "התשובה שלך…",
+      "multiHint": "בחרו את כל האפשרויות המתאימות",
+      "submit": "שליחה"
     }
   },
   "entityCreate": {
