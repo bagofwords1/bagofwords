@@ -171,6 +171,12 @@ three real completions.
 
    ![create_agent card](assets/training-connections-agent/03_create_agent_card.png)
 
+4. *"Using the Invoice Analytics agent, what is the total invoice revenue?"*
+   (next turn, same session) → `create_data` runs against the **newly created
+   agent** and answers **$2,328.60** — the correct Chinook invoice total. This
+   proves the create→attach→query lifecycle: clients for the new agent are
+   built on the next run, exactly as the tool's observation states.
+
 **DB/API truth after the run:**
 ```
 active tables of the new agent: ['Invoice', 'InvoiceLine']   (all others inactive)

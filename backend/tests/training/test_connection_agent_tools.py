@@ -299,6 +299,49 @@ async def test_create_agent_with_schema_selection_and_report_attach():
 
 
 @pytest.mark.asyncio
+async def test_instruction_after_create_agent_scopes_to_new_agent():
+    """The keystone integration: an instruction created later in the SAME run
+    (same ctx/report) attaches to the just-created agent, not org-wide."""
+    from app.ai.tools.implementations.create_instruction import CreateInstructionTool
+    from app.models.instruction import Instruction
+    from sqlalchemy.orm import selectinload
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        report = await db.get(Report, ids["report"])
+        ctx = {"db": db, "organization": org, "user": admin, "report": report, "mode": "training"}
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Scoped Agent {ids['suffix']}",
+            "connection_ids": [ids["conn_main"]],
+            "schemas": ["sales"],
+        }, ctx)
+        ds_id = ev.payload["output"]["data_source_id"]
+        assert ev.payload["output"]["attached_to_report"] is True
+
+        ev = await _final(CreateInstructionTool(), {
+            "text": "Revenue figures are always in USD.",
+            "category": "general",
+            "confidence": 0.95,
+            "load_mode": "always",
+        }, ctx)
+        out = ev.payload["output"]
+        assert out["success"] is True, out
+        inst = (await db.execute(
+            select(Instruction)
+            .options(selectinload(Instruction.data_sources))
+            .where(Instruction.id == out["instruction_id"])
+        )).scalar_one()
+        attached = {str(d.id) for d in (inst.data_sources or [])}
+        # Scoped to the report's agents — which now include the new one — and
+        # never a global (data-source-less) instruction.
+        assert ds_id in attached, attached
+        assert attached, "instruction must not be global"
+
+
+@pytest.mark.asyncio
 async def test_create_agent_permission_gates():
     ids = await _seed()
     async with async_session_maker() as db:
