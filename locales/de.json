@@ -381,6 +381,7 @@
   "prompt": {
     "placeholderDefault": "Fragen Sie nach Daten, einem Dashboard oder einer detaillierten Analyse",
     "thinking": "Denkt nach",
+    "working": "Arbeitet",
     "placeholderCompact": "Fragen Sie nach beliebigen Daten",
     "instructions": "Anweisungen",
     "loadingReportContext": "Berichtskontext wird geladen …",

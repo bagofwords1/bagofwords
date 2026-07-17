@@ -381,6 +381,7 @@
   "prompt": {
     "placeholderDefault": "Be om data, en instrumentpanel eller en djupanalys",
     "thinking": "Tänker",
+    "working": "Arbetar",
     "placeholderCompact": "Be om vilken data som helst",
     "instructions": "Instruktioner",
     "loadingReportContext": "Laddar rapportkontext…",

@@ -540,7 +540,7 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? {} : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken } : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -986,6 +986,18 @@ const isCompletionInProgress = ref<boolean>(false)
 // run can always be stopped, not just one started in this page session.
 const hasInProgressCompletion = computed(() =>
 	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
+)
+// True once the in-progress completion has produced any visible output
+// (reasoning/content/tool call). Drives the prompt box indicator's label
+// switch from "Thinking" (waiting for the first token) to "Working".
+const inProgressHasFirstToken = computed(() =>
+	messages.value.some(m =>
+		m.role === 'system' && m.status === 'in_progress' &&
+		(m.completion_blocks || []).some((b: any) =>
+			b.plan_decision?.reasoning || b.reasoning || b.content ||
+			b.plan_decision?.assistant || b.plan_decision?.final_answer || b.tool_execution
+		)
+	)
 )
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null

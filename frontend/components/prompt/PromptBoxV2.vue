@@ -176,7 +176,7 @@
                 aria-live="polite"
             >
                 <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ $t('prompt.thinking', 'Thinking') }}</span>
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
             </div>
         </Transition>
@@ -746,6 +746,15 @@ const thinkingElapsedLabel = computed(() => {
     const s = thinkingElapsedSeconds.value
     if (s < 60) return `${s}s`
     return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+})
+
+// "Thinking" until the completion streams its first visible output (the parent
+// passes hasFirstToken on latestInProgressCompletion), then "Working".
+const thinkingLabel = computed(() => {
+    const completion: any = props.latestInProgressCompletion
+    return completion?.hasFirstToken
+        ? t('prompt.working', 'Working')
+        : t('prompt.thinking', 'Thinking')
 })
 
 // Excel selection hint

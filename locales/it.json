@@ -381,6 +381,7 @@
   "prompt": {
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
     "thinking": "Sto pensando",
+    "working": "Sto lavorando",
     "placeholderCompact": "Chiedi qualsiasi dato",
     "instructions": "Istruzioni",
     "loadingReportContext": "Caricamento del contesto del report…",
