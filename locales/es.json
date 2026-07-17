@@ -448,7 +448,12 @@
     "rejecting": "Rechazando…",
     "rejectConfirm": "¿Rechazar todos los cambios de instrucciones de esta sesión?",
     "clickToPublish": "clic para publicar",
-    "saveChanges": "Guardar cambios"
+    "saveChanges": "Guardar cambios",
+    "queued": "En cola",
+    "queueTooltip": "Añadir a la cola: se ejecuta cuando termine la respuesta actual (Enter)",
+    "steerTooltip": "Dirigir: enviar ahora a la respuesta en curso",
+    "steerNow": "Dirigir ahora a la respuesta en curso",
+    "removeFromQueue": "Quitar de la cola"
   },
   "reports": {
     "title": "Informes",
@@ -638,7 +643,8 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Paso: {id}",
     "viewAgentTrace": "Ver traza del agente",
-    "followUp": "Preguntas de seguimiento"
+    "followUp": "Preguntas de seguimiento",
+    "steered": "Dirigido"
   },
   "tools": {
     "common": {

@@ -107,7 +107,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+					<li v-for="m in visibleMessages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
 						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
@@ -182,10 +182,15 @@
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
 								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+									<!-- Steering badge: this message was injected into a running completion -->
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px] text-amber-500" data-testid="steering-badge">
+										<Icon name="heroicons-bolt-solid" class="w-3 h-3" />
+										<span>{{ $t('reportView.steered') }}</span>
+									</div>
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
@@ -553,7 +558,12 @@
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
+					:queuedPrompts="queuedPrompts"
 					@submitCompletion="onSubmitCompletion"
+					@queueCompletion="onQueuePrompt"
+					@steerCompletion="onSteerPrompt"
+					@removeQueuedPrompt="onRemoveQueuedPrompt"
+					@steerQueuedPrompt="onSteerQueuedPrompt"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (isMobile) { mobileView = 'dashboard'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; } }"
 					@scrollToMessage="scrollToMessage"
@@ -821,7 +831,7 @@ import 'markstream-vue/index.css'
 
 // Types
 type ChatRole = 'user' | 'system'
-type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped'
+type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped' | 'queued'
 
 interface ToolCall {
 	id: string
@@ -887,6 +897,8 @@ interface ChatMessage {
 	instruction_suggestions_loading?: boolean
 	// Scheduled prompt tag
 	scheduled_prompt_id?: string | null
+	// 'steering' when this user message was injected into a running completion
+	message_type?: string | null
 }
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
@@ -1006,6 +1018,14 @@ const inProgressHasFirstToken = computed(() =>
 			b.plan_decision?.assistant || b.plan_decision?.final_answer || b.tool_execution
 		)
 	)
+)
+// Prompts waiting in the queue — rendered as chips in the prompt box, not as
+// chat bubbles (visibleMessages filters them from the timeline).
+const queuedPrompts = computed(() =>
+	messages.value.filter(m => m.role === 'user' && m.status === 'queued')
+)
+const visibleMessages = computed(() =>
+	messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
 )
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
@@ -2866,6 +2886,42 @@ function connectWebhookSocket() {
 					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
 				}
+				// Queue/steer coordination (no webhook_id):
+				if (data.event === 'insert_completion' && !data.webhook_id) {
+					// A prompt was queued (possibly from another tab) — surface the chip.
+					if (data.role === 'user' && data.status === 'queued'
+						&& !messages.value.some(m => m.id === data.completion_id)) {
+						messages.value.push({
+							id: data.completion_id,
+							role: 'user',
+							status: 'queued' as ChatStatus,
+							prompt: data.prompt,
+							created_at: new Date().toISOString(),
+						})
+					}
+					// A steering message landed (possibly from another tab).
+					if (data.role === 'user' && data.message_type === 'steering'
+						&& !messages.value.some(m => m.id === data.completion_id)) {
+						messages.value.push({
+							id: data.completion_id,
+							role: 'user',
+							status: 'success' as ChatStatus,
+							message_type: 'steering',
+							prompt: data.prompt,
+							created_at: new Date().toISOString(),
+						})
+					}
+					// The dispatcher started a queued prompt server-side: reload the
+					// timeline and attach to the new run's live stream. Skip while this
+					// tab owns a kickoff stream (its own events cover it).
+					if (data.role === 'system' && data.status === 'in_progress' && !isStreaming.value) {
+						if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+						_webhookReloadTimer = setTimeout(async () => {
+							await loadCompletions({ skipEstimate: true })
+							startWatchStream(String(data.completion_id))
+						}, 300)
+					}
+				}
 			} catch {}
 		}
 	} catch {}
@@ -2940,6 +2996,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
+				// 'steering' for messages injected into a running completion
+				message_type: c.message_type || null,
 				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
@@ -3518,6 +3576,128 @@ function abortStream() {
 	}
 	isStreaming.value = false
 	isCompletionInProgress.value = false
+}
+
+// Resolve the server-side id of the running system completion.
+// system_completion_id is only set by the kickoff stream; after a refresh the
+// message id IS the server id (kickoff placeholders use "system-<ts>").
+function resolveRunningSystemId(): string | undefined {
+	const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+	const rawId = String(sysMsg?.id ?? '')
+	return (sysMsg as any)?.system_completion_id
+		|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
+}
+
+// Queue a prompt while a completion runs. The backend persists it as a
+// status='queued' user row; the dispatcher starts it when the run finishes.
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+	const text = data.text.trim()
+	if (!text) return
+	try {
+		const { data: resp } = await useMyFetch(`/reports/${report_id}/completions`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				prompt: {
+					content: text,
+					mentions: data.mentions || [],
+					mode: data.mode || 'chat',
+					model_id: data.model_id || null,
+					platform: isExcel.value ? 'excel' : null,
+				},
+				queue: true
+			})
+		})
+		const created = (resp.value as any)?.completions?.[0]
+		if (created && !messages.value.some(m => m.id === created.id)) {
+			messages.value.push({
+				id: created.id,
+				role: 'user',
+				status: (created.status || 'queued') as ChatStatus,
+				prompt: created.prompt,
+				created_at: created.created_at,
+			})
+		}
+	} catch (e) {
+		console.error('Failed to queue prompt:', e)
+	}
+}
+
+// Steer: inject the prompt into the running completion. Falls back to
+// queueing server-side when the run just finished.
+async function onSteerPrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+	const text = data.text.trim()
+	if (!text) return
+	const systemId = resolveRunningSystemId()
+	if (!systemId) {
+		// Nothing running (or the kickoff stream hasn't reported an id yet):
+		// treat as a normal submission.
+		onSubmitCompletion(data)
+		return
+	}
+	try {
+		const { data: resp } = await useMyFetch(`/api/completions/${systemId}/steer`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ content: text })
+		})
+		const r = resp.value as any
+		if (r?.status === 'steered') {
+			// The WS insert broadcast may have already added it — dedupe by id.
+			if (!messages.value.some(m => m.id === r.completion_id)) {
+				messages.value.push({
+					id: r.completion_id,
+					role: 'user',
+					status: 'success',
+					message_type: 'steering',
+					prompt: { content: text },
+					created_at: new Date().toISOString(),
+				})
+			}
+			scrollToBottom()
+		} else {
+			// Server fell back to queueing (run not in progress anymore).
+			await loadCompletions({ skipEstimate: true })
+		}
+	} catch (e) {
+		console.error('Failed to steer completion:', e)
+	}
+}
+
+// Promote a queued prompt into the running completion ("steer now" chip action).
+async function onSteerQueuedPrompt(queuedId: string) {
+	const systemId = resolveRunningSystemId()
+	if (!systemId) return
+	try {
+		const { data: resp } = await useMyFetch(`/api/completions/${systemId}/steer`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ queued_completion_id: queuedId })
+		})
+		const r = resp.value as any
+		if (r?.status === 'steered') {
+			const idx = messages.value.findIndex(m => m.id === queuedId)
+			if (idx !== -1) {
+				const newMessages = [...messages.value]
+				newMessages[idx] = { ...newMessages[idx], status: 'success' as ChatStatus, message_type: 'steering' }
+				messages.value = newMessages
+				scrollToBottom()
+			}
+		} else {
+			await loadCompletions({ skipEstimate: true })
+		}
+	} catch (e) {
+		console.error('Failed to steer queued prompt:', e)
+	}
+}
+
+async function onRemoveQueuedPrompt(queuedId: string) {
+	try {
+		await useMyFetch(`/api/completions/${queuedId}/queued`, { method: 'DELETE' })
+		messages.value = messages.value.filter(m => m.id !== queuedId)
+	} catch (e) {
+		console.error('Failed to remove queued prompt:', e)
+	}
 }
 
 function openTraceModal(completionId: string) {

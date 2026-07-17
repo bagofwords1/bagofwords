@@ -168,6 +168,38 @@
             </button>
         </div>
 
+        <!-- Queued prompts (run after the current completion finishes) -->
+        <div v-if="(props.queuedPrompts || []).length > 0" class="mb-2 px-1 flex flex-col gap-1" data-testid="queued-prompts">
+            <div
+                v-for="qp in props.queuedPrompts"
+                :key="qp.id"
+                class="flex items-center gap-2 text-xs border border-dashed border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300"
+                data-testid="queued-prompt-chip"
+            >
+                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
+                <span class="text-[10px] uppercase tracking-wide text-gray-400 flex-shrink-0">{{ $t('prompt.queued') }}</span>
+                <UTooltip v-if="latestInProgressCompletion" :text="$t('prompt.steerNow')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                    <button
+                        class="text-amber-500 hover:text-amber-600 flex-shrink-0"
+                        data-testid="queued-steer-button"
+                        @click="emit('steerQueuedPrompt', qp.id)"
+                    >
+                        <Icon name="heroicons-bolt" class="w-3.5 h-3.5" />
+                    </button>
+                </UTooltip>
+                <UTooltip :text="$t('prompt.removeFromQueue')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                    <button
+                        class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                        data-testid="queued-remove-button"
+                        @click="emit('removeQueuedPrompt', qp.id)"
+                    >
+                        <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                    </button>
+                </UTooltip>
+            </div>
+        </div>
+
         <!-- Thinking indicator (visible while a completion is running) -->
         <Transition name="thinking-fade">
             <div
@@ -492,14 +524,36 @@
                     </UPopover>
 
                     <!-- Send / Submitting / Stop -->
-                    <button
-                        v-if="latestInProgressCompletion"
-                        class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
-                        :disabled="isStopping"
-                        @click="$emit('stopGeneration')"
-                    >
-                        <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
-                    </button>
+                    <template v-if="latestInProgressCompletion">
+                        <!-- While a completion runs the input stays live: Enter/arrow
+                             queues the prompt, the bolt steers it into the run. -->
+                        <UTooltip v-if="canSubmit" :text="$t('prompt.steerTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button
+                                class="text-white bg-amber-500 hover:bg-amber-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
+                                data-testid="steer-button"
+                                @click="submitSteer"
+                            >
+                                <Icon name="heroicons-bolt-solid" class="w-3.5 h-3.5" />
+                            </button>
+                        </UTooltip>
+                        <UTooltip v-if="canSubmit" :text="$t('prompt.queueTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button
+                                class="text-white bg-gray-700 hover:bg-black w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
+                                data-testid="queue-button"
+                                @click="submit"
+                            >
+                                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5" />
+                            </button>
+                        </UTooltip>
+                        <button
+                            class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
+                            :disabled="isStopping"
+                            data-testid="stop-button"
+                            @click="$emit('stopGeneration')"
+                        >
+                            <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
+                        </button>
+                    </template>
                     <button
                         v-else-if="isSubmitting && !props.hideSubmitButton"
                         class="text-white w-7 h-7 rounded-full flex items-center justify-center ms-1 cursor-wait"
@@ -570,6 +624,11 @@ const props = defineProps({
         type: String as () => 'chat' | 'deep' | 'training',
         default: 'chat'
     },
+    // Prompts queued while a completion runs (role='user', status='queued')
+    queuedPrompts: {
+        type: Array as () => { id: string; prompt: any }[],
+        default: () => []
+    },
     // Query list for summary pills above input
     queryList: {
         type: Array as () => { id: string; label: string; rowCount?: number; messageId: string; stepId?: string }[],
@@ -607,7 +666,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
+const emit = defineEmits(['submitCompletion','queueCompletion','steerCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -1159,9 +1218,10 @@ const hasDataSourceOrFile = computed(() => {
     return selectedDataSources.value.length > 0 || successfullyUploadedFiles.value.length > 0
 })
 
+// Note: a running completion no longer blocks submission — submit() routes
+// the prompt to the queue instead (and submitSteer() into the live run).
 const canSubmit = computed(() => {
     return text.value.trim().length > 0
-        && !props.latestInProgressCompletion
         && !isHydratingDataSources.value
         && !hasFilesUploading.value  // Don't allow submit while files are uploading
         && !!selectedModel.value
@@ -1187,10 +1247,7 @@ const submitTooltip = computed(() => {
     return ''
 })
 
-function submit() {
-    if (!canSubmit.value || isSubmitting.value) return
-    isSubmitting.value = true
-
+function buildSubmitPayload() {
     // Excel selection is delivered via prompt.platform_context on the parent
     // submit path (see onSubmitCompletion). It is intentionally NOT prepended
     // to the user-visible text here.
@@ -1208,7 +1265,7 @@ function submit() {
         .filter(f => isImageFile(f))
         .map(f => ({ id: f.id, filename: f.filename, content_type: f.content_type }))
 
-    const payload = {
+    return {
         text: text.value,
         mentions: [
             { name: 'DATA SOURCES', items: mentionsByType.data_sources },
@@ -1221,6 +1278,22 @@ function submit() {
         model_id: selectedModel.value,    // backend model id from selector
         files: imageFiles                 // image files for immediate display in chat
     }
+}
+
+function submit() {
+    if (!canSubmit.value || isSubmitting.value) return
+
+    // A completion is running: Enter/arrow adds the prompt to the queue
+    // instead of starting (or clobbering) a run.
+    if (props.latestInProgressCompletion && props.report_id) {
+        emit('queueCompletion', buildSubmitPayload())
+        text.value = ''
+        fileUploadRef.value?.clearImages?.()
+        return
+    }
+
+    isSubmitting.value = true
+    const payload = buildSubmitPayload()
     if (props.report_id) {
         // In-report behavior: emit to parent stream
         emit('submitCompletion', payload)
@@ -1232,6 +1305,14 @@ function submit() {
         // Landing page behavior: create a new report
         createReport()
     }
+}
+
+function submitSteer() {
+    // Inject the prompt into the running completion (Codex-style steer).
+    if (!canSubmit.value || !props.latestInProgressCompletion || !props.report_id) return
+    emit('steerCompletion', buildSubmitPayload())
+    text.value = ''
+    fileUploadRef.value?.clearImages?.()
 }
 
 function onFilesUploaded(files: any[]) {

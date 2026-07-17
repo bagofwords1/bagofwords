@@ -769,9 +769,11 @@ class MessageContextBuilder:
         # Fetch only the most recent window instead of ALL completions then
         # slicing [-max_messages:] in Python (was O(conversation length) every
         # iteration). +1 covers dropping a trailing in-progress user completion.
+        # Queued prompts are not part of the conversation yet — they run later.
         report_completions = (await self.db.execute(
             select(Completion)
             .filter(Completion.report_id == self.report.id)
+            .filter(Completion.status != 'queued')
             .order_by(Completion.created_at.desc())
             .limit(max_messages + 1)
         )).scalars().all()
@@ -1255,9 +1257,11 @@ class MessageContextBuilder:
                 allow_llm_see_data = False
 
         # Most-recent window only (was fetch-all + slice in Python).
+        # Queued prompts are not part of the conversation yet — they run later.
         report_completions = (await self.db.execute(
             select(Completion)
             .filter(Completion.report_id == self.report.id)
+            .filter(Completion.status != 'queued')
             .order_by(Completion.created_at.desc())
             .limit(max_messages + 1)
         )).scalars().all()

@@ -448,7 +448,12 @@
     "rejecting": "דוחה…",
     "rejectConfirm": "לדחות את כל השינויים בהנחיות מהסשן הזה?",
     "clickToPublish": "לחצו לפרסום",
-    "saveChanges": "שמירת שינויים"
+    "saveChanges": "שמירת שינויים",
+    "queued": "בתור",
+    "queueTooltip": "הוספה לתור — ירוץ כשההשלמה הנוכחית תסתיים (Enter)",
+    "steerTooltip": "הכוונה — שליחה עכשיו אל ההשלמה הרצה",
+    "steerNow": "הכוונה עכשיו אל ההשלמה הרצה",
+    "removeFromQueue": "הסרה מהתור"
   },
   "reports": {
     "title": "דוחות",
@@ -638,7 +643,8 @@
     "widgetRef": "← ווידג'ט: {id}",
     "stepRef": "← שלב: {id}",
     "viewAgentTrace": "הצג מעקב סוכן",
-    "followUp": "שאלות המשך"
+    "followUp": "שאלות המשך",
+    "steered": "הוכוון"
   },
   "tools": {
     "common": {

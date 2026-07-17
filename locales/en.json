@@ -465,7 +465,12 @@
     "rejecting": "Rejecting…",
     "rejectConfirm": "Reject all staged instruction changes from this session?",
     "clickToPublish": "click to publish",
-    "saveChanges": "Save changes"
+    "saveChanges": "Save changes",
+    "queued": "Queued",
+    "queueTooltip": "Add to queue — runs after the current completion finishes (Enter)",
+    "steerTooltip": "Steer — send into the running completion now",
+    "steerNow": "Steer into the running completion now",
+    "removeFromQueue": "Remove from queue"
   },
   "reports": {
     "title": "Reports",
@@ -690,7 +695,8 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
-    "followUp": "Follow up"
+    "followUp": "Follow up",
+    "steered": "Steered"
   },
   "tools": {
     "common": {

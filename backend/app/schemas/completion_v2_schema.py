@@ -68,6 +68,11 @@ class CompletionBase(BaseModel):
 
 class CompletionCreate(CompletionBase):
     stream: Optional[bool] = False
+    # When true and a completion is already running on the report, the prompt
+    # is persisted as a role='user' status='queued' row instead of starting a
+    # second concurrent agent run. The queue dispatcher starts it when the
+    # running turn finishes successfully.
+    queue: Optional[bool] = False
 
 
 class CompletionContextEstimateSchema(BaseModel):
@@ -126,6 +131,8 @@ class CompletionV2Schema(BaseModel):
     turn_index: int
     parent_id: Optional[str]
     report_id: str
+    # 'steering' for user messages injected into a running completion
+    message_type: Optional[str] = None
 
     agent_execution_id: Optional[str] = None
 
