@@ -1905,6 +1905,10 @@
       "manageProvider": "Manage Provider",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
       "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
+      "colContext": "Context",
+      "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
+      "contextPlaceholder": "e.g. 100000",
+      "contextResetTooltip": "Reset to the catalog default",
       "modelIdLabel": "Model ID"
     },
     "licensePage": {

@@ -192,6 +192,18 @@
                                             <span>{{ $t('settings.llms.colVision') }}</span>
                                         </label>
                                     </UTooltip>
+                                    <UTooltip :text="$t('settings.llms.contextTooltip')">
+                                        <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                                            <span>{{ $t('settings.llms.colContext') }}</span>
+                                            <input
+                                                v-model.number="model.context_window_tokens"
+                                                type="number" min="1" step="1000"
+                                                :placeholder="$t('settings.llms.contextPlaceholder')"
+                                                class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
+                                                @change="onContextWindowChange(model)"
+                                            />
+                                        </label>
+                                    </UTooltip>
                                     <button
                                         v-if="model.is_custom"
                                         type="button"
@@ -217,6 +229,17 @@
                                         <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
                                             <UToggle size="xs" v-model="customModel.supports_vision" />
                                             <span>{{ $t('settings.llms.colVision') }}</span>
+                                        </label>
+                                    </UTooltip>
+                                    <UTooltip :text="$t('settings.llms.contextTooltip')">
+                                        <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                                            <span>{{ $t('settings.llms.colContext') }}</span>
+                                            <input
+                                                v-model.number="customModel.context_window_tokens"
+                                                type="number" min="1" step="1000"
+                                                :placeholder="$t('settings.llms.contextPlaceholder')"
+                                                class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
+                                            />
                                         </label>
                                     </UTooltip>
                                     <button
@@ -404,6 +427,18 @@
                                                 <span>{{ $t('settings.llms.colVision') }}</span>
                                             </label>
                                         </UTooltip>
+                                        <UTooltip :text="$t('settings.llms.contextTooltip')">
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                                                <span>{{ $t('settings.llms.colContext') }}</span>
+                                                <input
+                                                    v-model.number="model.context_window_tokens"
+                                                    type="number" min="1" step="1000"
+                                                    :placeholder="$t('settings.llms.contextPlaceholder')"
+                                                    class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
+                                                    @change="onContextWindowChange(model)"
+                                                />
+                                            </label>
+                                        </UTooltip>
                                     </div>
                                 </template>
                                 <template v-else>
@@ -425,6 +460,17 @@
                                         <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
                                             <UToggle size="xs" v-model="customModel.supports_vision" />
                                             <span>{{ $t('settings.llms.colVision') }}</span>
+                                        </label>
+                                    </UTooltip>
+                                    <UTooltip :text="$t('settings.llms.contextTooltip')">
+                                        <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                                            <span>{{ $t('settings.llms.colContext') }}</span>
+                                            <input
+                                                v-model.number="customModel.context_window_tokens"
+                                                type="number" min="1" step="1000"
+                                                :placeholder="$t('settings.llms.contextPlaceholder')"
+                                                class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
+                                            />
                                         </label>
                                     </UTooltip>
                                     <button
@@ -515,7 +561,7 @@ type OrgProvider = {
   models: any[];
 };
 type AvailableProvider = { type: string; name: string; credentials?: { properties?: Record<string, { title: string; description?: string }>} };
-type AvailableModel = { id?: string; name: string; model_id: string; provider_type: string; is_preset?: boolean; is_enabled?: boolean; selected?: boolean; supports_vision?: boolean; supports_vision_override?: boolean | null };
+type AvailableModel = { id?: string; name: string; model_id: string; provider_type: string; is_preset?: boolean; is_enabled?: boolean; selected?: boolean; supports_vision?: boolean; supports_vision_override?: boolean | null; context_window_tokens?: number | null; context_window_tokens_override?: number | null };
 
 type CredentialField = { key: string; title: string; description?: string; required?: boolean };
 const providers = ref<AvailableProvider[]>([]);
@@ -543,14 +589,29 @@ onMounted(async () => {
 
 const selectedProvider = ref<any | null>(null);
 const selectedModel = ref<any | null>(null);
-const customModels = ref<{ model_id: string; is_enabled: boolean; supports_vision: boolean }[]>([]);
-const existingProviderCustomModels = ref<{ model_id: string; is_enabled: boolean; supports_vision: boolean }[]>([]);
+type CustomModelDraft = { model_id: string; is_enabled: boolean; supports_vision: boolean; context_window_tokens: number | null };
+const customModels = ref<CustomModelDraft[]>([]);
+const existingProviderCustomModels = ref<CustomModelDraft[]>([]);
 
 // A model's vision toggle in the modal is an explicit admin override: mirror the
 // current supports_vision into supports_vision_override so it persists across
 // catalog re-syncs. Untouched models keep their existing (usually null) override.
 function onVisionChange(model: any) {
     model.supports_vision_override = !!model.supports_vision;
+}
+
+// Same for the context-window input: editing it records an explicit override so
+// the admin-set size (e.g. a Bedrock deployment capped at 100k) persists across
+// catalog re-syncs. Clearing the input clears the override back to the catalog.
+function onContextWindowChange(model: any) {
+    const tokens = Number(model.context_window_tokens);
+    if (Number.isFinite(tokens) && tokens > 0) {
+        model.context_window_tokens = Math.floor(tokens);
+        model.context_window_tokens_override = Math.floor(tokens);
+    } else {
+        model.context_window_tokens = null;
+        model.context_window_tokens_override = null;
+    }
 }
 const providerForm = ref<{ name: string; provider_type: string; credentials: Record<string, any>; models?: any[]}>({
     name: '',
@@ -853,7 +914,9 @@ async function createProvider() {
             is_preset: true,
             supports_vision: !!model.supports_vision,
             // Only send an explicit override when the admin toggled vision for this model.
-            supports_vision_override: model.supports_vision_override ?? null
+            supports_vision_override: model.supports_vision_override ?? null,
+            // Likewise for the context window: only an edited size becomes an override.
+            context_window_tokens_override: model.context_window_tokens_override ?? null
         }));
 
     // Gather selected custom models
@@ -866,7 +929,9 @@ async function createProvider() {
             is_enabled: true,
             is_preset: false,
             supports_vision: !!model.supports_vision,
-            supports_vision_override: !!model.supports_vision
+            supports_vision_override: !!model.supports_vision,
+            context_window_tokens: model.context_window_tokens || null,
+            context_window_tokens_override: model.context_window_tokens || null
         }));
 
     // Combine all selected models
@@ -900,8 +965,8 @@ async function createProvider() {
 async function updateProvider() {
     // Prepare new custom models for creation (no ID means create new)
     const newCustomModels = existingProviderCustomModels.value
-        .filter((model: { model_id: string; is_enabled: boolean }) => model.is_enabled && model.model_id.trim() !== '')
-        .map((model: { model_id: string; is_enabled: boolean; supports_vision: boolean }) => ({
+        .filter((model: CustomModelDraft) => model.is_enabled && model.model_id.trim() !== '')
+        .map((model: CustomModelDraft) => ({
             // No id field - this signals to backend to create new model
             model_id: model.model_id,
             name: model.model_id,
@@ -909,7 +974,9 @@ async function updateProvider() {
             is_enabled: true,
             is_preset: false,
             supports_vision: !!model.supports_vision,
-            supports_vision_override: !!model.supports_vision
+            supports_vision_override: !!model.supports_vision,
+            context_window_tokens: model.context_window_tokens || null,
+            context_window_tokens_override: model.context_window_tokens || null
         }));
 
     // Existing models keep their IDs for updates
@@ -923,7 +990,10 @@ async function updateProvider() {
         is_preset: model.is_preset,
         supports_vision: !!model.supports_vision,
         // Preserve any existing override; onVisionChange sets it when the admin toggles vision.
-        supports_vision_override: model.supports_vision_override ?? null
+        supports_vision_override: model.supports_vision_override ?? null,
+        context_window_tokens: model.context_window_tokens ?? null,
+        // Same: onContextWindowChange records an override when the admin edits the size.
+        context_window_tokens_override: model.context_window_tokens_override ?? null
     }));
 
     // Prepare update payload with existing models + new custom models
@@ -1071,7 +1141,8 @@ function addCustomModel() {
     customModels.value.push({
         model_id: '',
         is_enabled: true,
-        supports_vision: false
+        supports_vision: false,
+        context_window_tokens: null
     });
 }
 
@@ -1083,7 +1154,8 @@ function addExistingProviderCustomModel() {
     existingProviderCustomModels.value.push({
         model_id: '',
         is_enabled: true,
-        supports_vision: false
+        supports_vision: false,
+        context_window_tokens: null
     });
 }
 
