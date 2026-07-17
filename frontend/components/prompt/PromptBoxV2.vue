@@ -168,7 +168,9 @@
             </button>
         </div>
 
-        <!-- Thinking indicator (visible while a completion is running) -->
+        <!-- Thinking indicator (visible while a completion is running).
+             While running, the queue/steer actions live here — the bar above
+             the prompt box — leaving the bottom action row unchanged. -->
         <Transition name="thinking-fade">
             <div
                 v-if="isThinking"
@@ -178,6 +180,28 @@
                 <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                 <span class="thinking-shimmer">{{ thinkingLabel }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+                <div v-if="latestInProgressCompletion && canSubmit" class="ms-auto flex items-center gap-1.5">
+                    <UTooltip :text="$t('prompt.steerTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                        <button
+                            class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                            data-testid="steer-button"
+                            @click="submitSteer"
+                        >
+                            <Icon name="heroicons-bolt-solid" class="w-3 h-3" />
+                            {{ $t('prompt.steer') }}
+                        </button>
+                    </UTooltip>
+                    <UTooltip :text="$t('prompt.queueTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
+                        <button
+                            class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                            data-testid="queue-button"
+                            @click="submit"
+                        >
+                            <Icon name="heroicons-queue-list" class="w-3 h-3" />
+                            {{ $t('prompt.queue') }}
+                        </button>
+                    </UTooltip>
+                </div>
             </div>
         </Transition>
 
@@ -524,36 +548,15 @@
                     </UPopover>
 
                     <!-- Send / Submitting / Stop -->
-                    <template v-if="latestInProgressCompletion">
-                        <!-- While a completion runs the input stays live: Enter/arrow
-                             queues the prompt, the bolt steers it into the run. -->
-                        <UTooltip v-if="canSubmit" :text="$t('prompt.steerTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
-                            <button
-                                class="text-white bg-amber-500 hover:bg-amber-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
-                                data-testid="steer-button"
-                                @click="submitSteer"
-                            >
-                                <Icon name="heroicons-bolt-solid" class="w-3.5 h-3.5" />
-                            </button>
-                        </UTooltip>
-                        <UTooltip v-if="canSubmit" :text="$t('prompt.queueTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
-                            <button
-                                class="text-white bg-gray-700 hover:bg-black w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
-                                data-testid="queue-button"
-                                @click="submit"
-                            >
-                                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5" />
-                            </button>
-                        </UTooltip>
-                        <button
-                            class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
-                            :disabled="isStopping"
-                            data-testid="stop-button"
-                            @click="$emit('stopGeneration')"
-                        >
-                            <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
-                        </button>
-                    </template>
+                    <button
+                        v-if="latestInProgressCompletion"
+                        class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
+                        :disabled="isStopping"
+                        data-testid="stop-button"
+                        @click="$emit('stopGeneration')"
+                    >
+                        <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
+                    </button>
                     <button
                         v-else-if="isSubmitting && !props.hideSubmitButton"
                         class="text-white w-7 h-7 rounded-full flex items-center justify-center ms-1 cursor-wait"

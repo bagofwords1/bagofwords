@@ -453,7 +453,9 @@
     "queueTooltip": "הוספה לתור — ירוץ כשההשלמה הנוכחית תסתיים (Enter)",
     "steerTooltip": "הכוונה — שליחה עכשיו אל ההשלמה הרצה",
     "steerNow": "הכוונה עכשיו אל ההשלמה הרצה",
-    "removeFromQueue": "הסרה מהתור"
+    "removeFromQueue": "הסרה מהתור",
+    "queue": "לתור",
+    "steer": "הכוונה"
   },
   "reports": {
     "title": "דוחות",

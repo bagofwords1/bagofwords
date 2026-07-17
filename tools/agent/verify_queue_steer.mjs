@@ -82,6 +82,10 @@ await page.locator('[data-testid="queued-prompt-chip"]').waitFor({ state: 'visib
 await shot(page, '2-prompt-queued', 'second prompt sits in the queue chip while the first completion streams');
 
 // ============ STAGE 3: steer the running completion ============
+// Park the cursor first: the queued chip's tooltip (still open from the
+// queue click) can overlap and intercept the steer button.
+await page.mouse.move(10, 10);
+await page.waitForTimeout(400);
 await promptInput.fill('Also mention which region has the fewest orders. Keep the final answer short.');
 await page.locator('[data-testid="steer-button"]').click();
 await page.locator('[data-testid="steering-badge"]').first().waitFor({ state: 'visible', timeout: 30000 });

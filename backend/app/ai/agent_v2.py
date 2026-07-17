@@ -1768,22 +1768,27 @@ class AgentV2:
         fresh: dict[str, str] = dict(self._steering_pending)
         self._steering_pending.clear()
         if poll_db:
+            # Use a dedicated short-lived session: self.db may sit inside a
+            # transaction opened before the steer was committed, whose snapshot
+            # (SQLite WAL, repeatable-read setups) would never show the new row.
             try:
                 from sqlalchemy import select as _select
-                rows = await self.db.execute(
-                    _select(Completion.id, Completion.prompt).where(
-                        Completion.parent_id == str(self.system_completion.id),
-                        Completion.role == 'user',
-                        Completion.message_type == 'steering',
+                from app.settings.database import create_async_session_factory as _casf
+                async with _casf()() as _poll_session:
+                    rows = await _poll_session.execute(
+                        _select(Completion.id, Completion.prompt).where(
+                            Completion.parent_id == str(self.system_completion.id),
+                            Completion.role == 'user',
+                            Completion.message_type == 'steering',
+                        )
                     )
-                )
-                for cid, prompt in rows.all():
-                    cid = str(cid)
-                    if cid in self._steering_seen_ids or cid in fresh:
-                        continue
-                    content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
-                    if content.strip():
-                        fresh[cid] = content.strip()
+                    for cid, prompt in rows.all():
+                        cid = str(cid)
+                        if cid in self._steering_seen_ids or cid in fresh:
+                            continue
+                        content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                        if content.strip():
+                            fresh[cid] = content.strip()
             except Exception:
                 logger.exception("steering: DB backstop poll failed")
 
@@ -1818,9 +1823,11 @@ class AgentV2:
         additions = "\n".join(f"- {t}" for t in self._steering_texts)
         return (
             f"{base}\n\n<steering_updates>\n"
-            "The user sent these additional instructions while you were working. "
-            "Incorporate them into the current task now; where they conflict with "
-            "the original request, the steering updates take precedence:\n"
+            "URGENT — the user sent these instructions WHILE you were working. "
+            "Do not simply continue your previous plan: re-evaluate it against "
+            "these updates in your VERY NEXT decision and adjust course now. "
+            "Where they conflict with the original request, the steering updates "
+            "take precedence. Your final answer must visibly address them:\n"
             f"{additions}\n</steering_updates>"
         )
 
