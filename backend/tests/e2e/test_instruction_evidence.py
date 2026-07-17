@@ -14,7 +14,7 @@ Each tool call carries a brief `evidence` sentence; the contract under test:
    because the model wrote a paragraph).
 
 Tools are exercised directly via run_stream against the real test DB — same
-pattern as test_read_skill_tool.py.
+pattern as test_read_instruction_tool.py.
 """
 import uuid
 from types import SimpleNamespace

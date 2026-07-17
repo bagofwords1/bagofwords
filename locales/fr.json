@@ -855,6 +855,11 @@
       "empty": "Aucune instruction correspondante.",
       "untitled": "Sans titre"
     },
+    "readInstruction": {
+      "reading": "Lecture de l'instruction…",
+      "read": "Instruction lue",
+      "failed": "Impossible de lire l'instruction"
+    },
     "createEval": {
       "drafting": "Brouillon d'évaluation",
       "draftingNamed": "Brouillon de l'évaluation « {name} »",

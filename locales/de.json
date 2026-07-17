@@ -855,6 +855,11 @@
       "empty": "Keine passenden Anweisungen gefunden.",
       "untitled": "Ohne Titel"
     },
+    "readInstruction": {
+      "reading": "Anweisung wird gelesen…",
+      "read": "Anweisung gelesen",
+      "failed": "Anweisung konnte nicht gelesen werden"
+    },
     "createEval": {
       "drafting": "Entwurf der Auswertung",
       "draftingNamed": "Entwurf der Auswertung „{name}“",

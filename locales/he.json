@@ -877,6 +877,11 @@
       "empty": "לא נמצאו הנחיות תואמות.",
       "untitled": "ללא כותרת"
     },
+    "readInstruction": {
+      "reading": "קורא הנחיה…",
+      "read": "הנחיה נקראה",
+      "failed": "לא ניתן לקרוא את ההנחיה"
+    },
     "createEval": {
       "drafting": "מנסח הערכה",
       "draftingNamed": "מנסח הערכה \"{name}\"",

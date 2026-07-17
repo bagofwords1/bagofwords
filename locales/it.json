@@ -855,6 +855,11 @@
       "empty": "Nessuna istruzione corrispondente trovata.",
       "untitled": "Senza titolo"
     },
+    "readInstruction": {
+      "reading": "Lettura dell'istruzione…",
+      "read": "Istruzione letta",
+      "failed": "Impossibile leggere l'istruzione"
+    },
     "createEval": {
       "drafting": "Bozza della valutazione",
       "draftingNamed": "Bozza della valutazione \"{name}\"",
