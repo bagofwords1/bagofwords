@@ -584,7 +584,6 @@
 					:queuedPrompts="queuedPrompts"
 					@submitCompletion="onSubmitCompletion"
 					@queueCompletion="onQueuePrompt"
-					@steerCompletion="onSteerPrompt"
 					@removeQueuedPrompt="onRemoveQueuedPrompt"
 					@steerQueuedPrompt="onSteerQueuedPrompt"
 					@stopGeneration="abortStream"
@@ -926,6 +925,8 @@ interface ChatMessage {
 	message_type?: string | null
 	// Raw completion content (fork summary / compaction divider text)
 	completion?: any
+	// For steering messages: the system completion they were injected into
+	parent_id?: string | null
 	// true once the agent acked pickup (completion.steering.applied SSE)
 	steering_applied?: boolean
 }
@@ -1054,9 +1055,35 @@ const inProgressHasFirstToken = computed(() =>
 const queuedPrompts = computed(() =>
 	messages.value.filter(m => m.role === 'user' && m.status === 'queued')
 )
-const visibleMessages = computed(() =>
-	messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
-)
+const visibleMessages = computed(() => {
+	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
+	// Steering bubbles read as the CAUSE of the completion they steered, so
+	// hoist each one directly above its parent system completion — otherwise
+	// (creation order) the steered answer renders above the message it
+	// responds to, and SSE updates keep "pushing it to the bottom".
+	const steering = base.filter(m => m.message_type === 'steering' && m.parent_id)
+	if (steering.length === 0) return base
+	const out: ChatMessage[] = []
+	const placed = new Set<string>()
+	for (const m of base) {
+		if (m.message_type === 'steering' && m.parent_id) continue // placed next to parent below
+		if (m.role === 'system') {
+			const sysId = String(m.system_completion_id || m.id)
+			for (const s of steering) {
+				if (String(s.parent_id) === sysId && !placed.has(String(s.id))) {
+					placed.add(String(s.id))
+					out.push(s)
+				}
+			}
+		}
+		out.push(m)
+	}
+	// Steering rows whose parent isn't in the loaded window: keep them at the end
+	for (const s of steering) {
+		if (!placed.has(String(s.id))) out.push(s)
+	}
+	return out
+})
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -2963,6 +2990,7 @@ function connectWebhookSocket() {
 							role: 'user',
 							status: 'success' as ChatStatus,
 							message_type: 'steering',
+							parent_id: data.parent_id || null,
 							prompt: data.prompt,
 							created_at: new Date().toISOString(),
 						})
@@ -3056,6 +3084,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
 				// 'steering' for messages injected into a running completion
 				message_type: c.message_type || null,
+				parent_id: c.parent_id || null,
 				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
@@ -3685,51 +3714,6 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 	}
 }
 
-// Steer: inject the prompt into the running completion. Falls back to
-// queueing server-side when the run just finished.
-async function onSteerPrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
-	const text = data.text.trim()
-	if (!text) return
-	const systemId = resolveRunningSystemId()
-	if (!systemId) {
-		// Nothing running (or the kickoff stream hasn't reported an id yet):
-		// treat as a normal submission.
-		onSubmitCompletion(data)
-		return
-	}
-	try {
-		const { data: resp } = await useMyFetch(`/api/completions/${systemId}/steer`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ content: text })
-		})
-		const r = resp.value as any
-		if (r?.status === 'steered') {
-			// The WS insert broadcast may have already added it — dedupe by id.
-			if (!messages.value.some(m => m.id === r.completion_id)) {
-				messages.value.push({
-					id: r.completion_id,
-					role: 'user',
-					status: 'success',
-					message_type: 'steering',
-					prompt: { content: text },
-					created_at: new Date().toISOString(),
-				})
-			}
-			scrollToBottom()
-		} else if (r?.status === 'queued') {
-			// Server fell back to queueing (run not in progress anymore).
-			toast.add({ title: t('reportView.steerQueuedFallback'), color: 'amber' })
-			await loadCompletions({ skipEstimate: true })
-		} else {
-			toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
-		}
-	} catch (e) {
-		console.error('Failed to steer completion:', e)
-		toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
-	}
-}
-
 // Promote a queued prompt into the running completion ("steer now" chip action).
 async function onSteerQueuedPrompt(queuedId: string) {
 	const systemId = resolveRunningSystemId()
@@ -3745,7 +3729,7 @@ async function onSteerQueuedPrompt(queuedId: string) {
 			const idx = messages.value.findIndex(m => m.id === queuedId)
 			if (idx !== -1) {
 				const newMessages = [...messages.value]
-				newMessages[idx] = { ...newMessages[idx], status: 'success' as ChatStatus, message_type: 'steering' }
+				newMessages[idx] = { ...newMessages[idx], status: 'success' as ChatStatus, message_type: 'steering', parent_id: systemId }
 				messages.value = newMessages
 				scrollToBottom()
 			}

@@ -1,8 +1,8 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
         <!-- Thinking indicator (visible while a completion is running).
-             While running, the queue/steer actions live here — the bar above
-             the prompt box — leaving the bottom action row unchanged. -->
+             While running, Enter queues the typed prompt; steering happens
+             from a queued chip's "send now" action. -->
         <Transition name="thinking-fade">
             <div
                 v-if="isThinking"
@@ -11,30 +11,7 @@
             >
                 <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                 <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
-                <!-- Native title tooltips: UTooltip's popper can overlap and
-                     intercept clicks on these small targets. -->
-                <div v-if="latestInProgressCompletion && canSubmit" class="ms-auto flex items-center gap-1.5">
-                    <button
-                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                        :title="$t('prompt.steerTooltip')"
-                        data-testid="steer-button"
-                        @click="submitSteer"
-                    >
-                        <Icon name="heroicons-bolt-solid" class="w-3 h-3" />
-                        {{ $t('prompt.steer') }}
-                    </button>
-                    <button
-                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                        :title="$t('prompt.queueTooltip')"
-                        data-testid="queue-button"
-                        @click="submit"
-                    >
-                        <Icon name="heroicons-queue-list" class="w-3 h-3" />
-                        {{ $t('prompt.queue') }}
-                    </button>
-                </div>
-            </div>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>            </div>
         </Transition>
 
         <!-- Queued prompts (run after the current completion finishes) -->
@@ -691,7 +668,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','steerCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted'])
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -1278,7 +1255,7 @@ const hasDataSourceOrFile = computed(() => {
 })
 
 // Note: a running completion no longer blocks submission — submit() routes
-// the prompt to the queue instead (and submitSteer() into the live run).
+// the prompt to the queue instead.
 const canSubmit = computed(() => {
     return text.value.trim().length > 0
         && !isHydratingDataSources.value
@@ -1366,13 +1343,6 @@ function submit() {
     }
 }
 
-function submitSteer() {
-    // Inject the prompt into the running completion (Codex-style steer).
-    if (!canSubmit.value || !props.latestInProgressCompletion || !props.report_id) return
-    emit('steerCompletion', buildSubmitPayload())
-    text.value = ''
-    fileUploadRef.value?.clearImages?.()
-}
 
 function onFilesUploaded(files: any[]) {
     uploadedFiles.value = files || []

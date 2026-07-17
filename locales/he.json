@@ -457,13 +457,9 @@
     "clickToPublish": "לחצו לפרסום",
     "saveChanges": "שמירת שינויים",
     "queued": "בתור",
-    "queueTooltip": "הוספה לתור — ירוץ כשההשלמה הנוכחית תסתיים (Enter)",
-    "steerTooltip": "הכוונה — שליחה עכשיו אל ההשלמה הרצה",
     "steerNow": "הכוונה עכשיו אל ההשלמה הרצה",
     "sendNow": "שלח עכשיו",
-    "removeFromQueue": "הסרה מהתור",
-    "queue": "לתור",
-    "steer": "הכוונה"
+    "removeFromQueue": "הסרה מהתור"
   },
   "reports": {
     "title": "דוחות",
