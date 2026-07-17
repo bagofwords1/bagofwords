@@ -605,7 +605,9 @@
     "analysisCompleted": "Análisis completado",
     "analysisMarkedComplete": "Análisis marcado como completo.",
     "decisionAnalysisCompleted": "Decisión: análisis completado",
-    "block": "Bloque"
+    "block": "Bloque",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "Uso de LLM en esta conversación"
   },
   "reportView": {
     "tabChat": "Chat",

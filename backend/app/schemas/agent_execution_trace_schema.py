@@ -88,6 +88,11 @@ class ConversationTraceResponse(BaseModel):
     total_turns: int = 0
     failed_turns: int = 0
     negative_feedback_turns: int = 0
+    # LLM usage roll-up aggregated from llm_usage_records for this report.
+    # Tokens include prompt + completion + cache read/write; cost may be 0
+    # when the model has no pricing configured.
+    total_llm_tokens: Optional[int] = None
+    total_llm_cost_usd: Optional[float] = None
     turns: List[ConversationTurnSchema] = []
 
 

@@ -583,7 +583,9 @@
     "analysisCompleted": "اكتمل التحليل",
     "analysisMarkedComplete": "تم تعليم التحليل كمكتمل.",
     "decisionAnalysisCompleted": "القرار: analysis_completed",
-    "block": "كتلة"
+    "block": "كتلة",
+    "tokensCount": "{count} رمز",
+    "llmUsageTooltip": "استخدام LLM في هذه المحادثة"
   },
   "reportView": {
     "tabChat": "محادثة",

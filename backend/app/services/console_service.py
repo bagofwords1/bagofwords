@@ -2208,6 +2208,29 @@ class ConsoleService:
         # (rows are ordered ascending by created_at). null = web UI.
         external_platform = next((r.external_platform for r in rows if r.external_platform), None)
 
+        # LLM usage roll-up for the whole conversation. Usage records are
+        # attributed per report (not per agent execution), so this is the one
+        # place a trustworthy total exists. Older records predate attribution
+        # and simply don't count here.
+        usage_q = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        LLMUsageRecord.prompt_tokens
+                        + LLMUsageRecord.completion_tokens
+                        + LLMUsageRecord.cache_read_tokens
+                        + LLMUsageRecord.cache_creation_tokens
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(LLMUsageRecord.report_id == str(report.id))
+        )
+        usage_tokens, usage_cost = (await db.execute(usage_q)).one()
+        total_llm_tokens = int(usage_tokens or 0) or None
+        total_llm_cost_usd = round(float(usage_cost or 0), 6) or None
+
         # Header user = the report owner.
         owner_name = None
         owner_email = None
@@ -2226,6 +2249,8 @@ class ConsoleService:
             total_turns=len(turns),
             failed_turns=failed_turns,
             negative_feedback_turns=negative_feedback_turns,
+            total_llm_tokens=total_llm_tokens,
+            total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
         )
 

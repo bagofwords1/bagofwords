@@ -27,6 +27,13 @@
                             <span>{{ conversation.total_turns }} {{ conversation.total_turns === 1 ? 'turn' : 'turns' }}</span>
                             <span v-if="conversation.failed_turns" class="text-red-500">{{ conversation.failed_turns }} failed</span>
                             <span v-if="conversation.negative_feedback_turns" class="text-amber-600">{{ conversation.negative_feedback_turns }} negative</span>
+                            <span v-if="conversation.total_llm_tokens" class="inline-flex items-center gap-1" :title="$t('traceModal.llmUsageTooltip')">
+                                <UIcon name="i-heroicons-cpu-chip" class="w-3.5 h-3.5" />
+                                {{ $t('traceModal.tokensCount', { count: formatTokens(conversation.total_llm_tokens) }) }}
+                            </span>
+                            <span v-if="conversation.total_llm_cost_usd" class="font-medium text-gray-600 dark:text-gray-300" :title="$t('traceModal.llmUsageTooltip')">
+                                {{ formatCost(conversation.total_llm_cost_usd) }}
+                            </span>
                         </div>
                         <UButton
                             color="gray"
@@ -679,6 +686,8 @@ interface ConversationTraceResponse {
     total_turns: number
     failed_turns: number
     negative_feedback_turns: number
+    total_llm_tokens?: number | null
+    total_llm_cost_usd?: number | null
     turns: ConversationTurn[]
 }
 
@@ -1020,6 +1029,17 @@ function getTopStages(subTimings: any): Array<{ stage: string; ms: number }> {
 
 function humanizeStage(stage: string): string {
     return stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function formatTokens(n: number): string {
+    if (n < 1000) return String(n)
+    if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
+    return `${(n / 1_000_000).toFixed(1)}M`
+}
+
+function formatCost(usd: number): string {
+    if (usd < 0.01) return '<$0.01'
+    return `$${usd.toFixed(2)}`
 }
 
 function formatDuration(ms: number): string {

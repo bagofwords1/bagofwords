@@ -583,7 +583,9 @@
     "analysisCompleted": "Анализ завершён",
     "analysisMarkedComplete": "Анализ отмечен как завершённый.",
     "decisionAnalysisCompleted": "Решение: analysis_completed",
-    "block": "Блок"
+    "block": "Блок",
+    "tokensCount": "{count} токенов",
+    "llmUsageTooltip": "Использование LLM в этом диалоге"
   },
   "reportView": {
     "tabChat": "Чат",
