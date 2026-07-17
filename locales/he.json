@@ -2478,7 +2478,16 @@
       "agoSeconds": "לפני {n} שניות",
       "agoMinutes": "לפני {n} דק׳",
       "agoHours": "לפני {n} שעות",
-      "agoDays": "לפני {n} ימים"
+      "agoDays": "לפני {n} ימים",
+      "compareTo": "בהשוואה אל",
+      "compareFixed": "{n} תוקנו",
+      "compareRegressed": "{n} נסיגות",
+      "compareUnchanged": "{n} ללא שינוי",
+      "compareNoChanges": "אין שינויים ברמת המקרה לעומת ריצת הבסיס.",
+      "flip_fixed": "תוקן",
+      "flip_regressed": "נסיגה",
+      "flip_added": "נוסף",
+      "flip_removed": "הוסר"
     },
     "op": {
       "textContains": "טקסט מכיל",
@@ -3209,5 +3218,9 @@
     "policyInherit": "ירושה ({policy})",
     "reset": "אפס",
     "resetTip": "אפס לברירת המחדל של החיבור"
+  },
+  "events": {
+    "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
+    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
   }
 }

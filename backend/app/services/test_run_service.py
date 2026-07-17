@@ -986,6 +986,15 @@ class TestRunService:
                     trigger_source="eval_run",
                     message_type="eval_run_event",
                     instruction=wake_prompt,
+                    # Structured fields so the frontend renders a locale-aware
+                    # label (the summary string above is only the fallback).
+                    meta={
+                        "run_id": run_id,
+                        "title": run_title,
+                        "status": run_status,
+                        "passed": passed,
+                        "total": total,
+                    },
                     mode="training",
                 )
         except Exception as e:

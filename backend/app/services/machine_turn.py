@@ -35,6 +35,7 @@ async def run_machine_turn(
     message_type: str,
     instruction: str,
     details: Optional[str] = None,
+    meta: Optional[dict] = None,
     mode: Optional[str] = None,
 ) -> None:
     """Post a visible machine event on ``report`` and run the agent on
@@ -55,7 +56,14 @@ async def run_machine_turn(
     turn = (last.turn_index + 1) if last else 0
 
     event = Completion(
-        prompt={"content": summary, "summary": summary, **({"details": details} if details else {})},
+        # ``summary`` is the fallback text; ``meta`` carries structured fields
+        # so the frontend can render a locale-aware label instead.
+        prompt={
+            "content": summary,
+            "summary": summary,
+            **({"details": details} if details else {}),
+            **({"meta": meta} if meta else {}),
+        },
         completion={"content": ""},
         model=trigger_source,
         report_id=str(report.id),

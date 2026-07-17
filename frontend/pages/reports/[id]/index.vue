@@ -160,7 +160,7 @@
 						<div v-else-if="m.role === 'external'" class="my-2">
 							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
 								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
+								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
 									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
 								</span>
@@ -1308,6 +1308,22 @@ function webhookSourceIcon(source?: string): string {
 		case 'wait': return 'heroicons-clock'
 		default: return 'heroicons-bolt'
 	}
+}
+// Locale-aware label for machine-turn event strips; the server-side summary
+// (English) is only the fallback for webhook events / older rows.
+function machineEventLabel(m: any): string {
+	const meta = m?.prompt?.meta
+	const mt = (m as any)?.message_type
+	if (meta && mt === 'eval_run_event') {
+		return t('events.evalRunFinished', {
+			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
+			status: meta.status || '',
+		})
+	}
+	if (meta && mt === 'wait_resume_event') {
+		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	return m.prompt?.summary || m.prompt?.content
 }
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null

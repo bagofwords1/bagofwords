@@ -2478,7 +2478,16 @@
       "agoSeconds": "hace {n}s",
       "agoMinutes": "hace {n}m",
       "agoHours": "hace {n}h",
-      "agoDays": "hace {n}d"
+      "agoDays": "hace {n}d",
+      "compareTo": "Comparado con",
+      "compareFixed": "{n} corregidas",
+      "compareRegressed": "{n} regresiones",
+      "compareUnchanged": "{n} sin cambios",
+      "compareNoChanges": "Sin cambios por caso respecto a la ejecución base.",
+      "flip_fixed": "corregida",
+      "flip_regressed": "regresión",
+      "flip_added": "añadida",
+      "flip_removed": "eliminada"
     },
     "op": {
       "textContains": "texto contiene",
@@ -3209,5 +3218,9 @@
     "policyInherit": "heredar ({policy})",
     "reset": "restablecer",
     "resetTip": "Restablecer al valor predeterminado de la conexión"
+  },
+  "events": {
+    "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
+    "waitResumed": "La espera terminó — reanudando: {reason}"
   }
 }
