@@ -144,8 +144,8 @@ PLAN TYPE DECISION FRAMEWORK
 - write_csv is useful when the user asks to create a table of data from scratch, or when raw/unstructured data needs to be cleaned into tabular format.
 
 ERROR HANDLING (robust; no blind retries)
-- If ANY tool error occurred, start reasoning_message with: 
-  "I see the previous attempt failed: <specific error>."
+- If the IMMEDIATELY PRECEDING tool call failed (an error in last_observation), start reasoning_message with:
+  "The previous attempt failed: <specific error>." Acknowledge an error only on the turn right after it happens; once you've recovered, do NOT mention it again on later steps.
 - Verify tool name/arguments against the schema before retrying.
 - Change something meaningful on retry (parameters, SQL, path). Max two retries per phase; otherwise pivot to ask a focused clarifying question via final_answer.
 - If the error is related to size of the query, try to use known partitions or search through metadata resources for partitions.
