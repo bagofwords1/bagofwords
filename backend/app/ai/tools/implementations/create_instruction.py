@@ -11,6 +11,7 @@ import logging
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
+from app.ai import instruction_quality
 from app.ai.tools.schemas.create_instruction import CreateInstructionInput, CreateInstructionOutput
 from app.ai.tools.schemas.events import (
     ToolEvent,
@@ -59,6 +60,11 @@ class CreateInstructionTool(Tool):
                 "Only use when you have HIGH CONFIDENCE (>= 0.7) based on evidence from exploration. "
                 "If confidence is lower, use 'clarify' tool to ask the user first. "
                 "Instructions should capture non-obvious semantic rules that prevent mistakes.\n\n"
+                "GENERALITY: An instruction must be a reusable rule (definition, convention, "
+                "column semantics), never a record-level fact — a specific person's attribute, "
+                "a hardcoded row/id, or an observed count/value. State the general rule the "
+                "observation is an instance of; record-level facts are rejected "
+                "(rejected_reason='overfit').\n\n"
                 "SCOPING — table_names: Use ONLY to narrow the rule to specific tables. "
                 "OMIT table_names entirely for rules that apply broadly across the data source "
                 "or org (e.g. naming conventions, general business rules, semantic conventions). "
@@ -190,6 +196,38 @@ class CreateInstructionTool(Tool):
             )
             return
 
+
+        # Generality gate: an independent critic rejects instructions whose
+        # substance is a record-level fact (one person's attribute, a
+        # hardcoded row id, an observed count/value). Fails open — see
+        # app/ai/instruction_quality.py.
+        gate_llm = instruction_quality.resolve_gate_llm(runtime_ctx)
+        gate_ok, gate_reason = await instruction_quality.check_instruction_generality(
+            data.text, gate_llm
+        )
+        if not gate_ok:
+            reason_txt = gate_reason or "the instruction states a record-level fact"
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": CreateInstructionOutput(
+                        success=False,
+                        message=(
+                            f"Rejected as overfit: {reason_txt} "
+                            "Standing instructions must be reusable rules, not facts about "
+                            "specific records, people, or observed values. Either restate the "
+                            "learning as the general rule it is an instance of (without the "
+                            "record-specific detail), or skip capturing it."
+                        ),
+                        rejected_reason="overfit",
+                    ).model_dump(),
+                    "observation": {
+                        "summary": f"Instruction rejected as overfit: {reason_txt}",
+                        "artifacts": [],
+                    },
+                }
+            )
+            return
 
         # Get required context from runtime
         db = runtime_ctx.get("db")
