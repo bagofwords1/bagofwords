@@ -1068,7 +1068,10 @@ function steeringForSystem(m: ChatMessage): ChatMessage[] {
 }
 
 const _steerTs = (v: any) => (v ? new Date(v).getTime() : 0)
-const _blockStart = (b: any) => _steerTs(b?.started_at || b?.created_at)
+// Server timestamps first; fall back to the client arrival stamp set in
+// block.upsert so a freshly-streamed skeleton block (timestamps not yet
+// serialized) never compares as epoch-0 "older than the steer".
+const _blockStart = (b: any) => _steerTs(b?.started_at || b?.created_at || b?._client_arrived_at)
 
 // Steers that arrived before the given block started (and after the previous
 // block started) — rendered between the two, where they actually happened.
@@ -2290,6 +2293,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					Object.assign(existing, merged)
 				} else {
+					// Stamp client arrival time (naive-UTC, matching server
+					// timestamps): a skeleton upsert can arrive before its
+					// started_at/created_at — without a fallback the steering
+					// interleave briefly treats the new block as older than
+					// the steer, then the bubble jumps once real times land.
+					;(block as any)._client_arrived_at = new Date().toISOString().replace('Z', '')
 					let insertPos = sysMessage.completion_blocks.length
 					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
 						const bi = sysMessage.completion_blocks[i]
