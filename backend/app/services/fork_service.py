@@ -193,6 +193,15 @@ class ForkService:
         query_id_map: Dict[str, str] = {}
         viz_id_map: Dict[str, str] = {}
 
+        # Whether the source report draws on a user-scoped connection. Fork
+        # eligibility already blocks such reports, so this normally stays
+        # False; it's defense-in-depth for the detached-source edge (a
+        # user_required source removed from the report after its steps were
+        # materialized) — those step rows must not be copied into the fork.
+        from app.models.step import Step
+        from app.services.viewer_data_policy import has_user_scoped_connections
+        strict_source = await has_user_scoped_connections(db, str(original.id))
+
         # -- Widgets --
         for old_widget in original.widgets:
             new_widget = Widget(
@@ -232,13 +241,44 @@ class ForkService:
                 description=old_query.description,
                 report_id=str(new_report.id),
                 widget_id=new_widget_id,
-                default_step_id=old_query.default_step_id,  # shared step reference
+                # default_step_id set below to the COPIED step — never the
+                # original's step id. Sharing the reference let a fork's rerun
+                # overwrite the source report's data (cross-report write) and
+                # exposed the source owner's rows through the fork.
+                default_step_id=None,
                 organization_id=str(new_report.organization_id),
                 user_id=str(user.id),
             )
             db.add(new_query)
             await db.flush()
             query_id_map[str(old_query.id)] = str(new_query.id)
+
+            # Copy the query's default step into a NEW row owned by the fork.
+            old_step = old_query.default_step
+            if old_step is not None:
+                new_step = Step(
+                    title=old_step.title,
+                    slug=f"fork-{uuid.uuid4().hex[:8]}",
+                    status=old_step.status,
+                    status_reason=old_step.status_reason,
+                    prompt=old_step.prompt,
+                    code=old_step.code,
+                    # Strict-mode (user-scoped) data is credential-differentiated
+                    # to the source owner — never copy it into the fork; the
+                    # forker runs it under their own credentials. System-only
+                    # data is shared by definition, so copy it as-is.
+                    data={} if strict_source else old_step.data,
+                    description=old_step.description,
+                    type=old_step.type,
+                    data_model=old_step.data_model,
+                    view=old_step.view,
+                    widget_id=new_widget_id,
+                    query_id=str(new_query.id),
+                )
+                db.add(new_step)
+                await db.flush()
+                new_query.default_step_id = str(new_step.id)
+                await db.flush()
 
             for old_viz in old_query.visualizations:
                 new_viz = Visualization(

@@ -163,6 +163,18 @@ class ThumbnailService:
             from sqlalchemy.orm import selectinload
 
             async with async_session_maker() as db:
+                # The thumbnail renders the shared Step.data snapshot with no
+                # user in scope. In viewer-identity mode on user-scoped
+                # connections that snapshot is credential-differentiated creator
+                # data (and the thumbnail is served unauthenticated) — skip it.
+                from app.services.viewer_data_policy import report_snapshot_withheld
+                if await report_snapshot_withheld(db, str(report_id)):
+                    logger.info(
+                        "Skipping thumbnail for report %s: snapshot withheld "
+                        "(viewer-identity mode on user-scoped connections)", report_id,
+                    )
+                    return None
+
                 # Get the latest artifact for this report
                 stmt = (
                     select(Artifact)

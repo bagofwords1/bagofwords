@@ -1439,40 +1439,10 @@ class ReportService:
         # Convert view to dict if it's not already
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
 
-        # A viewer who re-ran this step (POST /r/{id}/run) sees their own
-        # result row instead of the shared snapshot; the owner and everyone
-        # else keep seeing Step.data.
-        data = step.data or {}
-        viewer_result = None
-        snapshot_withheld = False
-        if user is None or str(user.id) != str(report.user_id):
-            row = None
-            if user is not None:
-                from app.models.step_user_result import StepUserResult
-                row = (await db.execute(
-                    select(StepUserResult).options(lazyload("*")).where(
-                        StepUserResult.step_id == str(step.id),
-                        StepUserResult.user_id == str(user.id),
-                    )
-                )).scalar_one_or_none()
-            if row is not None:
-                viewer_result = {
-                    "status": row.status,
-                    "status_reason": row.status_reason,
-                    "executed_as": row.executed_as,
-                    "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
-                }
-            if row is not None and row.status == 'success' and row.data:
-                data = row.data
-            else:
-                # No successful result of their own. In viewer-identity mode
-                # on user-scoped connections the creator snapshot is
-                # credential-differentiated data — withhold it; otherwise
-                # (system_only / creator mode) keep serving the snapshot.
-                from app.services.viewer_data_policy import snapshot_withheld_for_viewers
-                if await snapshot_withheld_for_viewers(db, str(report.id), report.shared_run_identity):
-                    data = {}
-                    snapshot_withheld = True
+        # What this reader may see (own run > shared snapshot > withheld) is
+        # decided in one place — resolve_step_data.
+        from app.services.viewer_data_policy import resolve_step_data
+        resolution = await resolve_step_data(db, step, report, user)
 
         return PublicStepSchema(
             id=step.id,
@@ -1480,10 +1450,10 @@ class ReportService:
             type=step.type,
             code=step.code,
             data_model=step.data_model or {},
-            data=data,
+            data=resolution.data,
             view=view_dict,
-            viewer_result=viewer_result,
-            snapshot_withheld=snapshot_withheld,
+            viewer_result=resolution.viewer_result,
+            snapshot_withheld=resolution.withheld,
         )
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):

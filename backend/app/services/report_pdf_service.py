@@ -104,9 +104,22 @@ class ReportPdfService:
         try:
             from app.dependencies import async_session_maker
             from app.models.artifact import Artifact
+            from app.services.viewer_data_policy import report_snapshot_withheld
             from sqlalchemy import select
 
             async with async_session_maker() as db:
+                # A report-level PDF renders the shared Step.data snapshot with
+                # no user in scope. In viewer-identity mode on user-scoped
+                # connections that snapshot is credential-differentiated creator
+                # data — refuse (callers skip the attachment). Owner-initiated
+                # per-artifact exports use generate_for_artifact, not this path.
+                if await report_snapshot_withheld(db, str(report_id)):
+                    logger.info(
+                        "Refusing report PDF for %s: snapshot withheld "
+                        "(viewer-identity mode on user-scoped connections)", report_id,
+                    )
+                    return None
+
                 stmt = (
                     select(Artifact)
                     .where(

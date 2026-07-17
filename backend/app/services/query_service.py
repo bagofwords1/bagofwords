@@ -1,4 +1,5 @@
 from typing import Optional, List, Tuple
+from types import SimpleNamespace
 import copy
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -402,7 +403,8 @@ class QueryService:
         schema: StepSchema,
         viewer_user_id: Optional[str],
     ) -> StepSchema:
-        """Overlay a non-owner viewer's own step result over the shared snapshot."""
+        """Overlay a non-owner viewer's own step result over the shared
+        snapshot, via the single resolve_step_data authority."""
         if not viewer_user_id or not getattr(q, 'report_id', None):
             return schema
 
@@ -412,29 +414,17 @@ class QueryService:
         if not owner_row or str(owner_row[0]) == str(viewer_user_id):
             return schema
 
-        from app.models.step_user_result import StepUserResult
-        row = (await db.execute(
-            select(StepUserResult).options(lazyload("*")).where(
-                StepUserResult.step_id == str(step.id),
-                StepUserResult.user_id == str(viewer_user_id),
-            )
-        )).scalar_one_or_none()
-        if row is not None:
-            schema.viewer_result = {
-                "status": row.status,
-                "status_reason": row.status_reason,
-                "executed_as": row.executed_as,
-                "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
-            }
-        if row is not None and row.status == 'success' and row.data:
-            schema.data = row.data
-        else:
-            # No successful result of their own — same withholding policy as
-            # the public read path (see viewer_data_policy).
-            from app.services.viewer_data_policy import snapshot_withheld_for_viewers
-            if await snapshot_withheld_for_viewers(db, str(q.report_id), owner_row[1]):
-                schema.data = {}
-                schema.snapshot_withheld = True
+        # Minimal report context for the accessor (avoids re-loading the row).
+        report_ctx = SimpleNamespace(
+            id=str(q.report_id), user_id=str(owner_row[0]), shared_run_identity=owner_row[1],
+        )
+        viewer = SimpleNamespace(id=str(viewer_user_id))
+        from app.services.viewer_data_policy import resolve_step_data
+        resolution = await resolve_step_data(db, step, report_ctx, viewer)
+
+        schema.viewer_result = resolution.viewer_result
+        schema.data = resolution.data
+        schema.snapshot_withheld = resolution.withheld
         return schema
 
     async def preview_query_code(

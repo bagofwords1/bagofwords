@@ -468,3 +468,120 @@ def test_snapshot_withholding_policy_gates_email_pdfs(
     )
     _run(_attach_source_with_connection(plain_report["id"], "system_only"))
     assert _run(policy(plain_report["id"])) is False
+
+
+# ── Export authorization (IDOR) + strict-mode withholding ──
+
+@pytest.mark.e2e
+def test_step_export_requires_report_access(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """/steps/{id}/export historically had no object-level check — any
+    authenticated user could pull any step's rows by id. It must now enforce
+    the report's visibility."""
+    admin, owner, _, private_report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility=None,  # private ('none')
+    )
+    sid = seeded["step_ids"][0]
+    outsider = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+
+    # Owner may export their own private step…
+    resp = test_client.get(
+        f"/api/steps/{sid}/export?format=csv",
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert "stale" in resp.text
+
+    # …a random org member may not (report is private).
+    resp = test_client.get(
+        f"/api/steps/{sid}/export?format=csv",
+        headers=_headers(outsider["token"], admin["org_id"]),
+    )
+    assert resp.status_code in (403, 404), resp.text
+    assert "stale" not in resp.text
+
+    # Cross-org caller is refused too.
+    other = bootstrap_admin("exporter-outsider")
+    resp = test_client.get(
+        f"/api/steps/{sid}/export?format=csv",
+        headers=_headers(other["token"], other["org_id"]),
+    )
+    assert resp.status_code in (403, 404), resp.text
+
+
+@pytest.mark.e2e
+def test_step_export_withheld_for_strict_viewer(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A shared-report viewer in viewer-identity mode on a user-scoped source
+    is refused the export (it would hand them the creator snapshot as CSV)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    sid = seeded["step_ids"][0]
+
+    # Viewer with no run of their own → withheld → refused.
+    resp = test_client.get(
+        f"/api/steps/{sid}/export?format=csv",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert "stale" not in resp.text
+
+    # Owner still exports their own snapshot.
+    resp = test_client.get(
+        f"/api/steps/{sid}/export?format=csv",
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert "stale" in resp.text
+
+
+# ── Fork: copies steps, never shares the reference ──
+
+@pytest.mark.e2e
+def test_fork_copies_steps_and_cannot_mutate_source(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Forking a report must give the fork its OWN step rows: the fork's data
+    is a copy (system-only), and a rerun of the fork must not touch the source
+    report's steps (the shared-reference cross-report write bug)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    src_qid, src_sid = seeded["query_ids"][0], seeded["step_ids"][0]
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    # The fork's step is a NEW row, not the source step.
+    assert fork_q["default_step_id"] != src_sid
+    # System-only data was copied into the fork.
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+    assert {r["month"] for r in fstep["data"]["rows"]} == {"stale"}
+
+    # The forker reruns THEIR fork → the source report's step is untouched.
+    resp = test_client.post(
+        f"/api/reports/{fork_id}/rerun",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    src = _public_step(test_client, report["id"], src_qid, token=owner["token"])
+    assert {r["month"] for r in src["data"]["rows"]} == {"stale"}, (
+        "fork rerun mutated the source report's step (shared-reference bug)")

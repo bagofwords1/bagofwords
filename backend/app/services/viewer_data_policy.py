@@ -14,16 +14,107 @@ ones, so the snapshot is not credential-differentiated and hiding it would
 only regress plain sharing. 'creator' mode is exempt by definition — the
 owner explicitly opted to run and share their own view.
 
-Used by the step read paths (report_service.get_public_step,
-query_service.get_default_step_for_query) and by every email path that
-attaches a snapshot-rendered PDF (notification_service).
+Every surface that serves step rows — the read endpoints, CSV/XLSX export,
+PDF/thumbnail/PPTX renders, the websocket step broadcast, Slack step
+notifications — must resolve what a given reader may see through
+resolve_step_data (or report_snapshot_withheld for report-level renders with
+no user in scope) instead of reading Step.data directly. See the comment
+banner on the Step.data column.
 """
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
 
 from app.models.connection import Connection
 from app.models.domain_connection import domain_connection
 from app.models.report_data_source_association import report_data_source_association
+
+
+@dataclass
+class StepDataResolution:
+    """What a specific reader is allowed to see for a step.
+
+    Produced by resolve_step_data — the single authority every surface that
+    serves step rows (read endpoints, CSV/XLSX export, PDF/thumbnail/PPTX
+    renders, websocket broadcasts) must go through instead of reading
+    Step.data directly. `data` is already the correct payload for the
+    requesting user; readers must not fall back to step.data when withheld.
+    """
+    data: dict = field(default_factory=dict)
+    withheld: bool = False
+    viewer_result: Optional[dict] = None
+
+
+async def resolve_step_data(
+    db: AsyncSession,
+    step: Any,
+    report: Any,
+    requesting_user: Any = None,
+) -> StepDataResolution:
+    """Resolve the step rows a given reader may see.
+
+    - The report owner (and callers with no report context) get the shared
+      Step.data snapshot.
+    - A non-owner (or anonymous) reader gets their own successful
+      step_user_results row if one exists; otherwise the shared snapshot,
+      UNLESS the withholding policy applies (viewer-identity mode on a
+      user-scoped connection), in which case they get nothing until they run
+      as themselves.
+
+    `report` may be None (report-level renders with no report loaded) — then
+    only the owner/snapshot vs. withheld decision is made via report_id on
+    the step's query, falling back to serving the snapshot.
+    """
+    shared = step.data or {}
+
+    owner_id = str(report.user_id) if report is not None and getattr(report, "user_id", None) else None
+    if requesting_user is not None and owner_id is not None and str(requesting_user.id) == owner_id:
+        return StepDataResolution(data=shared)
+
+    viewer_result = None
+    if requesting_user is not None:
+        from app.models.step_user_result import StepUserResult
+        row = (await db.execute(
+            select(StepUserResult).options(lazyload("*")).where(
+                StepUserResult.step_id == str(step.id),
+                StepUserResult.user_id == str(requesting_user.id),
+            )
+        )).scalar_one_or_none()
+        if row is not None:
+            viewer_result = {
+                "status": row.status,
+                "status_reason": row.status_reason,
+                "executed_as": row.executed_as,
+                "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
+            }
+            if row.status == 'success' and row.data:
+                return StepDataResolution(data=row.data, viewer_result=viewer_result)
+
+    # No successful result of their own. Withhold the credential-differentiated
+    # snapshot when the policy applies; otherwise serve it (system-only /
+    # creator mode / plain sharing).
+    if report is not None:
+        report_id = getattr(report, "id", None)
+        withheld = (
+            report_id is not None
+            and await snapshot_withheld_for_viewers(
+                db, str(report_id), getattr(report, "shared_run_identity", None)
+            )
+        )
+    else:
+        # Caller had no report in hand — resolve the policy from the step's
+        # own report_id.
+        report_id = getattr(step, "report_id", None) or (
+            getattr(step.query, "report_id", None) if getattr(step, "query", None) else None
+        )
+        withheld = report_id is not None and await report_snapshot_withheld(db, str(report_id))
+
+    if withheld:
+        return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
+    return StepDataResolution(data=shared, viewer_result=viewer_result)
 
 
 async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:

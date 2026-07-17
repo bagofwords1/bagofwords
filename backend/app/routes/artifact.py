@@ -46,6 +46,30 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 service = ArtifactService()
 
 
+async def _guard_rendered_artifact_for_viewer(db, artifact, current_user) -> None:
+    """Refuse a rendered artifact export (PPTX, slide previews) to a non-owner
+    when the report's snapshot is withheld.
+
+    These renders bake in the shared Step.data snapshot from generation time;
+    the `allow_public` visibility gate lets shared/internal/public viewers
+    reach them, but in viewer-identity mode on user-scoped connections that
+    snapshot is credential-differentiated creator data a viewer must not get.
+    The owner keeps access to their own render.
+    """
+    from app.services.viewer_data_policy import report_snapshot_withheld
+
+    report = await db.get(ReportModel, artifact.report_id) if artifact.report_id else None
+    if report is None:
+        return
+    if current_user is not None and str(report.user_id) == str(current_user.id):
+        return
+    if await report_snapshot_withheld(db, str(report.id)):
+        raise AppError.forbidden(
+            ErrorCode.ACCESS_DENIED,
+            "This dashboard runs with your credentials — open it and run to see your own data",
+        )
+
+
 def _get_text_content(element) -> str:
     """Extract text content from an lxml element, stripping tags."""
     if element is None:
@@ -382,6 +406,8 @@ async def export_artifact_pptx(
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts can be exported to PPTX")
 
+    await _guard_rendered_artifact_for_viewer(db, artifact, current_user)
+
     # Check if artifact generation failed
     if artifact.status == "failed":
         raise HTTPException(
@@ -461,6 +487,8 @@ async def list_slide_previews(
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts have previews")
 
+    await _guard_rendered_artifact_for_viewer(db, artifact, current_user)
+
     preview_images = (artifact.content or {}).get("preview_images", [])
 
     return {
@@ -493,6 +521,8 @@ async def get_slide_preview(
 
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts have previews")
+
+    await _guard_rendered_artifact_for_viewer(db, artifact, current_user)
 
     preview_images = (artifact.content or {}).get("preview_images", [])
 

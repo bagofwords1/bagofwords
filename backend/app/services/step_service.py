@@ -40,6 +40,71 @@ class StepService:
         step = result.scalar_one_or_none()
         return step
 
+    async def export_step_authorized(
+        self, db: AsyncSession, step_id: str, current_user: User, organization
+    ) -> tuple[pd.DataFrame, Step]:
+        """Authorize and resolve a step export for a specific user.
+
+        The raw export route historically had NO object-level check — any
+        authenticated user could pull any step's rows by id (IDOR). Gate it
+        like the read surface: the step's report must be in the caller's org
+        and visible to them (owner / org-admin / artifact visibility), and the
+        rows they get are what resolve_step_data grants — their own run, the
+        shared snapshot, or (withheld) a 403. Never the raw creator snapshot
+        for a strict-mode viewer.
+        """
+        from app.errors import AppError, ErrorCode
+        from app.services.viewer_data_policy import resolve_step_data
+
+        step = await self.get_step_by_id(db, step_id)
+        if not step:
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
+
+        report = step.widget.report if step.widget else None
+        if report is None or str(report.organization_id) != str(organization.id):
+            # Cross-org / orphan → indistinguishable from not-found.
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
+
+        await self._authorize_report_view(db, report, current_user, organization)
+
+        resolution = await resolve_step_data(db, step, report, current_user)
+        if resolution.withheld:
+            raise AppError.forbidden(
+                ErrorCode.ACCESS_DENIED,
+                "This dashboard runs with your credentials — run it to export your own data",
+            )
+        return self._df_from_step_data(resolution.data), step
+
+    async def _authorize_report_view(self, db: AsyncSession, report, current_user: User, organization) -> None:
+        """Raise unless current_user may view `report` (owner / org full-admin /
+        artifact visibility). Mirrors the artifact GET gate."""
+        from app.errors import AppError, ErrorCode
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+        from app.services.report_service import ReportService
+
+        if current_user is not None and str(report.user_id) == str(current_user.id):
+            return
+        # Org full-admins keep read-any (same bypass as the permissions decorator).
+        if current_user is not None:
+            resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+            if FULL_ADMIN in resolved.org_permissions:
+                return
+        try:
+            await ReportService()._check_visibility(db, report, 'artifact_visibility', current_user)
+        except Exception:
+            raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "You don't have access to this report")
+
+    def _df_from_step_data(self, data) -> pd.DataFrame:
+        if not data or 'rows' not in data or 'columns' not in data:
+            return pd.DataFrame()
+        rows = data.get('rows', [])
+        columns = data.get('columns', [])
+        if not rows or not columns:
+            return pd.DataFrame()
+        headers = [col.get('headerName', col.get('field', '')) for col in columns if 'field' in col]
+        fields = [col['field'] for col in columns if 'field' in col]
+        return pd.DataFrame([[row.get(f) for f in fields] for row in rows], columns=headers)
+
     async def export_step_to_csv(self, db: AsyncSession, step_id: str) -> tuple[pd.DataFrame, Step]:
         step = await self.get_step_by_id(db, step_id)
         if not step:
