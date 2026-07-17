@@ -435,6 +435,7 @@
     "compactTooltip": "Resume los turnos antiguos para liberar contexto",
     "compactNothing": "Nada que compactar todavía",
     "compactedTurns": "Se compactaron {turns} turnos (~{tokens} tokens)",
+    "compactedHistoryAbove": "Historial compactado arriba",
     "tokens": "Tokens",
     "data": "Datos",
     "connections": "Conexiones",

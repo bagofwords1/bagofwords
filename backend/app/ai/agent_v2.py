@@ -1600,17 +1600,15 @@ class AgentV2:
                     )
                     # Live visibility: the kickoff SSE stream is still open here
                     # (event_queue.finish() runs after main_execution returns),
-                    # so the page can render the transcript divider and refresh
-                    # the usage popover without a reload.
+                    # so the page can move the watermark-anchored divider and
+                    # refresh the usage popover without a reload.
                     if self.event_queue:
                         try:
                             await self.event_queue.put(SSEEvent(
                                 event="context.compacted",
                                 completion_id=str(self.system_completion.id) if self.system_completion else None,
                                 data={
-                                    "marker_id": result.get("marker_id"),
-                                    "content": result.get("marker_text"),
-                                    "created_at": result.get("marker_created_at"),
+                                    "covers_until_completion_id": result.get("covers_until_completion_id"),
                                     "compacted_turns": result.get("compacted_turns"),
                                     "tokens_compacted": result.get("tokens_compacted"),
                                     "tokens_compacted_total": result.get("tokens_compacted_total"),

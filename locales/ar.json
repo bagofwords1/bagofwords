@@ -420,6 +420,7 @@
     "compactTooltip": "تلخيص الأدوار القديمة لتحرير مساحة السياق",
     "compactNothing": "لا يوجد ما يمكن ضغطه بعد",
     "compactedTurns": "تم ضغط {turns} أدوار (~{tokens} رمزًا)",
+    "compactedHistoryAbove": "السجل المضغوط أعلاه",
     "tokens": "الرموز",
     "data": "البيانات",
     "connections": "الاتصالات",

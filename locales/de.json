@@ -420,6 +420,7 @@
     "compactTooltip": "Ältere Runden zusammenfassen, um Kontext freizugeben",
     "compactNothing": "Noch nichts zu komprimieren",
     "compactedTurns": "{turns} Runden komprimiert (~{tokens} Tokens)",
+    "compactedHistoryAbove": "Komprimierter Verlauf oberhalb",
     "tokens": "Tokens",
     "data": "Daten",
     "connections": "Verbindungen",

@@ -420,6 +420,7 @@
     "compactTooltip": "Sammanfatta äldre turer för att frigöra kontext",
     "compactNothing": "Inget att komprimera ännu",
     "compactedTurns": "Komprimerade {turns} turer (~{tokens} tokens)",
+    "compactedHistoryAbove": "Komprimerad historik ovan",
     "tokens": "Tokens",
     "data": "Data",
     "connections": "Anslutningar",

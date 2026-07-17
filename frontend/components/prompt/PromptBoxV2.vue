@@ -1,5 +1,74 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
+        <!-- Thinking indicator (visible while a completion is running).
+             While running, the queue/steer actions live here — the bar above
+             the prompt box — leaving the bottom action row unchanged. -->
+        <Transition name="thinking-fade">
+            <div
+                v-if="isThinking"
+                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
+                aria-live="polite"
+            >
+                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+                <!-- Native title tooltips: UTooltip's popper can overlap and
+                     intercept clicks on these small targets. -->
+                <div v-if="latestInProgressCompletion && canSubmit" class="ms-auto flex items-center gap-1.5">
+                    <button
+                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                        :title="$t('prompt.steerTooltip')"
+                        data-testid="steer-button"
+                        @click="submitSteer"
+                    >
+                        <Icon name="heroicons-bolt-solid" class="w-3 h-3" />
+                        {{ $t('prompt.steer') }}
+                    </button>
+                    <button
+                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                        :title="$t('prompt.queueTooltip')"
+                        data-testid="queue-button"
+                        @click="submit"
+                    >
+                        <Icon name="heroicons-queue-list" class="w-3 h-3" />
+                        {{ $t('prompt.queue') }}
+                    </button>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- Queued prompts (run after the current completion finishes) -->
+        <div v-if="(props.queuedPrompts || []).length > 0" class="mb-2 px-1 flex flex-col gap-1" data-testid="queued-prompts">
+            <div
+                v-for="qp in props.queuedPrompts"
+                :key="qp.id"
+                class="flex items-center gap-2 text-xs border border-dashed border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300"
+                data-testid="queued-prompt-chip"
+            >
+                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
+                <!-- Native title tooltips here: UTooltip's popper can overlap and
+                     intercept clicks on these small targets. -->
+                <button
+                    v-if="latestInProgressCompletion"
+                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+                    :title="$t('prompt.steerNow')"
+                    data-testid="queued-steer-button"
+                    @click="emit('steerQueuedPrompt', qp.id)"
+                >
+                    {{ $t('prompt.sendNow') }}
+                </button>
+                <button
+                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                    :title="$t('prompt.removeFromQueue')"
+                    data-testid="queued-remove-button"
+                    @click="emit('removeQueuedPrompt', qp.id)"
+                >
+                    <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                </button>
+            </div>
+        </div>
+
         <!-- Query pills + Excel hint (above container) — hidden for now -->
         <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
@@ -166,75 +235,6 @@
                 <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
                 <span class="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
-        </div>
-
-        <!-- Thinking indicator (visible while a completion is running).
-             While running, the queue/steer actions live here — the bar above
-             the prompt box — leaving the bottom action row unchanged. -->
-        <Transition name="thinking-fade">
-            <div
-                v-if="isThinking"
-                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
-                aria-live="polite"
-            >
-                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
-                <!-- Native title tooltips: UTooltip's popper can overlap and
-                     intercept clicks on these small targets. -->
-                <div v-if="latestInProgressCompletion && canSubmit" class="ms-auto flex items-center gap-1.5">
-                    <button
-                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                        :title="$t('prompt.steerTooltip')"
-                        data-testid="steer-button"
-                        @click="submitSteer"
-                    >
-                        <Icon name="heroicons-bolt-solid" class="w-3 h-3" />
-                        {{ $t('prompt.steer') }}
-                    </button>
-                    <button
-                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                        :title="$t('prompt.queueTooltip')"
-                        data-testid="queue-button"
-                        @click="submit"
-                    >
-                        <Icon name="heroicons-queue-list" class="w-3 h-3" />
-                        {{ $t('prompt.queue') }}
-                    </button>
-                </div>
-            </div>
-        </Transition>
-
-        <!-- Queued prompts (run after the current completion finishes) -->
-        <div v-if="(props.queuedPrompts || []).length > 0" class="mb-2 px-1 flex flex-col gap-1" data-testid="queued-prompts">
-            <div
-                v-for="qp in props.queuedPrompts"
-                :key="qp.id"
-                class="flex items-center gap-2 text-xs border border-dashed border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300"
-                data-testid="queued-prompt-chip"
-            >
-                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
-                <!-- Native title tooltips here: UTooltip's popper can overlap and
-                     intercept clicks on these small targets. -->
-                <button
-                    v-if="latestInProgressCompletion"
-                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
-                    :title="$t('prompt.steerNow')"
-                    data-testid="queued-steer-button"
-                    @click="emit('steerQueuedPrompt', qp.id)"
-                >
-                    {{ $t('prompt.sendNow') }}
-                </button>
-                <button
-                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
-                    :title="$t('prompt.removeFromQueue')"
-                    data-testid="queued-remove-button"
-                    @click="emit('removeQueuedPrompt', qp.id)"
-                >
-                    <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
-                </button>
-            </div>
         </div>
 
         <!-- Minimalist prompt container -->
@@ -691,7 +691,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','steerCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
+const emit = defineEmits(['submitCompletion','queueCompletion','steerCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode','contextCompacted'])
 
 // Whether the current user may publish/resolve instruction changes. Gates the
 // batch Accept/Reject controls; the server enforces the real permission.
@@ -1205,6 +1205,12 @@ async function compactContext() {
         const response = await useMyFetch(`/reports/${props.report_id}/context/compact`, { method: 'POST' })
         const errorValue = (response as any)?.error?.value
         if (errorValue) throw errorValue
+        // Tell the page so the transcript's watermark-anchored divider moves
+        // with the manual compaction, not just on reload.
+        const result = (response as any)?.data?.value
+        if (result?.covers_until_completion_id) {
+            emit('contextCompacted', result)
+        }
         // Refresh the estimate so the context bar drops and the compacted
         // total rises — the visible payoff of the click.
         await refreshContextEstimate(true)

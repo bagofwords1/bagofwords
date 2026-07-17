@@ -241,11 +241,13 @@ async def test_compact_advances_watermark_totals_and_marker(db):
     assert state.covered_turns == n_scope
     assert state.tokens_compacted_total > 0
     assert result["tokens_compacted_total"] == state.tokens_compacted_total
+    # The result exposes the watermark so the UI can anchor the divider
+    assert result["covers_until_completion_id"] == str(scope_expected[-1].id)
     assert state.summary_json["goal"] == SUMMARY["goal"]
     # Opening request captured programmatically from the first user turn
     assert "What is revenue for month 0?" in state.summary_json["opening_request"]
 
-    # Marker completion persisted for the transcript divider
+    # No marker completions — the divider is state-derived, not an event row
     from sqlalchemy import select
     markers = (await db.execute(
         select(Completion).where(
@@ -253,8 +255,7 @@ async def test_compact_advances_watermark_totals_and_marker(db):
             Completion.message_type == COMPACTION_MESSAGE_TYPE,
         )
     )).scalars().all()
-    assert len(markers) == 1
-    assert f"Compacted {n_scope} turns" in markers[0].completion["content"]
+    assert markers == []
 
     # The summarizer saw the scope digests — not the protected head, not the tail
     prompt_sent = instance.inference.call_args[0][0]
@@ -342,27 +343,37 @@ async def test_summarizer_failure_is_fail_open(db):
 
 
 @pytest.mark.asyncio
-async def test_markers_excluded_from_future_scope(db):
+async def test_legacy_markers_excluded_from_scope(db):
     org, report, user = await _seed_report(db)
     await _add_turns(db, report, user, 30)
-    llm_patch, _ = _mock_llm(SUMMARY)
+    # Legacy marker row from an early build — must never be folded or counted
+    legacy = Completion(
+        prompt={"content": ""},
+        completion={"content": "Compacted 2 turns (~70 tokens)"},
+        status="success", model="system", role="system",
+        message_type=COMPACTION_MESSAGE_TYPE, report_id=str(report.id),
+    )
+    db.add(legacy)
+    await db.commit()
+
+    llm_patch, instance = _mock_llm(SUMMARY)
     svc = _svc()
     with llm_patch:
         first = await svc.compact(db, report, org, _model(), force=True)
     assert first["compacted_turns"] == _scope_size(30)
+    assert "Compacted 2 turns" not in instance.inference.call_args[0][0]
 
     await _add_turns(db, report, user, 20, start=100)
     llm_patch2, instance2 = _mock_llm(SUMMARY)
     with llm_patch2:
         second = await svc.compact(db, report, org, _model(), force=True)
     assert second["status"] == "compacted"
-    # post-watermark: 12 kept + 20 new = 32 rows (marker excluded, head behind
-    # the watermark already) → fold all but the 12-row tail floor
+    # post-watermark: 12 kept + 20 new = 32 rows (legacy marker excluded,
+    # head behind the watermark already) → fold all but the 12-row tail floor
     assert second["compacted_turns"] == 20
     state = await ContextCompactionService.get_state(db, str(report.id))
     assert state.covered_turns == _scope_size(30) + 20
-    # The marker text never reaches the summarizer
-    assert "Compacted" not in instance2.inference.call_args[0][0]
+    assert "Compacted 2 turns" not in instance2.inference.call_args[0][0]
 
 
 @pytest.mark.asyncio
@@ -438,8 +449,9 @@ async def test_background_compaction_emits_sse_event(db):
     agent.event_queue.put.assert_called_once()
     event = agent.event_queue.put.call_args[0][0]
     assert event.event == "context.compacted"
-    assert event.data["marker_id"]
-    assert "Compacted" in event.data["content"]
+    # Watermark id so the page can anchor the divider without a reload
+    state = await ContextCompactionService.get_state(db, str(report.id))
+    assert event.data["covers_until_completion_id"] == str(state.covers_until_completion_id)
     assert event.data["tokens_compacted_total"] > 0
 
 
