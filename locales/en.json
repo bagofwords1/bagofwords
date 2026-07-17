@@ -412,6 +412,8 @@
   },
   "prompt": {
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
+    "thinking": "Thinking",
+    "working": "Working",
     "placeholderCompact": "Ask for any data",
     "instructions": "Instructions",
     "loadingReportContext": "Loading report context…",
@@ -989,6 +991,47 @@
       "stopTitle": "Stop the run (also stops the surrounding agent loop)",
       "openRun": "Open run"
     },
+    "getEvalRun": {
+      "reading": "Reading eval run",
+      "read": "Eval run",
+      "notFound": "Eval run not found",
+      "pass": "{count} pass",
+      "fail": "{count} fail",
+      "vsPrevious": "vs previous:",
+      "fixed": "{count} fixed",
+      "regressed": "{count} regressed",
+      "openRun": "Open run"
+    },
+    "getEvalRuns": {
+      "listing": "Listing eval runs",
+      "listed": "Eval runs",
+      "runSingular": "{count} run",
+      "runPlural": "{count} runs",
+      "empty": "No eval runs found"
+    },
+    "stopEvalRun": {
+      "stopping": "Stopping eval run",
+      "stopped": "Eval run stopped",
+      "failed": "Could not stop the run",
+      "passedAtStop": "passed before stop",
+      "openRun": "Open run"
+    },
+    "editEval": {
+      "editing": "Updating eval",
+      "edited": "Eval updated",
+      "failed": "Eval not updated",
+      "unnamed": "Untitled eval",
+      "changed": "Changed: {fields}",
+      "statusDraft": "Draft",
+      "statusActive": "Active",
+      "statusArchived": "Archived"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelling wait",
+      "cancelledSingular": "Cancelled {count} pending wait",
+      "cancelledPlural": "Cancelled {count} pending waits",
+      "nothingPending": "No pending waits"
+    },
     "searchEvals": {
       "searching": "Searching evals",
       "searchingFor": "Searching evals for {query}",
@@ -1080,6 +1123,53 @@
       "queryScope": "{scope} prompts",
       "queryThisAgent": "this agent",
       "queryAll": "all prompts"
+    },
+    "listConnections": {
+      "listing": "Listing connections…",
+      "listed": "Listed connections",
+      "count": "{count} available",
+      "schemas": "Schemas",
+      "agents": "Agents",
+      "empty": "No connections you can build an agent on.",
+      "tableCount": "{count} tables",
+      "toolCount": "{count} tools",
+      "fileCount": "{count} files"
+    },
+    "getConnection": {
+      "inspecting": "Inspecting connection…",
+      "inspected": "Inspected {name}",
+      "matchCount": "{count} matching",
+      "page": "page {page}",
+      "tokenScoped": "Scope is defined by each user's signed-in account.",
+      "scopeBase": "Base",
+      "scopeGlobs": "Globs",
+      "indexMode": "Indexing",
+      "columns": "{count} cols",
+      "empty": "Nothing matched.",
+      "showResults": "Show {count} results",
+      "hideResults": "Hide results"
+    },
+    "createAgent": {
+      "creating": "Creating agent {name}…",
+      "created": "Agent created",
+      "failed": "Agent creation failed",
+      "statusActive": "Active",
+      "statusInactive": "Inactive",
+      "public": "Public",
+      "private": "Private",
+      "on": "On:",
+      "requiresConnect": "Each user must connect before tools run.",
+      "unresolved": "Unmatched selection: {items}",
+      "tab": {
+        "tables": "Tables",
+        "tools": "Tools",
+        "files": "Files",
+        "instructions": "Instructions",
+        "evals": "Evals"
+      },
+      "emptyTab": "Nothing here yet.",
+      "open": "Open agent",
+      "editHint": "Refine tables & tools on the agent page."
     },
     "wait": {
       "waiting": "Waiting",
@@ -1909,6 +1999,10 @@
       "manageProvider": "Manage Provider",
       "smallDefaultTooltip": "Used for LLM Judge, tests, and other small tasks",
       "visionTooltip": "Whether this model accepts image inputs. Controls what the app sends to the provider — it does not change the model's real capability.",
+      "colContext": "Context",
+      "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
+      "contextPlaceholder": "e.g. 100000",
+      "contextResetTooltip": "Reset to the catalog default",
       "modelIdLabel": "Model ID"
     },
     "licensePage": {
@@ -2638,7 +2732,16 @@
       "agoSeconds": "{n}s ago",
       "agoMinutes": "{n}m ago",
       "agoHours": "{n}h ago",
-      "agoDays": "{n}d ago"
+      "agoDays": "{n}d ago",
+      "compareTo": "Compared to",
+      "compareFixed": "{n} fixed",
+      "compareRegressed": "{n} regressed",
+      "compareUnchanged": "{n} unchanged",
+      "compareNoChanges": "No per-case changes vs. the baseline run.",
+      "flip_fixed": "fixed",
+      "flip_regressed": "regressed",
+      "flip_added": "added",
+      "flip_removed": "removed"
     },
     "op": {
       "textContains": "text contains",
@@ -3408,5 +3511,9 @@
     "policyInherit": "inherit ({policy})",
     "reset": "reset",
     "resetTip": "Reset to connection default"
+  },
+  "events": {
+    "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
+    "waitResumed": "Wait elapsed — resuming: {reason}"
   }
 }

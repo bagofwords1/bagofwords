@@ -17,14 +17,15 @@
 
       <!-- Live counters -->
       <span v-if="progress.total > 0" class="ms-2 text-[10px] text-gray-500 dark:text-gray-400">
-        {{ progress.finished }} / {{ progress.total }}
+        <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
+        <span dir="ltr">{{ progress.finished }} / {{ progress.total }}</span>
         <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
           v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span>
       </span>
 
       <!-- Stop button (only while in-flight) -->
       <button
-        v-if="isInProgress && systemCompletionId"
+        v-if="canStop"
         class="ms-auto inline-flex items-center gap-0.5 text-[10px] text-red-600 hover:text-red-800"
         @click="stopRun"
         :disabled="isStopping"
@@ -73,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -113,12 +114,19 @@ const props = defineProps<{
 const status = computed(() => props.toolExecution?.status || '')
 const isStopping = ref(false)
 
+// Snapshot fetched from the run API for detached (background) runs — the
+// tool call already ended, so ``tool.progress`` events will never arrive
+// and the run's live state only exists server-side.
+const polled = ref<EvalProgress | null>(null)
+
 // Reactive view over the live progress object the parent maintains. When
-// the tool finishes we fall back to the final ``result_json`` summary so
-// the bubble keeps rendering correct totals after ``tool.progress``
-// events stop arriving.
+// the tool finishes we fall back to the polled run snapshot (background
+// runs), then the final ``result_json`` summary so the bubble keeps
+// rendering correct totals after ``tool.progress`` events stop arriving.
 const progress = computed<EvalProgress>(() => {
   const live = (props.toolExecution as any)?.eval_progress as EvalProgress | undefined
+  if (live && status.value === 'running') return live
+  if (polled.value) return polled.value
   if (live) return live
   const rj: any = props.toolExecution?.result_json || {}
   const cases: EvalCaseRow[] = Array.isArray(rj.results)
@@ -147,6 +155,10 @@ const isInProgress = computed(() => {
 })
 
 const failedAny = computed(() => progress.value.failed > 0 || progress.value.status === 'error')
+
+const canStop = computed(() =>
+  (isInProgress.value && !!props.systemCompletionId) || isDetachedInProgress.value
+)
 
 const pctFinished = computed(() => {
   const total = Math.max(progress.value.total || 0, 0)
@@ -182,15 +194,95 @@ function caseStatusColor(s: string): string {
   return 'text-gray-500 dark:text-gray-400'
 }
 
+// --- Background-run polling -------------------------------------------------
+// A detached run keeps executing server-side after the tool call ends. Follow
+// it via the run API (same source the run detail page uses) so the card's
+// counters keep ticking without any tool events.
+const TERMINAL_RUN = new Set(['success', 'error', 'stopped'])
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const isDetachedInProgress = computed(() => {
+  if (status.value === 'running') return false
+  const rj: any = props.toolExecution?.result_json || {}
+  if (!rj.detached || !rj.run_id) return false
+  const current = polled.value?.status || rj.status || 'in_progress'
+  return !TERMINAL_RUN.has(current)
+})
+
+async function pollRunOnce() {
+  const rj: any = props.toolExecution?.result_json || {}
+  const runId = rj.run_id
+  if (!runId) return
+  try {
+    const [runRes, resultsRes]: any[] = await Promise.all([
+      useMyFetch(`/api/tests/runs/${runId}`),
+      useMyFetch(`/api/tests/runs/${runId}/results`),
+    ])
+    const run = runRes?.data?.value
+    const results = (resultsRes?.data?.value || []) as any[]
+    if (!run) return
+    const terminalCase = new Set(['pass', 'fail', 'error', 'stopped'])
+    const byCase: Record<string, string> = {}
+    for (const c of (rj.results || [])) byCase[c.case_id] = c.case_name || ''
+    const cases: EvalCaseRow[] = results.map((r: any) => ({
+      case_id: r.case_id,
+      case_name: byCase[r.case_id] || r.case_id,
+      status: r.status || '',
+      failure_reason: r.failure_reason || null,
+    }))
+    polled.value = {
+      run_id: String(runId),
+      total: cases.length || (typeof rj.total === 'number' ? rj.total : 0),
+      finished: cases.filter(c => terminalCase.has(c.status)).length,
+      passed: cases.filter(c => c.status === 'pass').length,
+      failed: cases.filter(c => c.status === 'fail' || c.status === 'error').length,
+      status: run.status || 'in_progress',
+      cases,
+    }
+    if (TERMINAL_RUN.has(run.status)) stopPolling()
+  } catch (e) {
+    // Transient — keep polling; the run page remains the fallback view.
+  }
+}
+
+function startPolling() {
+  if (pollTimer) return
+  pollRunOnce()
+  pollTimer = setInterval(pollRunOnce, 4000)
+}
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+onMounted(() => {
+  if (isDetachedInProgress.value) startPolling()
+})
+watch(isDetachedInProgress, (v) => {
+  if (v) startPolling()
+})
+onBeforeUnmount(stopPolling)
+
 async function stopRun() {
-  if (!props.systemCompletionId || isStopping.value) return
+  if (isStopping.value) return
   isStopping.value = true
   try {
-    // Sigkill the parent system completion. Inside the agent, run_eval's
-    // polling loop detects the parent stop and cascades a TestRun.stop.
-    await useMyFetch(`/api/completions/${props.systemCompletionId}/sigkill`, { method: 'POST' })
+    const rj: any = props.toolExecution?.result_json || {}
+    if (rj.detached && rj.run_id) {
+      // Background run: the tool call already ended, so sigkilling the parent
+      // completion would do nothing — stop the TestRun directly.
+      await useMyFetch(`/api/tests/runs/${rj.run_id}/stop`, { method: 'POST' })
+      await pollRunOnce()
+    } else if (props.systemCompletionId) {
+      // Attached run: sigkill the parent system completion. Inside the agent,
+      // run_eval's polling loop detects the parent stop and cascades a
+      // TestRun.stop.
+      await useMyFetch(`/api/completions/${props.systemCompletionId}/sigkill`, { method: 'POST' })
+    }
   } catch (e) {
-    console.error('Failed to stop eval run via parent sigkill:', e)
+    console.error('Failed to stop eval run:', e)
   } finally {
     isStopping.value = false
   }

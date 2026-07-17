@@ -1,7 +1,7 @@
 """Add report_context_states for rolling context compaction
 
 Revision ID: ctxcomp01
-Revises: v1s2v3o4t5g6
+Revises: umbr0001
 Create Date: 2026-07-17
 
 """
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = 'ctxcomp01'
-down_revision: Union[str, None] = 'v1s2v3o4t5g6'
+down_revision: Union[str, None] = 'umbr0001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

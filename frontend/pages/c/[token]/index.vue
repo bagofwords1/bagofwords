@@ -103,8 +103,8 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <!-- User avatar -->
-                                    <div class="w-[28px] flex-shrink-0">
+                                    <!-- User avatar (hidden on mobile) -->
+                                    <div class="hidden md:block w-[28px] flex-shrink-0">
                                         <div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 dark:bg-blue-900/50 rounded-full">
                                             {{ conversation.user_name?.charAt(0) || '?' }}
                                         </div>
@@ -114,11 +114,11 @@
 
                             <!-- System message (left-aligned) -->
                             <template v-else>
-                                <div class="w-[28px] me-2 flex-shrink-0">
+                                <div class="hidden md:block w-[28px] me-2 flex-shrink-0">
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full ms-4 max-w-2xl">
+                                <div class="w-full md:ms-4 max-w-2xl">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">

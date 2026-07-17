@@ -87,11 +87,14 @@ export function useTrackedChanges(
     }
   }
 
-  // Accept/reject go through the per-hunk cherry-pick endpoints (scoped to the
-  // suggestion's build) — the same resolution model as the /agents review, so
-  // hunks rejected there can't be re-published from here. Create suggestions
-  // (in_main === false) have no hunks against main: those keep the whole-build
-  // publish/discard semantics.
+  // Edit suggestions (in_main === true) go through the per-hunk cherry-pick
+  // endpoints (scoped to the suggestion's build) — the same resolution model as
+  // the /agents review, so hunks rejected there can't be re-published from here.
+  // Create suggestions (in_main === false) have no hunks against main, so they
+  // resolve per-instruction too: accept promotes the staged version as a
+  // build-of-one (accept-staged) and reject deletes the never-published
+  // instruction. Both leave sibling creates in a shared draft untouched — unlike
+  // whole-build publish/discard, which broke every accept after the first.
   async function accept() {
     const build = currentBuild.value
     const id = instructionId.value
@@ -99,9 +102,9 @@ export function useTrackedChanges(
     isResolving.value = true
     try {
       const { error } = build.in_main === false
-        ? await useMyFetch(`/builds/${build.build_id}/publish`, {
+        ? await useMyFetch(`/instructions/${id}/accept-staged`, {
             method: 'POST',
-            body: { instruction_ids: [id] },
+            body: { build_id: build.build_id },
           })
         : await useMyFetch(`/instructions/${id}/hunks/accept-all`, {
             method: 'POST',
@@ -123,7 +126,7 @@ export function useTrackedChanges(
     isResolving.value = true
     try {
       const { error } = build.in_main === false
-        ? await useMyFetch(`/builds/${build.build_id}/contents/${id}`, { method: 'DELETE' })
+        ? await useMyFetch(`/instructions/${id}`, { method: 'DELETE' })
         : await useMyFetch(`/instructions/${id}/hunks/reject-all`, {
             method: 'POST',
             body: { build_id: build.build_id },

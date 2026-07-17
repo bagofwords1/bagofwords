@@ -211,6 +211,10 @@ class LLMModel(BaseSchema):
     supports_vision_override = Column(Boolean, nullable=True)
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
+    # Manual admin override for the context window. NULL = follow the catalog (LLM_MODEL_DETAILS);
+    # a value = admin-set (e.g. a Bedrock deployment capped at 100k), persisted across catalog
+    # re-syncs. `context_window_tokens` above is the resolved value the agent's token budget reads.
+    context_window_tokens_override = Column(Integer, nullable=True)
     max_output_tokens = Column(Integer, nullable=True)  # Max model output tokens
     # Pricing (USD per million tokens)
     input_cost_per_million_tokens_usd = Column(Float, nullable=True)

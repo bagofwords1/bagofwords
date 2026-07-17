@@ -455,6 +455,7 @@ class CompletionService:
         external_channel_type: str = None,
         scheduled_prompt_id: str = None,
         webhook_id: str = None,
+        trigger_source: str = None,
     ):
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
@@ -466,6 +467,7 @@ class CompletionService:
                     external_thread_ts, external_message_ts, external_channel_id, external_channel_type,
                     scheduled_prompt_id=scheduled_prompt_id,
                     webhook_id=webhook_id,
+                    trigger_source=trigger_source,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -490,6 +492,7 @@ class CompletionService:
         external_channel_type: str = None,
         scheduled_prompt_id: str = None,
         webhook_id: str = None,
+        trigger_source: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -572,6 +575,7 @@ class CompletionService:
                 external_channel_type=external_channel_type,
                 scheduled_prompt_id=scheduled_prompt_id,
                 webhook_id=webhook_id,
+                trigger_source=trigger_source,
             )
 
             try:
@@ -633,6 +637,7 @@ class CompletionService:
                 external_channel_type=external_channel_type,
                 scheduled_prompt_id=scheduled_prompt_id,
                 webhook_id=webhook_id,
+                trigger_source=trigger_source,
             )
 
             try:
@@ -836,6 +841,9 @@ class CompletionService:
                         latest_completion=latest,
                     )
                 except Exception as e:
+                    # str(e) alone can be empty (e.g. bare Exception subclasses) —
+                    # keep the traceback, it's the only record of what killed the run.
+                    logging.exception("Agent execution failed for report %s", report.id)
                     await self._create_error_completion(db, head_completion, str(e))
                     raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
 
@@ -925,12 +933,16 @@ class CompletionService:
             raise HTTPException(status_code=404, detail="Report not found")
 
         # 1) Fetch last N completions (user + system) with optional cursor.
-        # Hide the internal webhook trigger (the synthetic prompt the agent
-        # answers): webhook_id set AND role='user'. The visible event entry
-        # (role='external') and the agent reply (role='system') still show.
+        # Hide internal machine triggers (the synthetic prompt the agent
+        # answers): (webhook_id OR trigger_source set) AND role='user'. The
+        # visible event entry (role='external') and the agent reply
+        # (role='system') still show.
         completions_stmt = select(Completion).where(
             Completion.report_id == report_id,
-            ~((Completion.webhook_id.isnot(None)) & (Completion.role == 'user')),
+            ~(
+                (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
+                & (Completion.role == 'user')
+            ),
         )
         if before:
             try:
@@ -1348,10 +1360,11 @@ class CompletionService:
                 user_feedback=user_feedback,
                 # Scheduled prompt
                 scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
-                # Webhook provenance
+                # Webhook / machine-turn provenance
                 webhook_id=getattr(c, 'webhook_id', None),
                 external_platform=getattr(c, 'external_platform', None),
                 message_type=getattr(c, 'message_type', None),
+                trigger_source=getattr(c, 'trigger_source', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),

@@ -395,6 +395,8 @@
   },
   "prompt": {
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
+    "thinking": "חושב",
+    "working": "עובד",
     "placeholderCompact": "בקשו נתונים",
     "instructions": "הנחיות",
     "loadingReportContext": "טוען קונטקסט של הדוח…",
@@ -900,6 +902,47 @@
       "stopTitle": "עצור את הריצה (גם עוצר את לולאת הסוכן)",
       "openRun": "פתח ריצה"
     },
+    "getEvalRun": {
+      "reading": "קורא ריצת בדיקת איכות",
+      "read": "ריצת בדיקת איכות",
+      "notFound": "ריצת בדיקת איכות לא נמצאה",
+      "pass": "{count} עברו",
+      "fail": "{count} נכשלו",
+      "vsPrevious": "לעומת הקודמת:",
+      "fixed": "{count} תוקנו",
+      "regressed": "{count} נסיגות",
+      "openRun": "פתח ריצה"
+    },
+    "getEvalRuns": {
+      "listing": "מציג ריצות בדיקות איכות",
+      "listed": "ריצות בדיקות איכות",
+      "runSingular": "ריצה {count}",
+      "runPlural": "{count} ריצות",
+      "empty": "לא נמצאו ריצות"
+    },
+    "stopEvalRun": {
+      "stopping": "עוצר ריצת בדיקת איכות",
+      "stopped": "ריצת בדיקת איכות נעצרה",
+      "failed": "לא ניתן לעצור את הריצה",
+      "passedAtStop": "עברו לפני העצירה",
+      "openRun": "פתח ריצה"
+    },
+    "editEval": {
+      "editing": "מעדכן בדיקת איכות",
+      "edited": "בדיקת האיכות עודכנה",
+      "failed": "בדיקת האיכות לא עודכנה",
+      "unnamed": "בדיקת איכות ללא שם",
+      "changed": "שונו: {fields}",
+      "statusDraft": "טיוטה",
+      "statusActive": "פעילה",
+      "statusArchived": "בארכיון"
+    },
+    "cancelWait": {
+      "cancelling": "מבטל המתנה",
+      "cancelledSingular": "בוטלה המתנה ממתינה {count}",
+      "cancelledPlural": "בוטלו {count} המתנות ממתינות",
+      "nothingPending": "אין המתנות ממתינות"
+    },
     "searchEvals": {
       "searching": "מחפש הערכות",
       "searchingFor": "מחפש הערכות עבור {query}",
@@ -991,6 +1034,53 @@
       "queryScope": "פרומפטים של {scope}",
       "queryThisAgent": "סוכן זה",
       "queryAll": "כל הפרומפטים"
+    },
+    "listConnections": {
+      "listing": "מציג חיבורים…",
+      "listed": "החיבורים הוצגו",
+      "count": "{count} זמינים",
+      "schemas": "סכימות",
+      "agents": "סוכנים",
+      "empty": "אין חיבורים שאפשר לבנות עליהם סוכן.",
+      "tableCount": "{count} טבלאות",
+      "toolCount": "{count} כלים",
+      "fileCount": "{count} קבצים"
+    },
+    "getConnection": {
+      "inspecting": "בודק חיבור…",
+      "inspected": "החיבור {name} נבדק",
+      "matchCount": "{count} תואמים",
+      "page": "עמוד {page}",
+      "tokenScoped": "ההיקף נקבע לפי החשבון המחובר של כל משתמש.",
+      "scopeBase": "בסיס",
+      "scopeGlobs": "תבניות",
+      "indexMode": "אינדוקס",
+      "columns": "{count} עמודות",
+      "empty": "לא נמצאו תוצאות.",
+      "showResults": "הצג {count} תוצאות",
+      "hideResults": "הסתר תוצאות"
+    },
+    "createAgent": {
+      "creating": "יוצר סוכן {name}…",
+      "created": "הסוכן נוצר",
+      "failed": "יצירת הסוכן נכשלה",
+      "statusActive": "פעיל",
+      "statusInactive": "לא פעיל",
+      "public": "ציבורי",
+      "private": "פרטי",
+      "on": "על:",
+      "requiresConnect": "כל משתמש חייב להתחבר לפני הרצת כלים.",
+      "unresolved": "בחירה ללא התאמה: {items}",
+      "tab": {
+        "tables": "טבלאות",
+        "tools": "כלים",
+        "files": "קבצים",
+        "instructions": "הנחיות",
+        "evals": "בדיקות איכות"
+      },
+      "emptyTab": "אין כאן עדיין כלום.",
+      "open": "פתח סוכן",
+      "editHint": "כוונון טבלאות וכלים בעמוד הסוכן."
     },
     "wait": {
       "waiting": "Waiting",
@@ -1747,15 +1837,22 @@
       "colModel": "מודל",
       "colProvider": "ספק",
       "colStatus": "סטטוס",
+      "colVision": "ראייה",
       "colActions": "פעולות",
       "badgeDefault": "ברירת מחדל",
       "badgeSmallDefault": "ברירת מחדל קטנה",
+      "badgeVision": "ראייה",
       "emptyTitle": "אין מודלים משולבים",
       "emptyHint": "התחל על ידי שילוב ספק ה-LLM והמודלים שלך",
       "makeDefault": "קבע כברירת מחדל",
       "makeSmallDefault": "קבע כברירת מחדל קטנה",
       "manageProvider": "ניהול הספק",
       "smallDefaultTooltip": "משמש ל-LLM Judge, לבדיקות ולמשימות קטנות אחרות",
+      "visionTooltip": "האם מודל זה מקבל קלט של תמונות. קובע מה האפליקציה שולחת לספק — אינו משנה את היכולת האמיתית של המודל.",
+      "colContext": "חלון הקשר",
+      "contextTooltip": "מספר הטוקנים המרבי (קלט + פלט) שהאפליקציה מקצה למודל זה. הקטינו אותו כדי להתאים למגבלות הספק — לדוגמה, פריסות Bedrock המוגבלות ל‑100 אלף.",
+      "contextPlaceholder": "לדוגמה 100000",
+      "contextResetTooltip": "איפוס לברירת המחדל של הקטלוג",
       "modelIdLabel": "מזהה מודל"
     },
     "licensePage": {
@@ -2437,7 +2534,16 @@
       "agoSeconds": "לפני {n} שניות",
       "agoMinutes": "לפני {n} דק׳",
       "agoHours": "לפני {n} שעות",
-      "agoDays": "לפני {n} ימים"
+      "agoDays": "לפני {n} ימים",
+      "compareTo": "בהשוואה אל",
+      "compareFixed": "{n} תוקנו",
+      "compareRegressed": "{n} נסיגות",
+      "compareUnchanged": "{n} ללא שינוי",
+      "compareNoChanges": "אין שינויים ברמת המקרה לעומת ריצת הבסיס.",
+      "flip_fixed": "תוקן",
+      "flip_regressed": "נסיגה",
+      "flip_added": "נוסף",
+      "flip_removed": "הוסר"
     },
     "op": {
       "textContains": "טקסט מכיל",
@@ -3168,5 +3274,9 @@
     "policyInherit": "ירושה ({policy})",
     "reset": "אפס",
     "resetTip": "אפס לברירת המחדל של החיבור"
+  },
+  "events": {
+    "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
+    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
   }
 }

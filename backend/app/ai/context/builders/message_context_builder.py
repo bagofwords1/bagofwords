@@ -88,14 +88,20 @@ def _digest_knowledge_tool(tool_execution) -> str:
     return ""
 
 
+EVAL_TOOL_NAMES = (
+    'search_evals', 'create_eval', 'edit_eval', 'run_eval',
+    'get_eval_run', 'get_eval_runs', 'stop_eval_run',
+)
+
+
 def _digest_eval_tool(tool_execution) -> str:
-    """Digest for eval tools (search_evals, create_eval, run_eval).
+    """Digest for eval tools (see EVAL_TOOL_NAMES).
 
     Returns empty string when the tool isn't one of these so callers can
     fall through to the next elif.
     """
     name = tool_execution.tool_name
-    if name not in ('search_evals', 'create_eval', 'run_eval'):
+    if name not in EVAL_TOOL_NAMES:
         return ""
     rj = tool_execution.result_json or {}
     output = rj.get('output') or {}
@@ -126,7 +132,7 @@ def _digest_eval_tool(tool_execution) -> str:
             parts.append("auto=true")
         return "; ".join(parts)
 
-    if name == 'run_eval':
+    if name in ('run_eval', 'get_eval_run'):
         if output.get('rejected_reason'):
             return f"rejected: {output.get('rejected_reason')}"
         parts = []
@@ -134,6 +140,10 @@ def _digest_eval_tool(tool_execution) -> str:
             parts.append(f"run_id: {output.get('run_id')}")
         if output.get('status'):
             parts.append(f"status={output.get('status')}")
+        if output.get('detached'):
+            parts.append("detached (results arrive via wake-up / get_eval_run)")
+        if output.get('deduped'):
+            parts.append("deduped (reused already-running run)")
         passed = output.get('passed', 0)
         failed = output.get('failed', 0)
         total = output.get('total', 0)
@@ -153,7 +163,41 @@ def _digest_eval_tool(tool_execution) -> str:
             if len(failed_cases) > 3:
                 entry += f" +{len(failed_cases)-3}"
             parts.append(entry)
+        compare = output.get('compare') if name == 'get_eval_run' else None
+        if isinstance(compare, dict) and isinstance(compare.get('summary'), dict):
+            cs = compare['summary']
+            parts.append(f"vs prev: {cs.get('fixed', 0)} fixed, {cs.get('regressed', 0)} regressed")
         return "; ".join(parts)
+
+    if name == 'get_eval_runs':
+        items = output.get('items') or []
+        shown = []
+        for it in items[:5]:
+            shown.append(
+                f"{it.get('run_id', '?')}:{it.get('status', '?')}"
+                f"({it.get('passed', 0)}/{it.get('total', 0)} pass)"
+            )
+        more = f" (+{len(items)-5} more)" if len(items) > 5 else ""
+        return f"{len(items)} run(s) — [{'; '.join(shown)}]{more}" if shown else "0 runs"
+
+    if name == 'edit_eval':
+        if output.get('success') is False:
+            return f"rejected: {output.get('rejected_reason') or output.get('message') or 'unknown'}"
+        parts = []
+        if output.get('case_id'):
+            parts.append(f"id: {output.get('case_id')}")
+        if output.get('name'):
+            parts.append(f"name: {output.get('name')}")
+        if output.get('status'):
+            parts.append(f"status={output.get('status')}")
+        if output.get('changed_fields'):
+            parts.append(f"changed: {', '.join(output.get('changed_fields') or [])}")
+        return "; ".join(parts)
+
+    if name == 'stop_eval_run':
+        if output.get('success') is False:
+            return f"rejected: {output.get('rejected_reason') or output.get('message') or 'unknown'}"
+        return f"run_id: {output.get('run_id')}; status={output.get('status')}"
 
     return ""
 
@@ -1068,7 +1112,7 @@ class MessageContextBuilder:
                                     digest = _digest_knowledge_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
-                                elif tool_execution.tool_name in ('search_evals', 'create_eval', 'run_eval') and tool_execution.result_json:
+                                elif tool_execution.tool_name in EVAL_TOOL_NAMES and tool_execution.result_json:
                                     digest = _digest_eval_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
@@ -1701,7 +1745,7 @@ class MessageContextBuilder:
                                 digest = _digest_knowledge_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
-                            elif tool_execution.tool_name in ('search_evals', 'create_eval', 'run_eval') and tool_execution.result_json:
+                            elif tool_execution.tool_name in EVAL_TOOL_NAMES and tool_execution.result_json:
                                 digest = _digest_eval_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest

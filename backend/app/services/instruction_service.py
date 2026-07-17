@@ -1207,6 +1207,72 @@ class InstructionService:
         # Return the refreshed instruction
         return await self.get_instruction(db, instruction.id, organization, current_user)
 
+    async def accept_staged_instruction(
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        *,
+        build_id: str,
+        organization: Organization,
+        current_user: User,
+    ) -> Optional[InstructionSchema]:
+        """Accept ONE brand-new instruction staged in a shared draft build.
+
+        Training sessions add every ``create_instruction`` to a single shared
+        draft build. The per-hunk cherry-pick path (``resolve_suggestion`` /
+        ``accept_all_hunks``) only works for *edits* — it diffs the suggestion
+        against the instruction's live (main) text, and a freshly created
+        instruction is not in main yet, so it yields no promotable hunk. Callers
+        must therefore promote the staged version directly.
+
+        This promotes the instruction's staged version as an isolated
+        build-of-one (copied from current main + just this instruction), then
+        detaches ONLY this instruction from the shared draft. The shared draft
+        stays in ``draft`` status with its remaining instructions untouched, so
+        siblings can still be accepted or rejected independently — unlike
+        ``publish_build(instruction_ids=[id])``, which prunes the siblings and
+        promotes the whole shared build to main (breaking every later accept).
+        """
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None
+
+        src_build = await self.build_service.get_build(db, build_id)
+        if not src_build or str(src_build.organization_id) != str(organization.id) or src_build.is_main:
+            return None
+
+        # Find the version staged for this instruction in the shared draft.
+        contents = await self.build_service.get_build_contents(db, build_id)
+        staged_version_id = next(
+            (str(c.instruction_version_id) for c in contents
+             if str(c.instruction_id) == str(instruction_id) and c.instruction_version_id),
+            None,
+        )
+        if not staged_version_id:
+            # Already resolved (not in the draft anymore) — nothing to accept.
+            return await self.get_instruction(db, instruction.id, organization, current_user)
+
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+
+        # 1) Promote the staged version as an isolated build-of-one so ONLY this
+        #    instruction goes live; everything else inherits main unchanged.
+        nb = await self.build_service.create_build(
+            db, organization.id, source="user", user_id=current_user.id, copy_from_main=True,
+        )
+        await self.build_service.add_to_build(db, nb.id, instruction.id, staged_version_id)
+        await db.commit()
+        await self._auto_finalize_build(db, nb, current_user, user_permissions)
+
+        # 2) Detach this instruction from the shared draft. The draft is still a
+        #    draft (never promoted here), so its other instructions remain
+        #    editable and independently resolvable.
+        try:
+            await self.build_service.remove_from_build(db, build_id, instruction.id)
+        except Exception:
+            pass
+
+        return await self.get_instruction(db, instruction.id, organization, current_user)
+
     async def resolve_suggestion(
         self,
         db: AsyncSession,

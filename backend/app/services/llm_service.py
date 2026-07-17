@@ -789,6 +789,71 @@ class LLMService:
 
         return {"success": True}
 
+    async def set_context_window(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        tokens: int | None
+    ):
+        """Manually size (or reset) a model's context window.
+
+        A value sets an explicit override so the choice survives catalog
+        re-syncs, and updates the effective `context_window_tokens` the agent's
+        token budget reads. None clears the override: preset models fall back
+        to the catalog size, custom models to whatever was set at creation.
+        """
+        if tokens is not None and tokens <= 0:
+            raise HTTPException(status_code=400, detail="Context window must be a positive number of tokens")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id
+            )
+        )
+        model = model.scalar_one_or_none()
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model.context_window_tokens_override = tokens
+        if tokens is not None:
+            model.context_window_tokens = tokens
+        else:
+            # Reset: preset models return to the catalog size; custom models keep
+            # their stored value (there is no catalog to fall back to).
+            catalog = next(
+                (
+                    m for m in LLM_MODEL_DETAILS
+                    if m["model_id"] == model.model_id
+                    and m["provider_type"] == model.provider.provider_type
+                ),
+                None
+            )
+            if catalog and catalog.get("context_window_tokens") is not None:
+                model.context_window_tokens = catalog["context_window_tokens"]
+        await db.commit()
+
+        logger.info("LLM model context window set: id=%s, name=%s, model_id=%s, context_window_tokens=%s, override=%s, org_id=%s", model.id, model.name, model.model_id, model.context_window_tokens, tokens, organization.id)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.context_window_set",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "context_window_tokens": model.context_window_tokens, "override": tokens},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "context_window_tokens": model.context_window_tokens}
+
     async def _create_models(
         self, 
         db: AsyncSession,
@@ -901,6 +966,8 @@ class LLMService:
             # A non-null supports_vision_override always wins over the catalog default (see _resolve_supports_vision).
             vision_override = model.get("supports_vision_override")
             db_model.supports_vision_override = vision_override
+            cw_override = model.get("context_window_tokens_override")
+            db_model.context_window_tokens_override = cw_override
             if model_details and not db_model.is_custom:
                 if model_details.get("context_window_tokens") is not None:
                     db_model.context_window_tokens = model_details["context_window_tokens"]
@@ -936,6 +1003,10 @@ class LLMService:
                 db_model.supports_vision = self._resolve_supports_vision(
                     vision_override, db_model.supports_vision
                 )
+
+            # A non-null context-window override always wins over catalog/user values.
+            if cw_override is not None:
+                db_model.context_window_tokens = int(cw_override)
 
             db.add(db_model)
 
@@ -1107,6 +1178,9 @@ class LLMService:
                 # A non-null vision override from the client is honored for both preset and custom models.
                 if getattr(model, "supports_vision_override", None) is not None:
                     db_model.supports_vision_override = model.supports_vision_override
+                # Same for a context-window override.
+                if getattr(model, "context_window_tokens_override", None) is not None:
+                    db_model.context_window_tokens_override = model.context_window_tokens_override
                 if db_model.is_preset:
                     if catalog:
                         if catalog.get("context_window_tokens") is not None:
@@ -1145,7 +1219,12 @@ class LLMService:
                     db_model.supports_vision = self._resolve_supports_vision(
                         db_model.supports_vision_override, base_vision
                     )
-                
+
+                # A non-null context-window override always wins over catalog/user values
+                # (this is what keeps preset models from re-syncing back to the catalog size).
+                if db_model.context_window_tokens_override is not None:
+                    db_model.context_window_tokens = int(db_model.context_window_tokens_override)
+
                 db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
@@ -1183,6 +1262,9 @@ class LLMService:
                 # A non-null vision override from the client wins over the catalog default.
                 supports_vision_override = getattr(model, "supports_vision_override", None)
                 supports_vision = self._resolve_supports_vision(supports_vision_override, supports_vision)
+                # Same for a context-window override.
+                context_window_tokens_override = getattr(model, "context_window_tokens_override", None)
+                context_window_tokens = self._resolve_context_window(context_window_tokens_override, context_window_tokens)
 
                 # Set as default if org has no default and this model is enabled
                 should_be_default = not has_default_model and model.is_enabled
@@ -1201,6 +1283,7 @@ class LLMService:
                     supports_vision=supports_vision,
                     supports_vision_override=supports_vision_override,
                     context_window_tokens=context_window_tokens,
+                    context_window_tokens_override=context_window_tokens_override,
                     max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost,
@@ -1480,6 +1563,13 @@ class LLMService:
         return bool(catalog_value)
 
     @staticmethod
+    def _resolve_context_window(override, catalog_value):
+        """Effective context window: a non-null admin override always wins over the catalog."""
+        if override is not None:
+            return int(override)
+        return catalog_value
+
+    @staticmethod
     def _apply_catalog_model_details(model: LLMModel, model_data: dict, *, sync_enabled: bool = False) -> None:
         model.name = model_data["name"]
         model.is_preset = model_data.get("is_preset", True)
@@ -1490,7 +1580,11 @@ class LLMService:
             getattr(model, "supports_vision_override", None),
             model_data.get("supports_vision", False),
         )
-        model.context_window_tokens = model_data.get("context_window_tokens")
+        # Same for the context window: an admin-set size survives catalog re-syncs.
+        model.context_window_tokens = LLMService._resolve_context_window(
+            getattr(model, "context_window_tokens_override", None),
+            model_data.get("context_window_tokens"),
+        )
         if "max_output_tokens" in model_data:
             model.max_output_tokens = model_data.get("max_output_tokens")
         model.input_cost_per_million_tokens_usd = model_data.get("input_cost_per_million_tokens_usd")
