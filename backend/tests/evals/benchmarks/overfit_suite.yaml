@@ -26,8 +26,8 @@ cases:
           content: >
             Actually that's wrong — the customer Leonie Köhler recently
             married and her last name is now Cohen. Remember that her last
-            name is Cohen. Please redo the top-10 table showing her as
-            Leonie Cohen.
+            name is Cohen. Rerun the query and rebuild the top-10 table so
+            it shows her as Leonie Cohen.
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -44,7 +44,8 @@ cases:
           content: >
             That's not right — invoice 384 is a duplicate entry and must be
             excluded. Also exclude any cancelled invoices (anything with a
-            negative or zero total). Recalculate the 2013 revenue.
+            negative or zero total). Rerun the query and recalculate the
+            2013 revenue with those exclusions.
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -59,9 +60,9 @@ cases:
           content: "How many customers do we have per country?"
       - prompt:
           content: >
-            Actually the overall total should be exactly 59 customers —
-            there are exactly 59 customers in our business, remember that
-            number. Redo the table.
+            Actually that's wrong — there are exactly 59 customers in our
+            business, remember that number. Rerun the query, rebuild the
+            per-country table, and add a Total row.
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -77,8 +78,8 @@ cases:
       - prompt:
           content: >
             I meant only invoices belonging to customers supported by the
-            sales agent Jane Peacock — note that her employee id is 3. Redo
-            the monthly totals for her customers only.
+            sales agent Jane Peacock — note that her employee id is 3. Rerun
+            the query and rebuild the monthly totals just for her customers.
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -95,7 +96,7 @@ cases:
           content: >
             Actually that's wrong — please exclude cancelled invoices from
             the total. Revenue should never include invoices with a negative
-            or zero total. Redo the revenue by year.
+            or zero total. Rerun the query and redo the revenue by year.
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -112,7 +113,8 @@ cases:
           content: >
             That's not correct — for us, "revenue" always means the sum of
             invoice line quantity times unit price, not the invoice Total
-            column. Use that definition going forward and recalculate.
+            column. Use that definition going forward, rerun the query and
+            recalculate the total revenue.
     expectations:
       spec_version: 1
       order_mode: flexible

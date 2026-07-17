@@ -256,6 +256,20 @@ def test_overfit_benchmark_case(
     duration_ms = int((time.time() - t0) * 1000)
 
     result = run_data["results"][0]
+    # Per-turn tool usage (diagnostic): the correction trigger requires a
+    # successful create_data in the turn-2 execution.
+    comps = (run_data.get("completions") or {}).get(result.get("id")) or []
+    turn_tools = [
+        {
+            "turn": c.get("turn_index"),
+            "tools": [
+                (b.get("tool") or {}).get("name")
+                for b in (c.get("blocks") or [])
+                if (b.get("tool") or {}).get("name")
+            ],
+        }
+        for c in comps if c.get("role") != "user"
+    ]
     outcomes = _collect_outcomes(org_id, pre_existing)
     score = _score(case_name, outcomes)
     score["knowledge_phase_ran"] = any(
@@ -272,6 +286,7 @@ def test_overfit_benchmark_case(
         "persisted": outcomes["persisted"],
         "attempted": outcomes["attempted"],
         "all_tools": outcomes["all_tools"],
+        "turn_tools": turn_tools,
     }
     _append(entry)
     print(f"[bench] score={json.dumps(score, ensure_ascii=False)}", flush=True)
