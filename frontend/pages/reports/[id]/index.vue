@@ -160,7 +160,7 @@
 						<div v-else-if="m.role === 'external'" class="my-2">
 							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50">
 								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
+								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
 									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
 								</span>
@@ -788,6 +788,11 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
+import EditEvalTool from '~/components/tools/EditEvalTool.vue'
+import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
+import GetEvalRunsTool from '~/components/tools/GetEvalRunsTool.vue'
+import StopEvalRunTool from '~/components/tools/StopEvalRunTool.vue'
+import CancelWaitTool from '~/components/tools/CancelWaitTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -1310,8 +1315,28 @@ function webhookSourceIcon(source?: string): string {
 	switch ((source || '').toLowerCase()) {
 		case 'github': return 'heroicons-code-bracket-square'
 		case 'jira': return 'heroicons-bug-ant'
+		// Machine-turn events (trigger_source doubles as external_platform)
+		case 'eval_run': return 'heroicons-beaker'
+		case 'wait': return 'heroicons-clock'
 		default: return 'heroicons-bolt'
 	}
+}
+// Locale-aware label for machine-turn event strips; the server-side summary
+// (English) is only the fallback for webhook events / older rows. Keyed on
+// trigger_source (exposed by completions_v2; message_type is not).
+function machineEventLabel(m: any): string {
+	const meta = m?.prompt?.meta
+	const src = (m as any)?.trigger_source
+	if (meta && src === 'eval_run') {
+		return t('events.evalRunFinished', {
+			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
+			status: meta.status || '',
+		})
+	}
+	if (meta && src === 'wait') {
+		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	return m.prompt?.summary || m.prompt?.content
 }
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
@@ -1692,6 +1717,16 @@ function getToolComponent(toolName: string) {
 			return CreateEvalTool
 		case 'run_eval':
 			return RunEvalTool
+		case 'edit_eval':
+			return EditEvalTool
+		case 'get_eval_run':
+			return GetEvalRunTool
+		case 'get_eval_runs':
+			return GetEvalRunsTool
+		case 'stop_eval_run':
+			return StopEvalRunTool
+		case 'cancel_wait':
+			return CancelWaitTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -2896,9 +2931,10 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
-				// Webhook event entry fields
+				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
+				trigger_source: c.trigger_source || null,
 			}
 		})
 		// Update cursors
@@ -3066,6 +3102,10 @@ async function loadPreviousCompletions() {
                 follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
+                // Webhook / machine event entry fields
+                external_platform: c.external_platform || null,
+                webhook_id: c.webhook_id || null,
+                trigger_source: c.trigger_source || null,
             }
         })
         // Dedupe by id and prepend

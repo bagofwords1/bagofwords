@@ -902,6 +902,47 @@
       "stopTitle": "Detener la ejecución (también detiene el bucle del agente)",
       "openRun": "Abrir ejecución"
     },
+    "getEvalRun": {
+      "reading": "Leyendo ejecución de evaluación",
+      "read": "Ejecución de evaluación",
+      "notFound": "Ejecución no encontrada",
+      "pass": "{count} aprobadas",
+      "fail": "{count} fallidas",
+      "vsPrevious": "vs anterior:",
+      "fixed": "{count} corregidas",
+      "regressed": "{count} regresiones",
+      "openRun": "Abrir ejecución"
+    },
+    "getEvalRuns": {
+      "listing": "Listando ejecuciones",
+      "listed": "Ejecuciones de evaluación",
+      "runSingular": "{count} ejecución",
+      "runPlural": "{count} ejecuciones",
+      "empty": "No se encontraron ejecuciones"
+    },
+    "stopEvalRun": {
+      "stopping": "Deteniendo ejecución",
+      "stopped": "Ejecución detenida",
+      "failed": "No se pudo detener la ejecución",
+      "passedAtStop": "aprobadas antes de detener",
+      "openRun": "Abrir ejecución"
+    },
+    "editEval": {
+      "editing": "Actualizando evaluación",
+      "edited": "Evaluación actualizada",
+      "failed": "Evaluación no actualizada",
+      "unnamed": "Evaluación sin título",
+      "changed": "Cambios: {fields}",
+      "statusDraft": "Borrador",
+      "statusActive": "Activa",
+      "statusArchived": "Archivada"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelando espera",
+      "cancelledSingular": "Se canceló {count} espera pendiente",
+      "cancelledPlural": "Se cancelaron {count} esperas pendientes",
+      "nothingPending": "No hay esperas pendientes"
+    },
     "searchEvals": {
       "searching": "Buscando evaluaciones",
       "searchingFor": "Buscando evaluaciones para {query}",
@@ -2446,7 +2487,16 @@
       "agoSeconds": "hace {n}s",
       "agoMinutes": "hace {n}m",
       "agoHours": "hace {n}h",
-      "agoDays": "hace {n}d"
+      "agoDays": "hace {n}d",
+      "compareTo": "Comparado con",
+      "compareFixed": "{n} corregidas",
+      "compareRegressed": "{n} regresiones",
+      "compareUnchanged": "{n} sin cambios",
+      "compareNoChanges": "Sin cambios por caso respecto a la ejecución base.",
+      "flip_fixed": "corregida",
+      "flip_regressed": "regresión",
+      "flip_added": "añadida",
+      "flip_removed": "eliminada"
     },
     "op": {
       "textContains": "texto contiene",
@@ -3177,5 +3227,9 @@
     "policyInherit": "heredar ({policy})",
     "reset": "restablecer",
     "resetTip": "Restablecer al valor predeterminado de la conexión"
+  },
+  "events": {
+    "evalRunFinished": "La ejecución de evaluación '{title}' terminó — {passed}/{total} aprobadas ({status})",
+    "waitResumed": "La espera terminó — reanudando: {reason}"
   }
 }
