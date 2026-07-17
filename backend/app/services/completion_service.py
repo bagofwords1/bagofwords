@@ -2586,6 +2586,9 @@ class CompletionService:
         of this tool from the agent's perspective, so it lives alongside the
         existing ``status`` field under a ``user_response`` key:
         { status, user_response: { selected_chips, other_texts, free_texts } }.
+
+        ``selected_chips`` entries are a string for single-pick questions or a
+        list of strings for ``multi_select`` questions.
         """
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="Body must be an object")
@@ -2622,12 +2625,22 @@ class CompletionService:
         if tool_exec.tool_name != 'clarify':
             raise HTTPException(status_code=400, detail="Not a clarify tool execution")
 
+        def _chip_entry(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, str)]
+            return ""
+
+        def _text_entry(v):
+            return v if isinstance(v, str) else ""
+
         merged = dict(tool_exec.result_json or {})
         merged["status"] = "answered"
         merged["user_response"] = {
-            "selected_chips": body.get("selected_chips") or [],
-            "other_texts": body.get("other_texts") or [],
-            "free_texts": body.get("free_texts") or [],
+            "selected_chips": [_chip_entry(v) for v in (body.get("selected_chips") or [])],
+            "other_texts": [_text_entry(v) for v in (body.get("other_texts") or [])],
+            "free_texts": [_text_entry(v) for v in (body.get("free_texts") or [])],
         }
         tool_exec.result_json = merged
         await db.commit()

@@ -1118,6 +1118,12 @@
       "diff": "diff",
       "rewrite": "reescritura",
       "failed": "Error al editar"
+    },
+    "clarify": {
+      "clarifying": "Preguntas de aclaración para el usuario",
+      "placeholder": "Tu respuesta…",
+      "multiHint": "Selecciona todas las opciones que correspondan",
+      "submit": "Enviar"
     }
   },
   "entityCreate": {

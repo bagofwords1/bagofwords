@@ -737,6 +737,7 @@
     "clarify": {
       "clarifying": "Clarifying questions for user",
       "placeholder": "Your answer…",
+      "multiHint": "Select all that apply",
       "submit": "Submit"
     },
     "createArtifact": {
