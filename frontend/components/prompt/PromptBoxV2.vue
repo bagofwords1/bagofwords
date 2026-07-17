@@ -1,5 +1,18 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 p-3 pb-3 sm:p-4 sm:pb-8 bg-white dark:bg-gray-900">
+        <!-- Thinking indicator (visible while a completion is running) — above the pills row -->
+        <Transition name="thinking-fade">
+            <div
+                v-if="isThinking"
+                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
+                aria-live="polite"
+            >
+                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+            </div>
+        </Transition>
+
         <!-- Query pills + Excel hint (above container) — hidden for now -->
         <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
@@ -167,19 +180,6 @@
                 <span class="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
-
-        <!-- Thinking indicator (visible while a completion is running) -->
-        <Transition name="thinking-fade">
-            <div
-                v-if="isThinking"
-                class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
-                aria-live="polite"
-            >
-                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
-            </div>
-        </Transition>
 
         <!-- Minimalist prompt container -->
         <div
@@ -394,6 +394,28 @@
                                                     class="h-full rounded-full bg-gray-400 dark:bg-gray-500"
                                                     :style="{ width: contextUsageBarWidth }"
                                                 />
+                                            </div>
+                                            <div class="mt-1.5 flex items-center justify-between gap-3">
+                                                <span
+                                                    v-if="compactionState && compactionState.tokens_compacted_total > 0"
+                                                    class="text-gray-500 dark:text-gray-400"
+                                                    data-testid="compacted-total"
+                                                >
+                                                    {{ $t('prompt.compacted') }} · <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatTokenCountShort(compactionState.tokens_compacted_total) }}</span>
+                                                </span>
+                                                <span v-else />
+                                                <button
+                                                    type="button"
+                                                    data-testid="compact-button"
+                                                    class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    :disabled="isCompacting || !compactionState?.can_compact"
+                                                    :title="compactionState?.can_compact ? $t('prompt.compactTooltip') : $t('prompt.compactNothing')"
+                                                    @click="compactContext"
+                                                >
+                                                    <Spinner v-if="isCompacting" class="w-3 h-3 text-gray-400" />
+                                                    <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3 h-3" />
+                                                    {{ isCompacting ? $t('prompt.compacting') : $t('prompt.compact') }}
+                                                </button>
                                             </div>
                                         </div>
 
@@ -827,6 +849,13 @@ watch(() => props.initialSelectedDataSources, (newVal) => {
     isHydratingDataSources.value = false
 }, { deep: true })
 
+type CompactionState = {
+    tokens_compacted_total: number
+    covered_turns: number
+    last_compaction_at?: string | null
+    can_compact: boolean
+}
+
 type CompletionContextEstimate = {
     model_id: string
     model_name?: string
@@ -835,6 +864,7 @@ type CompletionContextEstimate = {
     remaining_tokens?: number
     near_limit?: boolean
     context_usage_pct?: number
+    compaction?: CompactionState | null
 }
 
 const contextEstimate = ref<CompletionContextEstimate | null>(null)
@@ -1100,6 +1130,26 @@ async function refreshContextEstimate(force = false) {
         contextEstimateError.value = t('prompt.estimateUnavailable')
     } finally {
         isLoadingContextEstimate.value = false
+    }
+}
+
+const isCompacting = ref(false)
+const compactionState = computed<CompactionState | null>(() => contextEstimate.value?.compaction || null)
+
+async function compactContext() {
+    if (!props.report_id || isCompacting.value) return
+    isCompacting.value = true
+    try {
+        const response = await useMyFetch(`/reports/${props.report_id}/context/compact`, { method: 'POST' })
+        const errorValue = (response as any)?.error?.value
+        if (errorValue) throw errorValue
+        // Refresh the estimate so the context bar drops and the compacted
+        // total rises — the visible payoff of the click.
+        await refreshContextEstimate(true)
+    } catch (err) {
+        console.error('Failed to compact context:', err)
+    } finally {
+        isCompacting.value = false
     }
 }
 

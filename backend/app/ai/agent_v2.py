@@ -242,6 +242,7 @@ def _resolve_reasoning_effort(
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.agents.notes_context import build_notes_context
 from app.ai.context import ContextHub, ContextBuildSpec
+from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
@@ -434,6 +435,11 @@ class AgentV2:
         # and spawn a single follow-up after the current one finishes.
         self._rebuild_task: Optional[asyncio.Task] = None
         self._rebuild_pending: bool = False
+        # Rolling context compaction: one background attempt per run, scheduled
+        # by the build-time trigger in _refresh_warm_traced. Strong task ref —
+        # awaited at end of turn so the write/SSE can't be lost to task GC.
+        self._compaction_attempted: bool = False
+        self._compaction_task: Optional[asyncio.Task] = None
 
         # Single dedicated write session for the entire agent run.
         # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
@@ -1533,6 +1539,72 @@ class AgentV2:
                     logger.error(f"Failed to generate/update report title: {e}")
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
+
+    async def _run_auto_compaction(self):
+        """Background body of the build-time compaction trigger: fold turns
+        older than the protected tail into the report's rolling summary
+        (ContextCompactionService). Runs concurrently with the agent loop in
+        its own DB session (report and organization re-fetched by id —
+        self.report/self.organization may be detached, same pitfall as title
+        generation); later context builds pick up the advanced watermark.
+        Fail-open: any error logs and leaves rendering exactly as today."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            if not self.report:
+                return
+            model = self.small_model or self.model
+            if model is None:
+                return
+            from app.services.context_compaction_service import context_compaction_service
+            from app.models.organization import Organization
+            report_id = str(self.report.id)
+            organization_id = str(self.organization.id) if self.organization else None
+            SessionLocal = self._session_maker
+            async with SessionLocal() as session:
+                from sqlalchemy.orm import lazyload as _lazyload
+                report = (await session.execute(
+                    select(Report).where(Report.id == report_id).options(_lazyload("*"))
+                )).scalar_one_or_none()
+                organization = None
+                if organization_id:
+                    # Organization.settings is lazy='joined', so this re-fetch
+                    # carries the settings the digest path needs.
+                    organization = (await session.execute(
+                        select(Organization).where(Organization.id == organization_id)
+                    )).scalar_one_or_none()
+                if report is None or organization is None:
+                    return
+                result = await context_compaction_service.compact(
+                    session, report, organization, model, force=False,
+                )
+                if result.get("status") == "compacted":
+                    logger.info(
+                        f"Auto-compacted report {report_id}: "
+                        f"{result.get('compacted_turns')} turns, ~{result.get('tokens_compacted')} tokens"
+                    )
+                    # Live visibility: the kickoff SSE stream is still open here
+                    # (event_queue.finish() runs after main_execution returns),
+                    # so the page can render the transcript divider and refresh
+                    # the usage popover without a reload.
+                    if self.event_queue:
+                        try:
+                            await self.event_queue.put(SSEEvent(
+                                event="context.compacted",
+                                completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                data={
+                                    "marker_id": result.get("marker_id"),
+                                    "content": result.get("marker_text"),
+                                    "created_at": result.get("marker_created_at"),
+                                    "compacted_turns": result.get("compacted_turns"),
+                                    "tokens_compacted": result.get("tokens_compacted"),
+                                    "tokens_compacted_total": result.get("tokens_compacted_total"),
+                                },
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Failed to emit context.compacted event: {e}")
+        except Exception as e:
+            logger.warning(f"Auto compaction skipped: {e}")
 
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
@@ -2664,7 +2736,7 @@ class AgentV2:
                     if loop_index == 0 and view.warm.messages:
                         messages_section = view.warm.messages
                     else:
-                        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+                        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
                     messages_context = messages_section.render() if messages_section else ""
                     # Use cached resources from prime_static() - static, no need to rebuild
                     resources_section = view.static.resources
@@ -4262,7 +4334,20 @@ class AgentV2:
                     self._drain_bg_writes(),
                     name="agent.post_finished_drain",
                 )
-            
+
+            # If a build-time trigger scheduled a background compaction this
+            # run, let it land before the stream closes: the context.compacted
+            # SSE must beat [DONE], and dropping the reference here would risk
+            # GC'ing the task mid-write. It overlapped the run, so this await
+            # is usually a no-op; the timeout keeps a stuck summarizer from
+            # pinning the turn open.
+            _compaction_task = getattr(self, "_compaction_task", None)
+            if _compaction_task is not None and not _compaction_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(_compaction_task), timeout=45)
+                except Exception as e:
+                    logger.warning(f"Background compaction still pending at turn end: {e}")
+
         except Exception as e:
             # Handle errors and finish execution with error status
             if self.current_execution:
@@ -4370,7 +4455,7 @@ class AgentV2:
         except Exception:
             schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
 
-        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
         messages_context = messages_section.render()
 
         resources_section = await self.context_hub.resource_builder.build()
@@ -4492,7 +4577,41 @@ class AgentV2:
             if self.report is not None:
                 span.set_attribute("report.id", str(self.report.id))
             await self.context_hub.refresh_warm()
-            return self.context_hub.get_view()
+            view = self.context_hub.get_view()
+            # Compaction rides on context assembly: every agent-path warm build
+            # checks the window against the token budget and, at most once per
+            # run, schedules a background fold. Detection only — the build
+            # returns the uncompacted view; a later build picks up the
+            # advanced watermark. (Passive builds — estimate endpoint, title,
+            # follow-ups — never come through here, so they can't trigger.)
+            self._maybe_schedule_compaction(view)
+            return view
+
+    def _maybe_schedule_compaction(self, view) -> None:
+        """Threshold check + background scheduling, once per run. Fail-open."""
+        if getattr(self, "_compaction_attempted", False):
+            return
+        try:
+            from app.services.context_compaction_service import (
+                compaction_budgets, MESSAGES_WINDOW,
+            )
+            messages = getattr(getattr(view, "warm", None), "messages", None)
+            if messages is None:
+                return
+            rendered = messages.render() or ""
+            item_count = len(getattr(messages, "items", []) or [])
+            budgets = compaction_budgets(self.small_model or self.model)
+            if (len(rendered) // 4) < budgets["trigger_tokens"] and item_count < MESSAGES_WINDOW:
+                return
+            self._compaction_attempted = True
+            # Strong reference on self — a bare create_task is only weakly
+            # held by the loop and can be GC'd mid-flight (the title-generation
+            # lesson). main_execution awaits it before the stream closes.
+            self._compaction_task = asyncio.create_task(
+                self._run_auto_compaction(), name="agent.context_compaction"
+            )
+        except Exception as e:
+            logger.debug(f"Compaction trigger check skipped: {e}")
 
     async def _build_context_traced(self, phase: str, *, loop_index: int | None = None):
         with tracer.start_as_current_span("agent.context_build") as span:

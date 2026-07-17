@@ -80,9 +80,12 @@ from .builders.entity_context_builder import EntityContextBuilder
 from app.ai.utils.token_counter import count_tokens
 
 
-# Default caps to keep planner prompt small and predictable
+# Default caps to keep planner prompt small and predictable.
+# messages_max is a count fallback — the real bound on conversation history
+# is the token-budgeted compaction geometry (see context_compaction_service),
+# which folds older turns into the rolling summary well before 40 heavy turns.
 DEFAULT_CONTEXT_LIMITS = {
-    "messages_max": 20,        # last N messages
+    "messages_max": 40,        # last N messages
     "observations_max": 8    # last N observations
 }
 

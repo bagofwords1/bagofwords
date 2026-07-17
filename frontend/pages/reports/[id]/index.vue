@@ -108,8 +108,18 @@
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
 					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+						<!-- Context compaction divider -->
+						<div v-if="(m as any).message_type === 'context_compaction'" class="flex items-center gap-3 my-3" data-testid="compaction-divider">
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider">
+								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
+								{{ (m as any).completion?.content || $t('prompt.compacted') }}
+							</span>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+						</div>
+
 						<!-- Fork summary card (special rendering) -->
-						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
+						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
 								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
@@ -887,6 +897,10 @@ interface ChatMessage {
 	instruction_suggestions_loading?: boolean
 	// Scheduled prompt tag
 	scheduled_prompt_id?: string | null
+	// Marker rows: 'context_compaction' renders as a divider
+	message_type?: string | null
+	// Raw completion content (fork summary / compaction divider text)
+	completion?: any
 }
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
@@ -2779,6 +2793,23 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'context.compacted':
+			// Rolling context compaction ran at end of turn: append the transcript
+			// divider live and refresh the usage popover (compacted counter +
+			// context bar) without waiting for a reload.
+			if (payload?.marker_id && !messages.value.some(m => m.id === payload.marker_id)) {
+				messages.value.push({
+					id: payload.marker_id,
+					role: 'system' as ChatRole,
+					status: 'success' as ChatStatus,
+					message_type: 'context_compaction',
+					completion: { content: payload.content || '' },
+					created_at: payload.created_at || new Date().toISOString(),
+				})
+			}
+			promptBoxRef.value?.refreshContextEstimate?.(true)
+			break
+
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			if (completionStatus) {
@@ -2934,6 +2965,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
+				// Marker rows (context compaction divider)
+				message_type: c.message_type || null,
 				// Fork summary fields
 				is_fork_summary: c.is_fork_summary,
 				source_report_id: c.source_report_id,
@@ -3111,6 +3144,8 @@ async function loadPreviousCompletions() {
                 follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
+                message_type: c.message_type || null,
+                completion: c.completion,
                 // Webhook / machine event entry fields
                 external_platform: c.external_platform || null,
                 webhook_id: c.webhook_id || null,
@@ -3699,10 +3734,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 					if (dataStr === '[DONE]') {
 						isStreaming.value = false
 						currentController = null
-						// Refresh report data and context estimate after stream fully ends
+						// Refresh report data and context estimate after stream fully ends.
+						// force=true: without it refreshContextEstimate early-returns after
+						// its first fetch, leaving the context meter stale for the whole
+						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
-						promptBoxRef.value?.refreshContextEstimate?.()
+						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}
 					try {
