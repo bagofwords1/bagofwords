@@ -319,10 +319,17 @@ def test_overfit_benchmark_case(
         print(f"[bench] persisted[{i['status']}/{i['load_mode']}]: {i['text'][:300]}", flush=True)
 
     # The benchmark records outcomes; it never fails on model behavior.
-    # Only infrastructure errors (run didn't finish) fail the test.
+    # Only infrastructure errors fail the test: the run must finish AND the
+    # agent must have actually run (an errored completion — e.g. provider
+    # credit exhaustion — would otherwise record a meaningless trial).
     assert result.get("status") in {"pass", "fail", "success"}, (
         f"run did not complete cleanly: {result.get('status')} "
         f"{result.get('failure_reason')}"
+    )
+    errored = [c for c in comps if c.get("role") != "user" and c.get("status") == "error"]
+    assert not errored, (
+        "agent completions errored — trial is invalid, not a behavioral outcome: "
+        + "; ".join((c.get("content") or "unknown error")[:200] for c in errored)
     )
 
 
