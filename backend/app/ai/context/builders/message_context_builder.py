@@ -795,7 +795,23 @@ class MessageContextBuilder:
         
         # Limit to max_messages (considering pairs)
         completions_to_process = completions_to_process[-max_messages:]
-        
+
+        # Steering rows targeting a STILL-RUNNING completion reach the planner
+        # via <steering_updates> — including them here too would duplicate
+        # them as unanswered asks. Finished-run steers stay (labeled below).
+        in_progress_system_ids = {
+            str(c.id) for c in report_completions
+            if c.role == 'system' and c.status == 'in_progress'
+        }
+        completions_to_process = [
+            c for c in completions_to_process
+            if not (
+                c.role == 'user'
+                and getattr(c, 'message_type', None) == 'steering'
+                and str(getattr(c, 'parent_id', None)) in in_progress_system_ids
+            )
+        ]
+
         attachments_map = await self._attachments_by_completion(
             [str(c.id) for c in completions_to_process if c.role == 'user']
         )
@@ -807,7 +823,13 @@ class MessageContextBuilder:
                 # User message: show prompt content
                 content = completion.prompt.get('content', '') if completion.prompt else ''
                 if content.strip():
-                    line = f"User ({timestamp}): {content.strip()}"
+                    # Steering rows chronologically FOLLOW the assistant answer
+                    # that already incorporated them — label them so they don't
+                    # read as new, unanswered requests.
+                    if getattr(completion, 'message_type', None) == 'steering':
+                        line = f"User ({timestamp}, steered mid-run — already handled in the assistant turn above): {content.strip()}"
+                    else:
+                        line = f"User ({timestamp}): {content.strip()}"
                     atts = attachments_map.get(str(completion.id))
                     if atts:
                         line += "\n[attached: " + "; ".join(atts) + "]"
@@ -1278,6 +1300,22 @@ class MessageContextBuilder:
 
         completions_to_process = completions_to_process[-max_messages:]
 
+        # Steering rows targeting a STILL-RUNNING completion reach the planner
+        # via <steering_updates> — including them here too would duplicate
+        # them as unanswered asks. Finished-run steers stay (labeled below).
+        in_progress_system_ids = {
+            str(c.id) for c in report_completions
+            if c.role == 'system' and c.status == 'in_progress'
+        }
+        completions_to_process = [
+            c for c in completions_to_process
+            if not (
+                c.role == 'user'
+                and getattr(c, 'message_type', None) == 'steering'
+                and str(getattr(c, 'parent_id', None)) in in_progress_system_ids
+            )
+        ]
+
         # =========================
         # Batch-load mentions for all user messages to avoid N+1 queries
         # =========================
@@ -1443,6 +1481,11 @@ class MessageContextBuilder:
                     except Exception:
                         mentions_str = None
                     text = content.strip()
+                    # Steering rows chronologically FOLLOW the assistant answer
+                    # that already incorporated them — label them so they don't
+                    # read as new, unanswered requests.
+                    if getattr(completion, 'message_type', None) == 'steering':
+                        text = "[steered mid-run — already handled in the assistant turn above] " + text
                     atts = attachments_map.get(str(getattr(completion, 'id', '')))
                     if atts:
                         text += "\n[attached: " + "; ".join(atts) + "]"
