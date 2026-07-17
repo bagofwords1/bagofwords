@@ -664,6 +664,13 @@ Examples of good behavior (sources are published by default → most asks should
         parts.append(f"  <past_observations>{json.dumps(compacted)}</past_observations>")
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"
         parts.append(f"  <last_observation>{last_obs}</last_observation>")
+        # Steering: user instructions injected mid-run. Rendered HERE — after
+        # last_observation, the position the planner drives from — because the
+        # <original_user_prompt> block is demoted to background context after
+        # the first iteration and steering buried there gets ignored on
+        # plan-driven runs.
+        if getattr(planner_input, "steering_context", None):
+            parts.append(f"  {planner_input.steering_context}")
         parts.append("  <error_guidance>")
         parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your message text.")
         parts.append("    Inspect 'Field errors' and validation failures closely.")

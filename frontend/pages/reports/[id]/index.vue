@@ -182,10 +182,11 @@
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
 								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
-									<!-- Steering badge: this message was injected into a running completion -->
-									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px] text-amber-500" data-testid="steering-badge">
-										<Icon name="heroicons-bolt-solid" class="w-3 h-3" />
-										<span>{{ $t('reportView.steered') }}</span>
+									<!-- Steering badge: this message was injected into a running completion.
+									     Flips to the applied state when the agent acks pickup. -->
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px]" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 									</div>
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
@@ -899,9 +900,12 @@ interface ChatMessage {
 	scheduled_prompt_id?: string | null
 	// 'steering' when this user message was injected into a running completion
 	message_type?: string | null
+	// true once the agent acked pickup (completion.steering.applied SSE)
+	steering_applied?: boolean
 }
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
+const toast = useToast()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
@@ -2126,6 +2130,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
 				currentOfficeJsCompletionId.value = payload.system_completion_id
+			}
+			break
+
+		case 'completion.steering.applied':
+			// The agent picked up steering message(s): flip their badge from
+			// "Steered" to the applied state so the user sees the ack.
+			for (const sid of (payload?.ids || [])) {
+				const sm = messages.value.find(m => String(m.id) === String(sid))
+				if (sm) (sm as any).steering_applied = true
 			}
 			break
 
@@ -3655,12 +3668,16 @@ async function onSteerPrompt(data: { text: string, mentions: any[]; mode?: strin
 				})
 			}
 			scrollToBottom()
-		} else {
+		} else if (r?.status === 'queued') {
 			// Server fell back to queueing (run not in progress anymore).
+			toast.add({ title: t('reportView.steerQueuedFallback'), color: 'amber' })
 			await loadCompletions({ skipEstimate: true })
+		} else {
+			toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
 		}
 	} catch (e) {
 		console.error('Failed to steer completion:', e)
+		toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
 	}
 }
 
@@ -3683,11 +3700,15 @@ async function onSteerQueuedPrompt(queuedId: string) {
 				messages.value = newMessages
 				scrollToBottom()
 			}
-		} else {
+		} else if (r?.status === 'queued') {
+			toast.add({ title: t('reportView.steerQueuedFallback'), color: 'amber' })
 			await loadCompletions({ skipEstimate: true })
+		} else {
+			toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
 		}
 	} catch (e) {
 		console.error('Failed to steer queued prompt:', e)
+		toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
 	}
 }
 

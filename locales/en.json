@@ -698,7 +698,10 @@
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
     "followUp": "Follow up",
-    "steered": "Steered"
+    "steered": "Steered",
+    "steeringApplied": "Steering applied",
+    "steerQueuedFallback": "The run just finished — your message was queued instead",
+    "steerFailed": "Failed to steer the running completion"
   },
   "tools": {
     "common": {

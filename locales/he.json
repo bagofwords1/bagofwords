@@ -646,7 +646,10 @@
     "stepRef": "← שלב: {id}",
     "viewAgentTrace": "הצג מעקב סוכן",
     "followUp": "שאלות המשך",
-    "steered": "הוכוון"
+    "steered": "הוכוון",
+    "steeringApplied": "ההכוונה הוחלה",
+    "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
+    "steerFailed": "הכוונת ההשלמה הרצה נכשלה"
   },
   "tools": {
     "common": {

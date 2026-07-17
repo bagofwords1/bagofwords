@@ -646,7 +646,10 @@
     "stepRef": "→ Paso: {id}",
     "viewAgentTrace": "Ver traza del agente",
     "followUp": "Preguntas de seguimiento",
-    "steered": "Dirigido"
+    "steered": "Dirigido",
+    "steeringApplied": "Dirección aplicada",
+    "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
+    "steerFailed": "No se pudo dirigir la respuesta en curso"
   },
   "tools": {
     "common": {

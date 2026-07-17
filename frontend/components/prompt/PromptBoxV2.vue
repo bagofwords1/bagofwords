@@ -180,27 +180,27 @@
                 <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                 <span class="thinking-shimmer">{{ thinkingLabel }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+                <!-- Native title tooltips: UTooltip's popper can overlap and
+                     intercept clicks on these small targets. -->
                 <div v-if="latestInProgressCompletion && canSubmit" class="ms-auto flex items-center gap-1.5">
-                    <UTooltip :text="$t('prompt.steerTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
-                        <button
-                            class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                            data-testid="steer-button"
-                            @click="submitSteer"
-                        >
-                            <Icon name="heroicons-bolt-solid" class="w-3 h-3" />
-                            {{ $t('prompt.steer') }}
-                        </button>
-                    </UTooltip>
-                    <UTooltip :text="$t('prompt.queueTooltip')" :popper="{ strategy: 'fixed', placement: 'top' }">
-                        <button
-                            class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                            data-testid="queue-button"
-                            @click="submit"
-                        >
-                            <Icon name="heroicons-queue-list" class="w-3 h-3" />
-                            {{ $t('prompt.queue') }}
-                        </button>
-                    </UTooltip>
+                    <button
+                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                        :title="$t('prompt.steerTooltip')"
+                        data-testid="steer-button"
+                        @click="submitSteer"
+                    >
+                        <Icon name="heroicons-bolt-solid" class="w-3 h-3" />
+                        {{ $t('prompt.steer') }}
+                    </button>
+                    <button
+                        class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                        :title="$t('prompt.queueTooltip')"
+                        data-testid="queue-button"
+                        @click="submit"
+                    >
+                        <Icon name="heroicons-queue-list" class="w-3 h-3" />
+                        {{ $t('prompt.queue') }}
+                    </button>
                 </div>
             </div>
         </Transition>
@@ -216,24 +216,25 @@
                 <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                 <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
                 <span class="text-[10px] uppercase tracking-wide text-gray-400 flex-shrink-0">{{ $t('prompt.queued') }}</span>
-                <UTooltip v-if="latestInProgressCompletion" :text="$t('prompt.steerNow')" :popper="{ strategy: 'fixed', placement: 'top' }">
-                    <button
-                        class="text-amber-500 hover:text-amber-600 flex-shrink-0"
-                        data-testid="queued-steer-button"
-                        @click="emit('steerQueuedPrompt', qp.id)"
-                    >
-                        <Icon name="heroicons-bolt" class="w-3.5 h-3.5" />
-                    </button>
-                </UTooltip>
-                <UTooltip :text="$t('prompt.removeFromQueue')" :popper="{ strategy: 'fixed', placement: 'top' }">
-                    <button
-                        class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
-                        data-testid="queued-remove-button"
-                        @click="emit('removeQueuedPrompt', qp.id)"
-                    >
-                        <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
-                    </button>
-                </UTooltip>
+                <!-- Native title tooltips here: UTooltip's popper can overlap and
+                     intercept clicks on these small targets. -->
+                <button
+                    v-if="latestInProgressCompletion"
+                    class="text-amber-500 hover:text-amber-600 flex-shrink-0"
+                    :title="$t('prompt.steerNow')"
+                    data-testid="queued-steer-button"
+                    @click="emit('steerQueuedPrompt', qp.id)"
+                >
+                    <Icon name="heroicons-bolt" class="w-3.5 h-3.5" />
+                </button>
+                <button
+                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                    :title="$t('prompt.removeFromQueue')"
+                    data-testid="queued-remove-button"
+                    @click="emit('removeQueuedPrompt', qp.id)"
+                >
+                    <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                </button>
             </div>
         </div>
 
