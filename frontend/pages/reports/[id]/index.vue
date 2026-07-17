@@ -2793,6 +2793,23 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'context.compacted':
+			// Rolling context compaction ran at end of turn: append the transcript
+			// divider live and refresh the usage popover (compacted counter +
+			// context bar) without waiting for a reload.
+			if (payload?.marker_id && !messages.value.some(m => m.id === payload.marker_id)) {
+				messages.value.push({
+					id: payload.marker_id,
+					role: 'system' as ChatRole,
+					status: 'success' as ChatStatus,
+					message_type: 'context_compaction',
+					completion: { content: payload.content || '' },
+					created_at: payload.created_at || new Date().toISOString(),
+				})
+			}
+			promptBoxRef.value?.refreshContextEstimate?.(true)
+			break
+
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			if (completionStatus) {
@@ -3717,10 +3734,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 					if (dataStr === '[DONE]') {
 						isStreaming.value = false
 						currentController = null
-						// Refresh report data and context estimate after stream fully ends
+						// Refresh report data and context estimate after stream fully ends.
+						// force=true: without it refreshContextEstimate early-returns after
+						// its first fetch, leaving the context meter stale for the whole
+						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
-						promptBoxRef.value?.refreshContextEstimate?.()
+						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}
 					try {

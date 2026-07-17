@@ -15,7 +15,7 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -316,3 +316,52 @@ def test_validate_entities_requires_verbatim_id():
     s = {"entities": [{"id": "abc-1"}, {"id": "zzz-9"}]}
     out = _validate_entities(s, "digest mentioning abc-1 only")
     assert [e["id"] for e in out["entities"]] == ["abc-1"]
+
+
+@pytest.mark.asyncio
+async def test_auto_compaction_emits_sse_event(db):
+    """_run_auto_compaction emits context.compacted on the live event queue
+    when the service compacts, carrying the marker + totals the UI renders."""
+    import app.ai.agent_v2 as agent_v2_mod
+    from app.services.context_compaction_service import context_compaction_service
+
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 10)
+
+    agent = object.__new__(agent_v2_mod.AgentV2)
+    agent.report = report
+    agent.organization = org
+    agent.model = MagicMock()
+    agent.small_model = MagicMock()
+    agent.system_completion = MagicMock(id="sys-1")
+    agent.event_queue = MagicMock()
+    agent.event_queue.put = AsyncMock()
+
+    class _Maker:
+        def __call__(self):
+            return self
+        async def __aenter__(self):
+            return db
+        async def __aexit__(self, *a):
+            return False
+    agent._session_maker = _Maker()
+
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        await agent._run_auto_compaction()
+
+    # force=False with only 10 tiny turns → below threshold → no event
+    agent.event_queue.put.assert_not_called()
+
+    # Cross the count threshold and re-run
+    await _add_turns(db, report, user, 20, start=100)
+    llm_patch2, _ = _mock_llm(SUMMARY)
+    with llm_patch2:
+        await agent._run_auto_compaction()
+
+    agent.event_queue.put.assert_called_once()
+    event = agent.event_queue.put.call_args[0][0]
+    assert event.event == "context.compacted"
+    assert event.data["marker_id"]
+    assert "Compacted" in event.data["content"]
+    assert event.data["tokens_compacted_total"] > 0

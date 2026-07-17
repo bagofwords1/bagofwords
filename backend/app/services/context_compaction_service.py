@@ -346,11 +346,23 @@ class ContextCompactionService:
         db.add(marker)
         await db.commit()
 
+        # The estimate cache may hold a pre-compaction context figure; drop it
+        # so the next popover refresh reflects the compacted window (both the
+        # auto and on-demand paths compact through here).
+        try:
+            from app.services.completion_service import CompletionService
+            CompletionService._estimate_cache.clear()
+        except Exception:
+            pass
+
         logger.info(f"Compacted report {report_id}: {len(scope)} turns, ~{digest_tokens} tokens")
         return {
             "status": "compacted",
             "compacted_turns": len(scope),
             "tokens_compacted": digest_tokens,
+            "marker_id": str(marker.id),
+            "marker_text": marker_text,
+            "marker_created_at": marker.created_at.isoformat() if marker.created_at else None,
             **self._state_payload(state),
         }
 
