@@ -979,10 +979,10 @@ class AgentV2:
         from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator, TriggerCondition
 
         # Budget: 1 search + up to 2 verify (inspect_data/describe_tables) + up to
-        # 4 create/edit + 1 exit. The knowledge prompt biases toward capturing, so
-        # the harness needs enough room to search, optionally verify, then write
-        # one or more instructions.
-        MAX_KNOWLEDGE_HARNESS_STEPS = 10
+        # 2 create/edit + 1 exit. Deliberately tight: a session should yield a
+        # small number of robust, generalizable instructions — not a long tail
+        # of micro-rules (see docs/feedback-loops/instruction-overfitting.md).
+        MAX_KNOWLEDGE_HARNESS_STEPS = 6
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":
@@ -1203,6 +1203,7 @@ class AgentV2:
                     "usage_limit_context": self.usage_limit_context,
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                    "small_model": self.small_model,
                     "mode": "knowledge",
                     "is_eval_run": self.is_eval_run,
                     "platform": self.platform,
@@ -3535,6 +3536,7 @@ class AgentV2:
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                                    "small_model": self.small_model,
                                     "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
                                     "is_eval_run": self.is_eval_run,
                                     "platform": self.platform,

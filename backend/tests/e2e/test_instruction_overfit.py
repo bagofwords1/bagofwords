@@ -152,7 +152,7 @@ async def test_overfit_create_is_rejected_and_not_persisted(
     )
     assert output["success"] is False, output
     assert output["rejected_reason"] == "overfit"
-    assert "generaliz" in output["message"].lower() or "record-level" in output["message"].lower()
+    assert "general rule" in output["message"].lower()
     assert output.get("instruction_id") is None
     # The critic saw the instruction text, not something else.
     assert "Ana Petrov" in fake.prompts[0]

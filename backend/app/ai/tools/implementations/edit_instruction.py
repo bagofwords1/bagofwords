@@ -11,6 +11,7 @@ import logging
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
+from app.ai import instruction_quality
 from app.ai.tools.implementations.create_instruction import clamp_evidence
 from app.ai.tools.schemas.edit_instruction import EditInstructionInput, EditInstructionOutput
 from app.ai.tools.schemas.events import (
@@ -165,6 +166,40 @@ class EditInstructionTool(Tool):
                 }
             )
             return
+
+        # Generality gate on text changes: reject edits that would turn the
+        # instruction into (or extend it with) a record-level fact. Metadata
+        # -only edits carry no new text and skip the gate. Fails open — see
+        # app/ai/instruction_quality.py.
+        if data.text is not None:
+            gate_llm = instruction_quality.resolve_gate_llm(runtime_ctx)
+            gate_ok, gate_reason = await instruction_quality.check_instruction_generality(
+                data.text, gate_llm
+            )
+            if not gate_ok:
+                reason_txt = gate_reason or "the instruction states a record-level fact"
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": EditInstructionOutput(
+                            success=False,
+                            instruction_id=data.instruction_id,
+                            message=(
+                                f"Rejected as overfit: {reason_txt} "
+                                "Standing instructions must be reusable rules, not facts about "
+                                "specific records, people, or observed values. Either restate "
+                                "the edit as the general rule (without the record-specific "
+                                "detail), or leave the instruction unchanged."
+                            ),
+                            rejected_reason="overfit",
+                        ).model_dump(),
+                        "observation": {
+                            "summary": f"Edit rejected as overfit: {reason_txt}",
+                            "artifacts": [],
+                        },
+                    }
+                )
+                return
 
         # Get required context from runtime
         db = runtime_ctx.get("db")
