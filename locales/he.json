@@ -429,6 +429,13 @@
     "contextSizeShort": "{tokens} טוקנים בגודל הקונטקסט",
     "usageThisMonth": "שימוש החודש",
     "context": "קונטקסט",
+    "compact": "כיווץ",
+    "compacting": "מכווץ…",
+    "compacted": "כווץ",
+    "compactTooltip": "סיכום תורות ישנים כדי לפנות מקום בהקשר",
+    "compactNothing": "אין מה לכווץ עדיין",
+    "compactedTurns": "כווצו {turns} תורות (~{tokens} טוקנים)",
+    "compactedHistoryAbove": "היסטוריה מכווצת למעלה",
     "tokens": "טוקנים",
     "data": "נתונים",
     "connections": "חיבורים",
@@ -448,7 +455,11 @@
     "rejecting": "דוחה…",
     "rejectConfirm": "לדחות את כל השינויים בהנחיות מהסשן הזה?",
     "clickToPublish": "לחצו לפרסום",
-    "saveChanges": "שמירת שינויים"
+    "saveChanges": "שמירת שינויים",
+    "queued": "בתור",
+    "steerNow": "הכוונה עכשיו אל ההשלמה הרצה",
+    "sendNow": "שלח עכשיו",
+    "removeFromQueue": "הסרה מהתור"
   },
   "reports": {
     "title": "דוחות",
@@ -605,7 +616,11 @@
     "analysisCompleted": "הניתוח הושלם",
     "analysisMarkedComplete": "הניתוח סומן כהושלם.",
     "decisionAnalysisCompleted": "החלטה: הניתוח הושלם",
-    "block": "בלוק"
+    "block": "בלוק",
+    "tokensCount": "{count} טוקנים",
+    "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
+    "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
+    "turnUsageTooltip": "שימוש ב-LLM בסבב זה"
   },
   "reportView": {
     "tabChat": "צ'אט",
@@ -638,7 +653,11 @@
     "widgetRef": "← ווידג'ט: {id}",
     "stepRef": "← שלב: {id}",
     "viewAgentTrace": "הצג מעקב סוכן",
-    "followUp": "שאלות המשך"
+    "followUp": "שאלות המשך",
+    "steered": "הוכוון",
+    "steeringApplied": "ההכוונה הוחלה",
+    "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
+    "steerFailed": "הכוונת ההשלמה הרצה נכשלה"
   },
   "tools": {
     "common": {
@@ -876,6 +895,11 @@
       "matchPlural": "{count} תוצאות",
       "empty": "לא נמצאו הנחיות תואמות.",
       "untitled": "ללא כותרת"
+    },
+    "readInstruction": {
+      "reading": "קורא הנחיה…",
+      "read": "הנחיה נקראה",
+      "failed": "לא ניתן לקרוא את ההנחיה"
     },
     "createEval": {
       "drafting": "מנסח הערכה",
@@ -1119,6 +1143,12 @@
       "diff": "diff",
       "rewrite": "שכתוב",
       "failed": "העריכה נכשלה"
+    },
+    "clarify": {
+      "clarifying": "שאלות הבהרה למשתמש",
+      "placeholder": "התשובה שלך…",
+      "multiHint": "בחרו את כל האפשרויות המתאימות",
+      "submit": "שליחה"
     }
   },
   "entityCreate": {

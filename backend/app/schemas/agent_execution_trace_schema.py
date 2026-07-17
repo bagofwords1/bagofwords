@@ -71,6 +71,13 @@ class ConversationTurnSchema(BaseModel):
     # scores above when present). None when the judge didn't run.
     judge: Optional[Dict[str, Any]] = None
     total_duration_ms: Optional[float] = None
+    # Per-turn LLM usage from the quota pipeline (usage_events rows written by
+    # the agent's UsageLimitContext, keyed by the head/user completion id).
+    # Covers every LLM call in the run (planner + tool codegen), but is only
+    # recorded on instances licensed for the usage_limits feature — None
+    # elsewhere (the UI falls back to the planner-only token_usage_json).
+    llm_tokens: Optional[int] = None
+    llm_cost_usd: Optional[float] = None
     created_at: OptionalUTCDatetime = None
 
     # Rendered blocks for the chat-style left pane (same shape the report chat
@@ -88,6 +95,11 @@ class ConversationTraceResponse(BaseModel):
     total_turns: int = 0
     failed_turns: int = 0
     negative_feedback_turns: int = 0
+    # LLM usage roll-up aggregated from llm_usage_records for this report.
+    # Tokens include prompt + completion + cache read/write; cost may be 0
+    # when the model has no pricing configured.
+    total_llm_tokens: Optional[int] = None
+    total_llm_cost_usd: Optional[float] = None
     turns: List[ConversationTurnSchema] = []
 
 

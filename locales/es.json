@@ -429,6 +429,13 @@
     "contextSizeShort": "{tokens} tokens de tamaño de contexto",
     "usageThisMonth": "Uso de este mes",
     "context": "Contexto",
+    "compact": "Compactar",
+    "compacting": "Compactando…",
+    "compacted": "Compactado",
+    "compactTooltip": "Resume los turnos antiguos para liberar contexto",
+    "compactNothing": "Nada que compactar todavía",
+    "compactedTurns": "Se compactaron {turns} turnos (~{tokens} tokens)",
+    "compactedHistoryAbove": "Historial compactado arriba",
     "tokens": "Tokens",
     "data": "Datos",
     "connections": "Conexiones",
@@ -448,7 +455,11 @@
     "rejecting": "Rechazando…",
     "rejectConfirm": "¿Rechazar todos los cambios de instrucciones de esta sesión?",
     "clickToPublish": "clic para publicar",
-    "saveChanges": "Guardar cambios"
+    "saveChanges": "Guardar cambios",
+    "queued": "En cola",
+    "steerNow": "Dirigir ahora a la respuesta en curso",
+    "sendNow": "Enviar ahora",
+    "removeFromQueue": "Quitar de la cola"
   },
   "reports": {
     "title": "Informes",
@@ -605,7 +616,11 @@
     "analysisCompleted": "Análisis completado",
     "analysisMarkedComplete": "Análisis marcado como completo.",
     "decisionAnalysisCompleted": "Decisión: análisis completado",
-    "block": "Bloque"
+    "block": "Bloque",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "Uso de LLM en esta conversación",
+    "turnTokensTooltip": "Tokens LLM del planificador en este turno",
+    "turnUsageTooltip": "Uso de LLM en este turno"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -638,7 +653,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Paso: {id}",
     "viewAgentTrace": "Ver traza del agente",
-    "followUp": "Preguntas de seguimiento"
+    "followUp": "Preguntas de seguimiento",
+    "steered": "Dirigido",
+    "steeringApplied": "Dirección aplicada",
+    "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
+    "steerFailed": "No se pudo dirigir la respuesta en curso"
   },
   "tools": {
     "common": {
@@ -876,6 +895,11 @@
       "matchPlural": "{count} coincidencias",
       "empty": "No se encontraron instrucciones que coincidan.",
       "untitled": "Sin título"
+    },
+    "readInstruction": {
+      "reading": "Leyendo instrucción…",
+      "read": "Instrucción leída",
+      "failed": "No se pudo leer la instrucción"
     },
     "createEval": {
       "drafting": "Redactando evaluación",
@@ -1119,6 +1143,12 @@
       "diff": "diff",
       "rewrite": "reescritura",
       "failed": "Error al editar"
+    },
+    "clarify": {
+      "clarifying": "Preguntas de aclaración para el usuario",
+      "placeholder": "Tu respuesta…",
+      "multiHint": "Selecciona todas las opciones que correspondan",
+      "submit": "Enviar"
     }
   },
   "entityCreate": {

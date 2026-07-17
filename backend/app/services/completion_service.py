@@ -20,6 +20,7 @@ from app.models.llm_model import LLMModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.completion_schema import CompletionSchema, PromptSchema
 from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema
+from app.schemas.completion_v2_schema import PromptSchema as PromptSchemaV2
 from app.schemas.step_schema import StepSchema
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.completion_v2_schema import (
@@ -400,6 +401,16 @@ class CompletionService:
             if model_limit and model_limit > 0:
                 context_usage_pct = round((prompt_tokens / model_limit) * 100, 2)
 
+            compaction_state = None
+            try:
+                from app.services.context_compaction_service import ContextCompactionService
+                from app.schemas.completion_v2_schema import CompactionStateSchema
+                compaction_state = CompactionStateSchema(
+                    **await ContextCompactionService.get_ui_state(db, report_id)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load compaction state for estimate: {e}")
+
             _result = CompletionContextEstimateSchema(
                 model_id=getattr(model, "model_id", ""),
                 model_name=getattr(model, "name", None),
@@ -408,6 +419,7 @@ class CompletionService:
                 remaining_tokens=remaining_tokens,
                 near_limit=near_limit,
                 context_usage_pct=context_usage_pct,
+                compaction=compaction_state,
             )
             # Populate cache; prune stale entries opportunistically so the
             # dict doesn't grow unbounded across many users/reports.
@@ -737,7 +749,13 @@ class CompletionService:
                             except Exception:
                                 logging.exception("Failed to mark background completion as errored")
 
-                asyncio.create_task(run_agent_task())
+                async def run_agent_task_then_drain_queue():
+                    try:
+                        await run_agent_task()
+                    finally:
+                        await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))
+
+                asyncio.create_task(run_agent_task_then_drain_queue())
                 # Return minimal v2 response with just created placeholders
                 v2_list = await self._assemble_v2_for_completion_ids(db, [head_completion.id, system_completion.id])
                 return CompletionsV2Response(
@@ -797,6 +815,14 @@ class CompletionService:
                     with tracer.start_as_current_span("completion.agent_execution"):
                         await agent.main_execution()
                     span.add_event("agent_execution_finished")
+
+                    # Drain the prompt queue (no-op unless this run succeeded).
+                    try:
+                        asyncio.create_task(self.start_next_queued_if_idle(
+                            str(report.id), str(system_completion.id)
+                        ))
+                    except Exception:
+                        pass
 
                     # Assemble v2 for the new message pair (user + system children)
                     with tracer.start_as_current_span("completion.assemble_v2_response"):
@@ -1331,6 +1357,7 @@ class CompletionService:
                 turn_index=c.turn_index,
                 parent_id=c.parent_id,
                 report_id=c.report_id,
+                message_type=getattr(c, 'message_type', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 prompt=c.prompt,
                 completion_blocks=c_blocks,
@@ -1357,7 +1384,7 @@ class CompletionService:
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
                 fork_asset_refs=getattr(c, 'fork_asset_refs', None),
-                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external') else None,
+                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external' or getattr(c, 'message_type', None) == 'context_compaction') else None,
             )
             v2_completions.append(v2)
 
@@ -1366,6 +1393,18 @@ class CompletionService:
         latest = max((c.updated_at for c in all_completions), default=None)
         span.set_attribute("completions.total_blocks", total_blocks)
         span.add_event("assembly_done")
+
+        # Rolling-compaction state (single-row lookup) so the transcript can
+        # place the watermark-anchored divider on load.
+        compaction_state = None
+        try:
+            from app.services.context_compaction_service import ContextCompactionService
+            from app.schemas.completion_v2_schema import CompactionStateSchema
+            compaction_state = CompactionStateSchema(
+                **await ContextCompactionService.get_ui_state(db, report_id)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load compaction state for completions list: {e}")
 
         return CompletionsV2Response(
             report_id=report_id,
@@ -1378,6 +1417,7 @@ class CompletionService:
             latest_completion=latest,
             has_more=has_more,
             next_before=earliest,
+            compaction=compaction_state,
         )
 
     async def _assemble_v2_for_completion_ids(self, db: AsyncSession, completion_ids: list[str]) -> list[CompletionV2Schema]:
@@ -1703,6 +1743,7 @@ class CompletionService:
                 turn_index=c.turn_index,
                 parent_id=c.parent_id,
                 report_id=c.report_id,
+                message_type=getattr(c, 'message_type', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 prompt=c.prompt,
                 completion=completion_data,
@@ -2249,6 +2290,15 @@ class CompletionService:
                             # registry (late watchers fall back to DB state).
                             event_queue.finish()
                             unregister_stream(str(system_completion.id))
+                            # Drain the prompt queue: start the next queued
+                            # prompt on this report (no-op unless this run
+                            # ended in success — error/stopped pauses it).
+                            try:
+                                asyncio.create_task(self.start_next_queued_if_idle(
+                                    str(report.id), str(system_completion.id)
+                                ))
+                            except Exception:
+                                pass
 
             # Start agent execution in background
             asyncio.create_task(run_agent_with_streaming())
@@ -2586,6 +2636,9 @@ class CompletionService:
         of this tool from the agent's perspective, so it lives alongside the
         existing ``status`` field under a ``user_response`` key:
         { status, user_response: { selected_chips, other_texts, free_texts } }.
+
+        ``selected_chips`` entries are a string for single-pick questions or a
+        list of strings for ``multi_select`` questions.
         """
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="Body must be an object")
@@ -2622,12 +2675,22 @@ class CompletionService:
         if tool_exec.tool_name != 'clarify':
             raise HTTPException(status_code=400, detail="Not a clarify tool execution")
 
+        def _chip_entry(v):
+            if isinstance(v, str):
+                return v
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, str)]
+            return ""
+
+        def _text_entry(v):
+            return v if isinstance(v, str) else ""
+
         merged = dict(tool_exec.result_json or {})
         merged["status"] = "answered"
         merged["user_response"] = {
-            "selected_chips": body.get("selected_chips") or [],
-            "other_texts": body.get("other_texts") or [],
-            "free_texts": body.get("free_texts") or [],
+            "selected_chips": [_chip_entry(v) for v in (body.get("selected_chips") or [])],
+            "other_texts": [_text_entry(v) for v in (body.get("other_texts") or [])],
+            "free_texts": [_text_entry(v) for v in (body.get("free_texts") or [])],
         }
         tool_exec.result_json = merged
         await db.commit()
@@ -2741,3 +2804,387 @@ class CompletionService:
                 pass
 
         return completion
+
+    # ------------------------------------------------------------------
+    # Prompt queue + steering
+    # ------------------------------------------------------------------
+
+    async def _get_running_system_completion(self, db: AsyncSession, report_id: str) -> Completion | None:
+        res = await db.execute(
+            select(Completion)
+            .where(
+                Completion.report_id == report_id,
+                Completion.role == 'system',
+                Completion.status == 'in_progress',
+            )
+            .order_by(Completion.created_at.desc())
+            .limit(1)
+        )
+        return res.scalars().first()
+
+    async def create_queued_completion(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        completion_data: CompletionCreate,
+        current_user: User,
+        organization: Organization,
+    ):
+        """Persist the prompt as a queued user completion instead of starting a
+        second concurrent agent run. The dispatcher starts it once the running
+        turn finishes successfully."""
+        result = await db.execute(select(Report).filter(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        if completion_data.prompt and completion_data.prompt.model_id:
+            model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
+        else:
+            model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
+        if not model:
+            raise HTTPException(
+                status_code=400,
+                detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+            )
+
+        prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
+        prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
+        last_completion = await self.get_last_completion(db, report.id)
+        queued = Completion(
+            prompt=prompt_dict or None,
+            model=model.model_id,
+            report_id=report.id,
+            turn_index=last_completion.turn_index + 1 if last_completion else 0,
+            message_type="table",
+            role="user",
+            status="queued",
+            user_id=current_user.id,
+        )
+        try:
+            db.add(queued)
+            report.last_activity_at = datetime.utcnow()
+            db.add(report)
+            await db.commit()
+            await db.refresh(queued)
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to queue prompt: {str(e)}")
+
+        try:
+            await self.mention_service.create_completion_mentions(db, queued)
+        except Exception as e:
+            logging.error(f"Failed to create mentions for queued completion {queued.id}: {e}")
+
+        # Race guard: if the run finished (or nothing was ever running) between
+        # the client observing "in progress" and this request landing, dispatch
+        # immediately so the row doesn't sit in the queue forever.
+        asyncio.create_task(self.start_next_queued_if_idle(str(report.id)))
+
+        v2_list = await self._assemble_v2_for_completion_ids(db, [queued.id])
+        return CompletionsV2Response(
+            report_id=report.id,
+            completions=v2_list,
+            total_completions=len(v2_list),
+            total_blocks=0,
+            total_widgets_created=0,
+            total_steps_created=0,
+            earliest_completion=min((c.created_at for c in v2_list), default=None),
+            latest_completion=max((c.updated_at for c in v2_list), default=None),
+        )
+
+    async def delete_queued_completion(self, db: AsyncSession, completion_id: str, current_user: User, organization: Organization):
+        """Remove a prompt from the queue. Only valid for role='user' rows still
+        in status='queued' (a dispatched row is a normal turn and stays)."""
+        res = await db.execute(select(Completion).where(Completion.id == completion_id))
+        completion = res.scalars().first()
+        if not completion:
+            raise HTTPException(status_code=404, detail="Completion not found")
+        report = await db.get(Report, completion.report_id)
+        if not report or str(report.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Completion not found")
+        if completion.role != 'user' or completion.status != 'queued':
+            raise HTTPException(status_code=409, detail="Completion is not queued")
+
+        await db.execute(delete(Mention).where(Mention.completion_id == str(completion.id)))
+        await db.delete(completion)
+        await db.commit()
+        return {"status": "deleted", "completion_id": str(completion_id)}
+
+    async def steer_completion(
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        body: dict,
+        current_user: User,
+        organization: Organization,
+    ):
+        """Inject a user message into the running completion (Codex-style steer).
+
+        ``completion_id`` is the running system completion. The message comes
+        either from ``body.content`` (steer typed directly) or from promoting an
+        existing queued row (``body.queued_completion_id``). The persisted
+        steering row (role='user', message_type='steering', parent_id=system.id)
+        is both the timeline record and the signal: the ORM insert/update
+        broadcast reaches a same-worker agent instantly, and the agent's per-
+        iteration DB poll catches the cross-worker case.
+
+        If the run already finished, falls back to enqueueing and says so.
+        """
+        res = await db.execute(select(Completion).where(Completion.id == completion_id))
+        target = res.scalars().first()
+        if not target:
+            raise HTTPException(status_code=404, detail="Completion not found")
+        report = await db.get(Report, target.report_id)
+        if not report or str(report.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Completion not found")
+        if target.role != 'system':
+            raise HTTPException(status_code=400, detail="Steer target must be the running system completion")
+
+        content = (body.get("content") or "").strip()
+        queued_id = body.get("queued_completion_id")
+        queued_row = None
+        if queued_id:
+            qres = await db.execute(select(Completion).where(Completion.id == str(queued_id)))
+            queued_row = qres.scalars().first()
+            if not queued_row or queued_row.role != 'user' or queued_row.status != 'queued' \
+                    or str(queued_row.report_id) != str(target.report_id):
+                raise HTTPException(status_code=404, detail="Queued completion not found")
+            content = ((queued_row.prompt or {}).get("content") or "").strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="Nothing to steer with — provide content or a queued completion")
+
+        if target.status != 'in_progress':
+            # Run just finished — steer degrades to queue (and the dispatcher
+            # picks it up immediately since nothing is running).
+            if queued_row is None:
+                fake = CompletionCreate(prompt=PromptSchemaV2(content=content), stream=False, queue=True)
+                await self.create_queued_completion(db, str(target.report_id), fake, current_user, organization)
+            else:
+                asyncio.create_task(self.start_next_queued_if_idle(str(target.report_id)))
+            return {"status": "queued", "reason": "completion_not_running"}
+
+        last_completion = await self.get_last_completion(db, target.report_id)
+        if queued_row is not None:
+            # Promote the queued row in place: it becomes the steering record.
+            # created_at moves to NOW — the steer semantically happens at
+            # promotion time, and the timeline interleaves steering bubbles
+            # into the completion's block stream by this timestamp.
+            queued_row.status = 'success'
+            queued_row.message_type = 'steering'
+            queued_row.parent_id = str(target.id)
+            queued_row.created_at = datetime.utcnow()
+            db.add(queued_row)
+            await db.commit()
+            await db.refresh(queued_row)
+            steering_row = queued_row
+        else:
+            steering_row = Completion(
+                prompt={"content": content},
+                model=target.model,
+                report_id=target.report_id,
+                parent_id=str(target.id),
+                turn_index=last_completion.turn_index + 1 if last_completion else 0,
+                message_type="steering",
+                role="user",
+                status="success",
+                user_id=current_user.id,
+            )
+            try:
+                db.add(steering_row)
+                await db.commit()
+                await db.refresh(steering_row)
+            except Exception as e:
+                await db.rollback()
+                raise HTTPException(status_code=500, detail=f"Failed to save steering message: {str(e)}")
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="completion.steered",
+                user_id=str(current_user.id),
+                resource_type="completion",
+                resource_id=str(target.id),
+                details={"report_id": str(target.report_id), "steering_completion_id": str(steering_row.id)},
+            )
+        except Exception:
+            pass
+
+        return {"status": "steered", "completion_id": str(steering_row.id), "system_completion_id": str(target.id)}
+
+    async def start_next_queued_if_idle(self, report_id: str, prev_system_completion_id: str | None = None):
+        """Queue dispatcher. Called after every agent run finishes (and after
+        enqueueing, to cover the nothing-was-running race).
+
+        Only drains on success: when ``prev_system_completion_id`` is given and
+        that run ended in error/stopped, the queue stays paused so a broken or
+        deliberately-stopped conversation doesn't burn through queued prompts.
+        The claim is a conditional UPDATE so two finishing runs (or two workers)
+        can't double-start the same queued prompt.
+        """
+        session_factory = create_async_session_factory()
+        async with session_factory() as db:
+            try:
+                if prev_system_completion_id:
+                    prev_status = (await db.execute(
+                        select(Completion.status).where(Completion.id == prev_system_completion_id)
+                    )).scalar_one_or_none()
+                    if prev_status != 'success':
+                        return
+                running = await self._get_running_system_completion(db, report_id)
+                if running is not None:
+                    return
+                next_id = (await db.execute(
+                    select(Completion.id)
+                    .where(
+                        Completion.report_id == report_id,
+                        Completion.role == 'user',
+                        Completion.status == 'queued',
+                    )
+                    .order_by(Completion.created_at.asc())
+                    .limit(1)
+                )).scalar_one_or_none()
+                if not next_id:
+                    return
+                claim = await db.execute(
+                    update(Completion)
+                    .where(Completion.id == next_id, Completion.status == 'queued')
+                    .values(status='success')
+                    .execution_options(synchronize_session=False)
+                )
+                await db.commit()
+                if getattr(claim, "rowcount", 0) != 1:
+                    return
+
+                head = await db.get(Completion, next_id)
+                system_completion = Completion(
+                    prompt=None,
+                    completion={"content": ""},
+                    model=head.model,
+                    widget_id=(head.prompt or {}).get('widget_id'),
+                    report_id=head.report_id,
+                    parent_id=head.id,
+                    turn_index=head.turn_index + 1,
+                    message_type="table",
+                    role="system",
+                    status="in_progress",
+                )
+                db.add(system_completion)
+                await db.commit()
+                await db.refresh(system_completion)
+
+                logger.info(f"[queue] dispatching queued completion {next_id} on report {report_id}")
+                asyncio.create_task(self._run_dispatched_agent(
+                    str(report_id), str(head.id), str(system_completion.id)
+                ))
+            except Exception:
+                logger.exception(f"[queue] dispatcher failed for report {report_id}")
+
+    async def _run_dispatched_agent(self, report_id: str, head_id: str, system_id: str):
+        """Run the agent for a dispatcher-started (queued) turn.
+
+        Mirrors run_agent_with_streaming but with no HTTP client attached: the
+        event queue is registered so any client can attach via the watch
+        endpoint (the frontend does, on the system row's insert broadcast).
+        Chains the dispatcher again in ``finally`` to drain the rest of the
+        queue.
+        """
+        event_queue = CompletionEventQueue()
+        register_stream(system_id, event_queue)
+        session_factory = create_async_session_factory()
+        _agent_slot = False
+        try:
+            async with session_factory() as session:
+                try:
+                    await _AGENT_RUN_SEMAPHORE.acquire()
+                    _agent_slot = True
+
+                    report = await session.get(Report, report_id)
+                    head = await session.get(Completion, head_id)
+                    system_completion = await session.get(Completion, system_id)
+                    if not all([report, head, system_completion]):
+                        raise RuntimeError("Dispatched agent init failed: missing objects")
+                    organization = await session.get(Organization, report.organization_id)
+                    user = await session.get(User, head.user_id) if head.user_id else None
+                    org_settings = await organization.get_settings(session)
+
+                    prompt = head.prompt or {}
+                    if prompt.get('model_id'):
+                        model = await self.llm_service.get_model_by_id(session, organization, user, prompt['model_id'])
+                    else:
+                        model = await self.llm_service.get_default_model_for_user(session, organization, user)
+                    if not model:
+                        raise RuntimeError("No default LLM model configured")
+                    small_model = await self.llm_service.get_default_model(session, organization, user, is_small=True)
+                    if not small_model:
+                        small_model = model
+
+                    widget = await session.get(Widget, prompt['widget_id']) if prompt.get('widget_id') else None
+                    step = await session.get(Step, prompt['step_id']) if prompt.get('step_id') else None
+
+                    clients = {}
+                    for data_source in report.data_sources:
+                        if not self.data_source_service.is_execution_live(data_source):
+                            continue
+                        try:
+                            ds_clients = await self.data_source_service.construct_clients(session, data_source, user)
+                            clients.update(ds_clients)
+                        except HTTPException as e:
+                            if e.status_code == 403:
+                                logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                            else:
+                                raise
+                    _ = report.files
+
+                    agent = AgentV2(
+                        db=session,
+                        organization=organization,
+                        organization_settings=org_settings,
+                        model=model,
+                        small_model=small_model,
+                        mode=prompt.get('mode') or getattr(report, "mode", "chat"),
+                        platform=prompt.get('platform'),
+                        platform_context=prompt.get('platform_context'),
+                        report=report,
+                        messages=[],
+                        head_completion=head,
+                        system_completion=system_completion,
+                        widget=widget,
+                        step=step,
+                        event_queue=event_queue,
+                        clients=clients,
+                        session_maker=session_factory,
+                    )
+                    await agent.main_execution()
+                    await event_queue.put(SSEEvent(
+                        event="completion.finished",
+                        completion_id=system_id,
+                        data={"status": "success"}
+                    ))
+                except Exception as e:
+                    logger.exception(f"[queue] dispatched agent failed for completion {system_id}")
+                    try:
+                        await event_queue.put(SSEEvent(
+                            event="completion.error",
+                            completion_id=system_id,
+                            data={"error": str(e), "error_type": type(e).__name__}
+                        ))
+                    except Exception:
+                        pass
+                    try:
+                        async with session_factory() as recovery_session:
+                            await recovery_session.execute(
+                                update(Completion)
+                                .where(Completion.id == system_id)
+                                .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
+                            )
+                            await recovery_session.commit()
+                    except Exception:
+                        logger.exception("[queue] failed to mark dispatched completion as errored")
+        finally:
+            if _agent_slot:
+                _AGENT_RUN_SEMAPHORE.release()
+            event_queue.finish()
+            unregister_stream(system_id)
+            await self.start_next_queued_if_idle(report_id, system_id)

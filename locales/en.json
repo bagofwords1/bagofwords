@@ -446,6 +446,13 @@
     "contextSizeShort": "{tokens} tokens context size",
     "usageThisMonth": "Usage this month",
     "context": "Context",
+    "compact": "Compact",
+    "compacting": "Compacting…",
+    "compacted": "Compacted",
+    "compactTooltip": "Summarize older turns to free up context",
+    "compactNothing": "Nothing to compact yet",
+    "compactedTurns": "Compacted {turns} turns (~{tokens} tokens)",
+    "compactedHistoryAbove": "Compacted history above",
     "tokens": "Tokens",
     "data": "Data",
     "connections": "Connections",
@@ -465,7 +472,11 @@
     "rejecting": "Rejecting…",
     "rejectConfirm": "Reject all staged instruction changes from this session?",
     "clickToPublish": "click to publish",
-    "saveChanges": "Save changes"
+    "saveChanges": "Save changes",
+    "queued": "Queued",
+    "steerNow": "Steer into the running completion now",
+    "sendNow": "Send now",
+    "removeFromQueue": "Remove from queue"
   },
   "reports": {
     "title": "Reports",
@@ -657,7 +668,11 @@
     "analysisCompleted": "Analysis Completed",
     "analysisMarkedComplete": "Analysis marked complete.",
     "decisionAnalysisCompleted": "Decision: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM usage for this conversation",
+    "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "turnUsageTooltip": "LLM usage for this turn"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -690,7 +705,11 @@
     "widgetRef": "→ Widget: {id}",
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
-    "followUp": "Follow up"
+    "followUp": "Follow up",
+    "steered": "Steered",
+    "steeringApplied": "Steering applied",
+    "steerQueuedFallback": "The run just finished — your message was queued instead",
+    "steerFailed": "Failed to steer the running completion"
   },
   "tools": {
     "common": {
@@ -737,6 +756,7 @@
     "clarify": {
       "clarifying": "Clarifying questions for user",
       "placeholder": "Your answer…",
+      "multiHint": "Select all that apply",
       "submit": "Submit"
     },
     "createArtifact": {
@@ -959,6 +979,11 @@
       "matchPlural": "{count} matches",
       "empty": "No matching instructions found.",
       "untitled": "Untitled"
+    },
+    "readInstruction": {
+      "reading": "Reading instruction…",
+      "read": "Read instruction",
+      "failed": "Could not read instruction"
     },
     "createEval": {
       "drafting": "Drafting eval",

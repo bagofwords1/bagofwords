@@ -412,6 +412,20 @@
     "contextSizeTokens": "{pct} {tokens} رمز من حجم السياق",
     "contextSizePct": "{pct} من حجم السياق",
     "contextSizeShort": "{tokens} رمز من حجم السياق",
+    "usageThisMonth": "الاستخدام هذا الشهر",
+    "context": "السياق",
+    "compact": "ضغط",
+    "compacting": "جارٍ الضغط…",
+    "compacted": "مضغوط",
+    "compactTooltip": "تلخيص الأدوار القديمة لتحرير مساحة السياق",
+    "compactNothing": "لا يوجد ما يمكن ضغطه بعد",
+    "compactedTurns": "تم ضغط {turns} أدوار (~{tokens} رمزًا)",
+    "compactedHistoryAbove": "السجل المضغوط أعلاه",
+    "tokens": "الرموز",
+    "data": "البيانات",
+    "connections": "الاتصالات",
+    "unlimited": "غير محدود",
+    "moreConnections": "+{count} أخرى",
     "pendingChanges": "تغييرات معلقة",
     "pendingReview": "مسوّدة",
     "changeSingular": "تغيير",
@@ -583,7 +597,11 @@
     "analysisCompleted": "اكتمل التحليل",
     "analysisMarkedComplete": "تم تعليم التحليل كمكتمل.",
     "decisionAnalysisCompleted": "القرار: analysis_completed",
-    "block": "كتلة"
+    "block": "كتلة",
+    "tokensCount": "{count} رمز",
+    "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
+    "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور",
+    "turnUsageTooltip": "استخدام LLM في هذا الدور"
   },
   "reportView": {
     "tabChat": "محادثة",
@@ -854,6 +872,11 @@
       "matchPlural": "{count} نتائج",
       "empty": "لا توجد تعليمات مطابقة.",
       "untitled": "بدون عنوان"
+    },
+    "readInstruction": {
+      "reading": "جارٍ قراءة التعليمات…",
+      "read": "تمت قراءة التعليمات",
+      "failed": "تعذّرت قراءة التعليمات"
     },
     "createEval": {
       "drafting": "جارٍ صياغة التقييم",

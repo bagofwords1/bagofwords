@@ -412,6 +412,20 @@
     "contextSizeTokens": "{pct} {tokens} tokens kontextstorlek",
     "contextSizePct": "{pct} kontextstorlek",
     "contextSizeShort": "{tokens} tokens kontextstorlek",
+    "usageThisMonth": "Användning denna månad",
+    "context": "Kontext",
+    "compact": "Komprimera",
+    "compacting": "Komprimerar…",
+    "compacted": "Komprimerat",
+    "compactTooltip": "Sammanfatta äldre turer för att frigöra kontext",
+    "compactNothing": "Inget att komprimera ännu",
+    "compactedTurns": "Komprimerade {turns} turer (~{tokens} tokens)",
+    "compactedHistoryAbove": "Komprimerad historik ovan",
+    "tokens": "Tokens",
+    "data": "Data",
+    "connections": "Anslutningar",
+    "unlimited": "Obegränsat",
+    "moreConnections": "+{count} till",
     "pendingChanges": "Väntande ändringar",
     "pendingReview": "utkast",
     "changeSingular": "ändring",
@@ -583,7 +597,11 @@
     "analysisCompleted": "Analys slutförd",
     "analysisMarkedComplete": "Analysen är markerad som slutförd.",
     "decisionAnalysisCompleted": "Beslut: analysis_completed",
-    "block": "Block"
+    "block": "Block",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "LLM-användning för denna konversation",
+    "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "turnUsageTooltip": "LLM-användning för denna tur"
   },
   "reportView": {
     "tabChat": "Chatt",
@@ -854,6 +872,11 @@
       "matchPlural": "{count} träffar",
       "empty": "Inga matchande instruktioner hittades.",
       "untitled": "Namnlös"
+    },
+    "readInstruction": {
+      "reading": "Läser instruktion…",
+      "read": "Instruktion läst",
+      "failed": "Kunde inte läsa instruktionen"
     },
     "createEval": {
       "drafting": "Utformar utvärdering",

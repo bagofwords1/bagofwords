@@ -412,6 +412,20 @@
     "contextSizeTokens": "{pct} {tokens} token di dimensione del contesto",
     "contextSizePct": "{pct} di dimensione del contesto",
     "contextSizeShort": "{tokens} token di dimensione del contesto",
+    "usageThisMonth": "Utilizzo questo mese",
+    "context": "Contesto",
+    "compact": "Compatta",
+    "compacting": "Compattazione…",
+    "compacted": "Compattato",
+    "compactTooltip": "Riassumi i turni precedenti per liberare contesto",
+    "compactNothing": "Niente da compattare per ora",
+    "compactedTurns": "Compattati {turns} turni (~{tokens} token)",
+    "compactedHistoryAbove": "Cronologia compattata sopra",
+    "tokens": "Token",
+    "data": "Dati",
+    "connections": "Connessioni",
+    "unlimited": "Illimitato",
+    "moreConnections": "+{count} altri",
     "pendingChanges": "Modifiche in sospeso",
     "pendingReview": "bozza",
     "changeSingular": "modifica",
@@ -583,7 +597,11 @@
     "analysisCompleted": "Analisi completata",
     "analysisMarkedComplete": "Analisi contrassegnata come completata.",
     "decisionAnalysisCompleted": "Decisione: analysis_completed",
-    "block": "Blocco"
+    "block": "Blocco",
+    "tokensCount": "{count} token",
+    "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
+    "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
+    "turnUsageTooltip": "Utilizzo LLM per questo turno"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -854,6 +872,11 @@
       "matchPlural": "{count} corrispondenze",
       "empty": "Nessuna istruzione corrispondente trovata.",
       "untitled": "Senza titolo"
+    },
+    "readInstruction": {
+      "reading": "Lettura dell'istruzione…",
+      "read": "Istruzione letta",
+      "failed": "Impossibile leggere l'istruzione"
     },
     "createEval": {
       "drafting": "Bozza della valutazione",

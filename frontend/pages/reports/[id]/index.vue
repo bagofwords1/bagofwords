@@ -107,9 +107,13 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+					<li v-for="m in visibleMessages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+						<!-- Legacy compaction marker rows: hidden (the divider is
+						     state-derived from the watermark, rendered below) -->
+						<template v-if="(m as any).message_type === 'context_compaction'"></template>
+
 						<!-- Fork summary card (special rendering) -->
-						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
+						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
 								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
@@ -182,10 +186,16 @@
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
 								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+									<!-- Steering badge: this message was injected into a running completion.
+									     Flips to the applied state when the agent acks pickup. -->
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px]" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+									</div>
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
@@ -245,7 +255,21 @@
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
+										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
+											<!-- Steering messages interleave into the block stream at the
+											     moment they arrived: before the first block that started
+											     after them. -->
+											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+												<div class="flex flex-col items-end max-w-xl">
+													<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+													</div>
+													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+														<div class="pt-1">{{ s.prompt?.content }}</div>
+													</div>
+												</div>
+											</div>
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -332,6 +356,19 @@
 											</div>
 
 																	</div>
+
+										<!-- Steering messages newer than every block: render after the stream tail -->
+										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+											<div class="flex flex-col items-end max-w-xl">
+												<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+												</div>
+												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+													<div class="pt-1">{{ s.prompt?.content }}</div>
+												</div>
+											</div>
+										</div>
 
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
 										<KnowledgeGroup
@@ -432,6 +469,23 @@
 									</div>
 								</div>
 							</template>
+						</div>
+
+						<!-- Compaction boundary: everything above this line (up to the
+						     watermark) is summarized for the agent; below is verbatim
+						     context. State-derived — moves when the watermark advances,
+						     never interleaves with streaming content. -->
+						<div
+							v-if="compactionWatermarkId && m.id === compactionWatermarkId"
+							class="flex items-center gap-3 my-4"
+							data-testid="compaction-divider"
+						>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
+								{{ $t('prompt.compactedHistoryAbove') }}
+							</span>
+							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 						</div>
 					</li>
 			</ul>
@@ -551,9 +605,14 @@
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
+					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
+					:queuedPrompts="queuedPrompts"
 					@submitCompletion="onSubmitCompletion"
+					@queueCompletion="onQueuePrompt"
+					@removeQueuedPrompt="onRemoveQueuedPrompt"
+					@steerQueuedPrompt="onSteerQueuedPrompt"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (isMobile) { mobileView = 'dashboard'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; } }"
 					@scrollToMessage="scrollToMessage"
@@ -782,6 +841,7 @@ import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
 import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
@@ -821,7 +881,7 @@ import 'markstream-vue/index.css'
 
 // Types
 type ChatRole = 'user' | 'system'
-type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped'
+type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped' | 'queued'
 
 interface ToolCall {
 	id: string
@@ -887,9 +947,19 @@ interface ChatMessage {
 	instruction_suggestions_loading?: boolean
 	// Scheduled prompt tag
 	scheduled_prompt_id?: string | null
+	// Marker rows: 'context_compaction' renders as a divider;
+	// 'steering' when this user message was injected into a running completion
+	message_type?: string | null
+	// Raw completion content (fork summary / compaction divider text)
+	completion?: any
+	// For steering messages: the system completion they were injected into
+	parent_id?: string | null
+	// true once the agent acked pickup (completion.steering.applied SSE)
+	steering_applied?: boolean
 }
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
+const toast = useToast()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
@@ -1007,6 +1077,81 @@ const inProgressHasFirstToken = computed(() =>
 		)
 	)
 )
+// Prompts waiting in the queue — rendered as chips in the prompt box, not as
+// chat bubbles (visibleMessages filters them from the timeline).
+const queuedPrompts = computed(() =>
+	messages.value.filter(m => m.role === 'user' && m.status === 'queued')
+)
+// Blocks the timeline renders for a system message (harness blocks are grouped separately)
+function visibleBlocks(m: ChatMessage): any[] {
+	return (m.completion_blocks || []).filter((b: any) => b.phase !== 'knowledge_harness')
+}
+
+// Steering messages targeted at a given system completion
+function steeringForSystem(m: ChatMessage): ChatMessage[] {
+	const sysId = String(m.system_completion_id || m.id)
+	return messages.value.filter(s => s.message_type === 'steering' && String(s.parent_id) === sysId)
+}
+
+const _steerTs = (v: any) => (v ? new Date(v).getTime() : 0)
+// Server timestamps first; fall back to the client arrival stamp set in
+// block.upsert so a freshly-streamed skeleton block (timestamps not yet
+// serialized) never compares as epoch-0 "older than the steer".
+const _blockStart = (b: any) => _steerTs(b?.started_at || b?.created_at || b?._client_arrived_at)
+
+// Steers that arrived before the given block started (and after the previous
+// block started) — rendered between the two, where they actually happened.
+function steersBeforeBlock(m: ChatMessage, blockIndex: number): ChatMessage[] {
+	const steers = steeringForSystem(m)
+	if (!steers.length) return []
+	const blocks = visibleBlocks(m)
+	const lo = blockIndex === 0 ? -Infinity : _blockStart(blocks[blockIndex - 1])
+	const hi = _blockStart(blocks[blockIndex])
+	return steers.filter(s => { const t = _steerTs(s.created_at); return t > lo && t <= hi })
+}
+
+// Steers newer than every block's start — rendered after the stream tail
+function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
+	const steers = steeringForSystem(m)
+	if (!steers.length) return []
+	const blocks = visibleBlocks(m)
+	if (!blocks.length) return []
+	const lastStart = _blockStart(blocks[blocks.length - 1])
+	return steers.filter(s => _steerTs(s.created_at) > lastStart)
+}
+
+const visibleMessages = computed(() => {
+	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
+	const steering = base.filter(m => m.message_type === 'steering' && m.parent_id)
+	if (steering.length === 0) return base
+	// Steering bubbles interleave INSIDE their parent completion's block
+	// stream (see steersBeforeBlock / steersAfterLastBlock in the template),
+	// so drop them from the top-level list when the parent renders blocks.
+	// Fallbacks: parent without blocks yet → hoist the bubble directly above
+	// it; parent outside the loaded window → keep the row standalone.
+	const inline = new Set<string>()
+	for (const s of steering) {
+		const parent = base.find(m => m.role === 'system' && String(m.system_completion_id || m.id) === String(s.parent_id))
+		if (parent && visibleBlocks(parent).length > 0) inline.add(String(s.id))
+	}
+	const out: ChatMessage[] = []
+	const placed = new Set<string>()
+	for (const m of base) {
+		if (m.message_type === 'steering' && m.parent_id
+			&& (inline.has(String(m.id)) || placed.has(String(m.id)))) continue
+		if (m.role === 'system') {
+			const sysId = String(m.system_completion_id || m.id)
+			for (const s of steering) {
+				if (!inline.has(String(s.id)) && String(s.parent_id) === sysId && !placed.has(String(s.id))) {
+					placed.add(String(s.id))
+					out.push(s)
+				}
+			}
+		}
+		out.push(m)
+	}
+	return out
+})
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -1051,6 +1196,11 @@ const summaryInstructions = ref<any[]>([])
 // Separate from summaryInstructions (which is pending-only) so the Summary
 // tab can keep showing accepted instructions after the build is approved.
 const reportInstructions = ref<any[]>([])
+// Fold boundary of rolling context compaction: the transcript divider renders
+// right after this completion. State-derived (from the completions payload,
+// the context.compacted SSE, and manual compaction responses).
+const compactionWatermarkId = ref<string | null>(null)
+
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
 const isPublishingBuild = ref(false)
@@ -1708,6 +1858,8 @@ function getToolComponent(toolName: string) {
 			return ListAgentExecutionsTool
 		case 'search_instructions':
 			return SearchInstructionsTool
+		case 'read_instruction':
+			return ReadInstructionTool
 		case 'create_prompt':
 			return CreatePromptTool
 		case 'edit_prompt':
@@ -2109,6 +2261,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'completion.steering.applied':
+			// The agent picked up steering message(s): flip their badge from
+			// "Steered" to the applied state so the user sees the ack.
+			for (const sid of (payload?.ids || [])) {
+				const sm = messages.value.find(m => String(m.id) === String(sid))
+				if (sm) (sm as any).steering_applied = true
+			}
+			break
+
 		case 'instructions.context':
 			// Track which instructions were loaded (context build or tool calls)
 			if (!sysMessage._loaded_instructions) sysMessage._loaded_instructions = []
@@ -2165,6 +2326,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					Object.assign(existing, merged)
 				} else {
+					// Stamp client arrival time (naive-UTC, matching server
+					// timestamps): a skeleton upsert can arrive before its
+					// started_at/created_at — without a fallback the steering
+					// interleave briefly treats the new block as older than
+					// the steer, then the bubble jumps once real times land.
+					;(block as any)._client_arrived_at = new Date().toISOString().replace('Z', '')
 					let insertPos = sysMessage.completion_blocks.length
 					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
 						const bi = sysMessage.completion_blocks[i]
@@ -2779,6 +2946,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'context.compacted':
+			// Rolling context compaction ran (background, mid-run): move the
+			// watermark-anchored divider and refresh the usage popover
+			// (compacted counter + context bar) without waiting for a reload.
+			if (payload?.covers_until_completion_id) {
+				compactionWatermarkId.value = payload.covers_until_completion_id
+			}
+			promptBoxRef.value?.refreshContextEstimate?.(true)
+			break
+
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			if (completionStatus) {
@@ -2866,6 +3043,44 @@ function connectWebhookSocket() {
 					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
 				}
+				// Queue/steer coordination (no webhook_id):
+				if (data.event === 'insert_completion' && !data.webhook_id) {
+					// A prompt was queued (possibly from another tab) — surface the chip.
+					if (data.role === 'user' && data.status === 'queued'
+						&& !messages.value.some(m => m.id === data.completion_id)) {
+						messages.value.push({
+							id: data.completion_id,
+							role: 'user',
+							status: 'queued' as ChatStatus,
+							prompt: data.prompt,
+							created_at: new Date().toISOString(),
+						})
+					}
+					// A steering message landed (possibly from another tab).
+					if (data.role === 'user' && data.message_type === 'steering'
+						&& !messages.value.some(m => m.id === data.completion_id)) {
+						messages.value.push({
+							id: data.completion_id,
+							role: 'user',
+							status: 'success' as ChatStatus,
+							message_type: 'steering',
+							parent_id: data.parent_id || null,
+							prompt: data.prompt,
+							// naive-UTC to match server timestamps (block interleaving compares them)
+							created_at: new Date().toISOString().replace('Z', ''),
+						})
+					}
+					// The dispatcher started a queued prompt server-side: reload the
+					// timeline and attach to the new run's live stream. Skip while this
+					// tab owns a kickoff stream (its own events cover it).
+					if (data.role === 'system' && data.status === 'in_progress' && !isStreaming.value) {
+						if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+						_webhookReloadTimer = setTimeout(async () => {
+							await loadCompletions({ skipEstimate: true })
+							startWatchStream(String(data.completion_id))
+						}, 300)
+					}
+				}
 			} catch {}
 		}
 	} catch {}
@@ -2934,12 +3149,17 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
+				// Marker rows (context compaction divider)
+				message_type: c.message_type || null,
 				// Fork summary fields
 				is_fork_summary: c.is_fork_summary,
 				source_report_id: c.source_report_id,
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
+				// 'steering' for messages injected into a running completion
+				message_type: c.message_type || null,
+				parent_id: c.parent_id || null,
 				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
@@ -2949,6 +3169,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// Update cursors
 		hasMore.value = !!response?.has_more
 		cursorBefore.value = response?.next_before || null
+		// Place the compaction boundary from server state
+		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
         await nextTick()
         safeScrollToBottom()
 		if (!skipEstimate) {
@@ -3111,6 +3333,8 @@ async function loadPreviousCompletions() {
                 follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
+                message_type: c.message_type || null,
+                completion: c.completion,
                 // Webhook / machine event entry fields
                 external_platform: c.external_platform || null,
                 webhook_id: c.webhook_id || null,
@@ -3520,6 +3744,100 @@ function abortStream() {
 	isCompletionInProgress.value = false
 }
 
+// Resolve the server-side id of the running system completion.
+// system_completion_id is only set by the kickoff stream; after a refresh the
+// message id IS the server id (kickoff placeholders use "system-<ts>").
+function resolveRunningSystemId(): string | undefined {
+	const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+	const rawId = String(sysMsg?.id ?? '')
+	return (sysMsg as any)?.system_completion_id
+		|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
+}
+
+// Queue a prompt while a completion runs. The backend persists it as a
+// status='queued' user row; the dispatcher starts it when the run finishes.
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+	const text = data.text.trim()
+	if (!text) return
+	try {
+		const { data: resp } = await useMyFetch(`/reports/${report_id}/completions`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				prompt: {
+					content: text,
+					mentions: data.mentions || [],
+					mode: data.mode || 'chat',
+					model_id: data.model_id || null,
+					platform: isExcel.value ? 'excel' : null,
+				},
+				queue: true
+			})
+		})
+		const created = (resp.value as any)?.completions?.[0]
+		if (created && !messages.value.some(m => m.id === created.id)) {
+			messages.value.push({
+				id: created.id,
+				role: 'user',
+				status: (created.status || 'queued') as ChatStatus,
+				prompt: created.prompt,
+				created_at: created.created_at,
+			})
+		}
+	} catch (e) {
+		console.error('Failed to queue prompt:', e)
+	}
+}
+
+// Promote a queued prompt into the running completion ("steer now" chip action).
+async function onSteerQueuedPrompt(queuedId: string) {
+	const systemId = resolveRunningSystemId()
+	if (!systemId) return
+	try {
+		const { data: resp } = await useMyFetch(`/api/completions/${systemId}/steer`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ queued_completion_id: queuedId })
+		})
+		const r = resp.value as any
+		if (r?.status === 'steered') {
+			const idx = messages.value.findIndex(m => m.id === queuedId)
+			if (idx !== -1) {
+				const newMessages = [...messages.value]
+				// created_at moves to now (naive-UTC, matching the server's
+				// promotion bump) so the bubble interleaves at steer time,
+				// not at the original queue time.
+				newMessages[idx] = {
+					...newMessages[idx],
+					status: 'success' as ChatStatus,
+					message_type: 'steering',
+					parent_id: systemId,
+					created_at: new Date().toISOString().replace('Z', ''),
+				}
+				messages.value = newMessages
+				scrollToBottom()
+			}
+		} else if (r?.status === 'queued') {
+			toast.add({ title: t('reportView.steerQueuedFallback'), color: 'amber' })
+			await loadCompletions({ skipEstimate: true })
+		} else {
+			toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
+		}
+	} catch (e) {
+		console.error('Failed to steer queued prompt:', e)
+		toast.add({ title: t('common.error'), description: t('reportView.steerFailed'), color: 'red' })
+	}
+}
+
+async function onRemoveQueuedPrompt(queuedId: string) {
+	try {
+		await useMyFetch(`/api/completions/${queuedId}/queued`, { method: 'DELETE' })
+		messages.value = messages.value.filter(m => m.id !== queuedId)
+	} catch (e) {
+		console.error('Failed to remove queued prompt:', e)
+	}
+}
+
 function openTraceModal(completionId: string) {
 	selectedCompletionForTrace.value = completionId
 	showTraceModal.value = true
@@ -3699,10 +4017,13 @@ async function startStreaming(requestBody: any, sysId: string) {
 					if (dataStr === '[DONE]') {
 						isStreaming.value = false
 						currentController = null
-						// Refresh report data and context estimate after stream fully ends
+						// Refresh report data and context estimate after stream fully ends.
+						// force=true: without it refreshContextEstimate early-returns after
+						// its first fetch, leaving the context meter stale for the whole
+						// session (and hiding post-turn auto-compaction).
 						loadReport()
 						loadReportSummary()
-						promptBoxRef.value?.refreshContextEstimate?.()
+						promptBoxRef.value?.refreshContextEstimate?.(true)
 						return
 					}
 					try {

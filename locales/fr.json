@@ -412,6 +412,20 @@
     "contextSizeTokens": "{pct} {tokens} tokens de taille de contexte",
     "contextSizePct": "{pct} de taille de contexte",
     "contextSizeShort": "{tokens} tokens de taille de contexte",
+    "usageThisMonth": "Utilisation ce mois-ci",
+    "context": "Contexte",
+    "compact": "Compacter",
+    "compacting": "Compactage…",
+    "compacted": "Compacté",
+    "compactTooltip": "Résumer les anciens tours pour libérer du contexte",
+    "compactNothing": "Rien à compacter pour l'instant",
+    "compactedTurns": "{turns} tours compactés (~{tokens} jetons)",
+    "compactedHistoryAbove": "Historique compacté ci-dessus",
+    "tokens": "Jetons",
+    "data": "Données",
+    "connections": "Connexions",
+    "unlimited": "Illimité",
+    "moreConnections": "+{count} de plus",
     "pendingChanges": "Modifications en attente",
     "pendingReview": "brouillon",
     "changeSingular": "modification",
@@ -583,7 +597,11 @@
     "analysisCompleted": "Analyse terminée",
     "analysisMarkedComplete": "Analyse marquée comme terminée.",
     "decisionAnalysisCompleted": "Décision : analysis_completed",
-    "block": "Bloc"
+    "block": "Bloc",
+    "tokensCount": "{count} tokens",
+    "llmUsageTooltip": "Utilisation du LLM pour cette conversation",
+    "turnTokensTooltip": "Tokens LLM du planificateur pour ce tour",
+    "turnUsageTooltip": "Utilisation du LLM pour ce tour"
   },
   "reportView": {
     "tabChat": "Conversation",
@@ -854,6 +872,11 @@
       "matchPlural": "{count} correspondances",
       "empty": "Aucune instruction correspondante.",
       "untitled": "Sans titre"
+    },
+    "readInstruction": {
+      "reading": "Lecture de l'instruction…",
+      "read": "Instruction lue",
+      "failed": "Impossible de lire l'instruction"
     },
     "createEval": {
       "drafting": "Brouillon d'évaluation",
