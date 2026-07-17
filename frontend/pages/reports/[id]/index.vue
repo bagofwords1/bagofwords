@@ -1310,17 +1310,18 @@ function webhookSourceIcon(source?: string): string {
 	}
 }
 // Locale-aware label for machine-turn event strips; the server-side summary
-// (English) is only the fallback for webhook events / older rows.
+// (English) is only the fallback for webhook events / older rows. Keyed on
+// trigger_source (exposed by completions_v2; message_type is not).
 function machineEventLabel(m: any): string {
 	const meta = m?.prompt?.meta
-	const mt = (m as any)?.message_type
-	if (meta && mt === 'eval_run_event') {
+	const src = (m as any)?.trigger_source
+	if (meta && src === 'eval_run') {
 		return t('events.evalRunFinished', {
 			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
 			status: meta.status || '',
 		})
 	}
-	if (meta && mt === 'wait_resume_event') {
+	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
 	}
 	return m.prompt?.summary || m.prompt?.content
@@ -2918,9 +2919,10 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
-				// Webhook event entry fields
+				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
+				trigger_source: c.trigger_source || null,
 			}
 		})
 		// Update cursors
@@ -3009,6 +3011,10 @@ async function loadPreviousCompletions() {
                 follow_ups: c.follow_ups || null,
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
+                // Webhook / machine event entry fields
+                external_platform: c.external_platform || null,
+                webhook_id: c.webhook_id || null,
+                trigger_source: c.trigger_source || null,
             }
         })
         // Dedupe by id and prepend

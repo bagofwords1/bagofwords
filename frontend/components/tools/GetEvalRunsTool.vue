@@ -19,7 +19,7 @@
           {{ r.title || r.run_id }}
         </NuxtLink>
         <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-[9px] font-medium flex-shrink-0" :class="runStatusClass(r.status)">{{ r.status }}</span>
-        <span v-if="r.total" class="ms-1.5 text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0">{{ r.passed }}/{{ r.total }}</span>
+        <span v-if="r.total" dir="ltr" class="ms-1.5 text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0">{{ r.passed }}/{{ r.total }}</span>
         <span v-if="r.build_number" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">#{{ r.build_number }}</span>
       </li>
     </ul>

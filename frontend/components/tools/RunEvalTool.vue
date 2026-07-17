@@ -17,7 +17,8 @@
 
       <!-- Live counters -->
       <span v-if="progress.total > 0" class="ms-2 text-[10px] text-gray-500 dark:text-gray-400">
-        {{ progress.finished }} / {{ progress.total }}
+        <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
+        <span dir="ltr">{{ progress.finished }} / {{ progress.total }}</span>
         <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
           v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span>
       </span>

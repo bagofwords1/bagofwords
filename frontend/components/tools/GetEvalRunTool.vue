@@ -10,7 +10,8 @@
         <span class="align-middle">{{ t('tools.getEvalRun.read') }}</span>
         <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span>
         <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-500 dark:text-gray-400">
-          {{ finished }} / {{ total }}
+          <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
+          <span dir="ltr">{{ finished }} / {{ total }}</span>
           <span v-if="passed > 0" class="ms-1 text-green-700">· {{ t('tools.getEvalRun.pass', { count: passed }) }}</span>
           <span v-if="failed > 0" class="ms-1 text-red-700">· {{ t('tools.getEvalRun.fail', { count: failed }) }}</span>
         </span>
