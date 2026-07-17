@@ -323,3 +323,148 @@ def test_owner_rerun_invalidates_cached_viewer_results(
     step = _public_step(test_client, report["id"], qid, token=viewer["token"])
     assert step["viewer_result"] is None
     assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
+
+
+# ── Snapshot withholding (viewer-identity mode on user-scoped connections) ──
+
+async def _attach_source_with_connection(report_id: str, auth_policy: str):
+    """Attach a data source backed by a connection with the given auth_policy.
+
+    Creating a user_required connection through the API requires an enterprise
+    license and a reachable database, neither of which this suite has — the
+    rows are seeded directly to put the report into the state the withholding
+    policy reads (connection.auth_policy). The saved step code never touches
+    the (unreachable) source, so runs stay deterministic.
+    """
+    from app.models.connection import Connection
+    from app.models.data_source import DataSource
+    from app.models.domain_connection import domain_connection
+    from app.models.report_data_source_association import report_data_source_association
+
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        conn = Connection(
+            name=f"warehouse-{suffix}",
+            type="postgresql",
+            config={"host": "localhost", "port": 5432, "database": "nope"},
+            organization_id=report.organization_id,
+            auth_policy=auth_policy,
+        )
+        db.add(conn)
+        await db.flush()
+        ds = DataSource(
+            name=f"Warehouse {suffix}",
+            organization_id=report.organization_id,
+            is_public=True,
+        )
+        db.add(ds)
+        await db.flush()
+        await db.execute(domain_connection.insert().values(
+            data_source_id=str(ds.id), connection_id=str(conn.id)))
+        await db.execute(report_data_source_association.insert().values(
+            report_id=str(report_id), data_source_id=str(ds.id)))
+        await db.commit()
+        return str(ds.id)
+
+
+@pytest.mark.e2e
+def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    qid = seeded["query_ids"][0]
+
+    # Non-owner viewers get no snapshot — public and in-app reads alike…
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+
+    resp = test_client.get(
+        f"/api/queries/{qid}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    in_app = resp.json()["step"]
+    assert in_app["snapshot_withheld"] is True
+    assert not (in_app["data"] or {}).get("rows")
+
+    # …the owner keeps seeing their own snapshot…
+    step = _public_step(test_client, report["id"], qid, token=owner["token"])
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+    # …and anonymous viewers of a public link are withheld too.
+    _set_artifact_visibility(test_client, report["id"], owner, "public")
+    step = _public_step(test_client, report["id"], qid)
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+
+    # Running as themselves replaces "nothing" with their own result.
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["steps_succeeded"] == 1
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
+
+    # Creator mode is the owner explicitly sharing their view — a fresh
+    # viewer with no results of their own sees the snapshot again.
+    _set_artifact_visibility(test_client, report["id"], owner, "public", run_identity="creator")
+    viewer2 = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    step = _public_step(test_client, report["id"], qid, token=viewer2["token"])
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_system_only_sources_keep_serving_the_snapshot(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Withholding must not regress plain sharing: with system-only
+    credentials the snapshot is not credential-differentiated."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "system_only"))
+
+    step = _public_step(test_client, report["id"], seeded["query_ids"][0], token=viewer["token"])
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_snapshot_withholding_policy_gates_email_pdfs(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The share/scheduled emails attach a PDF rendered from the creator
+    snapshot; the same policy that hides the snapshot must skip the PDF."""
+    from app.services.viewer_data_policy import report_snapshot_withheld
+
+    async def policy(report_id):
+        async with async_session_maker() as db:
+            return await report_snapshot_withheld(db, report_id)
+
+    # viewer-identity + user-scoped source → withheld
+    admin, owner, _, strict_report, _ = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(strict_report["id"], "user_required"))
+    assert _run(policy(strict_report["id"])) is True
+
+    # creator mode → owner shares their view, PDF allowed
+    _set_artifact_visibility(test_client, strict_report["id"], owner, "internal", run_identity="creator")
+    assert _run(policy(strict_report["id"])) is False
+
+    # system-only source → not credential-differentiated, PDF allowed
+    admin2, owner2, _, plain_report, _ = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(plain_report["id"], "system_only"))
+    assert _run(policy(plain_report["id"])) is False

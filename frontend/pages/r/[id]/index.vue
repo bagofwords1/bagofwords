@@ -135,6 +135,29 @@
         <div class="flex-1 min-h-0 relative">
             <!-- Report Tab: Artifact/Dashboard Content -->
             <template v-if="activeTab === 'report'">
+                <!-- Snapshot withheld: viewer-identity sharing on user-scoped
+                     data sources hides the owner's data — run to load your own -->
+                <div v-if="snapshotWithheld" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
+                    <div class="text-center max-w-sm mx-auto px-6">
+                        <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
+                            This dashboard runs with your credentials
+                        </h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                            The owner's data isn't shared here. Run the queries to load your own data.
+                        </p>
+                        <button v-if="canRun" @click="handleRun" :disabled="isRunning"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                            <Icon name="heroicons:arrow-path" :class="['w-4 h-4', isRunning ? 'animate-spin' : '']" />
+                            {{ isRunning ? 'Running...' : 'Run now' }}
+                        </button>
+                        <a v-else :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                            Sign in to run
+                        </a>
+                    </div>
+                </div>
+
                 <!-- Slides with Preview Images - Use SlideViewer -->
                 <SlideViewer
                     v-if="hasSlidesWithPreviews && artifact"
@@ -243,6 +266,9 @@ const isRunning = ref(false);
 const runError = ref<string | null>(null);
 // Newest per-viewer result timestamp seen while loading step data
 const viewerLastRunAt = ref<Date | null>(null);
+// True when the backend hid the owner's snapshot from this viewer
+// (viewer-identity sharing on user-scoped data sources)
+const snapshotWithheld = ref(false);
 
 const canRun = computed(() => {
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
@@ -453,10 +479,13 @@ async function loadVisualizationData(artifactId?: string) {
 
         const vizData = [];
         let newestViewerRun: Date | null = null;
+        let anyWithheld = false;
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
             // Public step endpoint - returns PublicStepSchema directly
             const { data: step } = stepResults[qi];
+
+            if ((step.value as any)?.snapshot_withheld) anyWithheld = true;
 
             // Steps the viewer re-ran carry their per-user result timestamp
             const viewerRun = (step.value as any)?.viewer_result?.last_run_at;
@@ -506,6 +535,7 @@ async function loadVisualizationData(artifactId?: string) {
             visualizationsData.value = vizData;
         }
         viewerLastRunAt.value = newestViewerRun;
+        snapshotWithheld.value = anyWithheld;
     } catch (e) {
         console.error('Failed to load visualization data:', e);
     }

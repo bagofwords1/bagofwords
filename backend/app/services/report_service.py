@@ -1444,14 +1444,17 @@ class ReportService:
         # else keep seeing Step.data.
         data = step.data or {}
         viewer_result = None
-        if user is not None and str(user.id) != str(report.user_id):
-            from app.models.step_user_result import StepUserResult
-            row = (await db.execute(
-                select(StepUserResult).options(lazyload("*")).where(
-                    StepUserResult.step_id == str(step.id),
-                    StepUserResult.user_id == str(user.id),
-                )
-            )).scalar_one_or_none()
+        snapshot_withheld = False
+        if user is None or str(user.id) != str(report.user_id):
+            row = None
+            if user is not None:
+                from app.models.step_user_result import StepUserResult
+                row = (await db.execute(
+                    select(StepUserResult).options(lazyload("*")).where(
+                        StepUserResult.step_id == str(step.id),
+                        StepUserResult.user_id == str(user.id),
+                    )
+                )).scalar_one_or_none()
             if row is not None:
                 viewer_result = {
                     "status": row.status,
@@ -1459,10 +1462,17 @@ class ReportService:
                     "executed_as": row.executed_as,
                     "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
                 }
-                # A failed viewer run keeps showing the shared snapshot;
-                # the error travels in viewer_result.
-                if row.status == 'success' and row.data:
-                    data = row.data
+            if row is not None and row.status == 'success' and row.data:
+                data = row.data
+            else:
+                # No successful result of their own. In viewer-identity mode
+                # on user-scoped connections the creator snapshot is
+                # credential-differentiated data — withhold it; otherwise
+                # (system_only / creator mode) keep serving the snapshot.
+                from app.services.viewer_data_policy import snapshot_withheld_for_viewers
+                if await snapshot_withheld_for_viewers(db, str(report.id), report.shared_run_identity):
+                    data = {}
+                    snapshot_withheld = True
 
         return PublicStepSchema(
             id=step.id,
@@ -1473,6 +1483,7 @@ class ReportService:
             data=data,
             view=view_dict,
             viewer_result=viewer_result,
+            snapshot_withheld=snapshot_withheld,
         )
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):

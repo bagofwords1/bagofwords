@@ -23,6 +23,13 @@ behalf") controlling whose data-source credentials execute.
   owner reruns (`StepService.rerun_step`) hard-delete the cached viewer rows.
   `reports.shared_run_identity` ('viewer' | 'creator', set via
   `PUT /reports/{id}/visibility/artifact`) picks the credential identity.
+- Snapshot withholding (`app/services/viewer_data_policy.py`): in
+  viewer-identity mode on user-scoped connections (`auth_policy !=
+  'system_only'`) the creator snapshot is credential-differentiated data, so
+  non-owner readers (including anonymous) get `snapshot_withheld=true` with
+  empty data until they run as themselves, and the share/scheduled emails
+  skip the snapshot-rendered PDF attachment (link-only). System-only
+  sources and creator mode keep the previous behavior.
 
 ## Loop A — deterministic reproduction (pytest, no external services)
 
@@ -32,10 +39,12 @@ TESTING=true ENVIRONMENT=production uv run pytest \
   tests/e2e/rbac/test_viewer_run_shared_artifacts.py -q --db=sqlite
 ```
 
-Observed on current code: `5 passed`. The suite asserts the general
+Observed on current code: `8 passed`. The suite asserts the general
 invariants (per-viewer isolation, share-visibility gating incl. 401/403/404,
 identity persistence + `executed_as` stamping, cross-org refusal of
-creator-credential runs on public links, invalidation on owner rerun).
+creator-credential runs on public links, invalidation on owner rerun,
+snapshot withholding in viewer-identity mode — public, in-app and anonymous
+reads plus the email-PDF policy gate — and the system-only exemption).
 Before the feature commit these routes/tables do not exist (404s / missing
 column), so the suite fails wholesale — the reported behavior.
 
@@ -131,8 +140,10 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
 ```
 
 Observed: the owner's snapshot holds alice's rows (1250/1810/2140,
-`sales_rep=alice`); the viewer initially sees that snapshot; the viewer's
-**Run** under `run_identity='viewer'` returns **bob's rows** (310/420/375,
+`sales_rep=alice`); the viewer gets NO snapshot — the withholding banner
+("This dashboard runs with your credentials") replaces the data, and the
+driver asserts none of alice's numbers are present; the viewer's **Run**
+under `run_identity='viewer'` returns **bob's rows** (310/420/375,
 `sales_rep=bob`) — same SQL, different database login, RLS decides; after
 the owner flips "Run on my behalf" (`run_identity='creator'`), the same
 viewer's Run returns **alice's rows** and the viewer's result row is
@@ -142,7 +153,7 @@ throughout (verified via API).
 | # | Screenshot | Shows |
 |---|------------|-------|
 | C1 | `rls-1-owner-alice-rows.png` | Owner: shared snapshot, alice's rows |
-| C2 | `rls-2-viewer-before-run-sees-snapshot.png` | Viewer before Run: the creator snapshot |
+| C2 | `rls-2-viewer-snapshot-withheld.png` | Viewer before Run: snapshot withheld, run-with-your-credentials banner |
 | C3 | `rls-3-viewer-own-credentials-bob-rows.png` | Viewer after Run (viewer identity): bob's rows via RLS |
 | C4 | `rls-4-viewer-run-on-behalf-alice-rows.png` | Viewer after Run with "Run on my behalf" on: alice's rows, `executed_as='creator'` |
 

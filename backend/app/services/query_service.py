@@ -406,9 +406,8 @@ class QueryService:
         if not viewer_user_id or not getattr(q, 'report_id', None):
             return schema
 
-        from app.models.report import Report
         owner_row = (await db.execute(
-            select(Report.user_id).where(Report.id == str(q.report_id))
+            select(Report.user_id, Report.shared_run_identity).where(Report.id == str(q.report_id))
         )).first()
         if not owner_row or str(owner_row[0]) == str(viewer_user_id):
             return schema
@@ -420,19 +419,22 @@ class QueryService:
                 StepUserResult.user_id == str(viewer_user_id),
             )
         )).scalar_one_or_none()
-        if row is None:
-            return schema
-
-        schema.viewer_result = {
-            "status": row.status,
-            "status_reason": row.status_reason,
-            "executed_as": row.executed_as,
-            "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
-        }
-        # A failed viewer run keeps showing the shared snapshot; the error
-        # travels in viewer_result.
-        if row.status == 'success' and row.data:
+        if row is not None:
+            schema.viewer_result = {
+                "status": row.status,
+                "status_reason": row.status_reason,
+                "executed_as": row.executed_as,
+                "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
+            }
+        if row is not None and row.status == 'success' and row.data:
             schema.data = row.data
+        else:
+            # No successful result of their own — same withholding policy as
+            # the public read path (see viewer_data_policy).
+            from app.services.viewer_data_policy import snapshot_withheld_for_viewers
+            if await snapshot_withheld_for_viewers(db, str(q.report_id), owner_row[1]):
+                schema.data = {}
+                schema.snapshot_withheld = True
         return schema
 
     async def preview_query_code(

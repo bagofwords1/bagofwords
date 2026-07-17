@@ -7,8 +7,9 @@
 //
 // Scenes (each wait is an assertion — a wrong state times out):
 //   1. owner /r        → alice's rows (shared snapshot, ran as owner=alice)
-//   2. viewer /r       → same alice rows (snapshot) before running
-//   3. viewer Run      → bob's rows (viewer identity → bob's stored creds → RLS)
+//   2. viewer /r       → snapshot WITHHELD (viewer-identity mode on a
+//                        user-scoped source): banner instead of alice's rows
+//   3. viewer Run now  → bob's rows (viewer identity → bob's stored creds → RLS)
 //   4. owner flips run_identity to 'creator' (API) → viewer Run → alice's rows
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -99,16 +100,20 @@ const ownerCtx = await loginContext(OWNER);
   await page.close();
 }
 
-// 2-3. Viewer: snapshot first, own-credential rows after Run.
+// 2-3. Viewer: the creator snapshot is WITHHELD (banner), own rows after Run.
 const viewerCtx = await loginContext(VIEWER);
 const viewerPage = await viewerCtx.newPage();
 {
   await viewerPage.goto(`${BASE}/r/${reportId}`, { waitUntil: 'networkidle' });
   const frame = viewerPage.frameLocator('iframe');
-  await frame.getByText(ALICE_REVENUE).first().waitFor({ timeout: 30000 });
-  await shot(viewerPage, 'rls-2-viewer-before-run-sees-snapshot.png');
+  await viewerPage.getByText('This dashboard runs with your credentials').waitFor({ timeout: 30000 });
+  // The withheld state must contain none of alice's numbers.
+  if (await frame.getByText(ALICE_REVENUE).count()) {
+    throw new Error('creator snapshot leaked to viewer in withheld mode');
+  }
+  await shot(viewerPage, 'rls-2-viewer-snapshot-withheld.png');
 
-  await viewerPage.getByTitle("Re-run this dashboard's queries for you").click();
+  await viewerPage.getByRole('button', { name: 'Run now' }).click();
   await frame.getByText(BOB_REVENUE).first().waitFor({ timeout: 60000 });
   await shot(viewerPage, 'rls-3-viewer-own-credentials-bob-rows.png');
 }

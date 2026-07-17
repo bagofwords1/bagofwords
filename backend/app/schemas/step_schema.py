@@ -25,6 +25,9 @@ class StepSchema(StepBase):
     # Set when `data` comes from the requesting viewer's own run
     # (step_user_results) instead of the shared Step.data snapshot.
     viewer_result: Optional[dict] = None
+    # True when the shared snapshot was hidden from this viewer (viewer-identity
+    # mode on user-scoped connections) — `data` is empty until they run.
+    snapshot_withheld: bool = False
 
     class Config:
         from_attributes = True
@@ -73,6 +76,9 @@ class PublicStepSchema(BaseModel):
     # Set when `data` comes from the requesting viewer's own run
     # (step_user_results) instead of the shared Step.data snapshot.
     viewer_result: Optional[dict] = None
+    # True when the shared snapshot was hidden from this viewer (viewer-identity
+    # mode on user-scoped connections) — `data` is empty until they run.
+    snapshot_withheld: bool = False
 
     class Config:
         from_attributes = True
