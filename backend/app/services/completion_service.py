@@ -2930,9 +2930,13 @@ class CompletionService:
         last_completion = await self.get_last_completion(db, target.report_id)
         if queued_row is not None:
             # Promote the queued row in place: it becomes the steering record.
+            # created_at moves to NOW — the steer semantically happens at
+            # promotion time, and the timeline interleaves steering bubbles
+            # into the completion's block stream by this timestamp.
             queued_row.status = 'success'
             queued_row.message_type = 'steering'
             queued_row.parent_id = str(target.id)
+            queued_row.created_at = datetime.utcnow()
             db.add(queued_row)
             await db.commit()
             await db.refresh(queued_row)

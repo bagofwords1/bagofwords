@@ -251,7 +251,21 @@
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
+										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
+											<!-- Steering messages interleave into the block stream at the
+											     moment they arrived: before the first block that started
+											     after them. -->
+											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+												<div class="flex flex-col items-end max-w-xl">
+													<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+													</div>
+													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+														<div class="pt-1">{{ s.prompt?.content }}</div>
+													</div>
+												</div>
+											</div>
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -338,6 +352,19 @@
 											</div>
 
 																	</div>
+
+										<!-- Steering messages newer than every block: render after the stream tail -->
+										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+											<div class="flex flex-col items-end max-w-xl">
+												<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+												</div>
+												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+													<div class="pt-1">{{ s.prompt?.content }}</div>
+												</div>
+											</div>
+										</div>
 
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
 										<KnowledgeGroup
@@ -1029,32 +1056,70 @@ const inProgressHasFirstToken = computed(() =>
 const queuedPrompts = computed(() =>
 	messages.value.filter(m => m.role === 'user' && m.status === 'queued')
 )
+// Blocks the timeline renders for a system message (harness blocks are grouped separately)
+function visibleBlocks(m: ChatMessage): any[] {
+	return (m.completion_blocks || []).filter((b: any) => b.phase !== 'knowledge_harness')
+}
+
+// Steering messages targeted at a given system completion
+function steeringForSystem(m: ChatMessage): ChatMessage[] {
+	const sysId = String(m.system_completion_id || m.id)
+	return messages.value.filter(s => s.message_type === 'steering' && String(s.parent_id) === sysId)
+}
+
+const _steerTs = (v: any) => (v ? new Date(v).getTime() : 0)
+const _blockStart = (b: any) => _steerTs(b?.started_at || b?.created_at)
+
+// Steers that arrived before the given block started (and after the previous
+// block started) — rendered between the two, where they actually happened.
+function steersBeforeBlock(m: ChatMessage, blockIndex: number): ChatMessage[] {
+	const steers = steeringForSystem(m)
+	if (!steers.length) return []
+	const blocks = visibleBlocks(m)
+	const lo = blockIndex === 0 ? -Infinity : _blockStart(blocks[blockIndex - 1])
+	const hi = _blockStart(blocks[blockIndex])
+	return steers.filter(s => { const t = _steerTs(s.created_at); return t > lo && t <= hi })
+}
+
+// Steers newer than every block's start — rendered after the stream tail
+function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
+	const steers = steeringForSystem(m)
+	if (!steers.length) return []
+	const blocks = visibleBlocks(m)
+	if (!blocks.length) return []
+	const lastStart = _blockStart(blocks[blocks.length - 1])
+	return steers.filter(s => _steerTs(s.created_at) > lastStart)
+}
+
 const visibleMessages = computed(() => {
 	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
-	// Steering bubbles read as the CAUSE of the completion they steered, so
-	// hoist each one directly above its parent system completion — otherwise
-	// (creation order) the steered answer renders above the message it
-	// responds to, and SSE updates keep "pushing it to the bottom".
 	const steering = base.filter(m => m.message_type === 'steering' && m.parent_id)
 	if (steering.length === 0) return base
+	// Steering bubbles interleave INSIDE their parent completion's block
+	// stream (see steersBeforeBlock / steersAfterLastBlock in the template),
+	// so drop them from the top-level list when the parent renders blocks.
+	// Fallbacks: parent without blocks yet → hoist the bubble directly above
+	// it; parent outside the loaded window → keep the row standalone.
+	const inline = new Set<string>()
+	for (const s of steering) {
+		const parent = base.find(m => m.role === 'system' && String(m.system_completion_id || m.id) === String(s.parent_id))
+		if (parent && visibleBlocks(parent).length > 0) inline.add(String(s.id))
+	}
 	const out: ChatMessage[] = []
 	const placed = new Set<string>()
 	for (const m of base) {
-		if (m.message_type === 'steering' && m.parent_id) continue // placed next to parent below
+		if (m.message_type === 'steering' && m.parent_id
+			&& (inline.has(String(m.id)) || placed.has(String(m.id)))) continue
 		if (m.role === 'system') {
 			const sysId = String(m.system_completion_id || m.id)
 			for (const s of steering) {
-				if (String(s.parent_id) === sysId && !placed.has(String(s.id))) {
+				if (!inline.has(String(s.id)) && String(s.parent_id) === sysId && !placed.has(String(s.id))) {
 					placed.add(String(s.id))
 					out.push(s)
 				}
 			}
 		}
 		out.push(m)
-	}
-	// Steering rows whose parent isn't in the loaded window: keep them at the end
-	for (const s of steering) {
-		if (!placed.has(String(s.id))) out.push(s)
 	}
 	return out
 })
@@ -2949,7 +3014,8 @@ function connectWebhookSocket() {
 							message_type: 'steering',
 							parent_id: data.parent_id || null,
 							prompt: data.prompt,
-							created_at: new Date().toISOString(),
+							// naive-UTC to match server timestamps (block interleaving compares them)
+							created_at: new Date().toISOString().replace('Z', ''),
 						})
 					}
 					// The dispatcher started a queued prompt server-side: reload the
@@ -3680,7 +3746,16 @@ async function onSteerQueuedPrompt(queuedId: string) {
 			const idx = messages.value.findIndex(m => m.id === queuedId)
 			if (idx !== -1) {
 				const newMessages = [...messages.value]
-				newMessages[idx] = { ...newMessages[idx], status: 'success' as ChatStatus, message_type: 'steering', parent_id: systemId }
+				// created_at moves to now (naive-UTC, matching the server's
+				// promotion bump) so the bubble interleaves at steer time,
+				// not at the original queue time.
+				newMessages[idx] = {
+					...newMessages[idx],
+					status: 'success' as ChatStatus,
+					message_type: 'steering',
+					parent_id: systemId,
+					created_at: new Date().toISOString().replace('Z', ''),
+				}
 				messages.value = newMessages
 				scrollToBottom()
 			}
