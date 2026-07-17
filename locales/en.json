@@ -983,6 +983,47 @@
       "stopTitle": "Stop the run (also stops the surrounding agent loop)",
       "openRun": "Open run"
     },
+    "getEvalRun": {
+      "reading": "Reading eval run",
+      "read": "Eval run",
+      "notFound": "Eval run not found",
+      "pass": "{count} pass",
+      "fail": "{count} fail",
+      "vsPrevious": "vs previous:",
+      "fixed": "{count} fixed",
+      "regressed": "{count} regressed",
+      "openRun": "Open run"
+    },
+    "getEvalRuns": {
+      "listing": "Listing eval runs",
+      "listed": "Eval runs",
+      "runSingular": "{count} run",
+      "runPlural": "{count} runs",
+      "empty": "No eval runs found"
+    },
+    "stopEvalRun": {
+      "stopping": "Stopping eval run",
+      "stopped": "Eval run stopped",
+      "failed": "Could not stop the run",
+      "passedAtStop": "passed before stop",
+      "openRun": "Open run"
+    },
+    "editEval": {
+      "editing": "Updating eval",
+      "edited": "Eval updated",
+      "failed": "Eval not updated",
+      "unnamed": "Untitled eval",
+      "changed": "Changed: {fields}",
+      "statusDraft": "Draft",
+      "statusActive": "Active",
+      "statusArchived": "Archived"
+    },
+    "cancelWait": {
+      "cancelling": "Cancelling wait",
+      "cancelledSingular": "Cancelled {count} pending wait",
+      "cancelledPlural": "Cancelled {count} pending waits",
+      "nothingPending": "No pending waits"
+    },
     "searchEvals": {
       "searching": "Searching evals",
       "searchingFor": "Searching evals for {query}",

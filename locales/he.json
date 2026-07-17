@@ -900,6 +900,47 @@
       "stopTitle": "עצור את הריצה (גם עוצר את לולאת הסוכן)",
       "openRun": "פתח ריצה"
     },
+    "getEvalRun": {
+      "reading": "קורא ריצת בדיקת איכות",
+      "read": "ריצת בדיקת איכות",
+      "notFound": "ריצת בדיקת איכות לא נמצאה",
+      "pass": "{count} עברו",
+      "fail": "{count} נכשלו",
+      "vsPrevious": "לעומת הקודמת:",
+      "fixed": "{count} תוקנו",
+      "regressed": "{count} נסיגות",
+      "openRun": "פתח ריצה"
+    },
+    "getEvalRuns": {
+      "listing": "מציג ריצות בדיקות איכות",
+      "listed": "ריצות בדיקות איכות",
+      "runSingular": "ריצה {count}",
+      "runPlural": "{count} ריצות",
+      "empty": "לא נמצאו ריצות"
+    },
+    "stopEvalRun": {
+      "stopping": "עוצר ריצת בדיקת איכות",
+      "stopped": "ריצת בדיקת איכות נעצרה",
+      "failed": "לא ניתן לעצור את הריצה",
+      "passedAtStop": "עברו לפני העצירה",
+      "openRun": "פתח ריצה"
+    },
+    "editEval": {
+      "editing": "מעדכן בדיקת איכות",
+      "edited": "בדיקת האיכות עודכנה",
+      "failed": "בדיקת האיכות לא עודכנה",
+      "unnamed": "בדיקת איכות ללא שם",
+      "changed": "שונו: {fields}",
+      "statusDraft": "טיוטה",
+      "statusActive": "פעילה",
+      "statusArchived": "בארכיון"
+    },
+    "cancelWait": {
+      "cancelling": "מבטל המתנה",
+      "cancelledSingular": "בוטלה המתנה ממתינה {count}",
+      "cancelledPlural": "בוטלו {count} המתנות ממתינות",
+      "nothingPending": "אין המתנות ממתינות"
+    },
     "searchEvals": {
       "searching": "מחפש הערכות",
       "searchingFor": "מחפש הערכות עבור {query}",

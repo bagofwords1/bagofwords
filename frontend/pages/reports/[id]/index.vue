@@ -788,6 +788,11 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
+import EditEvalTool from '~/components/tools/EditEvalTool.vue'
+import GetEvalRunTool from '~/components/tools/GetEvalRunTool.vue'
+import GetEvalRunsTool from '~/components/tools/GetEvalRunsTool.vue'
+import StopEvalRunTool from '~/components/tools/StopEvalRunTool.vue'
+import CancelWaitTool from '~/components/tools/CancelWaitTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -1680,6 +1685,16 @@ function getToolComponent(toolName: string) {
 			return CreateEvalTool
 		case 'run_eval':
 			return RunEvalTool
+		case 'edit_eval':
+			return EditEvalTool
+		case 'get_eval_run':
+			return GetEvalRunTool
+		case 'get_eval_runs':
+			return GetEvalRunsTool
+		case 'stop_eval_run':
+			return StopEvalRunTool
+		case 'cancel_wait':
+			return CancelWaitTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
