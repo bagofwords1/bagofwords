@@ -991,7 +991,9 @@
       "scopeGlobs": "الأنماط",
       "indexMode": "الفهرسة",
       "columns": "{count} أعمدة",
-      "empty": "لا توجد نتائج مطابقة."
+      "empty": "لا توجد نتائج مطابقة.",
+      "showResults": "عرض {count} نتيجة",
+      "hideResults": "إخفاء النتائج"
     },
     "createAgent": {
       "creating": "جارٍ إنشاء الوكيل {name}…",
@@ -1007,7 +1009,9 @@
       "tab": {
         "tables": "الجداول",
         "tools": "الأدوات",
-        "files": "الملفات"
+        "files": "الملفات",
+        "instructions": "التعليمات",
+        "evals": "التقييمات"
       },
       "emptyTab": "لا يوجد شيء هنا بعد.",
       "open": "فتح الوكيل",

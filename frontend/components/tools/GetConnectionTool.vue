@@ -19,7 +19,7 @@
 
     <Transition name="fade" appear>
       <div v-if="status !== 'running'" class="text-xs text-gray-600 dark:text-gray-400 ms-1">
-        <!-- File scope (file-shaped connections) -->
+        <!-- File scope (file-shaped connections) — always visible, it's tiny. -->
         <div v-if="fileScope" class="mb-1.5 rounded border border-gray-100 dark:border-gray-800 px-2 py-1 text-[11px] space-y-0.5">
           <div v-if="fileScope.token_scoped" class="text-gray-500">{{ $t('tools.getConnection.tokenScoped') }}</div>
           <template v-else>
@@ -29,6 +29,17 @@
           </template>
         </div>
 
+        <!-- Collapsed by default: a result page can be hundreds of rows. -->
+        <button
+          v-if="tables.length || toolItems.length || files.length"
+          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
+          @click="expanded = !expanded"
+        >
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
+          {{ expanded ? $t('tools.getConnection.hideResults') : $t('tools.getConnection.showResults', { count: shownCount }) }}
+        </button>
+
+        <div v-if="expanded" class="max-h-64 overflow-y-auto mt-1">
         <!-- Tables grouped by schema -->
         <div v-if="tables.length" class="space-y-1">
           <div v-for="group in tablesBySchema" :key="group.schema || '__none__'">
@@ -60,6 +71,7 @@
             <span class="text-gray-700 dark:text-gray-300 font-mono text-[11px] truncate">{{ f }}</span>
           </li>
         </ul>
+        </div>
 
         <!-- Empty -->
         <div v-if="!tables.length && !toolItems.length && !files.length" class="text-gray-400">
@@ -71,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 interface ToolExecution {
   id: string
@@ -95,6 +107,9 @@ const fileScope = computed<any | null>(() => result.value.file_scope || null)
 const total = computed<number>(() => typeof result.value.total === 'number' ? result.value.total : 0)
 const page = computed<number>(() => result.value.page || 1)
 const hasMore = computed<boolean>(() => !!result.value.has_more)
+
+const expanded = ref(false)
+const shownCount = computed<number>(() => tables.value.length + toolItems.value.length + files.value.length)
 
 const tablesBySchema = computed(() => {
   const groups: Record<string, any[]> = {}

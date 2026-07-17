@@ -991,7 +991,9 @@
       "scopeGlobs": "Globs",
       "indexMode": "Indexation",
       "columns": "{count} col.",
-      "empty": "Aucune correspondance."
+      "empty": "Aucune correspondance.",
+      "showResults": "Afficher {count} résultats",
+      "hideResults": "Masquer les résultats"
     },
     "createAgent": {
       "creating": "Création de l'agent {name}…",
@@ -1007,7 +1009,9 @@
       "tab": {
         "tables": "Tables",
         "tools": "Outils",
-        "files": "Fichiers"
+        "files": "Fichiers",
+        "instructions": "Instructions",
+        "evals": "Évaluations"
       },
       "emptyTab": "Rien ici pour l'instant.",
       "open": "Ouvrir l'agent",

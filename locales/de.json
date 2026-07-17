@@ -991,7 +991,9 @@
       "scopeGlobs": "Globs",
       "indexMode": "Indizierung",
       "columns": "{count} Spalten",
-      "empty": "Keine Treffer."
+      "empty": "Keine Treffer.",
+      "showResults": "{count} Ergebnisse anzeigen",
+      "hideResults": "Ergebnisse ausblenden"
     },
     "createAgent": {
       "creating": "Agent {name} wird erstellt…",
@@ -1007,7 +1009,9 @@
       "tab": {
         "tables": "Tabellen",
         "tools": "Tools",
-        "files": "Dateien"
+        "files": "Dateien",
+        "instructions": "Anweisungen",
+        "evals": "Evals"
       },
       "emptyTab": "Hier ist noch nichts.",
       "open": "Agent öffnen",

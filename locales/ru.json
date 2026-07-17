@@ -991,7 +991,9 @@
       "scopeGlobs": "Шаблоны",
       "indexMode": "Индексация",
       "columns": "{count} столбцов",
-      "empty": "Ничего не найдено."
+      "empty": "Ничего не найдено.",
+      "showResults": "Показать {count} результатов",
+      "hideResults": "Скрыть результаты"
     },
     "createAgent": {
       "creating": "Создание агента {name}…",
@@ -1007,7 +1009,9 @@
       "tab": {
         "tables": "Таблицы",
         "tools": "Инструменты",
-        "files": "Файлы"
+        "files": "Файлы",
+        "instructions": "Инструкции",
+        "evals": "Оценки"
       },
       "emptyTab": "Здесь пока пусто.",
       "open": "Открыть агента",

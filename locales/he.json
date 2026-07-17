@@ -1013,7 +1013,9 @@
       "scopeGlobs": "תבניות",
       "indexMode": "אינדוקס",
       "columns": "{count} עמודות",
-      "empty": "לא נמצאו תוצאות."
+      "empty": "לא נמצאו תוצאות.",
+      "showResults": "הצג {count} תוצאות",
+      "hideResults": "הסתר תוצאות"
     },
     "createAgent": {
       "creating": "יוצר סוכן {name}…",
@@ -1029,7 +1031,9 @@
       "tab": {
         "tables": "טבלאות",
         "tools": "כלים",
-        "files": "קבצים"
+        "files": "קבצים",
+        "instructions": "הנחיות",
+        "evals": "בדיקות איכות"
       },
       "emptyTab": "אין כאן עדיין כלום.",
       "open": "פתח סוכן",

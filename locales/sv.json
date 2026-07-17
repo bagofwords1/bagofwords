@@ -991,7 +991,9 @@
       "scopeGlobs": "Globs",
       "indexMode": "Indexering",
       "columns": "{count} kolumner",
-      "empty": "Inget matchade."
+      "empty": "Inget matchade.",
+      "showResults": "Visa {count} resultat",
+      "hideResults": "Dölj resultat"
     },
     "createAgent": {
       "creating": "Skapar agent {name}…",
@@ -1007,7 +1009,9 @@
       "tab": {
         "tables": "Tabeller",
         "tools": "Verktyg",
-        "files": "Filer"
+        "files": "Filer",
+        "instructions": "Instruktioner",
+        "evals": "Utvärderingar"
       },
       "emptyTab": "Inget här ännu.",
       "open": "Öppna agent",

@@ -224,6 +224,50 @@ The new agent on the Agents page and its detail view (Private, SQLite Chinook,
 
 ---
 
+
+### v2 — API-real demo + collapsed card (current design)
+
+Reran the whole loop with NOTHING seeded by hand: a **DuckDB file with 6,000
+tables** registered via `POST /connections` and discovered by the real indexer,
+and a **live MCP server** (`mcp.server.fastmcp`, streamable-http) whose 13 tools
+were discovered via `POST /connections/{id}/refresh-tools`. A fresh training
+session then ran four real turns: create **Finance Mart**
+(`tables=["finance_*"]` → 900/6000 active), create **Ops Assistant** (8/13 read
+tools), `create_instruction` (staged → approved via `/builds/{id}/publish`),
+`create_eval` (case created for Finance Mart).
+
+The agent card is now **collapsed by default**: section chips — Tables / Tools /
+Files / Instructions / Evals — expand on click and close on a second click,
+gated by permissions (`view_schema` for catalog sections, `manage_evals` for
+evals, server-scoped fetch for instructions). Sections embed the real
+`TablesSelector`, `ToolsSelector` (new `show-header` prop), and
+`AgentEvalsPanel`. `get_connection` results also collapse behind a
+"Show N results" toggle — a model-requested 100-row page no longer floods the
+conversation.
+
+![collapsed card](assets/training-connections-agent/10_card_collapsed.png)
+![tables expanded over 6000](assets/training-connections-agent/11_tables_expanded_6000.png)
+![instructions expanded](assets/training-connections-agent/12_instructions_expanded.png)
+![evals expanded](assets/training-connections-agent/13_evals_expanded.png)
+![ops tools expanded](assets/training-connections-agent/14_ops_tools_expanded.png)
+
+**Bugs found and fixed by this loop:**
+
+1. **Agents with tool overlays couldn't be deleted** — `session.delete(DataSource)`
+   NULLed `data_source_connection_tool.data_source_id` (NOT NULL violation)
+   because the overlay relationships had no ORM cascade and SQLite doesn't
+   enforce the DDL `ON DELETE CASCADE`. Both backrefs now cascade ORM-side;
+   regression: `test_agent_with_tool_overlays_can_be_deleted`.
+2. **Agent-run failures were untraceable** — `completion_service` reported
+   `Agent execution failed: {str(e)}` where `str(e)` can be empty (the live
+   loop hit `cryptography.fernet.InvalidToken` — invisible). The handler now
+   logs the traceback.
+
+**Sandbox lesson (not a code change):** without `BOW_ENCRYPTION_KEY` set, the
+Fernet key is generated per process, so a backend restart orphans every stored
+credential (LLM provider keys decode as `InvalidToken`). Pin the env var in
+`backend/.env` before storing credentials in a dev sandbox.
+
 ## What this proves
 
 - The three tools exist **only** in training mode (Loop A), enforce the same

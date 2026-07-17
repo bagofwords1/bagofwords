@@ -1096,7 +1096,9 @@
       "scopeGlobs": "Globs",
       "indexMode": "Indexing",
       "columns": "{count} cols",
-      "empty": "Nothing matched."
+      "empty": "Nothing matched.",
+      "showResults": "Show {count} results",
+      "hideResults": "Hide results"
     },
     "createAgent": {
       "creating": "Creating agent {name}…",
@@ -1112,7 +1114,9 @@
       "tab": {
         "tables": "Tables",
         "tools": "Tools",
-        "files": "Files"
+        "files": "Files",
+        "instructions": "Instructions",
+        "evals": "Evals"
       },
       "emptyTab": "Nothing here yet.",
       "open": "Open agent",
