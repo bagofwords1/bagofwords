@@ -585,7 +585,8 @@
     "decisionAnalysisCompleted": "Entscheidung: analysis_completed",
     "block": "Block",
     "tokensCount": "{count} Token",
-    "llmUsageTooltip": "LLM-Nutzung für diese Konversation"
+    "llmUsageTooltip": "LLM-Nutzung für diese Konversation",
+    "turnTokensTooltip": "Planner-LLM-Token in dieser Runde"
   },
   "reportView": {
     "tabChat": "Chat",

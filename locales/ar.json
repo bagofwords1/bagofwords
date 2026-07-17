@@ -585,7 +585,8 @@
     "decisionAnalysisCompleted": "القرار: analysis_completed",
     "block": "كتلة",
     "tokensCount": "{count} رمز",
-    "llmUsageTooltip": "استخدام LLM في هذه المحادثة"
+    "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
+    "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور"
   },
   "reportView": {
     "tabChat": "محادثة",

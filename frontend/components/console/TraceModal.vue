@@ -152,6 +152,10 @@
                             <UIcon name="i-heroicons-clock" class="w-3.5 h-3.5" />
                             {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
                         </span>
+                        <span v-if="selectedTurnTokens" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400" :title="$t('traceModal.turnTokensTooltip')">
+                            <UIcon name="i-heroicons-cpu-chip" class="w-3.5 h-3.5" />
+                            {{ $t('traceModal.tokensCount', { count: formatTokens(selectedTurnTokens) }) }}
+                        </span>
                         <span v-if="selectedTurn.feedback_status !== 'none'"
                               :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs', selectedTurn.feedback_status === 'positive' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
                             <UIcon :name="selectedTurn.feedback_status === 'positive' ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'" class="w-3.5 h-3.5" />
@@ -715,6 +719,18 @@ const selectedItemType = ref<'block'>('block')
 const blocks = computed(() => traceData.value?.completion_blocks || [])
 const turns = computed(() => conversation.value?.turns || [])
 const selectedTurn = computed(() => turns.value.find(t => t.completion_id === selectedCompletionId.value) || null)
+
+// Per-turn LLM tokens: summed from the planner loop's plan decisions into
+// agent_execution.token_usage_json when the execution finishes. Covers the
+// planner calls only (tool codegen isn't attributed per execution), so it
+// undercounts vs the conversation-level roll-up in the header.
+const selectedTurnTokens = computed(() => {
+    const u = traceData.value?.agent_execution?.token_usage_json
+    if (!u) return 0
+    const total = Number(u.total_tokens ?? 0)
+    if (total > 0) return total
+    return (Number(u.prompt_tokens ?? 0) + Number(u.completion_tokens ?? 0)) || 0
+})
 
 const selectedItemSubTimings = computed(() => {
     const te = selectedItem.value?.tool_execution
