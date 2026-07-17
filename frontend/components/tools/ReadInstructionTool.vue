@@ -15,7 +15,7 @@
           class="w-3 h-3 me-1 text-gray-400 flex-shrink-0"
         />
         <Icon v-else name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500 flex-shrink-0" />
-        <Icon name="heroicons-book-open" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
+        <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
         <span v-if="succeeded" class="text-gray-700 dark:text-gray-300 truncate">
           {{ t('tools.readInstruction.read') }}<template v-if="title"> · {{ title }}</template>
         </span>
