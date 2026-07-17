@@ -81,8 +81,22 @@ default model's `context_window_tokens` faked to 50k
 - Immediate re-compact → `nothing_to_compact`; compact during a streaming
   agent run → HTTP 409.
 
+## Revision: Hermes geometry + build-time trigger
+
+Implemented after live feedback (see the design doc's revision section):
+budgets derive from the model window (conversation 12.5%, trigger 50% of
+that, tail 20% of trigger with a 12-completion floor, summary cap via the
+Hermes formula); the opening exchange is head-protected and `opening_request`
+is set programmatically (fixes "what was my first ask" after compaction);
+the trigger moved from end-of-turn to build-time detection with background
+execution (`_maybe_schedule_compaction`, once per run, task awaited before
+the stream closes); `messages_max` raised 20 → 40 as a count fallback.
+Verified by 15 unit tests (geometry, head/tail protection, trigger
+scheduling, SSE emission).
+
 ## Deferred (designed, not built)
 
-Clear-context barrier, within-turn (mid-run) compaction, and
-compact-and-retry-once on provider context overflow — see the design doc's
-fast-follows section.
+Clear-context barrier and compact-and-retry-once on provider context
+overflow — see the design doc's fast-follows section. (Within-turn
+compaction is now covered by the build-time trigger: loop iterations are
+builds.)

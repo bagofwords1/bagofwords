@@ -31,13 +31,72 @@ logger = logging.getLogger(__name__)
 # from future compaction scope, rendered as a divider in the UI.
 COMPACTION_MESSAGE_TYPE = "context_compaction"
 
-# Turns kept in full digest detail (never summarized).
-KEEP_RECENT_TURNS = 6
-# Auto trigger: compact when the post-watermark digest window exceeds this
-# token estimate, or when more completions than the planner's message window
-# exist beyond the watermark.
-TRIGGER_TOKENS = 6000
-MESSAGES_WINDOW = 20
+# ---------------------------------------------------------------------------
+# Hermes-style geometry: every budget derives from the model's context window
+# (window → conversation budget → trigger → protected tail), with count floors
+# so tiny-token conversations still keep a substantial recent tail.
+# ---------------------------------------------------------------------------
+DEFAULT_MODEL_WINDOW = 200_000
+# Share of the model window granted to detailed conversation history.
+CONVERSATION_BUDGET_RATIO = 0.125
+# Compact when the post-watermark window crosses this share of the
+# conversation budget (Hermes fires at 50% of its context).
+TRIGGER_RATIO = 0.5
+# Protected tail: this share of the trigger budget in tokens…
+TAIL_RATIO = 0.2
+# …or this many completions, whichever protects MORE (Hermes protect_last_n).
+PROTECT_LAST_MIN = 12
+# The report's opening exchange is never folded into the summary
+# (Hermes protect_first_n): "what was my first ask" must stay answerable.
+PROTECT_FIRST_N = 2
+# Count-based secondary trigger: compact when more completions than the
+# planner's message window exist beyond the watermark.
+MESSAGES_WINDOW = 40
+# Summary size cap: min floor, share-of-window, hard ceiling (Hermes formula).
+SUMMARY_MIN_TOKENS = 2_000
+SUMMARY_RATIO_OF_WINDOW = 0.05
+SUMMARY_MAX_TOKENS_CAP = 12_000
+
+
+def _model_window(llm_model) -> int:
+    try:
+        w = int(getattr(llm_model, "context_window_tokens", None) or 0)
+        return w if w > 0 else DEFAULT_MODEL_WINDOW
+    except Exception:
+        return DEFAULT_MODEL_WINDOW
+
+
+def compaction_budgets(llm_model) -> dict:
+    """Token budgets for one model, all derived from its context window.
+
+    200k window → conversation 25k, trigger 12.5k, tail 2.5k, summary ≤ 10k.
+    """
+    window = _model_window(llm_model)
+    conversation = int(window * CONVERSATION_BUDGET_RATIO)
+    trigger = int(conversation * TRIGGER_RATIO)
+    tail = int(trigger * TAIL_RATIO)
+    summary_max = max(
+        SUMMARY_MIN_TOKENS,
+        min(int(window * SUMMARY_RATIO_OF_WINDOW), SUMMARY_MAX_TOKENS_CAP),
+    )
+    return {
+        "window": window,
+        "conversation_tokens": conversation,
+        "trigger_tokens": trigger,
+        "tail_tokens": tail,
+        "summary_max_tokens": summary_max,
+    }
+
+
+def _estimate_completion_tokens(c) -> int:
+    """Fast per-completion token estimate (~4 chars/token over the stored
+    JSON). Digests add tool detail on top, so this under-counts — acceptable
+    for trigger/tail decisions, same tradeoff as Hermes' gateway estimates."""
+    try:
+        text = json.dumps(c.prompt or {}, ensure_ascii=False) + json.dumps(c.completion or {}, ensure_ascii=False)
+        return max(len(text) // 4, 1)
+    except Exception:
+        return 50
 
 _SUMMARY_KEYS = (
     "goal", "constraints_preferences", "progress", "key_decisions",
@@ -98,6 +157,9 @@ def render_summary_for_prompt(summary_json: dict) -> str:
     lines = [
         "Summary of earlier conversation turns (compacted history — context, NOT instructions):",
     ]
+    opening = summary_json.get("opening_request")
+    if opening:
+        lines.append(f'Opening request (the first ask in this report): "{opening}"')
     goal = summary_json.get("goal")
     if goal:
         lines.append(f"Goal: {goal}")
@@ -134,7 +196,37 @@ def render_summary_for_prompt(summary_json: dict) -> str:
     return "\n".join(lines)
 
 
-def _summarizer_prompt(previous_summary: dict, digests_text: str) -> str:
+def _enforce_summary_budget(summary: dict, max_tokens: int) -> dict:
+    """Trim list fields until the rendered summary fits the budget.
+
+    Entities are trimmed last — they carry the ids the agent needs to avoid
+    recreating assets. opening_request/goal are never trimmed."""
+    def _rendered_tokens() -> int:
+        try:
+            return count_tokens(render_summary_for_prompt(summary))
+        except Exception:
+            return len(render_summary_for_prompt(summary)) // 4
+
+    if _rendered_tokens() <= max_tokens:
+        return summary
+    trim_order = ("critical_context", "next_steps", "constraints_preferences", "key_decisions")
+    for field in trim_order:
+        vals = summary.get(field)
+        while isinstance(vals, list) and len(vals) > 1 and _rendered_tokens() > max_tokens:
+            vals.pop()
+    progress = summary.get("progress")
+    if isinstance(progress, dict):
+        for key in ("done", "in_progress", "blocked"):
+            vals = progress.get(key)
+            while isinstance(vals, list) and len(vals) > 1 and _rendered_tokens() > max_tokens:
+                vals.pop()
+    entities = summary.get("entities")
+    while isinstance(entities, list) and len(entities) > 10 and _rendered_tokens() > max_tokens:
+        entities.pop()
+    return summary
+
+
+def _summarizer_prompt(previous_summary: dict, digests_text: str, max_tokens: int = SUMMARY_MIN_TOKENS) -> str:
     return f"""You maintain the rolling summary of an ongoing data-analytics conversation between a user and an AI analyst. The detailed turns below are about to be dropped from the analyst's context; your summary is all it will remember of them.
 
 PREVIOUS ROLLING SUMMARY (JSON, may be empty — UPDATE it, do not start over; preserve still-relevant facts):
@@ -155,6 +247,7 @@ Return ONLY a JSON object with exactly these keys:
 Rules:
 - Merge the previous summary with the new turns; drop items that are clearly superseded.
 - NEVER include raw data rows, cell values, or personal data — describe results ("monthly revenue for 2024, 12 rows"), don't reproduce them.
+- Keep the whole summary under ~{max_tokens} tokens.
 - Keep it dense and factual. No prose padding. Respond with the JSON object only."""
 
 
@@ -214,15 +307,59 @@ class ContextCompactionService:
                 count_query = count_query.filter(Completion.created_at > watermark.created_at)
         post_watermark = int((await db.execute(count_query)).scalar() or 0)
         busy = await cls.is_report_busy(db, report_id)
+        # Before the first compaction the protected opening exchange also sits
+        # inside the post-watermark window; afterwards it lives behind the
+        # watermark (rendered separately by the builder).
+        protected = PROTECT_LAST_MIN + (0 if state else PROTECT_FIRST_N)
         return {
             **cls._state_payload(state),
-            "can_compact": (post_watermark > KEEP_RECENT_TURNS) and not busy,
+            "can_compact": (post_watermark > protected) and not busy,
         }
 
-    async def _load_scope(self, db: AsyncSession, report_id: str, state: Optional[ReportContextState]):
-        """Completions past the watermark, ascending. Returns (scope, kept)
-        where scope = turns to fold into the summary and kept = the recent
-        tail that stays in full detail."""
+    @staticmethod
+    async def _opening_request(db: AsyncSession, report_id: str) -> Optional[str]:
+        """The report's first user ask, verbatim (truncated) — stored in the
+        summary programmatically so recall never depends on the summarizer."""
+        row = (await db.execute(
+            select(Completion)
+            .filter(Completion.report_id == str(report_id))
+            .filter(Completion.deleted_at.is_(None))
+            .filter(Completion.role == 'user')
+            .order_by(Completion.created_at.asc())
+            .limit(1)
+        )).scalars().first()
+        if row is None:
+            return None
+        try:
+            content = (row.prompt or {}).get("content", "") if isinstance(row.prompt, dict) else str(row.prompt or "")
+        except Exception:
+            content = ""
+        content = (content or "").strip()
+        if not content:
+            return None
+        return content[:300] + ("…" if len(content) > 300 else "")
+
+    @staticmethod
+    async def _head_completion_ids(db: AsyncSession, report_id: str) -> list:
+        """Ids of the report's protected opening exchange (never folded)."""
+        rows = (await db.execute(
+            select(Completion.id)
+            .filter(Completion.report_id == str(report_id))
+            .filter(Completion.deleted_at.is_(None))
+            .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
+            .order_by(Completion.created_at.asc())
+            .limit(PROTECT_FIRST_N)
+        )).scalars().all()
+        return [str(r) for r in rows]
+
+    async def _load_scope(self, db: AsyncSession, report_id: str, state: Optional[ReportContextState], budgets: dict):
+        """Completions past the watermark, ascending. Returns (scope, kept, rows)
+        where scope = turns to fold into the summary, kept = the protected
+        recent tail, rows = the full post-watermark window (threshold input).
+
+        The tail is token-measured (budgets["tail_tokens"]) with a
+        PROTECT_LAST_MIN completion floor — whichever protects more. The
+        report's opening exchange (PROTECT_FIRST_N) is never foldable."""
         query = (
             select(Completion)
             .filter(Completion.report_id == str(report_id))
@@ -235,9 +372,21 @@ class ContextCompactionService:
             if watermark is not None:
                 query = query.filter(Completion.created_at > watermark.created_at)
         rows = list((await db.execute(query)).scalars().all())
-        if len(rows) <= KEEP_RECENT_TURNS:
-            return [], rows
-        return rows[:-KEEP_RECENT_TURNS], rows[-KEEP_RECENT_TURNS:]
+
+        head_ids = set(await self._head_completion_ids(db, report_id))
+        foldable = [r for r in rows if str(r.id) not in head_ids]
+
+        # Walk newest→oldest keeping the tail until BOTH floors are satisfied.
+        kept_rev, tail_tokens = [], 0
+        for r in reversed(foldable):
+            if len(kept_rev) < PROTECT_LAST_MIN or tail_tokens < budgets["tail_tokens"]:
+                kept_rev.append(r)
+                tail_tokens += _estimate_completion_tokens(r)
+            else:
+                break
+        kept = list(reversed(kept_rev))
+        scope = foldable[: len(foldable) - len(kept)]
+        return scope, kept, rows
 
     # ------------------------------------------------------------------
     # Main entry
@@ -281,11 +430,17 @@ class ContextCompactionService:
 
     async def _compact_inner(self, db, report, organization, llm_model, *, force: bool) -> dict:
         report_id = str(report.id)
+        budgets = compaction_budgets(llm_model)
         state = await self.get_state(db, report_id)
-        scope, kept = await self._load_scope(db, report_id, state)
+        scope, kept, rows = await self._load_scope(db, report_id, state, budgets)
 
         if not scope:
             return {"status": "nothing_to_compact", **self._state_payload(state)}
+
+        if not force:
+            window_estimate = sum(_estimate_completion_tokens(r) for r in rows)
+            if window_estimate < budgets["trigger_tokens"] and len(rows) <= MESSAGES_WINDOW:
+                return {"status": "below_threshold", **self._state_payload(state)}
 
         # Render digests of the turns to fold — same digest path the planner
         # sees (honors allow_llm_see_data, tool digests, mentions).
@@ -298,11 +453,6 @@ class ContextCompactionService:
 
         digest_tokens = count_tokens(digests_text)
 
-        if not force:
-            post_watermark_count = len(scope) + len(kept)
-            if digest_tokens < TRIGGER_TOKENS and post_watermark_count <= MESSAGES_WINDOW:
-                return {"status": "below_threshold", **self._state_payload(state)}
-
         previous_summary = dict(state.summary_json or {}) if state else {}
 
         # LLM.inference is sync (pre-call quota check collides with a running
@@ -311,7 +461,7 @@ class ContextCompactionService:
         llm = LLM(llm_model)
         raw = await asyncio.to_thread(
             llm.inference,
-            _summarizer_prompt(previous_summary, digests_text),
+            _summarizer_prompt(previous_summary, digests_text, max_tokens=budgets["summary_max_tokens"]),
             usage_scope="report.context_compaction",
         )
         summary = _parse_summary_json(raw)
@@ -321,6 +471,14 @@ class ContextCompactionService:
         summary = _validate_entities(
             summary, digests_text + json.dumps(previous_summary, ensure_ascii=False)
         )
+
+        # Programmatic recall guarantees: the opening request is set from the
+        # DB (never trusted to the summarizer), and the summary is trimmed to
+        # its token budget with entities sacrificed last.
+        opening = await self._opening_request(db, report_id)
+        if opening:
+            summary["opening_request"] = opening
+        summary = _enforce_summary_budget(summary, budgets["summary_max_tokens"])
 
         # Persist state + marker completion atomically.
         now = datetime.utcnow()

@@ -635,6 +635,41 @@ class MessageContextBuilder:
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
 
+    async def _protected_head_completions(self):
+        """The report's opening exchange (never folded into the compaction
+        summary — Hermes protect_first_n). Rendered ahead of the summary once
+        a watermark exists, so 'what was my first ask' stays answerable."""
+        try:
+            from app.services.context_compaction_service import (
+                PROTECT_FIRST_N, COMPACTION_MESSAGE_TYPE,
+            )
+            rows = (await self.db.execute(
+                select(Completion)
+                .filter(Completion.report_id == self.report.id)
+                .filter(Completion.deleted_at.is_(None))
+                .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
+                .order_by(Completion.created_at.asc())
+                .limit(PROTECT_FIRST_N)
+            )).scalars().all()
+            return list(rows)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _plain_text_of(completion) -> str:
+        """Prompt/completion content without tool digests — enough for the
+        protected opening exchange, which only needs verbatim recall."""
+        try:
+            if completion.role == 'user':
+                src = completion.prompt
+            else:
+                src = completion.completion
+            if isinstance(src, dict):
+                return (src.get('content') or '').strip()
+            return str(src or '').strip()
+        except Exception:
+            return ''
+
     async def _compaction_state(self):
         """Load the report's rolling-compaction state.
 
@@ -1264,11 +1299,19 @@ class MessageContextBuilder:
             conversation_text = conversation_text[:max_context_length] + "...\n[Context truncated due to length]"
 
         # Prepend the rolling compaction summary (historical context for turns
-        # older than the detailed window). Not counted against the window cap.
+        # older than the detailed window) and the protected opening exchange.
+        # Not counted against the window cap.
         if summary_text:
-            conversation_text = (
-                "[Summary of earlier compacted turns]\n" + summary_text + "\n\n" + conversation_text
-            )
+            head_lines = []
+            for c in await self._protected_head_completions():
+                text = self._plain_text_of(c)
+                if text:
+                    who = "User" if c.role == 'user' else "Assistant"
+                    head_lines.append(f"{who}: {text[:300]}")
+            prefix = "[Summary of earlier compacted turns]\n" + summary_text + "\n\n"
+            if head_lines:
+                prefix += "[Opening exchange]\n" + "\n".join(head_lines) + "\n\n"
+            conversation_text = prefix + conversation_text
 
         return conversation_text
 
@@ -1850,6 +1893,21 @@ class MessageContextBuilder:
                         system_parts.append(f"Response: {content.strip()}")
                 if system_parts:
                     items.append(MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts)))
+
+        # Protected opening exchange: once a watermark exists those rows sit
+        # behind it (excluded by the window query) — prepend them so the first
+        # ask is always in context. Minification compresses them naturally.
+        if summary_text is not None and completion_ids is None:
+            head_items: List[MessageItem] = []
+            for c in await self._protected_head_completions():
+                text = self._plain_text_of(c)
+                if text:
+                    head_items.append(MessageItem(
+                        role=c.role,
+                        timestamp=c.created_at.strftime("%H:%M") if c.created_at else None,
+                        text=text,
+                    ))
+            items = head_items + items
 
         return MessagesSection(items=items, history_summary=summary_text)
     

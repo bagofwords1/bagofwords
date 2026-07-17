@@ -283,3 +283,56 @@ dev`, SQLite at `backend/db/app.db`, state in `backend/sandbox_state.json`):
 - **Overflow-retry:** one compact-and-retry around the planner call on a
   provider context-overflow error (opencode's recovery), even when auto is
   off.
+
+## Revision: Hermes geometry + build-time trigger (implemented)
+
+This revision replaces the fixed constants and end-of-turn trigger of the
+first implementation, following NousResearch/hermes-agent's model.
+
+### Window-derived budgets (`compaction_budgets(llm_model)`)
+
+Every budget derives from the model's `context_window_tokens`
+(default 200k when unset):
+
+| Budget | Formula | 200k window | 50k (sandbox) |
+|---|---|---|---|
+| Conversation | 12.5% of window | 25,000 | 6,250 |
+| Trigger | 50% of conversation | 12,500 | 3,125 |
+| Protected tail | 20% of trigger in tokens, **min 12 completions** | 2,500 | 625 |
+| Summary cap | max(2k, min(5% window, 12k)) | 10,000 | 2,500 |
+
+The tail keeps completions newest-first until BOTH floors are satisfied
+(token budget and count) — whichever protects more, exactly Hermes'
+`protect_last_n` + token boundary. `messages_max` was raised 20 → 40: the
+count cap is now a fallback; the token geometry is the real bound.
+
+### Protected head (`PROTECT_FIRST_N = 2`)
+
+The report's opening exchange is never folded into the summary. Once the
+watermark passes it, `MessageContextBuilder` prepends it (plain text,
+minified) ahead of the summary on both builder paths, and the summary
+carries an `opening_request` field set **programmatically** from the first
+user completion — never trusted to the summarizer. "What was my first ask"
+stays answerable forever.
+
+### Build-time trigger (replaces the end-of-turn hook)
+
+Compaction detection now rides on context assembly: every agent-path warm
+build (`AgentV2._refresh_warm_traced` → `_maybe_schedule_compaction`)
+checks the rendered window against the trigger budget and, at most once per
+run, schedules `_run_auto_compaction` as a background task. Builds never
+block — later iterations pick up the advanced watermark. The task reference
+is held on the agent and awaited before the stream closes so the
+`context.compacted` SSE beats `[DONE]` and the write can't be lost to task
+GC. Passive builds (estimate endpoint, title, follow-ups) never trigger.
+
+This also subsumes the previously-deferred "within-turn compaction": loop
+iterations are builds, so pressure that develops mid-run triggers the same
+path.
+
+### Summary budget enforcement
+
+`_enforce_summary_budget` trims list fields until the rendered summary fits
+the cap — entities (the ids that prevent asset duplication) are sacrificed
+last and never below 10.
+
