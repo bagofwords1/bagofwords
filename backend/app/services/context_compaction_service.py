@@ -260,8 +260,15 @@ class ContextCompactionService:
         report_id = str(report.id)
         lock = self._lock_for(report_id)
         if lock.locked():
-            return {"status": "already_running"}
+            # Coalesce: a compaction is already in flight for this report.
+            return {"status": "already_running", **self._state_payload(await self.get_state(db, report_id))}
         async with lock:
+            # The locked() fast-path above is advisory (a second caller can
+            # slip past it before the first actually acquires). That is safe:
+            # callers serialize here, and _compact_inner re-reads state under
+            # the lock — a queued duplicate sees the advanced watermark, finds
+            # nothing past the protected tail, and returns nothing_to_compact
+            # without a summarizer call.
             try:
                 return await self._compact_inner(db, report, organization, llm_model, force=force)
             except Exception as e:
