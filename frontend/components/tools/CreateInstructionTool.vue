@@ -201,9 +201,14 @@ async function handleAccept() {
   if (!buildId.value || !instructionId.value || isAccepting.value) return
   isAccepting.value = true
   try {
-    const { error } = await useMyFetch(`/builds/${buildId.value}/publish`, {
+    // Promote just this staged instruction as a build-of-one; the shared
+    // training draft (which holds the other create_instruction suggestions from
+    // the same completion) stays a draft so its siblings remain acceptable.
+    // NOT /builds/{id}/publish — that prunes the siblings and finalizes the
+    // whole build, so the next accept 400s ("Build is already published").
+    const { error } = await useMyFetch(`/instructions/${instructionId.value}/accept-staged`, {
       method: 'POST',
-      body: { instruction_ids: [instructionId.value] },
+      body: { build_id: buildId.value },
     })
     if (!error.value) {
       resolution.value = 'accepted'
@@ -227,8 +232,12 @@ async function handleReject() {
   if (!buildId.value || !instructionId.value || isRejecting.value) return
   isRejecting.value = true
   try {
+    // Rejecting a brand-new instruction discards it entirely (it was never in
+    // main). Deleting the instruction — rather than only detaching it from the
+    // shared draft — keeps the resolved-state derivation honest: a refresh sees
+    // "instruction gone → rejected" instead of "no longer pending → accepted".
     const { error } = await useMyFetch(
-      `/builds/${buildId.value}/contents/${instructionId.value}`,
+      `/instructions/${instructionId.value}`,
       { method: 'DELETE' },
     )
     if (!error.value) {
