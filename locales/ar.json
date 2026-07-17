@@ -586,7 +586,8 @@
     "block": "كتلة",
     "tokensCount": "{count} رمز",
     "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
-    "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور"
+    "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور",
+    "turnUsageTooltip": "استخدام LLM في هذا الدور"
   },
   "reportView": {
     "tabChat": "محادثة",

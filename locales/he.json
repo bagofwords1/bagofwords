@@ -608,7 +608,8 @@
     "block": "בלוק",
     "tokensCount": "{count} טוקנים",
     "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
-    "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה"
+    "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
+    "turnUsageTooltip": "שימוש ב-LLM בסבב זה"
   },
   "reportView": {
     "tabChat": "צ'אט",

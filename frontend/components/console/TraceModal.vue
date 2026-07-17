@@ -152,9 +152,12 @@
                             <UIcon name="i-heroicons-clock" class="w-3.5 h-3.5" />
                             {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
                         </span>
-                        <span v-if="selectedTurnTokens" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400" :title="$t('traceModal.turnTokensTooltip')">
+                        <span v-if="selectedTurnTokens" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-600 dark:text-gray-400" :title="selectedTurnHasFullUsage ? $t('traceModal.turnUsageTooltip') : $t('traceModal.turnTokensTooltip')">
                             <UIcon name="i-heroicons-cpu-chip" class="w-3.5 h-3.5" />
                             {{ $t('traceModal.tokensCount', { count: formatTokens(selectedTurnTokens) }) }}
+                        </span>
+                        <span v-if="selectedTurn.llm_cost_usd" class="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400" :title="$t('traceModal.turnUsageTooltip')">
+                            {{ formatCost(selectedTurn.llm_cost_usd) }}
                         </span>
                         <span v-if="selectedTurn.feedback_status !== 'none'"
                               :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs', selectedTurn.feedback_status === 'positive' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
@@ -678,6 +681,8 @@ interface ConversationTurn {
     response_score?: number | null
     judge?: Record<string, { score?: number | null; reasoning?: string | null }> | null
     total_duration_ms?: number | null
+    llm_tokens?: number | null
+    llm_cost_usd?: number | null
     created_at?: string | null
 }
 
@@ -720,11 +725,16 @@ const blocks = computed(() => traceData.value?.completion_blocks || [])
 const turns = computed(() => conversation.value?.turns || [])
 const selectedTurn = computed(() => turns.value.find(t => t.completion_id === selectedCompletionId.value) || null)
 
-// Per-turn LLM tokens: summed from the planner loop's plan decisions into
-// agent_execution.token_usage_json when the execution finishes. Covers the
-// planner calls only (tool codegen isn't attributed per execution), so it
-// undercounts vs the conversation-level roll-up in the header.
+// Per-turn LLM tokens. Preferred source: turn.llm_tokens, aggregated from
+// the quota pipeline's usage_events (covers every LLM call in the run —
+// planner + tool codegen — but only recorded on instances licensed for
+// usage_limits). Fallback: agent_execution.token_usage_json, summed from
+// the planner loop's plan decisions — always available but planner-only,
+// so it undercounts vs the conversation-level roll-up in the header.
+const selectedTurnHasFullUsage = computed(() => (selectedTurn.value?.llm_tokens || 0) > 0)
 const selectedTurnTokens = computed(() => {
+    const full = selectedTurn.value?.llm_tokens
+    if (full && full > 0) return full
     const u = traceData.value?.agent_execution?.token_usage_json
     if (!u) return 0
     const total = Number(u.total_tokens ?? 0)

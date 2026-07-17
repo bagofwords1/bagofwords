@@ -52,6 +52,7 @@ from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
+from app.models.usage_policy import UsageEvent
 from app.models.instruction_build import InstructionBuild
 from app.models.report_data_source_association import report_data_source_association
 from app.models.data_source import DataSource
@@ -2118,6 +2119,34 @@ class ConsoleService:
                 if lst is not None and step_title and step_title not in lst:
                     lst.append(step_title)
 
+        # Per-turn LLM usage from the quota pipeline. The agent's
+        # UsageLimitContext writes one usage_events row per metric per run,
+        # keyed by source_ref_id = head (user) completion id, covering every
+        # LLM call in the run (planner + tool codegen). Only recorded on
+        # instances licensed for usage_limits — the map stays empty elsewhere
+        # and turns fall back to the planner-only token_usage_json in the UI.
+        _METRIC_LLM_TOKENS = "llm_tokens"
+        _METRIC_LLM_COST = "llm_cost_micro_usd"
+        turn_usage: dict[str, dict[str, int]] = {}
+        user_completion_ids = [str(r.user_completion_id) for r in rows if r.user_completion_id]
+        if user_completion_ids:
+            ue_q = (
+                select(
+                    UsageEvent.source_ref_id,
+                    UsageEvent.metric,
+                    func.coalesce(func.sum(UsageEvent.amount), 0),
+                )
+                .where(
+                    UsageEvent.organization_id == organization.id,
+                    UsageEvent.source == 'agent',
+                    UsageEvent.source_ref_id.in_(user_completion_ids),
+                    UsageEvent.metric.in_([_METRIC_LLM_TOKENS, _METRIC_LLM_COST]),
+                )
+                .group_by(UsageEvent.source_ref_id, UsageEvent.metric)
+            )
+            for ref_id, metric, amount in (await db.execute(ue_q)).all():
+                turn_usage.setdefault(str(ref_id), {})[metric] = int(amount or 0)
+
         # Most recent feedback per system completion.
         feedback_map: dict[str, dict] = {}
         if completion_ids:
@@ -2173,6 +2202,10 @@ class ConsoleService:
         for r in rows:
             counts = te_counts.get(str(r.ae_id), {'total': 0, 'success': 0, 'failed': 0})
             fb = feedback_map.get(str(r.completion_id), {'direction': 0, 'status': 'none', 'message': None})
+            usage = turn_usage.get(str(r.user_completion_id), {}) if r.user_completion_id else {}
+            turn_llm_tokens = usage.get(_METRIC_LLM_TOKENS) or None
+            _cost_micro = usage.get(_METRIC_LLM_COST) or 0
+            turn_llm_cost_usd = round(_cost_micro / 1_000_000, 6) if _cost_micro else None
             derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
             if derived_status == 'error':
                 failed_turns += 1
@@ -2200,6 +2233,8 @@ class ConsoleService:
                 response_score=r.response_score,
                 judge=r.judge_json if isinstance(r.judge_json, dict) else None,
                 total_duration_ms=r.total_duration_ms,
+                llm_tokens=turn_llm_tokens,
+                llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
             ))

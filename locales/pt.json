@@ -586,7 +586,8 @@
     "block": "Bloco",
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM nesta conversa",
-    "turnTokensTooltip": "Tokens LLM do planejador neste turno"
+    "turnTokensTooltip": "Tokens LLM do planejador neste turno",
+    "turnUsageTooltip": "Uso de LLM neste turno"
   },
   "reportView": {
     "tabChat": "Chat",

@@ -586,7 +586,8 @@
     "block": "Block",
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM-användning för denna konversation",
-    "turnTokensTooltip": "Planerarens LLM-tokens för denna tur"
+    "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "turnUsageTooltip": "LLM-användning för denna tur"
   },
   "reportView": {
     "tabChat": "Chatt",
