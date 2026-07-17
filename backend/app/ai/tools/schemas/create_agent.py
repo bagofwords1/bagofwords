@@ -59,6 +59,25 @@ class CreateAgentInput(BaseModel):
         max_length=100,
     )
 
+    use_defaults: bool = Field(
+        False,
+        description=(
+            "Set true ONLY when the user explicitly chose 'everything' / default "
+            "coverage. Without it, creating on a large catalog with no "
+            "schemas/tables/tools selection is rejected with `needs_selection` "
+            "and a menu of coverage groups — ask the user via clarify (clickable "
+            "options) and retry with their choice."
+        ),
+    )
+
+
+class SelectionGroup(BaseModel):
+    """A coarse coverage choice offered when the request had no selection."""
+
+    label: str = Field(..., description="Schema name, name-prefix glob, or tool-prefix glob.")
+    count: int = Field(0, description="How many tables/tools the group covers.")
+    kind: str = Field("schema", description="'schema' | 'prefix' | 'tool_prefix' | 'other'.")
+
 
 class CreateAgentOutput(BaseModel):
     """Output schema for create_agent tool response."""
@@ -86,7 +105,17 @@ class CreateAgentOutput(BaseModel):
         description="True when a linked connection is user_required — each user must Connect before tools run.",
     )
     message: Optional[str] = Field(None, description="Status or error message.")
+    selection_groups: List[SelectionGroup] = Field(
+        default_factory=list,
+        description=(
+            "On a `needs_selection` rejection: the coverage groups to offer the "
+            "user as clarify options (with an 'Everything' choice)."
+        ),
+    )
     rejected_reason: Optional[str] = Field(
         None,
-        description="Reason when rejected: permission_denied | name_taken | limit_reached | connection_not_found | invalid_input.",
+        description=(
+            "Reason when rejected: permission_denied | name_taken | limit_reached | "
+            "connection_not_found | needs_selection | invalid_input."
+        ),
     )

@@ -11,6 +11,10 @@
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
           <span class="align-middle">{{ $t('tools.createAgent.created') }}</span>
         </span>
+        <span v-else-if="needsSelection" class="text-gray-700 dark:text-gray-300 flex items-center">
+          <Icon name="heroicons-chat-bubble-left-right" class="w-3 h-3 me-1 text-blue-400" />
+          <span class="align-middle">{{ $t('tools.createAgent.needsSelection') }}</span>
+        </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
           <span class="align-middle">{{ $t('tools.createAgent.failed') }}</span>
@@ -18,8 +22,16 @@
       </div>
     </Transition>
 
+    <!-- Selection menu (needs_selection): compact chips, the clarify question follows. -->
+    <div v-if="needsSelection && selectionGroups.length" class="ms-1 mb-1 flex items-center gap-1 flex-wrap">
+      <span
+        v-for="g in selectionGroups" :key="g.label"
+        class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+      >{{ g.label }} · {{ g.count }}</span>
+    </div>
+
     <!-- Failure / rejection detail -->
-    <div v-if="status !== 'running' && !succeeded && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-1">
+    <div v-else-if="status !== 'running' && !succeeded && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-1">
       {{ message }}
     </div>
 
@@ -174,6 +186,8 @@ const result = computed(() => props.toolExecution?.result_json || {})
 const args = computed(() => props.toolExecution?.arguments_json || {})
 
 const succeeded = computed<boolean>(() => status.value === 'success' && result.value?.success === true && !!result.value?.data_source_id)
+const needsSelection = computed<boolean>(() => result.value?.rejected_reason === 'needs_selection')
+const selectionGroups = computed<any[]>(() => Array.isArray(result.value?.selection_groups) ? result.value.selection_groups : [])
 const message = computed<string>(() => result.value?.message || props.toolExecution?.result_summary || '')
 
 const agentId = computed<string>(() => String(result.value?.data_source_id || ''))

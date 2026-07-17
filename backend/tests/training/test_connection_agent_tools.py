@@ -299,6 +299,110 @@ async def test_create_agent_with_schema_selection_and_report_attach():
 
 
 @pytest.mark.asyncio
+async def test_create_agent_large_catalog_requires_selection():
+    """A large tables catalog with no selection is rejected with a coverage
+    menu instead of silently creating a near-empty agent; use_defaults and an
+    explicit selection both pass. Small catalogs skip the interview."""
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        ctx = {"db": db, "organization": org, "user": admin}
+
+        # 30 tables across two schemas → above the menu threshold.
+        big = Connection(name=f"big-{ids['suffix']}", type="postgresql",
+                         config="{}", organization_id=org.id, is_active=True)
+        db.add(big); await db.flush()
+        for i in range(20):
+            db.add(_tbl(big.id, f"orders_{i:02d}", "sales"))
+        for i in range(10):
+            db.add(_tbl(big.id, f"events_{i:02d}", "analytics"))
+        await db.commit()
+
+        # No selection → needs_selection with schema groups; nothing created.
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Big Agent {ids['suffix']}", "connection_ids": [str(big.id)],
+        }, ctx)
+        out = ev.payload["output"]
+        assert out["success"] is False and out["rejected_reason"] == "needs_selection", out
+        groups = {g["label"]: g["count"] for g in out["selection_groups"]}
+        assert groups == {"sales": 20, "analytics": 10}, groups
+        assert not (await db.execute(
+            select(DataSource).where(DataSource.name == f"Big Agent {ids['suffix']}")
+        )).scalars().all()
+
+        # Explicit 'everything' → created.
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Big Agent {ids['suffix']}", "connection_ids": [str(big.id)],
+            "use_defaults": True,
+        }, ctx)
+        assert ev.payload["output"]["success"] is True, ev.payload["output"]
+
+        # Small catalog (4 tables) → no interview, creates directly.
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Small Agent {ids['suffix']}", "connection_ids": [ids["conn_main"]],
+        }, ctx)
+        assert ev.payload["output"]["success"] is True, ev.payload["output"]
+
+
+@pytest.mark.asyncio
+async def test_needs_selection_prefix_and_tool_groups():
+    """Schemaless catalogs cluster by name prefix; big tool sets cluster by
+    verb prefix — both offered as glob-shaped choices."""
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+        ctx = {"db": db, "organization": org, "user": admin}
+
+        flat = Connection(name=f"flat-{ids['suffix']}", type="duckdb",
+                          config="{}", organization_id=org.id, is_active=True)
+        toolsy = Connection(name=f"toolsy-{ids['suffix']}", type="mcp",
+                            config="{}", organization_id=org.id, is_active=True)
+        db.add_all([flat, toolsy]); await db.flush()
+        for i in range(18):
+            db.add(_tbl(flat.id, f"fin_table_{i:02d}", None))
+        for i in range(12):
+            db.add(_tbl(flat.id, f"ops_table_{i:02d}", None))
+        for i in range(10):
+            db.add(ConnectionTool(name=f"get_thing_{i}", connection_id=toolsy.id,
+                                  is_enabled=True, policy="allow"))
+        for i in range(6):
+            db.add(ConnectionTool(name=f"send_thing_{i}", connection_id=toolsy.id,
+                                  is_enabled=True, policy="confirm"))
+        await db.commit()
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Flat Agent {ids['suffix']}", "connection_ids": [str(flat.id)],
+        }, ctx)
+        out = ev.payload["output"]
+        assert out["rejected_reason"] == "needs_selection", out
+        groups = {g["label"]: g["count"] for g in out["selection_groups"]}
+        assert groups == {"fin_*": 18, "ops_*": 12}, groups
+        # The offered glob works as-is when retried.
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Flat Agent {ids['suffix']}", "connection_ids": [str(flat.id)],
+            "tables": ["fin_*"],
+        }, ctx)
+        out = ev.payload["output"]
+        assert out["success"] is True and out["tables_active"] == 18, out
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Toolsy Agent {ids['suffix']}", "connection_ids": [str(toolsy.id)],
+        }, ctx)
+        out = ev.payload["output"]
+        assert out["rejected_reason"] == "needs_selection", out
+        groups = {g["label"]: g["count"] for g in out["selection_groups"]}
+        assert groups == {"get_*": 10, "send_*": 6}, groups
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Toolsy Agent {ids['suffix']}", "connection_ids": [str(toolsy.id)],
+            "tools": ["get_*"],
+        }, ctx)
+        out = ev.payload["output"]
+        assert out["success"] is True and out["tools_enabled"] == 10, out
+
+
+@pytest.mark.asyncio
 async def test_agent_with_tool_overlays_can_be_deleted():
     """Deleting an agent whose tool selection created overlay rows must work —
     the ORM cascades the DataSourceConnectionTool rows instead of NULLing

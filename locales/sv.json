@@ -1017,7 +1017,8 @@
       },
       "emptyTab": "Inget här ännu.",
       "open": "Öppna agent",
-      "editHint": "Finjustera tabeller och verktyg på agentsidan."
+      "editHint": "Finjustera tabeller och verktyg på agentsidan.",
+      "needsSelection": "Vilka data ska den här agenten täcka?"
     },
     "wait": {
       "waiting": "Waiting",

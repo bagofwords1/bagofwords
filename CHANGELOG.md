@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.463 (July 17, 2026)
+- **Guided agent creation in training mode** — asking for an agent without saying what it should cover now starts a short, friendly interview: the assistant inspects the connection, then asks with clickable choices (schema or name-prefix groups with table counts, tool verb groups for MCP connections, plus "Everything") before creating anything. `create_agent` enforces it: on a large catalog with no selection it returns a `needs_selection` menu instead of silently creating a near-empty agent; an explicit `use_defaults` input covers the "everything" choice.
+
 ## Version 0.0.462 (July 17, 2026)
 - **Per-model context window override (#680)** — admins can set a model's real context-window size in Settings → LLM and it now survives catalog re-syncs. Deployments that serve a model with a smaller window (e.g. AWS Bedrock capped at 100k) no longer fail mid-analysis with "context length exceeded", and the context-usage meter reflects the true limit. Clearing the override restores the catalog default.
 - **Eval runs finalize server-side (#681, #682)** — a background eval run now evaluates its assertions and leaves `in_progress` on its own, per case, instead of waiting for someone to open the run page to drive the evaluation; the aggregate is idempotent and records the authoritative pass/fail/error status even under concurrent finalizers.

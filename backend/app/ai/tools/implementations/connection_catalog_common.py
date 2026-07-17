@@ -103,6 +103,76 @@ def table_schema_of(row) -> Optional[str]:
     return None
 
 
+def _prefix_of(name: str) -> str:
+    """Grouping prefix for a schemaless catalog name: the schema part when the
+    name is dot-qualified, else the token before the first underscore."""
+    if "." in name:
+        return name.split(".", 1)[0]
+    if "_" in name:
+        return name.split("_", 1)[0]
+    return name
+
+
+async def table_selection_groups(db, connection_ids: List[str], limit: int = 10) -> List[dict]:
+    """Coarse selection menu for the tables catalog of the given connections:
+    schema names with counts when schemas exist, else name-prefix clusters.
+    Used to turn an unselected create_agent into a clickable clarify question."""
+    from sqlalchemy import func, select
+    from app.models.connection_table import ConnectionTable
+
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind else "sqlite"
+    if dialect_name == "postgresql":
+        schema_expr = ConnectionTable.metadata_json.op("->>")("schema")
+    else:
+        schema_expr = func.json_extract(ConnectionTable.metadata_json, "$.schema")
+
+    rows = await db.execute(
+        select(schema_expr, func.count(ConnectionTable.id))
+        .where(ConnectionTable.connection_id.in_(connection_ids))
+        .group_by(schema_expr)
+    )
+    by_schema = {(str(s) if s else None): int(n or 0) for s, n in rows.all()}
+
+    named = {s: n for s, n in by_schema.items() if s}
+    if named:
+        groups = [{"label": s, "count": n, "kind": "schema"} for s, n in named.items()]
+    else:
+        # Schemaless (SQLite/DuckDB): cluster by name prefix.
+        name_rows = await db.execute(
+            select(ConnectionTable.name).where(ConnectionTable.connection_id.in_(connection_ids))
+        )
+        counts: dict = {}
+        for (name,) in name_rows.all():
+            if name:
+                counts[_prefix_of(name)] = counts.get(_prefix_of(name), 0) + 1
+        groups = [{"label": f"{p}_*" if "." not in p else p, "count": n, "kind": "prefix"}
+                  for p, n in counts.items()]
+    groups.sort(key=lambda g: -g["count"])
+    if len(groups) > limit:
+        rest = sum(g["count"] for g in groups[limit:])
+        groups = groups[:limit] + [{"label": "other", "count": rest, "kind": "other"}]
+    return groups
+
+
+async def tool_selection_groups(db, connection_ids: List[str], limit: int = 10) -> List[dict]:
+    """Coarse selection menu for tool providers: tools clustered by verb prefix
+    (get/list/search/create/…), so 'read-only' style choices are one click."""
+    from sqlalchemy import select
+    from app.models.connection_tool import ConnectionTool
+
+    rows = await db.execute(
+        select(ConnectionTool.name).where(ConnectionTool.connection_id.in_(connection_ids))
+    )
+    counts: dict = {}
+    for (name,) in rows.all():
+        if name:
+            counts[_prefix_of(name)] = counts.get(_prefix_of(name), 0) + 1
+    groups = [{"label": f"{p}_*", "count": n, "kind": "tool_prefix"} for p, n in counts.items()]
+    groups.sort(key=lambda g: -g["count"])
+    return groups[:limit]
+
+
 def can_create_on_connection(resolved, connection_id: str) -> bool:
     """The per-connection half of the create-agents tier."""
     return resolved.has_resource_permission("connection", str(connection_id), "create_data_sources")

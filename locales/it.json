@@ -1017,7 +1017,8 @@
       },
       "emptyTab": "Ancora niente qui.",
       "open": "Apri agente",
-      "editHint": "Perfeziona tabelle e strumenti nella pagina dell'agente."
+      "editHint": "Perfeziona tabelle e strumenti nella pagina dell'agente.",
+      "needsSelection": "Quali dati deve coprire questo agente?"
     },
     "wait": {
       "waiting": "Waiting",

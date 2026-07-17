@@ -1163,7 +1163,8 @@
       },
       "emptyTab": "Nothing here yet.",
       "open": "Open agent",
-      "editHint": "Refine tables & tools on the agent page."
+      "editHint": "Refine tables & tools on the agent page.",
+      "needsSelection": "Which data should this agent cover?"
     },
     "wait": {
       "waiting": "Waiting",
