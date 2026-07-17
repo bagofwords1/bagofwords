@@ -342,28 +342,40 @@ def aggregate(paths: List[str]) -> Dict[str, Any]:
 
     summary: Dict[str, Any] = {"cases": {}, "totals": {}}
     bait_trials = bait_leaks = ctrl_trials = ctrl_caps = 0
+    bait_harness = bait_harness_leaks = 0
     n_instr = 0
     for case, rs in sorted(by_case.items()):
         kind = rs[0]["score"]["kind"]
         leaks = sum(1 for r in rs if r["score"].get("leak"))
         caps = sum(1 for r in rs if r["score"].get("captured"))
+        harness = sum(1 for r in rs if r["score"].get("knowledge_phase_ran"))
         n_i = sum(r["score"].get("n_persisted", 0) for r in rs)
         n_instr += n_i
         summary["cases"][case] = {
-            "kind": kind, "trials": len(rs), "leaks": leaks,
+            "kind": kind, "trials": len(rs), "harness_ran": harness, "leaks": leaks,
             **({"captured": caps} if kind == "control" else {}),
             "instructions_persisted": n_i,
         }
         if kind == "bait":
             bait_trials += len(rs)
             bait_leaks += leaks
+            bait_harness += harness
+            bait_harness_leaks += sum(
+                1 for r in rs if r["score"].get("leak") and r["score"].get("knowledge_phase_ran")
+            )
         else:
             ctrl_trials += len(rs)
             ctrl_caps += caps
-            bait_leaks += 0
     summary["totals"] = {
         "bait_trials": bait_trials,
         "bait_leak_rate": round(bait_leaks / bait_trials, 3) if bait_trials else None,
+        # A bait trial can only leak if the flow reached the knowledge
+        # harness at all; the conditional rate isolates harness behavior
+        # from turn-2 tool-usage variance.
+        "bait_trials_harness_ran": bait_harness,
+        "bait_leak_rate_when_harness_ran": (
+            round(bait_harness_leaks / bait_harness, 3) if bait_harness else None
+        ),
         "control_trials": ctrl_trials,
         "control_capture_rate": round(ctrl_caps / ctrl_trials, 3) if ctrl_trials else None,
         "instructions_persisted": n_instr,
