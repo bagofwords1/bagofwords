@@ -1328,3 +1328,193 @@ def test_pending_badge_excludes_inaccessible_private_agent(
     sweep = test_client.get("/api/instructions/pending-changes", headers=headers)
     assert sweep.status_code == 200, sweep.json()
     assert sweep.json()["instruction_ids"] == []
+
+
+def _inject_new_instruction_suggestion(org_id, proposed_text, source="ai", status="pending_approval"):
+    """Insert a brand-NEW instruction that exists ONLY in a pending suggestion
+    build — absent from the main build. Mirrors what the AI training flow's
+    create_instruction tool leaves behind: a draft live row caching the proposed
+    text, current_version_id pointing at the staged (status='published') version,
+    and a non-main build (forked from main) carrying it. Returns (iid, bid)."""
+    import os, uuid, datetime
+    from sqlalchemy import create_engine, text
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    now = datetime.datetime.utcnow()
+    iid, vid, bid, bcid = (str(uuid.uuid4()) for _ in range(4))
+    try:
+        with engine.begin() as conn:
+            main = conn.execute(
+                text(
+                    "SELECT id FROM instruction_builds WHERE organization_id=:org"
+                    " AND is_main=:is_main AND deleted_at IS NULL"
+                ),
+                {"org": org_id, "is_main": True},
+            ).mappings().fetchone()
+            assert main is not None, "org should already have a main build"
+            bnum = conn.execute(
+                text("SELECT COALESCE(MAX(build_number),0)+1 FROM instruction_builds WHERE organization_id=:org"),
+                {"org": org_id},
+            ).scalar()
+            conn.execute(
+                text(
+                    "INSERT INTO instructions (id,created_at,updated_at,text,thumbs_up,status,category,kind,"
+                    "is_seen,can_user_toggle,organization_id,source_type,load_mode,source_sync_enabled)"
+                    " VALUES (:id,:ca,:ua,:txt,:tu,:status,:cat,:kind,:seen,:tog,:org,:st,:lm,:sync)"
+                ),
+                {"id": iid, "ca": now, "ua": now, "txt": proposed_text, "tu": 0,
+                 "status": "draft", "cat": "general", "kind": "instruction",
+                 "seen": True, "tog": True, "org": org_id, "st": source, "lm": "always", "sync": True},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_versions (id,created_at,updated_at,instruction_id,version_number,text,status,load_mode,content_hash)"
+                    " VALUES (:id,:ca,:ua,:iid,:vnum,:txt,:status,:load_mode,:chash)"
+                ),
+                {"id": vid, "ca": now, "ua": now, "iid": iid, "vnum": 1, "txt": proposed_text,
+                 "status": "published", "load_mode": "always", "chash": "h" + uuid.uuid4().hex[:12]},
+            )
+            conn.execute(
+                text("UPDATE instructions SET current_version_id=:vid WHERE id=:iid"),
+                {"vid": vid, "iid": iid},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO instruction_builds (id,created_at,updated_at,build_number,status,source,is_main,organization_id,base_build_id,title)"
+                    " VALUES (:id,:ca,:ua,:bnum,:status,:source,:is_main,:org,:base,:title)"
+                ),
+                {"id": bid, "ca": now, "ua": now, "bnum": bnum, "status": status, "source": source,
+                 "is_main": False, "org": org_id, "base": main["id"], "title": "new-instruction suggestion"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO build_contents (id,created_at,updated_at,build_id,instruction_id,instruction_version_id)"
+                    " VALUES (:id,:ca,:ua,:bid,:iid,:vid)"
+                ),
+                {"id": bcid, "ca": now, "ua": now, "bid": bid, "iid": iid, "vid": vid},
+            )
+    finally:
+        engine.dispose()
+    return iid, bid
+
+
+@pytest.mark.e2e
+def test_new_instruction_review_shows_full_text_as_pending_hunk(
+    test_client,
+    create_global_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Regression: a brand-NEW instruction staged in a pending build (absent from
+    main) used to render an EMPTY review — "0 changes / all resolved" — because
+    the main-text fallback read the instruction's own staged draft and diffed the
+    proposal against itself. The correct baseline for a not-yet-live instruction
+    is empty text: the review must surface the whole draft as one insertion hunk,
+    and every pending surface (review-hunks, /pending-changes, the pending_only
+    list, pending-builds) must agree it is pending."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    # Ensure the org has a main build (a live instruction creates+promotes one).
+    create_global_instruction(text="existing live rule", user_token=token, org_id=org_id, status="published")
+    iid, bid = _inject_new_instruction_suggestion(org_id, "brand new AI rule")
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["main_text"] == ""
+    assert review["main_version_id"] is None
+    assert [s["build_id"] for s in review["suggestions"]] == [bid]
+    hunks = review["suggestions"][0]["hunks"]
+    assert len(hunks) == 1, hunks
+    assert hunks[0]["before"] == ""
+    assert hunks[0]["after"] == "brand new AI rule"
+
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers).json()
+    assert iid in sweep["instruction_ids"]
+
+    plist = test_client.get(
+        "/api/instructions",
+        params={"pending_only": "true", "include_own": "true",
+                "include_drafts": "true", "include_archived": "true", "limit": 200},
+        headers=headers,
+    ).json()
+    assert iid in {r["id"] for r in plist["items"]}
+
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert [b["build_id"] for b in pending] == [bid]
+    assert pending[0]["pending_text"] == "brand new AI rule"
+    assert pending[0]["base_text"] == ""
+
+
+@pytest.mark.e2e
+def test_new_instruction_accept_all_makes_it_live(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Accepting a NEW instruction's insertion hunk promotes it into main and
+    flips the live row to published; every pending surface then agrees it is
+    resolved."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    create_global_instruction(text="existing live rule", user_token=token, org_id=org_id, status="published")
+    iid, _bid = _inject_new_instruction_suggestion(org_id, "brand new AI rule")
+
+    resp = test_client.post(f"/api/instructions/{iid}/hunks/accept-all", json={}, headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    detail = get_instruction(iid, user_token=token, org_id=org_id)
+    assert detail["text"] == "brand new AI rule"
+    assert detail["status"] == "published"
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == []
+    assert review["main_text"] == "brand new AI rule"
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers).json()
+    assert iid not in sweep["instruction_ids"]
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert pending == []
+
+
+@pytest.mark.e2e
+def test_new_instruction_reject_all_resolves_everywhere(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Rejecting a NEW instruction's insertion hunk resolves it on EVERY pending
+    surface (review-hunks, the sweep, and pending-builds — which used to ignore
+    per-hunk rejections for creates) without making it live."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    create_global_instruction(text="existing live rule", user_token=token, org_id=org_id, status="published")
+    iid, _bid = _inject_new_instruction_suggestion(org_id, "brand new AI rule")
+
+    resp = test_client.post(f"/api/instructions/{iid}/hunks/reject-all", json={}, headers=headers)
+    assert resp.status_code == 200, resp.json()
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == []
+    sweep = test_client.get("/api/instructions/pending-changes", headers=headers).json()
+    assert iid not in sweep["instruction_ids"]
+    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
+    assert pending == []
+    # Not live: the row stays a draft and main gained no content for it.
+    detail = get_instruction(iid, user_token=token, org_id=org_id)
+    assert detail["status"] == "draft"
