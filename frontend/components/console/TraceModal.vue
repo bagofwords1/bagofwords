@@ -45,8 +45,11 @@
                 </div>
             </template>
 
-            <!-- Content: conversation rail + per-turn detail -->
-            <div class="h-[620px] flex">
+            <!-- Content: conversation rail + per-turn detail.
+                 Cap to the viewport (header ≈ 70px + modal margins) so the card
+                 never outgrows the screen — otherwise UModal's overlay becomes
+                 scrollable and the whole modal scrolls like a page. -->
+            <div class="h-[620px] max-h-[calc(100vh-180px)] flex">
                 <!-- Pane A: whole conversation, rendered like the chat -->
                 <div class="w-[40%] flex-shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col min-h-0">
                     <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center justify-between">
