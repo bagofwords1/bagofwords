@@ -1,6 +1,7 @@
 # Training mode — list connections, create agent (one-prompt tables/tools)
 
-**Status:** Design v2 — not implemented.
+**Status:** Implemented — see `docs/feedback-loops/training-mode-connections-agent-tools.md`
+for the runnable verification loops (registry gating, RBAC tool tests, live LLM + UI).
 **Branch:** `claude/training-mode-connections-yodm9m`
 
 Extends **training mode** so the AI can *build* an agent, not just curate one — and so

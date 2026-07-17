@@ -192,7 +192,7 @@ async function loadAgentState() {
       useMyFetch(`/data_sources/${agentId.value}/connections`, { method: 'GET' }),
     ])
     const schema: any = schemaData?.value
-    if (schema?.items?.length) tableItems.value = schema.items
+    if (schema?.tables?.length) tableItems.value = schema.tables
     const tools: any = toolsData?.value
     if (Array.isArray(tools)) toolRows.value = tools
     const conns: any = connsData?.value
