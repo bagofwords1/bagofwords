@@ -188,7 +188,25 @@ def _collect_outcomes(org_id: str, pre_existing_ids: set) -> Dict[str, Any]:
             {"execution": ae[:8], "tool": t, "phase": ph, "success": bool(s)}
             for ae, t, ph, s in cur.fetchall()
         ]
-        return {"persisted": persisted, "attempted": attempted, "all_tools": all_tools}
+        # Harness planner steps (the harness can run and exit without any
+        # tool call, so detection must use plan_decisions, not tools).
+        cur.execute(
+            "SELECT pd.action_name, pd.analysis_complete, substr(pd.final_answer, 1, 300) "
+            "FROM plan_decisions pd "
+            "JOIN agent_executions ae ON ae.id = pd.agent_execution_id "
+            "JOIN reports r ON r.id = ae.report_id "
+            "WHERE r.organization_id = ? AND pd.phase = 'knowledge_harness' "
+            "ORDER BY pd.created_at",
+            (str(org_id),),
+        )
+        harness_steps = [
+            {"action": a, "analysis_complete": bool(ac), "final_answer": fa}
+            for a, ac, fa in cur.fetchall()
+        ]
+        return {
+            "persisted": persisted, "attempted": attempted,
+            "all_tools": all_tools, "harness_steps": harness_steps,
+        }
     finally:
         con.close()
 
@@ -274,9 +292,7 @@ def test_overfit_benchmark_case(
     ]
     outcomes = _collect_outcomes(org_id, pre_existing)
     score = _score(case_name, outcomes)
-    score["knowledge_phase_ran"] = any(
-        t["phase"] == "knowledge_harness" for t in outcomes["all_tools"]
-    )
+    score["knowledge_phase_ran"] = bool(outcomes["harness_steps"])
 
     if os.getenv("BENCH_KEEP_DB") == "1":
         import shutil
@@ -294,6 +310,7 @@ def test_overfit_benchmark_case(
         "persisted": outcomes["persisted"],
         "attempted": outcomes["attempted"],
         "all_tools": outcomes["all_tools"],
+        "harness_steps": outcomes["harness_steps"],
         "turn_tools": turn_tools,
     }
     _append(entry)
