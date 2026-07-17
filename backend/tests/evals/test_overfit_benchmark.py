@@ -119,20 +119,37 @@ def _db_file_from_env() -> Path:
     return p
 
 
-def _collect_outcomes(org_id: str) -> Dict[str, Any]:
-    """Read persisted instructions + attempted instruction tool calls
-    for ``org_id`` straight from the sqlite test DB."""
+def _instruction_ids(org_id: str) -> set:
+    """Ids of instructions currently persisted for the org (pre-run
+    snapshot — the chinook demo install seeds sample instructions that
+    must not be scored)."""
     con = sqlite3.connect(str(_db_file_from_env()))
     try:
         cur = con.cursor()
         cur.execute(
-            "SELECT text, status, load_mode, category FROM instructions "
+            "SELECT id FROM instructions WHERE organization_id = ?",
+            (str(org_id),),
+        )
+        return {r[0] for r in cur.fetchall()}
+    finally:
+        con.close()
+
+
+def _collect_outcomes(org_id: str, pre_existing_ids: set) -> Dict[str, Any]:
+    """Read newly persisted instructions + attempted instruction tool
+    calls for ``org_id`` straight from the sqlite test DB."""
+    con = sqlite3.connect(str(_db_file_from_env()))
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id, text, status, load_mode, category FROM instructions "
             "WHERE organization_id = ? AND deleted_at IS NULL",
             (str(org_id),),
         )
         persisted = [
-            {"text": r[0], "status": r[1], "load_mode": r[2], "category": r[3]}
+            {"text": r[1], "status": r[2], "load_mode": r[3], "category": r[4]}
             for r in cur.fetchall()
+            if r[0] not in pre_existing_ids
         ]
         cur.execute(
             "SELECT te.tool_name, te.arguments_json, te.success, te.status "
@@ -155,7 +172,21 @@ def _collect_outcomes(org_id: str) -> Dict[str, Any]:
                 "success": bool(success),
                 "status": status,
             })
-        return {"persisted": persisted, "attempted": attempted}
+        # Diagnostics: every tool call in the run + whether the knowledge
+        # harness phase produced plan decisions. Not part of the metric.
+        cur.execute(
+            "SELECT te.tool_name, COALESCE(pd.phase, 'main'), te.success "
+            "FROM tool_executions te "
+            "JOIN agent_executions ae ON ae.id = te.agent_execution_id "
+            "JOIN reports r ON r.id = ae.report_id "
+            "LEFT JOIN plan_decisions pd ON pd.id = te.plan_decision_id "
+            "WHERE r.organization_id = ? ORDER BY te.created_at",
+            (str(org_id),),
+        )
+        all_tools = [
+            {"tool": t, "phase": ph, "success": bool(s)} for t, ph, s in cur.fetchall()
+        ]
+        return {"persisted": persisted, "attempted": attempted, "all_tools": all_tools}
     finally:
         con.close()
 
@@ -218,13 +249,18 @@ def test_overfit_benchmark_case(
     assert imported.status_code == 200, imported.text
     case_id = imported.json()["cases_by_name"][case_name]
 
+    pre_existing = _instruction_ids(org_id)
+
     t0 = time.time()
     run_data = run_case_and_wait([case_id], user_token=token, org_id=org_id, timeout_s=420)
     duration_ms = int((time.time() - t0) * 1000)
 
     result = run_data["results"][0]
-    outcomes = _collect_outcomes(org_id)
+    outcomes = _collect_outcomes(org_id, pre_existing)
     score = _score(case_name, outcomes)
+    score["knowledge_phase_ran"] = any(
+        t["phase"] == "knowledge_harness" for t in outcomes["all_tools"]
+    )
 
     entry = {
         "case": case_name,
@@ -235,6 +271,7 @@ def test_overfit_benchmark_case(
         "score": score,
         "persisted": outcomes["persisted"],
         "attempted": outcomes["attempted"],
+        "all_tools": outcomes["all_tools"],
     }
     _append(entry)
     print(f"[bench] score={json.dumps(score, ensure_ascii=False)}", flush=True)
