@@ -343,9 +343,11 @@
 											@published="() => loadCompletions({ skipEstimate: true })"
 										/>
 
-										<!-- Thinking dots when system is working but no visible progress - moved to end -->
-										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
-											<div class="simple-dots"></div>
+										<!-- Thinking indicator (spinner + shimmer + live elapsed) while the completion runs -->
+										<div v-if="shouldShowThinkingIndicator(m)" class="mt-2 flex items-center gap-2 text-xs select-none" aria-live="polite">
+											<Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+											<span class="thinking-shimmer">{{ $t('prompt.thinking', 'Thinking') }}</span>
+											<span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel(m) }}</span>
 										</div>
 									</div>
 
@@ -987,6 +989,19 @@ const isCompletionInProgress = ref<boolean>(false)
 const hasInProgressCompletion = computed(() =>
 	messages.value.some(m => m.role === 'system' && m.status === 'in_progress')
 )
+// 1s heartbeat for the thinking indicator's live elapsed counter; only runs
+// while a completion is in progress.
+const thinkingNowTick = ref<number>(Date.now())
+let thinkingTickTimer: ReturnType<typeof setInterval> | null = null
+watch(hasInProgressCompletion, (active) => {
+	if (active && !thinkingTickTimer) {
+		thinkingNowTick.value = Date.now()
+		thinkingTickTimer = setInterval(() => { thinkingNowTick.value = Date.now() }, 1000)
+	} else if (!active && thinkingTickTimer) {
+		clearInterval(thinkingTickTimer)
+		thinkingTickTimer = null
+	}
+}, { immediate: true })
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -1709,66 +1724,29 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 	       (toolExecution.created_widget || toolExecution.created_step)
 }
 
-function shouldShowWorkingDots(message: ChatMessage): boolean {
-	// Only show for system messages that are in progress
-	if (message.role !== 'system' || message.status !== 'in_progress') {
-		return false
-	}
-	
-	// Don't show dots if the message was killed (sigkill timestamp exists)
-	if (message.sigkill) {
-		return false
-	}
-	
-	// CASE 1: No blocks yet - show dots (initial startup phase)
-	if (!message.completion_blocks || message.completion_blocks.length === 0) {
-		return true
-	}
-	
-	// CASE 2: Blocks exist but no meaningful content yet (early startup)
-	const hasAnyMeaningfulContent = message.completion_blocks.some(block => 
-		block.plan_decision?.reasoning || 
-		block.reasoning || 
-		block.content ||
-		block.tool_execution
-	)
-	
-	// If no meaningful content yet, show dots
-	if (!hasAnyMeaningfulContent) {
-		return true
-	}
-	
-	// CASE 3: Check if we're in a "gap" between blocks during streaming
-	const lastBlock = message.completion_blocks[message.completion_blocks.length - 1]
-	
-	// If the last block has final_answer and analysis_complete, we're truly done
-	if (lastBlock?.plan_decision?.analysis_complete === true) {
-		return false
-	}
-	
-	// Check if the last block has finished its main content but no tools are running
-	const lastBlockHasContent = lastBlock && (
-		lastBlock.content ||
-		lastBlock.plan_decision?.final_answer
-	)
-	
-	// Check if tools are actively running
-	const hasActiveTools = message.completion_blocks.some(block => 
-		block.tool_execution?.status === 'running' || 
-		block.status === 'in_progress'
-	)
-	
-	// Check if any block is actively streaming text (has reasoning but no assistant yet)
-	const hasStreamingContent = message.completion_blocks.some(block => 
-		(block.plan_decision?.reasoning && !block.content) ||
-		(block.reasoning && !block.content)
-	)
-	
-	// Show dots when:
-	// 1. System is in progress AND
-	// 2. No active tools/streaming AND
-	// 3. Last block has content but system continues (preparing next block)
-	return !hasActiveTools && !hasStreamingContent && (!!lastBlockHasContent && message.status === 'in_progress')
+// Thinking indicator: unlike the old "working dots" (which only filled the gaps
+// between blocks), this stays visible for the entire run so the live elapsed
+// counter never blinks out mid-completion.
+function shouldShowThinkingIndicator(message: ChatMessage): boolean {
+	return message.role === 'system' && message.status === 'in_progress' && !message.sigkill
+}
+
+// Backend timestamps are naive UTC (models/base.py: datetime.utcnow) — append
+// 'Z' when no timezone marker is present so Date.parse doesn't read them as
+// local time. Client-generated placeholders use toISOString(), which has 'Z'.
+function parseUtcTimestamp(value?: string): number | null {
+	if (!value) return null
+	const iso = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : value + 'Z'
+	const t = Date.parse(iso)
+	return Number.isNaN(t) ? null : t
+}
+
+function thinkingElapsedLabel(message: ChatMessage): string {
+	const started = parseUtcTimestamp(message.created_at)
+	if (started === null) return ''
+	const s = Math.max(0, Math.floor((thinkingNowTick.value - started) / 1000))
+	if (s < 60) return `${s}s`
+	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
 }
 
 function getThoughtProcessLabel(block: CompletionBlock): string {
@@ -3332,6 +3310,7 @@ onUnmounted(() => {
 	stopScheduledCompletionsPoll()
 	stopWatchStream()
 	stopKickoffWatchdog()
+	if (thinkingTickTimer) { clearInterval(thinkingTickTimer); thinkingTickTimer = null }
 	document.removeEventListener('visibilitychange', onStreamVisibilityChange)
 	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
@@ -3548,6 +3527,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		role: 'system',
 		status: 'in_progress',
 		model: data.model_id || undefined,
+		// Anchors the thinking indicator's elapsed counter until the server
+		// message (with its own created_at) replaces this placeholder.
+		created_at: new Date().toISOString(),
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)
@@ -4354,8 +4336,16 @@ onMounted(async () => {
 	}
 }
 
-@keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
-.simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }
+/* Shining "Thinking" label for the in-progress indicator, à la Codex */
+.thinking-shimmer {
+	background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: shimmer 2s linear infinite;
+	font-weight: 400;
+}
 
 @keyframes shimmer {
 	0% { background-position: -100% 0; }
