@@ -36,7 +36,7 @@ def _create_instruction(test_client, token, org_id, **fields):
     return resp.json()
 
 
-async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=True):
+async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=True, report_id=None):
     from app.dependencies import async_session_maker
     from app.ai.tools.implementations.read_instruction import ReadInstructionTool
 
@@ -50,7 +50,7 @@ async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=Tr
         }
         if with_report:
             ctx["report"] = SimpleNamespace(
-                id=str(uuid.uuid4()),
+                id=report_id or str(uuid.uuid4()),
                 data_sources=[SimpleNamespace(id=d) for d in (scope_ds_ids or [])],
             )
         end = None
@@ -122,13 +122,17 @@ async def test_read_regular_instruction(create_user, login_user, whoami, test_cl
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_read_records_on_demand_usage(create_user, login_user, whoami, test_client):
+async def test_read_records_on_demand_usage(create_user, login_user, whoami, test_client, create_report):
     token, uid, org_id = _new_admin(create_user, login_user, whoami)
     instr = _create_instruction(
         test_client, token, org_id,
         text="Usage tracked rule.", title="Tracked", kind="instruction", load_mode="intelligent",
     )
-    out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
+    # The usage event's report_id FK is enforced on postgres, so the tool must
+    # run against a report that actually exists (a random UUID only survives
+    # sqlite, where FKs aren't enforced).
+    report = create_report(user_token=token, org_id=org_id)
+    out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id, report_id=report["id"])
     assert out["success"] is True, out
 
     from app.dependencies import async_session_maker
