@@ -459,7 +459,9 @@
     "queued": "בתור",
     "steerNow": "הכוונה עכשיו אל ההשלמה הרצה",
     "sendNow": "שלח עכשיו",
-    "removeFromQueue": "הסרה מהתור"
+    "removeFromQueue": "הסרה מהתור",
+    "modelAuto": "אוטומטי",
+    "modelAutoHint": "הנתב בוחר את המודל המתאים"
   },
   "reports": {
     "title": "דוחות",

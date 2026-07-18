@@ -40,32 +40,33 @@
                 </button>
             </div>
         </div>
-        <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 rounded-lg shadow">
-            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead class="bg-gray-50 dark:bg-gray-900">
+        <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+            <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+                <thead class="bg-gray-50/60 dark:bg-gray-900">
                     <tr>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colModel') }}</th>
-                        <th v-if="autoRouterOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colRouting') }}</th>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colCost') }}</th>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('settings.llms.colStatus') }}</th>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colModel') }}</th>
+                        <th v-if="autoRouterOn" class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colRouting') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colCost') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.colStatus') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
                             <UTooltip :text="$t('settings.llms.visionTooltip')">{{ $t('settings.llms.colVision') }}</UTooltip>
                         </th>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
                             <UTooltip :text="$t('settings.llms.contextTooltip')">{{ $t('settings.llms.colContext') }}</UTooltip>
                         </th>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="canManageAccess">Access</th>
-                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
+                        <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400" v-if="canManageAccess">Access</th>
+                        <th class="sticky right-0 z-20 bg-gray-50 dark:bg-gray-900 border-s border-gray-200 dark:border-gray-800 px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400" v-if="useCan('manage_llm_settings')">{{ $t('settings.llms.colActions') }}</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="model in filteredModels" :key="model.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td class="px-4 py-2.5 whitespace-nowrap">
+                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+                    <tr v-for="model in filteredModels" :key="model.id" class="group hover:bg-gray-50/70 dark:hover:bg-gray-800/50 transition-colors">
+                        <td class="px-4 py-2 whitespace-nowrap">
                             <div class="flex items-center">
-                                <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center">
-                                    <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-6 w-6" />
+                                <div class="flex-shrink-0 h-7 w-7 flex items-center justify-center">
+                                    <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-5 w-5" />
                                 </div>
-                                <div class="ms-4">
+                                <div class="ms-2.5 leading-tight">
                                     <div class="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
                                         {{ model.name }}
                                         <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
@@ -79,8 +80,8 @@
                                 </div>
                             </div>
                         </td>
-                        <td v-if="autoRouterOn" class="px-4 py-2.5 text-sm align-middle" data-testid="llm-routing-cell">
-                            <div class="min-w-[13rem]">
+                        <td v-if="autoRouterOn" class="px-4 py-2 text-sm align-middle w-full" data-testid="llm-routing-cell">
+                            <div class="min-w-[20rem] max-w-[32rem]">
                                 <span v-if="!model.is_enabled" class="text-xs text-gray-400 italic">{{ $t('settings.llms.routingNotAvailable') }}</span>
                                 <!-- Routing guidance (only editable target when enabled) -->
                                 <div v-else>
@@ -115,7 +116,7 @@
                                 </div>
                             </div>
                         </td>
-                        <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
                             <div v-if="editingCostId === model.id" class="flex items-end gap-1">
                                 <label class="flex flex-col text-[10px] text-gray-400 uppercase tracking-wide">
                                     {{ $t('settings.llms.costInput') }}
@@ -151,14 +152,14 @@
                                 </span>
                             </UTooltip>
                         </td>
-                        <td class="px-4 py-2.5 whitespace-nowrap text-sm">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm">
                             <UToggle
                                 v-model="model.is_enabled"
                                 @change="toggleModel(model.id, $event)"
                                 :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default"
                             />
                         </td>
-                        <td class="px-4 py-2.5 whitespace-nowrap text-sm">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm">
                             <UTooltip :text="$t('settings.llms.visionTooltip')">
                                 <UToggle
                                     v-model="model.supports_vision"
@@ -167,7 +168,7 @@
                                 />
                             </UTooltip>
                         </td>
-                        <td class="px-4 py-2.5 whitespace-nowrap text-sm" data-testid="llm-context-cell">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm" data-testid="llm-context-cell">
                             <div v-if="editingContextId === model.id" class="flex items-center gap-1">
                                 <input
                                     v-model.number="contextDraft"
@@ -208,7 +209,7 @@
                                 </UTooltip>
                             </div>
                         </td>
-                        <td class="px-4 py-2.5 whitespace-nowrap text-sm" v-if="canManageAccess">
+                        <td class="px-4 py-2 whitespace-nowrap text-sm" v-if="canManageAccess">
                             <button
                                 type="button"
                                 class="inline-flex items-center gap-1 text-sm"
@@ -220,7 +221,7 @@
                                 <span>{{ accessLabel(model) }}</span>
                             </button>
                         </td>
-                        <td class="px-4 py-2.5 whitespace-nowrap text-sm" v-if="useCan('manage_llm_settings')">
+                        <td class="sticky right-0 z-10 bg-white dark:bg-gray-900 group-hover:bg-gray-50/70 dark:group-hover:bg-gray-800/50 border-s border-gray-200 dark:border-gray-800 px-4 py-2 whitespace-nowrap text-sm text-end transition-colors" v-if="useCan('manage_llm_settings')">
                             <UDropdown :items="dropdownItemsByModel[model.id]" :popper="{ strategy: 'fixed' }">
                                 <UButton class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                             </UDropdown>
@@ -228,6 +229,7 @@
                     </tr>
                 </tbody>
             </table>
+            </div>
         </div>
 
         <!-- Empty state -->

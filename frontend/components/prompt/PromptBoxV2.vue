@@ -531,7 +531,19 @@
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
-                            <div class="p-2 text-xs max-h-64 overflow-y-auto w-[200px]">
+                            <div class="p-2 text-xs max-h-64 overflow-y-auto w-[220px]">
+                                <!-- Auto (router picks the model) — only when the org router is on -->
+                                <template v-if="routingOn">
+                                    <div class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel('auto'); close(); }">
+                                        <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
+                                        <div class="flex flex-col flex-1 text-start min-w-0">
+                                            <span class="font-medium">{{ $t('prompt.modelAuto') }}</span>
+                                            <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompt.modelAutoHint') }}</span>
+                                        </div>
+                                        <Icon v-if="selectedModel === 'auto'" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
+                                    </div>
+                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                                </template>
                                 <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
                                     <div class="me-2">
                                         <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
@@ -1065,14 +1077,31 @@ const canUseTrainingMode = computed(() => isTrainingModeEnabled.value && canMana
 // Model selector state - fetch from backend
 const models = ref<any[]>([])
 const selectedModel = ref<string>('')
+// 'auto' is a sentinel: the Auto router picks the model (send model_id=null).
+// It's truthy so canSubmit passes; payloads map it back to null (see modelIdForPayload).
+const AUTO = 'auto'
+const routingOn = ref(false)
 const selectedModelLabel = computed(() => {
+    if (selectedModel.value === AUTO) return t('prompt.modelAuto')
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.name || t('prompt.selectModel')
 })
 const selectedModelProvider = computed(() => {
+    if (selectedModel.value === AUTO) return null
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.provider?.provider_type || null
 })
+// The model_id to send: null for Auto so the backend router engages.
+const modelIdForPayload = computed<string | null>(() =>
+    selectedModel.value === AUTO ? null : (selectedModel.value || null)
+)
+
+async function loadRouting() {
+    try {
+        const { data } = await useMyFetch('/api/organization/settings')
+        routingOn.value = !!(data.value as any)?.config?.model_routing?.value
+    } catch {}
+}
 
 // Legacy popper (for current Nuxt UI stable)
 // Use a small fixed skid so content hugs the left edge of the chip
@@ -1082,6 +1111,7 @@ const popperLegacy = computed(() => ({ strategy: 'absolute' as const, placement:
 
 async function loadModels() {
     try {
+        await loadRouting()
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
             models.value = data.value
@@ -1089,6 +1119,10 @@ async function loadModels() {
             if (!selectedModel.value && models.value.length > 0) {
                 if (props.initialModel && models.value.find(m => m.id === props.initialModel)) {
                     selectedModel.value = props.initialModel
+                } else if (routingOn.value) {
+                    // Org router is on and nothing pinned → default to Auto so the
+                    // router actually engages (sends model_id=null).
+                    selectedModel.value = AUTO
                 } else {
                 // Personal default first, then the org-wide default
                 const defaultModel = models.value.find(m => m.is_user_default) || models.value.find(m => m.is_default)
@@ -1153,7 +1187,7 @@ async function refreshContextEstimate(force = false) {
                     content: ' ',
                     mentions: [],
                     mode: mode.value,
-                    model_id: selectedModel.value || undefined
+                    model_id: modelIdForPayload.value || undefined
                 },
                 stream: false
             })
@@ -1213,7 +1247,7 @@ async function persistModel() {
         await useMyFetch(`/reports/${props.report_id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model_id: selectedModel.value || '' })
+            body: JSON.stringify({ model_id: modelIdForPayload.value || '' })
         })
     } catch (e) {
         console.error('Failed to persist model:', e)
@@ -1329,7 +1363,7 @@ function buildSubmitPayload() {
             { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
         ],
         mode: mode.value,                 // 'chat' | 'deep'
-        model_id: selectedModel.value,    // backend model id from selector
+        model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
         files: imageFiles                 // image files for immediate display in chat
     }
 }

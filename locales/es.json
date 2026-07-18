@@ -459,7 +459,9 @@
     "queued": "En cola",
     "steerNow": "Dirigir ahora a la respuesta en curso",
     "sendNow": "Enviar ahora",
-    "removeFromQueue": "Quitar de la cola"
+    "removeFromQueue": "Quitar de la cola",
+    "modelAuto": "Auto",
+    "modelAutoHint": "El enrutador elige el mejor modelo"
   },
   "reports": {
     "title": "Informes",

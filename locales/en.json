@@ -476,7 +476,9 @@
     "queued": "Queued",
     "steerNow": "Steer into the running completion now",
     "sendNow": "Send now",
-    "removeFromQueue": "Remove from queue"
+    "removeFromQueue": "Remove from queue",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Router picks the best model"
   },
   "reports": {
     "title": "Reports",
