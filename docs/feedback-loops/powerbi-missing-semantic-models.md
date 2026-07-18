@@ -78,9 +78,12 @@ All in `backend/app/data_sources/clients/powerbi_client.py`,
    reuses the on-demand pattern that per_user catalogs (OneDrive/Drive) already
    had; OneDrive's auto-activate behavior is preserved.
 
-4. **Fix 4 — skip built-in system models.** `_is_system_dataset` skips Power
-   BI's auto-created usage-metrics semantic models in discovery so they never
-   pollute the catalog (nor count as "unreadable").
+Note: discovery deliberately hides **nothing** — every listed semantic model
+(Fabric default models and Microsoft's built-in usage-metrics models alike) is
+discovered when readable and reported when not. An earlier draft skipped the
+usage-metrics models; that was dropped because hiding models is a product
+decision and, in tenants where those are currently the only visible models,
+dropping them would make the catalog look emptier rather than cleaner.
 
 ---
 

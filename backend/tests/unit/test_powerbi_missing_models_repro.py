@@ -6,7 +6,7 @@ PowerBIClient.get_schemas() emits, and a dataset whose table discovery comes
 back empty produced ZERO schema rows AND no signal — the whole semantic model
 vanished (docs/feedback-loops/powerbi-missing-semantic-models.md).
 
-Two mechanisms are pinned here, both at the HTTP boundary (the fake below
+Two silent-drop mechanisms are pinned here, both at the HTTP boundary (the fake below
 stands in for api.powerbi.com only — all client logic runs real):
 
 1. Admin-scan shadowing: _batch_admin_scan records an entry for EVERY dataset
@@ -208,21 +208,21 @@ def test_all_readable_leaves_no_diagnostics():
     assert client.index_stats() == {}
 
 
-def test_builtin_usage_metrics_models_are_skipped():
-    """Fix 4: Power BI's built-in usage-metrics system models are not real data
-    and must be skipped in discovery (not emitted, not counted as unreadable)."""
+def test_no_models_are_hidden_from_discovery():
+    """Discovery hides NOTHING: every listed semantic model — Fabric default
+    models and Microsoft's built-in usage-metrics models alike — is discovered
+    when readable (and reported when not). We do not silently drop models."""
     http = _FakePowerBIHttp()
     _wire_tenant(http, [
         {"id": "d1", "name": "Usage Metrics Report"},
-        {"id": "d2", "name": "Report Usage Metrics Model"},
-        {"id": "d3", "name": "RealModel"},
+        {"id": "d2", "name": "RealModel"},
     ])
     http.route("POST", "/admin/workspaces/getInfo", _resp(401, {}))
-    http.route("POST", "/groups/ws1/datasets/d3/executeQueries", _colstats_resp(["Sales"]))
+    http.route("POST", "/groups/ws1/datasets/d1/executeQueries", _colstats_resp(["Views"]))
+    http.route("POST", "/groups/ws1/datasets/d2/executeQueries", _colstats_resp(["Sales"]))
 
     client = _mk_client(http)
     names = sorted(t.name for t in client.get_schemas())
-    assert names == ["RealModel/Sales"]
-    # System models are skipped entirely — not surfaced as unreadable either.
-    assert client.index_stats() == {}
-    assert not http.attempted("POST", "datasets/d1/executeQueries")
+    assert names == ["RealModel/Sales", "Usage Metrics Report/Views"]
+    # Both were introspected — nothing hidden, nothing dropped.
+    assert http.attempted("POST", "datasets/d1/executeQueries")

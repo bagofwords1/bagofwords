@@ -346,26 +346,6 @@ class PowerBIClient(DataSourceClient):
         except Exception as e:
             return "error", str(e)
 
-    # Built-in system semantic models Power BI auto-creates per workspace once
-    # usage metrics are opened. They are not real data and must not pollute the
-    # catalog. Matched case-insensitively against the dataset name.
-    _SYSTEM_DATASET_NAMES = {
-        "usage metrics report",
-        "report usage metrics model",
-        "dashboard usage metrics model",
-    }
-
-    @classmethod
-    def _is_system_dataset(cls, name: str) -> bool:
-        """True for Power BI's built-in usage-metrics / system semantic models."""
-        n = (name or "").strip().lower()
-        if not n:
-            return False
-        if n in cls._SYSTEM_DATASET_NAMES:
-            return True
-        # Newer tenants suffix these with a workspace/guid; match the stable prefix.
-        return n.startswith("usage metrics report") or n.startswith("report usage metrics model")
-
     @staticmethod
     def _extract_pbi_error(resp) -> str:
         """Pull the human-readable detail out of a Power BI error response."""
@@ -816,14 +796,16 @@ class PowerBIClient(DataSourceClient):
                 except Exception:
                     ws_reports[ws["id"]] = []
 
-        # Collect all (workspace, dataset) pairs, skipping Power BI's built-in
-        # usage-metrics / system semantic models (they are not real data).
+        # Collect all (workspace, dataset) pairs. Every semantic model the
+        # identity can list is discovered — including Fabric default semantic
+        # models and Microsoft's built-in usage-metrics models. We do NOT hide
+        # any of them: hiding is a product decision, and in tenants where the
+        # usage-metrics models are the only ones currently visible, dropping
+        # them would make the catalog look emptier, not cleaner.
         all_ds_tasks: List[Tuple[Dict, Dict, str]] = []
         for ws in workspaces:
             ws_id = ws.get("id")
             for ds in ws_datasets.get(ws_id, []):
-                if self._is_system_dataset(ds.get("name")):
-                    continue
                 all_ds_tasks.append((ws, ds, ws_id))
 
         # Phase 2: Try batch admin scan for all workspaces (tables + relationships in bulk)
