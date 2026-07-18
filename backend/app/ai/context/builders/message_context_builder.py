@@ -138,6 +138,24 @@ def _digest_eval_tool(tool_execution) -> str:
         parts = []
         if output.get('run_id'):
             parts.append(f"run_id: {output.get('run_id')}")
+        results = output.get('results') or []
+        # Persist the eval case id(s) so a later turn can re-run or edit the
+        # eval — run_eval/edit_eval take case_ids, NOT the run_id. Without this
+        # a detached run (every case still in_progress, so the failed-cases
+        # branch below emits nothing) lands in history carrying only the
+        # run_id; asked to "run it again" the agent has no case id to pass and
+        # has to re-discover the eval by name (which fails when the name search
+        # misses). Bounded to keep the digest tight.
+        case_bits = []
+        for r in results[:5]:
+            cid = r.get('case_id')
+            if not cid:
+                continue
+            cnm = (r.get('case_name') or '').strip()
+            case_bits.append(f"{cid}:{cnm[:40]}" if cnm else str(cid))
+        if case_bits:
+            more = f" (+{len(results) - 5} more)" if len(results) > 5 else ""
+            parts.append(f"case_ids: [{'; '.join(case_bits)}]{more}")
         if output.get('status'):
             parts.append(f"status={output.get('status')}")
         if output.get('detached'):
@@ -148,7 +166,6 @@ def _digest_eval_tool(tool_execution) -> str:
         failed = output.get('failed', 0)
         total = output.get('total', 0)
         parts.append(f"{passed}/{total} pass, {failed} fail")
-        results = output.get('results') or []
         failed_cases = [r for r in results if r.get('status') in ('fail', 'error')]
         if failed_cases:
             shown = []

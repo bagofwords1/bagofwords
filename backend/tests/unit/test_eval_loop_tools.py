@@ -225,6 +225,26 @@ def test_digest_run_eval_detached():
     assert "r1" in d and "detached" in d
 
 
+def test_digest_run_eval_surfaces_case_ids():
+    # A detached run has every case in_progress, so the failed-cases branch
+    # emits nothing — the case id(s) must still land in the digest so a later
+    # turn can re-run the eval (run_eval takes case_ids, not the run_id).
+    from app.ai.context.builders.message_context_builder import _digest_eval_tool
+
+    d = _digest_eval_tool(_te("run_eval", {
+        "run_id": "r1", "status": "in_progress", "detached": True,
+        "passed": 0, "failed": 0, "total": 2,
+        "results": [
+            {"case_id": "c1", "case_name": "tax report TLV 1", "status": "in_progress"},
+            {"case_id": "c2", "case_name": None, "status": "in_progress"},
+        ],
+    }))
+    assert "run_id: r1" in d
+    assert "case_ids:" in d
+    assert "c1:tax report TLV 1" in d
+    assert "c2" in d
+
+
 def test_digest_get_eval_runs():
     from app.ai.context.builders.message_context_builder import _digest_eval_tool
 
