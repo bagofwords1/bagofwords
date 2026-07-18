@@ -1172,6 +1172,16 @@ class ConnectionService:
             await db.commit()
             logger.info(f"refresh_schema: Commit successful")
 
+            # Semantic index: embed new/changed files for document-based
+            # connections (best-effort, bounded, incremental via content_hash).
+            # No-op when embeddings are disabled or this isn't a file source.
+            try:
+                if getattr(client, "is_document_based", lambda: False)():
+                    from app.services.file_embedding_service import embed_connection_tables
+                    await embed_connection_tables(db, connection_id_str)
+            except Exception as emb_exc:
+                logger.warning(f"refresh_schema: file embedding skipped: {emb_exc}")
+
             # Return all tables
             result = await db.execute(
                 select(ConnectionTable)

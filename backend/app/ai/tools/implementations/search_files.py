@@ -15,7 +15,8 @@ their behavior is unchanged.
 from __future__ import annotations
 
 import re
-from typing import Any, AsyncIterator, Dict, List, Type
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -25,55 +26,122 @@ from app.ai.tools.schemas import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.file_tools import FileEntry, SearchFilesInput, SearchFilesOutput
 from app.data_sources.clients.base import Capability
 
-from ._file_tool_common import resolve_file_client, resolve_file_data_source
+from ._file_tool_common import resolve_file_client
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
 _FILE_METADATA_KEYS = ("network_dir", "graph", "google_drive", "s3")
 _WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
 
+# How many BM25-ranked candidates to consider for the vector leg (and to
+# lazily embed). Keeps cosine + lazy-embed cost bounded on large catalogs.
+_HYBRID_CANDIDATE_POOL = 200
 
-def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
-    """Match a query against filename + stored keywords on the cached catalog.
 
-    Returns entries sorted by how many query tokens hit, or [] if the catalog
-    carries no keyword index (→ caller falls back to a live scan).
+def _file_sub(meta_json) -> dict[str, Any]:
+    meta_json = meta_json or {}
+    return next((meta_json.get(k) for k in _FILE_METADATA_KEYS if meta_json.get(k)), {}) or {}
+
+
+def _entry_for(t, sub) -> dict[str, Any]:
+    return FileEntry(
+        id=sub.get("file_id") or t.name,
+        name=(t.name.split("/")[-1] if t.name else t.name),
+        path=t.name,
+        mime_type=sub.get("mime_type"),
+        size=sub.get("size"),
+        modified_at=sub.get("modified_at"),
+        web_url=sub.get("web_url"),
+    ).model_dump()
+
+
+async def _hybrid_index_search(db, tables, query: str, max_results: int) -> tuple[list[dict[str, Any]], bool]:
+    """Hybrid BM25 + (optional) vector search over the cached catalog.
+
+    Returns (entries, indexed_any). `indexed_any` is False when no row carries a
+    keyword index, so the caller falls back to a live scan (behavior unchanged
+    for providers that don't populate keywords).
+
+    Ranking:
+      - BM25 over each file's stored keywords + filename/path tokens.
+      - When the embedding backend is available: embed the query, lazily embed
+        the top BM25 candidates that lack a fresh vector (write-through), cosine
+        against the pool, and fuse (RRF while coverage is partial, weighted once
+        warm). No backend → BM25-only.
     """
-    q = (query or "").strip().lower()
-    qtokens = set(_WORD_RE.findall(q))
-    indexed_any = False
-    scored: List[tuple] = []
-    for t in (tables or []):
-        meta_json = getattr(t, "metadata_json", None) or {}
-        sub = next((meta_json.get(k) for k in _FILE_METADATA_KEYS if meta_json.get(k)), {}) or {}
-        keywords = sub.get("keywords")
-        if keywords is None:
-            continue
-        indexed_any = True
+    from app.core.hybrid_ranking import BM25, fuse, tokenize
+
+    file_rows = [(t, _file_sub(t.metadata_json)) for t in (tables or [])]
+    file_rows = [(t, sub) for t, sub in file_rows if sub.get("keywords") is not None]
+    if not file_rows:
+        return [], False
+
+    # BM25 corpus: keywords + tokenized name/path.
+    corpus = []
+    for t, sub in file_rows:
+        toks = [str(k).lower() for k in (sub.get("keywords") or [])]
+        toks += tokenize(t.name or "")
+        corpus.append(toks)
+    bm = BM25(corpus)
+    qtokens = tokenize(query)
+    bm_scores = bm.scores(qtokens)
+
+    # Filename affinity: a hit in the file's own name/path is a strong signal
+    # for file search (a report literally called "acme.csv"). Boost the lexical
+    # score so it outranks a mere body-keyword match, preserving the pre-hybrid
+    # behavior. Full-query substring is the strongest; per-token name hits add
+    # a smaller bump.
+    q_lower = (query or "").strip().lower()
+    for i, (t, _sub) in enumerate(file_rows):
         name = (t.name or "").lower()
-        haystack_tokens = set(k.lower() for k in keywords) | set(_WORD_RE.findall(name))
-        # score: full-query substring in name is a strong hit; otherwise count
-        # query tokens present in name/keywords.
-        score = 0
-        if q and q in name:
-            score += 5
-        score += sum(1 for qt in qtokens if qt in haystack_tokens or qt in name)
-        if score > 0:
-            scored.append((score, t, sub))
-    if not indexed_any:
-        return []
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out: List[Dict[str, Any]] = []
-    for _, t, sub in scored[:max_results]:
-        out.append(FileEntry(
-            id=sub.get("file_id") or t.name,
-            name=(t.name.split("/")[-1] if t.name else t.name),
-            path=t.name,
-            mime_type=sub.get("mime_type"),
-            size=sub.get("size"),
-            modified_at=sub.get("modified_at"),
-            web_url=sub.get("web_url"),
-        ).model_dump())
-    return out
+        if not name:
+            continue
+        name_tokens = set(tokenize(name))
+        if q_lower and q_lower in name:
+            bm_scores[i] += 5.0
+        bm_scores[i] += sum(1.0 for qt in qtokens if qt in name_tokens)
+
+    order = sorted(range(len(file_rows)), key=lambda i: bm_scores[i], reverse=True)
+
+    # Vector leg (best-effort). Only consider the top BM25 candidates so cosine
+    # and lazy embedding stay bounded on large catalogs.
+    vector_scores: list[float | None] = [None] * len(file_rows)
+    coverage = 0.0
+    try:
+        from app.ai.embeddings import cosine, get_backend
+        from app.services.file_embedding_service import embed_rows, is_stale
+
+        backend = get_backend()
+        if backend is not None and qtokens:
+            pool_idx = order[:_HYBRID_CANDIDATE_POOL]
+            pool_rows = [file_rows[i][0] for i in pool_idx]
+            # Lazy write-through: embed stale candidates (bounded inside embed_rows).
+            await embed_rows(db, pool_rows, commit=True)
+            qvec = (await backend.embed_texts_async([query]))[0]
+            tag = backend.model_tag
+            embedded = 0
+            for i in pool_idx:
+                row = file_rows[i][0]
+                if row.embedding is not None and row.embedding_model == tag and not is_stale(row, tag):
+                    vector_scores[i] = cosine(qvec, row.embedding)
+                    embedded += 1
+            coverage = embedded / len(pool_idx) if pool_idx else 0.0
+    except Exception:
+        # Any embedding failure → pure BM25.
+        vector_scores = [None] * len(file_rows)
+        coverage = 0.0
+
+    fused = fuse(bm_scores, vector_scores, coverage)
+    ranked = sorted(range(len(file_rows)), key=lambda i: fused[i], reverse=True)
+
+    out: list[dict[str, Any]] = []
+    for i in ranked:
+        if fused[i] <= 0:
+            continue
+        t, sub = file_rows[i]
+        out.append(_entry_for(t, sub))
+        if len(out) >= max_results:
+            break
+    return out, True
 
 
 class SearchFilesTool(Tool):
@@ -104,14 +172,14 @@ class SearchFilesTool(Tool):
         )
 
     @property
-    def input_model(self) -> Type[BaseModel]:
+    def input_model(self) -> type[BaseModel]:
         return SearchFilesInput
 
     @property
-    def output_model(self) -> Type[BaseModel]:
+    def output_model(self) -> type[BaseModel]:
         return SearchFilesOutput
 
-    async def _resolve_connection_id(self, runtime_ctx: Dict[str, Any], connection_id: str):
+    async def _resolve_connection_id(self, runtime_ctx: dict[str, Any], connection_id: str):
         """Map the passed id (Connection id OR DataSource id) to a single
         Connection id, so the keyword search is scoped to one connection.
         Returns None when it can't be pinned (unknown, or a data source with
@@ -136,6 +204,7 @@ class SearchFilesTool(Tool):
         org = runtime_ctx.get("organization")
         if db is not None and org is not None:
             from sqlalchemy import select
+
             from app.models.connection import Connection
             c = (await db.execute(
                 select(Connection).where(
@@ -149,7 +218,7 @@ class SearchFilesTool(Tool):
         return None
 
     async def run_stream(
-        self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]
+        self, tool_input: dict[str, Any], runtime_ctx: dict[str, Any]
     ) -> AsyncIterator[ToolEvent]:
         data = SearchFilesInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
@@ -168,21 +237,23 @@ class SearchFilesTool(Tool):
         #    Scoped to THIS connection's ConnectionTable rows — the per-data-
         #    source schema unions every connection, which would leak one
         #    connection's files into another's search results.
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         used_index = False
         if not data.deep:
             conn_id = await self._resolve_connection_id(runtime_ctx, data.connection_id)
             if conn_id is not None:
                 try:
                     from sqlalchemy import select
+                    from sqlalchemy.orm import undefer
+
                     from app.models.connection_table import ConnectionTable
                     tables = (await runtime_ctx["db"].execute(
-                        select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
+                        select(ConnectionTable)
+                        .options(undefer(ConnectionTable.embedding))
+                        .where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
-                    entries = _index_search(tables, data.query, data.max_results)
-                    used_index = any(
-                        (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
-                        for t in (tables or []) for k in _FILE_METADATA_KEYS
+                    entries, used_index = await _hybrid_index_search(
+                        runtime_ctx["db"], tables, data.query, data.max_results
                     )
                 except Exception:
                     used_index = False

@@ -7,9 +7,36 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import app.ai.embeddings as _emb
+import app.services.file_embedding_service as _fes
 from app.ai.tools.implementations.attach_file import AttachFileTool
-from app.ai.tools.implementations.search_files import SearchFilesTool, _index_search
+from app.ai.tools.implementations.search_files import SearchFilesTool, _hybrid_index_search
 from app.data_sources.clients.base import Capability
+
+
+class _NoDB:
+    async def commit(self):
+        return None
+
+    async def rollback(self):
+        return None
+
+
+def _index_search(rows, query, max_results, monkeypatch=None):
+    """BM25-only shim over the hybrid search (embeddings forced off) so the
+    keyword-path tests stay deterministic and focused."""
+    _emb.reset_backend_for_tests()
+    orig_e, orig_f = _emb.get_backend, _fes.get_backend
+    _emb.get_backend = lambda: None
+    _fes.get_backend = lambda: None
+    try:
+        entries, _indexed = asyncio.run(
+            _hybrid_index_search(_NoDB(), rows, query, max_results)
+        )
+        return entries
+    finally:
+        _emb.get_backend, _fes.get_backend = orig_e, orig_f
+        _emb.reset_backend_for_tests()
 
 
 def _run(agen_factory):

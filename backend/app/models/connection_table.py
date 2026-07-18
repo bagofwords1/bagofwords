@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, ForeignKey, JSON, Integer, Float, DateTime, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy.orm import deferred, relationship
+
+from app.ai.prompt_formatters import ForeignKey as PromptForeignKey
+from app.ai.prompt_formatters import Table, TableColumn
 from app.models.base import BaseSchema
-from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey
 
 
 class ConnectionTable(BaseSchema):
@@ -14,13 +16,13 @@ class ConnectionTable(BaseSchema):
 
     name = Column(String, nullable=False)
     connection_id = Column(String(36), ForeignKey('connections.id'), nullable=False, index=True)
-    
+
     # Schema information
     columns = Column(JSON, nullable=False)  # List of {name, dtype, ...}
     pks = Column(JSON, nullable=False)  # Primary keys
     fks = Column(JSON, nullable=False)  # Foreign keys
     no_rows = Column(Integer, nullable=False, default=0)
-    
+
     # Topology and richness metrics (computed on schema refresh)
     centrality_score = Column(Float, nullable=True)
     richness = Column(Float, nullable=True)
@@ -28,13 +30,22 @@ class ConnectionTable(BaseSchema):
     degree_out = Column(Integer, nullable=True)
     entity_like = Column(Boolean, nullable=True)
     metrics_computed_at = Column(DateTime, nullable=True)
-    
+
     # Additional metadata
     metadata_json = Column(JSON, nullable=True)
-    
+
+    # Semantic search (file sources). Populated at index time and/or lazily on
+    # search for document-based connections. `embedding` is deferred so normal
+    # catalog reads don't drag the vector; `embedding_model` tags which model
+    # produced it (mismatch => treat as un-embedded); `embedding_hash` is the
+    # file content_hash the vector was computed from (staleness detection).
+    embedding = deferred(Column(JSON, nullable=True))
+    embedding_model = Column(String, nullable=True)
+    embedding_hash = Column(String, nullable=True)
+
     # Relationships
     connection = relationship("Connection", back_populates="connection_tables")
-    
+
     # Domain tables that reference this connection table
     domain_tables = relationship(
         "DataSourceTable",
@@ -42,7 +53,7 @@ class ConnectionTable(BaseSchema):
         cascade="all, delete-orphan",
         passive_deletes=False,
     )
-    
+
     # User-level table overlays
     user_overlays = relationship(
         "UserConnectionTable",
