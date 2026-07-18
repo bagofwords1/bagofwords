@@ -116,24 +116,39 @@
                             </div>
                         </td>
                         <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
-                            <div v-if="editingCostId === model.id" class="flex items-center gap-1">
-                                <input v-model.number="costInDraft" type="number" min="0" step="0.01"
-                                    class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs focus:outline-none focus:border-blue-500"
-                                    placeholder="in" @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
-                                <span class="text-gray-400">/</span>
-                                <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
-                                    class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs focus:outline-none focus:border-blue-500"
-                                    placeholder="out" @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
-                                <button type="button" class="text-blue-500 hover:text-blue-700" @click="saveCost(model)"><UIcon name="i-heroicons-check" class="w-4 h-4" /></button>
-                                <button type="button" class="text-gray-400 hover:text-gray-600" @click="editingCostId = null"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                            <div v-if="editingCostId === model.id" class="flex items-end gap-1">
+                                <label class="flex flex-col text-[10px] text-gray-400 uppercase tracking-wide">
+                                    {{ $t('settings.llms.costInput') }}
+                                    <input v-model.number="costInDraft" type="number" min="0" step="0.01"
+                                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 normal-case focus:outline-none focus:border-blue-500"
+                                        @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
+                                </label>
+                                <label class="flex flex-col text-[10px] text-gray-400 uppercase tracking-wide">
+                                    {{ $t('settings.llms.costOutput') }}
+                                    <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
+                                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 normal-case focus:outline-none focus:border-blue-500"
+                                        @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
+                                </label>
+                                <button type="button" class="text-blue-500 hover:text-blue-700 mb-1" @click="saveCost(model)"><UIcon name="i-heroicons-check" class="w-4 h-4" /></button>
+                                <button type="button" class="text-gray-400 hover:text-gray-600 mb-1" @click="editingCostId = null"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
                             </div>
                             <UTooltip v-else :text="$t('settings.llms.costEditTooltip')">
                                 <button v-if="useCan('manage_llm_settings')" type="button"
-                                    class="hover:text-blue-600 underline decoration-dotted underline-offset-2"
+                                    class="group flex items-center gap-3 hover:text-blue-600"
                                     @click="startCostEdit(model)">
-                                    {{ formatCost(model) }}
+                                    <span class="flex flex-col items-start leading-tight">
+                                        <span class="text-[10px] text-gray-400 uppercase tracking-wide">{{ $t('settings.llms.costInput') }}</span>
+                                        <span class="underline decoration-dotted underline-offset-2">{{ formatCostPart(model.input_cost_per_million_tokens_usd) }}</span>
+                                    </span>
+                                    <span class="flex flex-col items-start leading-tight">
+                                        <span class="text-[10px] text-gray-400 uppercase tracking-wide">{{ $t('settings.llms.costOutput') }}</span>
+                                        <span class="underline decoration-dotted underline-offset-2">{{ formatCostPart(model.output_cost_per_million_tokens_usd) }}</span>
+                                    </span>
                                 </button>
-                                <span v-else>{{ formatCost(model) }}</span>
+                                <span v-else class="flex items-center gap-3">
+                                    <span class="flex flex-col items-start leading-tight"><span class="text-[10px] text-gray-400 uppercase">{{ $t('settings.llms.costInput') }}</span><span>{{ formatCostPart(model.input_cost_per_million_tokens_usd) }}</span></span>
+                                    <span class="flex flex-col items-start leading-tight"><span class="text-[10px] text-gray-400 uppercase">{{ $t('settings.llms.costOutput') }}</span><span>{{ formatCostPart(model.output_cost_per_million_tokens_usd) }}</span></span>
+                                </span>
                             </UTooltip>
                         </td>
                         <td class="px-4 py-2.5 whitespace-nowrap text-sm">
@@ -312,12 +327,14 @@ const saveAutoRouter = async (val: boolean) => {
 
 const modelHint = (model: Model): string => (model.config?.routing_hint as string) || '';
 
+const formatCostPart = (n?: number | null): string =>
+    (n == null ? '—' : `$${parseFloat(Number(n).toFixed(2))}`);
+
 const formatCost = (model: Model): string => {
     const i = model.input_cost_per_million_tokens_usd;
     const o = model.output_cost_per_million_tokens_usd;
     if (i == null && o == null) return '—';
-    const fmt = (n?: number | null) => (n == null ? '—' : `$${parseFloat(Number(n).toFixed(2))}`);
-    return `${fmt(i)} / ${fmt(o)}`;
+    return `${formatCostPart(i)} / ${formatCostPart(o)}`;
 };
 
 // ── Per-model pricing (inline edit) ────────────────────────────────────────

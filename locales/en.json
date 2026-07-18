@@ -2013,7 +2013,9 @@
       "autoRouterHow2": "The agent escalates to a stronger model only when the task needs it — the choice propagates to code generation too.",
       "autoRouterHow3": "Add routing guidance to a model below to make it an escalation target and steer when it is used.",
       "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
-      "costEditTooltip": "Click to edit input / output price per million tokens (USD)."
+      "costEditTooltip": "Click to edit input / output price per million tokens (USD).",
+      "costInput": "Input",
+      "costOutput": "Output"
     },
     "licensePage": {
       "title": "License",
@@ -2850,7 +2852,9 @@
       "loading": "Loading cost data...",
       "lockedTitle": "Cost is an enterprise feature",
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
-      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total."
+      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
+      "kpiSaved": "Saved by auto-routing",
+      "kpiSavedSub": "calls routed"
     },
     "cards": {
       "messages": "Messages",

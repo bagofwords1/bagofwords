@@ -1869,7 +1869,9 @@
       "autoRouterHow2": "El agente escala a un modelo más potente solo cuando la tarea lo necesita; la elección también se propaga a la generación de código.",
       "autoRouterHow3": "Añade una guía de enrutamiento a un modelo abajo para convertirlo en objetivo de escalado y orientar cuándo se usa.",
       "autoRouterHow4": "Las elecciones explícitas de modelo y los modelos fijados al informe siempre omiten el enrutamiento.",
-      "costEditTooltip": "Haz clic para editar el precio de entrada / salida por millón de tokens (USD)."
+      "costEditTooltip": "Haz clic para editar el precio de entrada / salida por millón de tokens (USD).",
+      "costInput": "Entrada",
+      "costOutput": "Salida"
     },
     "licensePage": {
       "title": "Licencia",
@@ -2650,7 +2652,9 @@
       "loading": "Cargando datos de costo...",
       "lockedTitle": "El costo es una función empresarial",
       "lockedBody": "Actualiza a una licencia empresarial para hacer seguimiento del gasto de tokens y costo de LLM por usuario, agente y grupo a lo largo del tiempo.",
-      "fanoutNote": "El gasto de los informes con múltiples fuentes se cuenta para cada una de sus fuentes de datos, por lo que los totales por fila pueden superar el total general."
+      "fanoutNote": "El gasto de los informes con múltiples fuentes se cuenta para cada una de sus fuentes de datos, por lo que los totales por fila pueden superar el total general.",
+      "kpiSaved": "Ahorrado por enrutamiento automático",
+      "kpiSavedSub": "llamadas enrutadas"
     },
     "cards": {
       "messages": "Mensajes",

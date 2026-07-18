@@ -42,20 +42,17 @@
             </div>
         </div>
 
-        <!-- Auto model router savings -->
-        <div
-            v-if="data?.routing?.enabled"
-            class="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4"
-            data-testid="cost-routing-savings"
-        >
-            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-100">
-                <UIcon name="i-heroicons-arrow-trending-down" class="w-5 h-5 text-emerald-600" />
-            </div>
-            <div>
-                <div class="text-lg font-bold text-emerald-700">${{ formatNum(data.routing.savings_usd || 0, 2) }} saved by auto-routing</div>
-                <div class="text-sm text-emerald-600/80">
-                    {{ compactNum(data.routing.routed_calls || 0) }} of {{ compactNum(data.routing.total_calls || 0) }} calls routed
-                    ({{ Math.round((data.routing.routed_share || 0) * 100) }}%) · vs. running everything on the default model
+        <!-- Auto model router savings KPI -->
+        <div v-if="data?.routing?.enabled" class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <div class="bg-emerald-50 p-6 border border-emerald-200 rounded-xl shadow-sm" data-testid="cost-routing-savings">
+                <div class="flex items-center gap-1.5">
+                    <UIcon name="i-heroicons-arrow-trending-down" class="w-5 h-5 text-emerald-600" />
+                    <div class="text-2xl font-bold text-emerald-700">${{ formatNum(data.routing.savings_usd || 0, 2) }}</div>
+                </div>
+                <div class="text-sm font-medium text-emerald-700 mt-1">{{ $t('monitoring.cost.kpiSaved') }}</div>
+                <div class="text-xs text-emerald-600/80 mt-0.5">
+                    {{ compactNum(data.routing.routed_calls || 0) }} / {{ compactNum(data.routing.total_calls || 0) }}
+                    {{ $t('monitoring.cost.kpiSavedSub') }} ({{ Math.round((data.routing.routed_share || 0) * 100) }}%)
                 </div>
             </div>
         </div>
