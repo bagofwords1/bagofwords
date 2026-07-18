@@ -182,6 +182,18 @@ class ReportService:
         await db.commit()
         await db.refresh(report)
 
+        # Strict-mode shared dashboards get no thumbnail: it renders the creator
+        # snapshot and the /thumbnails route is unauthenticated. Drop any existing
+        # one now that sharing is (re)configured; regeneration stays skipped.
+        if share_type == 'artifact':
+            try:
+                from app.services.viewer_data_policy import report_snapshot_withheld
+                if await report_snapshot_withheld(db, str(report.id)):
+                    from app.services.thumbnail_service import ThumbnailService
+                    await ThumbnailService().clear_for_report(str(report.id))
+            except Exception:
+                logger.warning("Failed to clear thumbnails for strict report %s", report.id, exc_info=True)
+
         # Notify-first: the durable in-app notification is the canonical record of
         # "shared with you" — created here on the share grant itself (email stays
         # the explicit opt-in action). Non-fatal: sharing must not depend on it.

@@ -585,3 +585,61 @@ def test_fork_copies_steps_and_cannot_mutate_source(
     src = _public_step(test_client, report["id"], src_qid, token=owner["token"])
     assert {r["month"] for r in src["data"]["rows"]} == {"stale"}, (
         "fork rerun mutated the source report's step (shared-reference bug)")
+
+
+# ── Thumbnails dropped for strict-mode dashboards ──
+
+async def _set_artifact_thumbnail(report_id: str) -> str:
+    """Give the report's artifact a thumbnail_path (as generation would)."""
+    from sqlalchemy import select
+    async with async_session_maker() as db:
+        art = (await db.execute(
+            select(Artifact).where(Artifact.report_id == str(report_id))
+        )).scalars().first()
+        art.thumbnail_path = f"thumbnails/{art.id}.png"
+        await db.commit()
+        return str(art.id)
+
+
+@pytest.mark.e2e
+def test_strict_mode_drops_artifact_thumbnail(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A dashboard that becomes viewer-identity strict must lose its thumbnail
+    (it renders the creator snapshot and /thumbnails is unauthenticated)."""
+    admin, owner, viewer, report, _ = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility=None,
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    _run(_set_artifact_thumbnail(report["id"]))
+
+    # Configuring viewer-identity sharing on a user-scoped source clears it.
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="viewer")
+
+    async def _thumb():
+        from sqlalchemy import select
+        async with async_session_maker() as db:
+            art = (await db.execute(
+                select(Artifact).where(Artifact.report_id == str(report["id"]))
+            )).scalars().first()
+            return art.thumbnail_path
+    assert _run(_thumb()) is None
+
+    # A system-only report keeps its thumbnail (plain sharing unchanged).
+    admin2, owner2, _, plain, _ = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility=None,
+    )
+    _run(_attach_source_with_connection(plain["id"], "system_only"))
+    _run(_set_artifact_thumbnail(plain["id"]))
+    _set_artifact_visibility(test_client, plain["id"], owner2, "internal", run_identity="viewer")
+
+    async def _thumb2():
+        from sqlalchemy import select
+        async with async_session_maker() as db:
+            art = (await db.execute(
+                select(Artifact).where(Artifact.report_id == str(plain["id"]))
+            )).scalars().first()
+            return art.thumbnail_path
+    assert _run(_thumb2()) is not None

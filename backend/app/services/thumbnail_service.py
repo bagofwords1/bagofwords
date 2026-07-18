@@ -128,6 +128,44 @@ class ThumbnailService:
             return True
         return False
 
+    async def clear_for_report(self, report_id: str) -> int:
+        """Drop thumbnails for every artifact of a report.
+
+        Strict-mode shared dashboards (viewer-identity on a user-scoped
+        connection) must not have a thumbnail at all: it renders the creator
+        snapshot and the /thumbnails route is unauthenticated. We null the
+        artifacts' thumbnail_path (so no thumbnail_url is ever served) and
+        delete the PNGs. Regeneration stays skipped by regenerate_for_report.
+
+        Returns the number of artifacts cleared.
+        """
+        from app.dependencies import async_session_maker
+        from app.models.artifact import Artifact
+        from sqlalchemy import select, update
+
+        cleared = 0
+        async with async_session_maker() as db:
+            rows = (await db.execute(
+                select(Artifact.id).where(
+                    Artifact.report_id == str(report_id),
+                    Artifact.thumbnail_path.is_not(None),
+                )
+            )).all()
+            for (artifact_id,) in rows:
+                try:
+                    self.delete_thumbnail(str(artifact_id))
+                except Exception:
+                    logger.warning("Failed to delete thumbnail file for %s", artifact_id, exc_info=True)
+                cleared += 1
+            if cleared:
+                await db.execute(
+                    update(Artifact)
+                    .where(Artifact.report_id == str(report_id))
+                    .values(thumbnail_path=None)
+                )
+                await db.commit()
+        return cleared
+
     def copy_thumbnail(self, source_artifact_id: str, target_artifact_id: str) -> Optional[str]:
         """Copy a thumbnail from one artifact to another.
 
