@@ -304,37 +304,39 @@ async def test_feedback_service_hook_emits_events(db):
 
 
 @pytest.mark.asyncio
-async def test_llm_changed_emitted_only_on_change(db):
-    """emit_llm_changed_if_changed compares the resolved model to the prior
-    turn's Completion.model and only fires on an actual change."""
+async def test_llm_changed_emitted_on_report_model_override_change(db):
+    """emit_report_model_changed fires only when the report's model override
+    (report.model_id) actually changes — the explicit user pick — and reads the
+    friendly model name, not the router picking a model between turns."""
     from types import SimpleNamespace
     from app.ai.context.session_events import LLM_CHANGED
 
     org, report, user = await _seed_report(db)
-    prior = await _add_turn(db, report, user, role="system", content="a", minute=0)
-    prior.model = "gpt-4o"  # Completion.model stores the LLMModel.model_id
-    await db.commit()
+    await _add_turn(db, report, user, role="user", content="hi", minute=0)
 
-    new_model = SimpleNamespace(model_id="claude-opus-4-8", name="Claude Opus 4.8")
+    new_model = SimpleNamespace(id="m-opus", name="Claude Opus 4.8")
 
-    # Unchanged → no event.
-    same = SimpleNamespace(model_id="gpt-4o", name="GPT-4o")
-    await SessionEventService.emit_llm_changed_if_changed(
-        db, report=report, prior_completion=prior, new_model=same, user=user, commit=True)
-    # No prior → no event.
-    await SessionEventService.emit_llm_changed_if_changed(
-        db, report=report, prior_completion=None, new_model=new_model, user=user, commit=True)
+    # Unchanged (same id) → no event.
+    await SessionEventService.emit_report_model_changed(
+        db, report=report, old_model_id="m-opus", new_model=new_model, user=user, commit=True)
     rows = (await db.execute(select(Completion).where(
         Completion.report_id == str(report.id), Completion.role == EVENT_ROLE))).scalars().all()
     assert rows == []
 
-    # Changed → one event with the friendly name + structured from/to.
-    await SessionEventService.emit_llm_changed_if_changed(
-        db, report=report, prior_completion=prior, new_model=new_model, user=user, commit=True)
+    # None → a real model: switched, with the friendly name.
+    await SessionEventService.emit_report_model_changed(
+        db, report=report, old_model_id=None, new_model=new_model, user=user, commit=True)
+    # A real model → None (cleared): reset to default.
+    await SessionEventService.emit_report_model_changed(
+        db, report=report, old_model_id="m-opus", new_model=None, user=user, commit=True)
+
     rows = (await db.execute(select(Completion).where(
-        Completion.report_id == str(report.id), Completion.role == EVENT_ROLE))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].message_type == LLM_CHANGED
+        Completion.report_id == str(report.id), Completion.role == EVENT_ROLE)
+        .order_by(Completion.created_at.asc()))).scalars().all()
+    assert len(rows) == 2
+    assert all(r.message_type == LLM_CHANGED for r in rows)
     assert rows[0].prompt["content"] == "Model was switched to Claude Opus 4.8"
-    assert rows[0].prompt["meta"]["from"] == "gpt-4o"
-    assert rows[0].prompt["meta"]["to"] == "claude-opus-4-8"
+    assert rows[0].prompt["meta"]["to"] == "m-opus"
+    assert rows[1].prompt["content"] == "Model was reset to the default"
+    assert rows[1].prompt["meta"]["from"] == "m-opus"
+    assert rows[1].prompt["meta"]["to"] is None

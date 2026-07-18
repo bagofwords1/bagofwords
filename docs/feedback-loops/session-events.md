@@ -89,9 +89,14 @@ behavior:
   conversational turns only, then appends durable events in the folded range so
   feedback/rejections survive the summary while ephemeral events vanish.
 - Emit hooks wired: `CompletionFeedbackService` (create → `feedback_given` /
-  `feedback_changed` on a direction flip, delete → `feedback_removed`) and the
+  `feedback_changed` on a direction flip, delete → `feedback_removed`); the
   report-scoped file routes (`POST /files` with a `report_id` → `file_uploaded`;
-  `DELETE /reports/{id}/files/{fid}` → `file_removed`).
+  `DELETE /reports/{id}/files/{fid}` → `file_removed`); and `report_service`
+  `update_report` → `llm_changed` when the report's model override
+  (`report.model_id`, added on main) actually changes. The model hook keys on
+  the explicit user pick (the dropdown persist), NOT a comparison of consecutive
+  completions — the latter would false-positive on the Auto router picking a
+  different model between turns.
 - Event text is an **impersonal announcement** ("targets.xlsx was uploaded",
   "Agent scope changed — added …", "Model was switched to …"), not actor-subject
   phrasing. The acting user is still recorded in `prompt.meta.actor` for a

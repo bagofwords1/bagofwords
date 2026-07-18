@@ -642,6 +642,7 @@ class ReportService:
         #                    must be able to use that model, mirroring the
         #                    per-user default write path)
         if hasattr(report_data, 'model_id') and report_data.model_id is not None:
+            _old_model_id = report.model_id
             if report_data.model_id == "":
                 report.model_id = None
             else:
@@ -650,6 +651,20 @@ class ReportService:
                     db, organization, current_user, report_data.model_id
                 )
                 report.model_id = report_data.model_id
+            # Silent session event when the conversation's model override actually
+            # changed. This is the explicit user pick (dropdown persist) — the
+            # right llm_changed signal, unlike the Auto router varying per turn.
+            if report.model_id != _old_model_id:
+                try:
+                    from app.models.llm_model import LLMModel
+                    from app.services.session_event_service import SessionEventService
+                    _new_model = await db.get(LLMModel, report.model_id) if report.model_id else None
+                    await SessionEventService.emit_report_model_changed(
+                        db, report=report, old_model_id=_old_model_id,
+                        new_model=_new_model, user=current_user, commit=False,
+                    )
+                except Exception:
+                    pass
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             await self.set_data_sources_for_report(db, report, report_data.data_sources, current_user, organization)
