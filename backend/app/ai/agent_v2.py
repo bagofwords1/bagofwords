@@ -2544,6 +2544,54 @@ class AgentV2:
             if inv.current_widget is not None:
                 self.current_widget = inv.current_widget
 
+    async def _resolve_instruction_ds_display(self, instruction_ids: list) -> dict:
+        """Resolve the data-source type + custom icon for a set of instructions.
+
+        The live `instructions.context` SSE payloads only carry the instruction
+        metadata (id/title/category/load_mode); they do NOT include which data
+        source an instruction belongs to. The report UI uses that to pick the
+        connector icon and falls back to a generic cube when it is missing — so
+        without this the icon renders live but only reappears after a reload
+        (where CompletionService re-resolves it from the DB). Mirror that
+        hydration logic here so the live view matches: first data source wins,
+        icon = custom override token, type = its connection type.
+
+        Returns {instruction_id: {"data_source_type": str|None,
+        "data_source_icon": str|None}} for ids that resolve to a data source.
+        """
+        ids = [i for i in {str(x) for x in (instruction_ids or [])} if i]
+        if not ids:
+            return {}
+        try:
+            from sqlalchemy.orm import selectinload
+            from app.models.instruction import Instruction
+            from app.models.data_source import DataSource
+
+            stmt = (
+                select(Instruction)
+                .options(
+                    selectinload(Instruction.data_sources).selectinload(DataSource.connections)
+                )
+                .where(Instruction.id.in_(ids))
+            )
+            res = await self.db.execute(stmt)
+            out: dict = {}
+            for inst in res.scalars().all():
+                if not inst.data_sources:
+                    continue
+                ds = inst.data_sources[0]
+                ds_type = ds.connections[0].type if ds.connections else None
+                ds_icon = getattr(ds, "icon", None)
+                if ds_type or ds_icon:
+                    out[str(inst.id)] = {
+                        "data_source_type": ds_type,
+                        "data_source_icon": ds_icon,
+                    }
+            return out
+        except Exception:
+            logger.debug("Failed to resolve instruction ds display", exc_info=True)
+            return {}
+
     async def main_execution(self):
         # Single-writer mode: route all migrated writers through self.db
         # (the agent's existing main session) via self._writes_session().
@@ -2675,6 +2723,9 @@ class AgentV2:
                 # Emit instructions.context SSE so frontend knows which instructions were loaded
                 try:
                     seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
+                    _ds_display = await self._resolve_instruction_ds_display(
+                        [item.id for item in view.static.instructions.items]
+                    )
                     await self._emit_sse_event(SSEEvent(
                         event="instructions.context",
                         completion_id=str(self.system_completion.id),
@@ -2690,6 +2741,7 @@ class AgentV2:
                                     "load_mode": item.load_mode,
                                     "load_reason": item.load_reason,
                                     "source_type": item.source_type,
+                                    **_ds_display.get(str(item.id), {}),
                                 }
                                 for item in view.static.instructions.items
                             ],
@@ -4109,6 +4161,9 @@ class AgentV2:
                                 try:
                                     _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
                                     if _tool_instructions:
+                                        _tool_ds_display = await self._resolve_instruction_ds_display(
+                                            [i.get("id") for i in _tool_instructions]
+                                        )
                                         _tool_instr_items = [
                                             {
                                                 "id": i.get("id"),
@@ -4117,6 +4172,7 @@ class AgentV2:
                                                 "load_mode": i.get("load_mode"),
                                                 "load_reason": "table_reference",
                                                 "source_type": i.get("source_type"),
+                                                **_tool_ds_display.get(str(i.get("id")), {}),
                                             }
                                             for i in _tool_instructions
                                         ]
