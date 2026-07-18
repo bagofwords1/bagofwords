@@ -2,10 +2,42 @@ from typing import Optional, List, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import logging
 import uuid
+
+
+# --- Durable run-finished wake dispatch ---------------------------------------
+# The wake that resumes the origin chat when an agent-started eval run finishes
+# is dispatched as a one-shot APScheduler job (same durable pattern as
+# WaitService.run_wait_wake), NOT an in-process asyncio task. The shared
+# jobstore IS the queue: a worker that dies before the job runs recovers it on
+# restart via misfire_grace_time — no lost wakes, and no recurring poll.
+_EVAL_WAKE_PREFIX = "eval_wake:"
+
+
+def _eval_wake_job_id(run_id: str) -> str:
+    # Deterministic per run: replace_existing collapses duplicate schedules
+    # (finalizer + streamer both observing the same finalize) into one job.
+    return f"{_EVAL_WAKE_PREFIX}{run_id}"
+
+
+async def run_eval_wake(job_id: str, run_id: str) -> None:
+    """APScheduler callback: deliver the run-finished wake for ``run_id``.
+
+    Every worker runs its own scheduler against the shared jobstore, so this
+    may fire on more than one — the cross-worker claim lets exactly one
+    proceed. Idempotency across separate fires (e.g. a misfire re-run after a
+    crash) is handled by ``wake_on_finish``: it is cleared only after the wake
+    completion is created, so a crash mid-delivery re-fires (at-least-once,
+    absorbed by the 'already handled, acknowledge and stop' wake guidance)
+    rather than dropping the notification.
+    """
+    from app.core.scheduler import claim_scheduled_run
+    if not await asyncio.to_thread(claim_scheduled_run, job_id):
+        return
+    await TestRunService()._fire_eval_wake(run_id)
 
 
 def _agent_metadata_from_execution(ae) -> Dict[str, Any]:
@@ -493,7 +525,8 @@ class TestRunService:
         await db.refresh(run)
 
         # A stopped run is terminal — notify the origin conversation (if any).
-        asyncio.create_task(self._maybe_fire_wake(str(run.id)))
+        if getattr(run, "wake_on_finish", False):
+            self._schedule_eval_wake(str(run.id))
         return run
 
     # ---- Dashboard helpers (mock data for MVP) ----
@@ -914,16 +947,45 @@ class TestRunService:
         await session.refresh(run)
         return run
 
-    async def _maybe_fire_wake(self, run_id: str) -> None:
-        """Fire the wake-on-finish completion for a terminal run, at most once.
+    def _schedule_eval_wake(self, run_id: str) -> None:
+        """Arm the durable run-finished wake for a run.
 
-        The flag is flipped off *before* the completion is created so a racing
-        second caller no-ops. Best-effort: a lost wake degrades to the agent
-        polling with get_eval_run (or a user checking the UI) — it must never
-        block or fail run finalization.
+        Registers a one-shot APScheduler job on the shared jobstore (same
+        pattern as WaitService). Fires ~immediately in the normal case; if the
+        worker dies before it runs, it recovers on restart via
+        misfire_grace_time. Idempotent by ``run_id`` — a second schedule for
+        the same run replaces the first, so the finalizer and a live
+        ``stream_run`` client both calling this collapse to one job. Best-effort:
+        a scheduler hiccup must never block run finalization.
+        """
+        try:
+            from app.core.scheduler import scheduler
+            job_id = _eval_wake_job_id(str(run_id))
+            scheduler.add_job(
+                func=run_eval_wake,
+                trigger="date",
+                run_date=datetime.now(timezone.utc),
+                id=job_id,
+                kwargs={"job_id": job_id, "run_id": str(run_id)},
+                replace_existing=True,
+                misfire_grace_time=3600,  # survive a worker restart within the hour
+            )
+        except Exception as e:
+            logging.warning(f"failed to schedule eval wake for run {run_id}: {e}")
+
+    async def _fire_eval_wake(self, run_id: str) -> None:
+        """Deliver the wake-on-finish completion for a terminal run.
+
+        Ordering is deliberate: the wake completion is created FIRST, and
+        ``wake_on_finish`` is cleared only AFTER it succeeds. So a crash between
+        the two re-fires (the durable job / a later schedule finds the flag
+        still set) rather than silently dropping the notification — at-least-once
+        delivery, with duplicates absorbed by the 'already handled, acknowledge
+        and stop' text in the wake prompt.
         """
         async_session = create_async_session_factory()
         try:
+            # 1. Eligibility snapshot — do NOT clear the flag yet.
             async with async_session() as session:
                 run = (
                     await session.execute(select(TestRun).where(TestRun.id == str(run_id)))
@@ -935,19 +997,16 @@ class TestRunService:
                     or run.status not in RUN_TERMINAL_STATUSES
                 ):
                     return
-                # Claim the wake before doing anything visible.
-                run.wake_on_finish = False
                 origin_report_id = str(run.origin_report_id)
                 origin_user_id = str(run.origin_user_id) if run.origin_user_id else None
                 summary = dict(run.summary_json or {})
                 run_status = run.status
                 run_title = run.title
-                session.add(run)
-                await session.commit()
 
             from app.models.user import User
             from app.models.organization import Organization as _Org
 
+            # 2. Create the visible wake completion.
             async with async_session() as session:
                 report = await session.get(Report, origin_report_id)
                 if not report or getattr(report, "deleted_at", None):
@@ -997,6 +1056,16 @@ class TestRunService:
                     },
                     mode="training",
                 )
+
+            # 3. Mark the wake delivered — only now that the completion exists.
+            async with async_session() as session:
+                run = (
+                    await session.execute(select(TestRun).where(TestRun.id == str(run_id)))
+                ).scalar_one_or_none()
+                if run is not None and getattr(run, "wake_on_finish", False):
+                    run.wake_on_finish = False
+                    session.add(run)
+                    await session.commit()
         except Exception as e:
             logging.error(f"eval wake for run {run_id} failed: {e}")
 
@@ -1212,8 +1281,8 @@ class TestRunService:
         try:
             async with async_session() as session:
                 finalized = await self._finalize_run_if_done(session, str(run_id))
-            if finalized is not None:
-                await self._maybe_fire_wake(str(run_id))
+            if finalized is not None and getattr(finalized, "wake_on_finish", False):
+                self._schedule_eval_wake(str(run_id))
         except Exception as e:
             logging.exception(f"eval watcher: run {run_id} finalize failed: {e}")
 
@@ -2113,10 +2182,10 @@ class TestRunService:
                         try:
                             finalized = await self._finalize_run_if_done(db, str(run.id))
                             await db.refresh(run)
-                            if finalized is not None:
+                            if finalized is not None and getattr(finalized, "wake_on_finish", False):
                                 # e.g. a wake-armed run adopted via dedupe but
                                 # driven to completion by this streamer.
-                                asyncio.create_task(self._maybe_fire_wake(str(run.id)))
+                                self._schedule_eval_wake(str(run.id))
                         except Exception:
                             pass
                         yield format_sse_event(SSEEvent(event="run.finished", completion_id=str(run.id), data={"run_id": str(run.id), "status": run.status}))
@@ -2153,8 +2222,8 @@ class TestRunService:
                             try:
                                 finalized = await self._finalize_run_if_done(db, str(run.id))
                                 await db.refresh(run)
-                                if finalized is not None:
-                                    asyncio.create_task(self._maybe_fire_wake(str(run.id)))
+                                if finalized is not None and getattr(finalized, "wake_on_finish", False):
+                                    self._schedule_eval_wake(str(run.id))
                             except Exception:
                                 pass
                             yield format_sse_event(SSEEvent(event="run.finished", completion_id=str(run.id), data={"run_id": str(run.id), "status": run.status}))
