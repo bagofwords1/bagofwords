@@ -13,7 +13,7 @@ ever having to think about models. Off by default; enabled per organization.
 - **Extremely simple for the user.** The model picker gains no new options.
   "Default (let the system pick)" simply becomes smarter; the answer shows
   which model actually ran.
-- **Admin-guided, not config-sprawl.** Three labels and a free-text hint per
+- **Admin-guided, not config-sprawl.** Two labels and a free-text hint per
   model — no task×model matrix.
 
 ## How routing decides (small-first + escalation tool)
@@ -76,17 +76,21 @@ Rule: *is the sub-call the deliverable, or plumbing?*
 | Call | Model | Why |
 |---|---|---|
 | Planner loop | routed model | the routing decision itself |
-| `create_data` codegen | follows planner, unless admin pinned a **Coding** model | code correctness = answer correctness; the executor is an objective verifier — a failed cheap attempt escalates its retry |
-| Artifact create/edit | follows planner / Coding model | deliverable, but **no server-side verifier** — hence opt-in Coding pin, never a silent cheap default |
-| Viz-inference, title, judge, follow-ups | always small | bounded classification with deterministic guardrails downstream |
+| `create_data` codegen, artifact create/edit | follows planner (auto-propagation) | code correctness = answer correctness; the deliverable follows the routing decision |
+| Viz-inference, title, judge, follow-ups | always small (hardcoded, no config) | bounded classification with deterministic guardrails downstream |
+
+**Tool failures escalate through the planner, not a per-tool cascade**: a
+small-run codegen failure exhausts the tool's internal retries, returns an
+error observation, and the small planner calls `route_model` and re-invokes
+— propagation does the rest. One escalation mechanism covers everything, at
+the cost of one extra planner round trip on the failure path only.
 
 **Propagation is automatic**: `runtime_ctx` is rebuilt for every tool
 invocation and reads the live `self.model` (agent_v2 ~:1197, ~:3529), so
 once `route_model` swaps `self.model`, all subsequent tool calls follow
 with no extra plumbing. Precedence for any tool-internal LLM call:
-pinned-small utility > admin Coding pin > current planner model
-(post-escalation), with codegen's escalate-on-execution-error as the
-recovery path.
+pinned-small utility > current planner model (post-escalation), with
+planner-level escalation as the recovery path.
 
 Today `runtime_ctx` carries only `"model"`, so tool-internal calls —
 including viz-inference at `create_data.py:845` — run on the main model.
@@ -102,9 +106,9 @@ it is a standalone, risk-free saving that ships first.
 - **Table rework**: `Model | Routing | Cost | Context | Access | Status | ⋮`.
   Provider column dropped (icon suffices), Vision demoted to an icon, Cost
   ($/M in/out — already on `LLMModel`) added.
-- **Routing column**: chips `Default` / `Small` / `Coding` (optional) — the
-  existing `is_default` / `is_small_default` flags plus one new coding flag —
-  and a free-text **routing hint** per model (stored in `LLMModel.config`),
+- **Routing column**: chips `Default` / `Small` — the existing
+  `is_default` / `is_small_default` flags — and a free-text **routing
+  hint** per model (stored in `LLMModel.config`),
   e.g. "use for simple lookups and follow-ups". Hints feed the `route_model`
   enum descriptions verbatim. Hidden/collapsed when the toggle is off.
   Non-routable models (disabled / access-restricted) show a muted state so
@@ -161,12 +165,13 @@ a new subsystem.
    dynamic enum + prompt-builder instruction; model swap for remaining
    turns; completion stamping + `routed`/`baseline_model_id`.
 4. **Settings UI** — toggle, Routing column, Cost column, hint editing;
-   PromptBoxV2 "· Auto" signal + answer badge; console savings query.
-5. **Coding label** — third chip; codegen/artifacts honor it.
+   PromptBoxV2 "· Auto" signal + answer badge; console savings KPI block.
 
 ## Explicitly deferred (menu, not plan)
 
-Add only if judge/savings data justifies: history-based routing (kNN over
+Add only if judge/savings data justifies: a per-task **Coding** model pin
+(third label chip for codegen/artifacts — the hint/label infrastructure
+makes it a small addition later); history-based routing (kNN over
 past prompts + `TableStats` difficulty priors), an outside difficulty
 classifier in front of the planner, cheapest-in-tier selection across all
 org models, exploration/bandit de-confounding, learned routers
