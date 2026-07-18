@@ -173,6 +173,42 @@ def test_routing_hint_requires_manage_llm(test_client, cast, bootstrap_admin, in
     assert r.status_code in (401, 403)
 
 
+# ── per-model pricing ──────────────────────────────────────────────────────
+
+@pytest.mark.e2e
+def test_pricing_set_persists_and_rejects_negative(test_client, cast):
+    t, org = cast["admin"]["token"], cast["org_id"]
+    r = test_client.post(
+        f"/api/llm/models/{cast['default_id']}/pricing",
+        json={"input_cost_per_million_tokens_usd": 3.33, "output_cost_per_million_tokens_usd": 9.99},
+        headers=_headers(t, org),
+    )
+    assert r.status_code == 200, r.json()
+
+    models = _list_models(test_client, t, org)
+    tgt = next(m for m in models if m["id"] == cast["default_id"])
+    assert tgt["input_cost_per_million_tokens_usd"] == 3.33
+    assert tgt["output_cost_per_million_tokens_usd"] == 9.99
+
+    # Omitted field is left unchanged; negative is rejected.
+    r2 = test_client.post(
+        f"/api/llm/models/{cast['default_id']}/pricing",
+        json={"input_cost_per_million_tokens_usd": 4.0},
+        headers=_headers(t, org),
+    )
+    assert r2.status_code == 200
+    tgt = next(m for m in _list_models(test_client, t, org) if m["id"] == cast["default_id"])
+    assert tgt["input_cost_per_million_tokens_usd"] == 4.0
+    assert tgt["output_cost_per_million_tokens_usd"] == 9.99  # unchanged
+
+    r3 = test_client.post(
+        f"/api/llm/models/{cast['default_id']}/pricing",
+        json={"input_cost_per_million_tokens_usd": -1.0},
+        headers=_headers(t, org),
+    )
+    assert r3.status_code == 400
+
+
 # ── candidate resolution: only guided models, capped ───────────────────────
 
 @pytest.mark.e2e

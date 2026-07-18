@@ -854,6 +854,68 @@ class LLMService:
 
         return {"success": True, "context_window_tokens": model.context_window_tokens}
 
+    async def set_pricing(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        input_cost: float | None,
+        output_cost: float | None,
+    ):
+        """Set a model's per-million-token USD pricing (input/output).
+
+        Powers the cost console and the Auto-router savings math. None leaves a
+        field unchanged; a negative value is rejected. Applies to any model the
+        org owns (preset or custom) — an admin often needs to correct a preset
+        rate or price a self-hosted model the catalog can't.
+        """
+        for label, val in (("input", input_cost), ("output", output_cost)):
+            if val is not None and val < 0:
+                raise HTTPException(status_code=400, detail=f"{label} cost must be non-negative")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if input_cost is not None:
+            model.input_cost_per_million_tokens_usd = float(input_cost)
+        if output_cost is not None:
+            model.output_cost_per_million_tokens_usd = float(output_cost)
+        await db.commit()
+
+        logger.info(
+            "LLM model pricing set: id=%s, model_id=%s, in=%s, out=%s, org_id=%s",
+            model.id, model.model_id,
+            model.input_cost_per_million_tokens_usd,
+            model.output_cost_per_million_tokens_usd, organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.pricing_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={
+                    "model_id": model.model_id,
+                    "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+                    "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+            "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+        }
+
     async def set_routing_hint(
         self,
         db: AsyncSession,

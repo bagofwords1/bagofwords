@@ -245,6 +245,29 @@ async def set_default_model(
     return await llm_service.set_default_model(db, current_user, organization, model_id, small=small)
 
 
+class PricingUpdate(BaseModel):
+    input_cost_per_million_tokens_usd: Optional[float] = None
+    output_cost_per_million_tokens_usd: Optional[float] = None
+
+
+@router.post("/llm/models/{model_id}/pricing")
+@requires_permission('manage_llm')
+async def set_model_pricing(
+    model_id: str,
+    body: PricingUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a model's per-million-token USD pricing (input/output). Omitted
+    fields are left unchanged."""
+    return await llm_service.set_pricing(
+        db, organization, current_user, model_id,
+        body.input_cost_per_million_tokens_usd,
+        body.output_cost_per_million_tokens_usd,
+    )
+
+
 class RoutingHintUpdate(BaseModel):
     hint: Optional[str] = None
 

@@ -2012,7 +2012,8 @@
       "autoRouterHow1": "When a user doesn't pick a model, each request starts on the small (cheap) model.",
       "autoRouterHow2": "The agent escalates to a stronger model only when the task needs it — the choice propagates to code generation too.",
       "autoRouterHow3": "Add routing guidance to a model below to make it an escalation target and steer when it is used.",
-      "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing."
+      "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
+      "costEditTooltip": "Click to edit input / output price per million tokens (USD)."
     },
     "licensePage": {
       "title": "License",

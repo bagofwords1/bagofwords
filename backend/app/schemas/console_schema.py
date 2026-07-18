@@ -178,6 +178,7 @@ class CostMetrics(BaseModel):
     total_tokens: int
     total_cost_usd: float
     has_estimated_provider: bool
+    routing: RoutingSavings = RoutingSavings()
     date_range: DateRange
 
 class TopUserData(BaseModel):

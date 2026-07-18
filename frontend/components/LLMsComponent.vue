@@ -116,7 +116,25 @@
                             </div>
                         </td>
                         <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
-                            {{ formatCost(model) }}
+                            <div v-if="editingCostId === model.id" class="flex items-center gap-1">
+                                <input v-model.number="costInDraft" type="number" min="0" step="0.01"
+                                    class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs focus:outline-none focus:border-blue-500"
+                                    placeholder="in" @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
+                                <span class="text-gray-400">/</span>
+                                <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
+                                    class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs focus:outline-none focus:border-blue-500"
+                                    placeholder="out" @keyup.enter="saveCost(model)" @keyup.escape="editingCostId = null" />
+                                <button type="button" class="text-blue-500 hover:text-blue-700" @click="saveCost(model)"><UIcon name="i-heroicons-check" class="w-4 h-4" /></button>
+                                <button type="button" class="text-gray-400 hover:text-gray-600" @click="editingCostId = null"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+                            </div>
+                            <UTooltip v-else :text="$t('settings.llms.costEditTooltip')">
+                                <button v-if="useCan('manage_llm_settings')" type="button"
+                                    class="hover:text-blue-600 underline decoration-dotted underline-offset-2"
+                                    @click="startCostEdit(model)">
+                                    {{ formatCost(model) }}
+                                </button>
+                                <span v-else>{{ formatCost(model) }}</span>
+                            </UTooltip>
                         </td>
                         <td class="px-4 py-2.5 whitespace-nowrap text-sm">
                             <UToggle
@@ -300,6 +318,39 @@ const formatCost = (model: Model): string => {
     if (i == null && o == null) return '—';
     const fmt = (n?: number | null) => (n == null ? '—' : `$${parseFloat(Number(n).toFixed(2))}`);
     return `${fmt(i)} / ${fmt(o)}`;
+};
+
+// ── Per-model pricing (inline edit) ────────────────────────────────────────
+const editingCostId = ref<string | null>(null);
+const costInDraft = ref<number | null>(null);
+const costOutDraft = ref<number | null>(null);
+
+const startCostEdit = (model: Model) => {
+    costInDraft.value = model.input_cost_per_million_tokens_usd ?? null;
+    costOutDraft.value = model.output_cost_per_million_tokens_usd ?? null;
+    editingCostId.value = model.id;
+};
+
+const saveCost = async (model: Model) => {
+    const inC = costInDraft.value, outC = costOutDraft.value;
+    if ((inC != null && inC < 0) || (outC != null && outC < 0)) {
+        toast.add({ title: 'Error', description: 'Cost must be non-negative', color: 'red' });
+        return;
+    }
+    const response = await useMyFetch(`/llm/models/${model.id}/pricing`, {
+        method: 'POST',
+        body: {
+            input_cost_per_million_tokens_usd: inC,
+            output_cost_per_million_tokens_usd: outC,
+        },
+    });
+    if (response.status.value === 'success') {
+        editingCostId.value = null;
+        await getModels();
+        toast.add({ title: 'Pricing updated', color: 'green' });
+    } else {
+        toast.add({ title: 'Error', description: 'Could not update pricing', color: 'red' });
+    }
 };
 
 const editingHintId = ref<string | null>(null);

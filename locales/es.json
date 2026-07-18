@@ -1868,7 +1868,8 @@
       "autoRouterHow1": "Cuando un usuario no elige un modelo, cada solicitud empieza en el modelo pequeño (económico).",
       "autoRouterHow2": "El agente escala a un modelo más potente solo cuando la tarea lo necesita; la elección también se propaga a la generación de código.",
       "autoRouterHow3": "Añade una guía de enrutamiento a un modelo abajo para convertirlo en objetivo de escalado y orientar cuándo se usa.",
-      "autoRouterHow4": "Las elecciones explícitas de modelo y los modelos fijados al informe siempre omiten el enrutamiento."
+      "autoRouterHow4": "Las elecciones explícitas de modelo y los modelos fijados al informe siempre omiten el enrutamiento.",
+      "costEditTooltip": "Haz clic para editar el precio de entrada / salida por millón de tokens (USD)."
     },
     "licensePage": {
       "title": "Licencia",

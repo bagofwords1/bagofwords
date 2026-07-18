@@ -42,6 +42,24 @@
             </div>
         </div>
 
+        <!-- Auto model router savings -->
+        <div
+            v-if="data?.routing?.enabled"
+            class="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4"
+            data-testid="cost-routing-savings"
+        >
+            <div class="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-100">
+                <UIcon name="i-heroicons-arrow-trending-down" class="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+                <div class="text-lg font-bold text-emerald-700">${{ formatNum(data.routing.savings_usd || 0, 2) }} saved by auto-routing</div>
+                <div class="text-sm text-emerald-600/80">
+                    {{ compactNum(data.routing.routed_calls || 0) }} of {{ compactNum(data.routing.total_calls || 0) }} calls routed
+                    ({{ Math.round((data.routing.routed_share || 0) * 100) }}%) · vs. running everything on the default model
+                </div>
+            </div>
+        </div>
+
         <!-- Trend chart -->
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
             <div class="p-6 border-b border-gray-50 flex items-center justify-between">
@@ -184,6 +202,13 @@ interface CostBreakdownItem {
     total_cost_usd: number
 }
 interface CostTimeSeriesPoint { date: string; cost_usd: number; tokens: number }
+interface RoutingSavings {
+    enabled: boolean
+    savings_usd: number
+    routed_calls: number
+    total_calls: number
+    routed_share: number
+}
 interface CostMetrics {
     group_by: string
     items: CostBreakdownItem[]
@@ -194,6 +219,7 @@ interface CostMetrics {
     total_tokens: number
     total_cost_usd: number
     has_estimated_provider: boolean
+    routing?: RoutingSavings
     date_range: { start: string; end: string }
 }
 interface DateRange { start: string; end: string }

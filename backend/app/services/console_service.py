@@ -1207,6 +1207,7 @@ class ConsoleService:
             total_tokens=total_tokens,
             total_cost_usd=round(total_cost_usd, 6),
             has_estimated_provider=has_estimated,
+            routing=await self._compute_routing_savings(db, organization, start_date, end_date, total_calls),
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )
 
