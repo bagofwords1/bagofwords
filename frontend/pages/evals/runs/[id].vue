@@ -194,8 +194,8 @@
                   <div class="space-y-2">
                     <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 dark:border-gray-700 rounded-md p-3">
                       <!-- Type -->
-                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(it.rule?.target?.category || '')">
-                        {{ categoryName(it.rule?.target?.category || '') }}
+                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(ruleCategoryKey(it.rule))">
+                        {{ categoryName(ruleCategoryKey(it.rule)) }}
                       </div>
                       <!-- Assertion / Actual / Reasoning -->
                       <div class="text-xs text-gray-900 dark:text-white">
@@ -872,7 +872,7 @@ const categoryName = (cat?: string) => {
     const spaced = raw.replace(/_/g, ' ')
     return spaced.replace(/\b\w/g, (m) => m.toUpperCase())
   }
-  return c
+  return humanize(c)
 }
 const humanize = (s?: string) => {
   const txt = String(s || '')
@@ -920,10 +920,31 @@ const quote = (s: string) => `"${s}"`
 const joinedQuoted = (arr: any[]) => quote(arr.map((v) => String(v)).join('; '))
 const ruleSummaryText = (rule: any): string => {
   try {
-    // For judge expectations, display the actual prompt text (expected value)
+    // For judge expectations, display the assertion prompt text. Modern spec
+    // stores it on ``rule.prompt``; the legacy FieldRule shape used matcher/
+    // target value.
     if (isJudgeRule(rule)) {
-      const val = rule?.matcher?.value ?? rule?.target?.value
+      const val = rule?.prompt ?? rule?.matcher?.value ?? rule?.target?.value
       return typeof val === 'string' ? val : String(val ?? 'Prompt')
+    }
+    // Modern tool.calls rule: assert a tool was called within a count range.
+    if (rule?.type === 'tool.calls') {
+      const tool = rule?.tool || 'tool'
+      const bounds: string[] = []
+      if (typeof rule?.min_calls === 'number' && rule.min_calls > 0) bounds.push(`≥ ${rule.min_calls}`)
+      if (typeof rule?.max_calls === 'number' && rule.max_calls != null) bounds.push(`≤ ${rule.max_calls}`)
+      return bounds.length ? `${tool} called ${bounds.join(', ')}` : `${tool} called`
+    }
+    // Modern ordering rule: expected tool sequence.
+    if (rule?.type === 'ordering') {
+      const seq = Array.isArray(rule?.sequence)
+        ? rule.sequence.map((s: any) => s?.tool_or_bind || '?')
+        : []
+      return seq.length ? `Order: ${seq.join(' → ')}` : 'Ordering'
+    }
+    // Modern phase rule: a given agent phase ran (or did not).
+    if (rule?.type === 'phase') {
+      return `Phase '${rule?.phase}' ${rule?.occurred === false ? 'did not run' : 'ran'}`
     }
     const field = humanize(rule?.target?.field || '')
     const op = opLabel(rule?.matcher?.type)
@@ -999,7 +1020,23 @@ const ruleActualText = (row: { result: TestResult }, idx: number): string => {
   try { return JSON.stringify(actual) } catch { return String(actual) }
 }
 const isJudgeRule = (rule: any): boolean => {
-  return String(rule?.target?.category || '') === 'judge'
+  // Modern spec: {type: 'judge', prompt}. Legacy shape used a FieldRule with
+  // target.category === 'judge'; both are still evaluated server-side.
+  return rule?.type === 'judge' || String(rule?.target?.category || '') === 'judge'
+}
+// Map any rule (modern flat type or legacy target/matcher) to the category key
+// used for the badge label + colour. Without this the modern tool.calls / judge
+// / ordering / phase rules — which have no ``target.category`` — render a blank
+// badge and an empty "Assertion:" line.
+const ruleCategoryKey = (rule: any): string => {
+  const legacy = String(rule?.target?.category || '')
+  if (legacy) return legacy
+  const type = String(rule?.type || '')
+  if (type === 'judge') return 'judge'
+  if (type === 'tool.calls') return `tool:${rule?.tool || ''}`
+  if (type === 'ordering') return 'ordering'
+  if (type === 'phase') return 'phase'
+  return type
 }
 const ruleReasoningText = (row: { result: TestResult }, idx: number): string => {
   const rr: any = ruleResultAt(row, idx) as any
