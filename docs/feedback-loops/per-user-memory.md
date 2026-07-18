@@ -1,12 +1,12 @@
-# Feedback Loop — "add per-user memory (Hermes-style): the agent remembers a user's preferences across sessions"
+# Feedback Loop — "add per-user memory: the agent remembers a user's preferences across sessions"
 
 Per-user, per-org **agent memory**: a small, curated document the agent writes
 via an `update_user_memory` tool and that is injected into every future
-conversation with that user as `<user_memory>`. Mirrors Hermes' `MEMORY.md`
-(bounded, always-injected, agent-curated) and sits alongside the existing
-org-scoped **instructions** (reviewed, shared) and per-report **notes**
-(ephemeral scratchpad). This loop validates the whole path: tool → DB → prompt
-injection → profile UI, plus a live agent actually choosing to call the tool.
+conversation with that user as `<user_memory>`. Bounded, always-injected, and
+agent-curated, it sits alongside the existing org-scoped **instructions**
+(reviewed, shared) and per-report **notes** (ephemeral scratchpad). This loop
+validates the whole path: tool → DB → prompt injection → profile UI, plus a
+live agent actually choosing to call the tool.
 
 ## What was built (file:line)
 
