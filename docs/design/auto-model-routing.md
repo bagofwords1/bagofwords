@@ -48,6 +48,22 @@ The "strong" candidate is whatever the ladder resolved — so a user's
 personal default stays meaningful: their easy questions run small, their
 hard ones run *their* chosen model.
 
+**The first prompt always starts on the small default** (pre-checks aside):
+escalation upward is cheap and happens before any user-visible work, while
+de-escalation mid-run never happens — starting on default would make the
+router save nothing. The cost of a "wrong" small start is one short
+small-model turn, not a bad answer.
+
+### Expected behavior
+
+| Prompt | What happens | Runs on |
+|---|---|---|
+| "what is total revenue?" | small planner proceeds, codegen verified by executor | small |
+| "create a dashboard for this" | small planner immediately calls `route_model`, then builds | default (one small hop) |
+| "make the bars blue" (follow-up) | trivial continuation | small |
+| "reconcile revenue across three sources" | pre-check or instant escalation | default |
+| user picks a model (message or report) | router never runs, excluded from savings math | user's pick |
+
 ### Error-driven fallback (independent of the toggle)
 
 Hooked on `app/ai/llm/errors.py` classification: `context_length` → retry one
@@ -111,7 +127,17 @@ saved ≈ (baseline model rates × tokens actually used) − actual cost
 
 using per-call tokens/cost already in `LLMUsageRecord` and rates on
 `LLMModel`. Escalated runs naturally report routing *overhead*, so console
-numbers are net. Everything else needed for evaluation already exists:
+numbers are net.
+
+**Cost console — routing block** (ConsoleOverview / LlmUsageChart area):
+headline KPI **"Saved by auto-routing"** ($ for the period), supported by
+% of requests auto-routed, % resolved on the small model, and escalation
+rate. All from one query over `routed`/`baseline_model_id` +
+`LLMUsageRecord`. Escalation rate doubles as the health metric (too high →
+tune hints); judge scores dipping on small-resolved runs → the small model
+is under-escalating.
+
+Everything else needed for evaluation already exists:
 `Completion.model` (final effective model — updated at run end once
 escalation exists, since it is currently stamped at creation), judge scores
 (`response_score`, `judge_json`), human feedback, `sigkill`. "Did
