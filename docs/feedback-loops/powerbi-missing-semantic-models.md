@@ -3,13 +3,11 @@
 Reported against a live Entra tenant (SP-seeded catalog + OBO users): some
 Power BI semantic models that are visible in app.powerbi.com never show up as
 selectable tables in the schema step, with no error anywhere. This loop
-validates the claim that models are **silently dropped** at three independent
-places in the fetch pipeline, and pins each mechanism with a deterministic
-reproduction (no live credentials needed).
+reproduces three independent silent-drop mechanisms, fixes each, and confirms
+the discovery pipeline against the real tenant.
 
-Status: **reproduction only — no fix applied yet.** The invariant tests are
-committed as `strict xfail`; whoever lands the fix flips them to plain asserts
-by deleting the markers.
+Status: **fixed.** The reproduction tests now assert the fixed contract and
+pass (no more strict-xfail markers).
 
 ---
 
@@ -17,54 +15,79 @@ by deleting the markers.
 
 The selectable list is whatever `PowerBIClient.get_schemas()` emits into the
 canonical catalog (plus, for OBO users, an overlay filter on top). A semantic
-model can fall out at each stage:
+model could fall out at each stage:
 
-1. **Admin-scan shadowing** — `_batch_admin_scan` records an entry for every
+1. **Admin-scan shadowing.** `_batch_admin_scan` records an entry for every
    dataset present in the scan result, including datasets the Scanner API
    returned **no schema** for (model not refreshed since enhanced-metadata
-   scanning was enabled, DirectLake, all tables `isHidden`). Because
-   `get_schemas()` treats "dataset id present in admin scan results" as final
-   (`backend/app/data_sources/clients/powerbi_client.py:770-773`), the
-   COLUMNSTATISTICS fallback is **never attempted** for those datasets — even
-   when it would have worked. The model vanishes.
+   scanning was enabled, DirectLake, all tables `isHidden`). `get_schemas()`
+   used to treat "dataset id present in scan results" as final and **never
+   attempt the COLUMNSTATISTICS fallback** for those datasets — even when it
+   would have worked. The model vanished.
 
-2. **Silent fallback failure** — without admin-API rights every dataset relies
-   on `EVALUATE COLUMNSTATISTICS()` via `executeQueries`, which needs **Build**
-   permission and fails for RLS-protected / Viewer-only / some DirectLake
-   models. The failure is swallowed into `([], [])`
-   (`powerbi_client.py:523-525`), the REST `/tables` fallback only answers for
-   Push datasets (`powerbi_client.py:472-477`), and Phase 4 emits rows only by
-   iterating discovered tables (`powerbi_client.py:812`) — a dataset with zero
-   tables produces **zero schema rows and no surfaced error** (a
-   `logging.warning` is the only trace).
+2. **Silent introspection failure.** Without admin-API rights every dataset
+   relies on `EVALUATE COLUMNSTATISTICS()` via `executeQueries`, which needs
+   **Build** permission and fails for RLS-protected / Viewer-only / DirectLake
+   models. The failure was swallowed into `([], [])`, the REST `/tables`
+   fallback only answers for Push datasets, and Phase 4 emits rows only by
+   iterating discovered tables — so a dataset with zero tables produced **zero
+   schema rows and no surfaced error** (a `logging.warning` was the only trace).
 
-3. **Overlay ∩ canonical intersection (OBO)** — for a `user_required` + oauth
-   connection, a signed-in user's selector is scoped to their overlay rows
-   with `data_source_table_id IS NOT NULL`
-   (`backend/app/services/data_source_service.py:2668-2676`), but
-   `_upsert_user_overlay` links overlay rows to canonical `DataSourceTable`
-   rows **by name only** and leaves `NULL` on a miss
-   (`data_source_service.py:3400`). Power BI is a `shared`-catalog connector
-   (`backend/app/schemas/data_source_registry.py:870` — registry default), so
-   the per-user "create canonical rows on demand" escape hatch does not apply.
-   Net effect: a model the user's own token can crawl but the service
-   principal cannot (SP not a Member of that workspace, or dropped by 1/2
-   above) is fetched into the overlay **and then filtered out of the
+3. **Overlay ∩ canonical intersection (OBO).** For a `user_required` + oauth
+   connection, a signed-in user's selector is scoped to overlay rows with
+   `data_source_table_id IS NOT NULL`, but `_upsert_user_overlay` linked
+   overlay rows to canonical `DataSourceTable` rows **by name only** and left
+   `NULL` on a miss. Net effect: a model the user's own token can crawl but the
+   service principal cannot (SP not a Member of that workspace, or dropped by
+   1/2 above) was fetched into the overlay **and then filtered out of the
    selector**.
 
-Additional scoping facts (validated by API semantics, not loop-reproducible):
-`list_workspaces` uses `GET /v1.0/myorg/groups` (`powerbi_client.py:356`),
-which only returns workspaces where the identity holds a workspace role —
-datasets shared directly (dataset-level Build/Read) and "My Workspace" content
-never enter the crawl at all.
+Additional scoping fact (API semantics, not loop-reproducible):
+`list_workspaces` uses `GET /v1.0/myorg/groups`, which only returns workspaces
+where the identity holds a workspace role — datasets shared directly and "My
+Workspace" content never enter the crawl.
 
 ---
 
-## Loop A — deterministic reproduction (no external services)
+## The fix
+
+All in `backend/app/data_sources/clients/powerbi_client.py`,
+`backend/app/services/data_source_service.py`, and the indexing service.
+
+1. **Fix 1 — stop admin-scan shadowing.** `get_schemas()` now accepts an
+   admin-scan result as final only when it returned tables; an **empty** scan
+   result falls through to COLUMNSTATISTICS instead of shadowing it.
+
+2. **Fix 2 — report unreadable models, don't drop or fake them.**
+   `get_dataset_tables_with_reason` / `_get_tables_via_column_stats_with_reason`
+   return *why* introspection failed. A dataset that produced no tables is
+   recorded in `PowerBIClient.discovery_diagnostics` and surfaced via
+   `index_stats()` → the indexing runner writes `unreadable_datasets` (with
+   reasons) into the job's `stats_json` and emits a `warn` event; `refresh_schema`
+   logs a warning. No phantom column-less table is created (it would be
+   unqueryable and just move the failure downstream).
+
+3. **Fix 3 — union user-discovered tables into the canonical catalog.** For
+   `user_required` connections, `_upsert_user_overlay` now creates the canonical
+   `DataSourceTable` on demand from the user's crawl (tagged
+   `discovered_by="user"`, matched by dataset/table identity, created inactive)
+   and links the overlay to it. One org-level row backs the table, so usage /
+   instructions aggregate across users; per-user visibility stays enforced by
+   the overlay; SP re-index does not prune it (it prunes only
+   ConnectionTable-linked rows, and these are intentionally unlinked). This
+   reuses the on-demand pattern that per_user catalogs (OneDrive/Drive) already
+   had; OneDrive's auto-activate behavior is preserved.
+
+4. **Fix 4 — skip built-in system models.** `_is_system_dataset` skips Power
+   BI's auto-created usage-metrics semantic models in discovery so they never
+   pollute the catalog (nor count as "unreadable").
+
+---
+
+## Loop A — deterministic reproduction / fix verification (no external services)
 
 All Power BI HTTP traffic is faked at the `requests.Session` boundary; every
-line of client/service logic runs real. Overlay leg runs on SQLite via the
-standard test harness.
+line of client/service logic runs real. Overlay leg runs on SQLite.
 
 ```bash
 cd backend
@@ -72,91 +95,76 @@ export BOW_DATABASE_URL="sqlite:///db/app.db"
 TESTING=true uv run pytest \
   tests/unit/test_powerbi_missing_models_repro.py \
   tests/e2e/test_powerbi_overlay_intersection_repro.py \
-  -v -s --runxfail
+  -v -s
 ```
 
-**Observed (2026-07-17, current code):**
-
-Mechanism 1 — admin scan covers a dataset with no schema, fallback never tried:
+**Observed after the fix:**
 
 ```
-[repro] emitted schema tables: ['CoveredModel/Sales']
-[repro] COLUMNSTATISTICS attempted for d2: False
-AssertionError: dataset covered by the admin scan without schema was dropped
-                instead of falling back to COLUMNSTATISTICS
-  assert 'ShadowedModel/Facts' in ['CoveredModel/Sales']
+Fix 1  test_admin_scan_entry_without_schema_must_not_shadow_fallback
+       [fixed] emitted schema tables: ['CoveredModel/Sales', 'ShadowedModel/Facts']
+       [fixed] COLUMNSTATISTICS attempted for d2: True
+
+Fix 2  test_unintrospectable_dataset_reported_not_dropped_and_not_phantom
+       [fixed] emitted schema tables: ['ReadableModel/Orders']
+       [fixed] unreadable diagnostics: [('UnreadableModel', 'COLUMNSTATISTICS failed: not authorized ...')]
+       (no phantom 'UnreadableModel/*' table; index_stats() reports it with a reason)
+
+Fix 4  test_builtin_usage_metrics_models_are_skipped -> only ['RealModel/Sales'] emitted
+
+Fix 3  test_user_visible_model_missing_from_sp_catalog_is_selectable
+       [fixed] user1 selectable: ['ModelA/T1', 'ModelB/T2']    # ModelB was SP-invisible
+       [fixed] canonical rows: {'ModelA/T1': (None, ...), 'ModelB/T2': ('user', <id>)}
+       [fixed] both users' overlays link to the SAME ModelB canonical id  # usage aggregates
 ```
 
-Mechanism 2 — COLUMNSTATISTICS forbidden (no Build), not a Push dataset:
+All tests pass. `tests/unit/test_powerbi_client.py` (36) and
+`tests/e2e/test_obo_admin_catalog_before_signin.py` still pass.
 
-```
-WARNING root:powerbi_client.py:524 COLUMNSTATISTICS failed for dataset d1:
-        DAX query failed: HTTP 403 {"error": {"code": "PowerBINotAuthorizedException"}}
-[repro] emitted schema tables: ['ReadableModel/Orders']
-AssertionError: dataset with failed table introspection was silently dropped from the schema
-```
+## Loop B — live confirmation (real Entra tenant)
 
-(`test_current_behavior_drops_are_silent_no_exception` PASSES today — it pins
-that both drops complete without raising: the caller just gets a smaller
-schema.)
+Secrets via env vars only (never committed). Uses the master service principal
+and delegated ROPC tokens for the demo users.
 
-Mechanism 3 — overlay intersection (signed-in OBO user, SP catalog narrower
-than the user's access):
-
-```
-[repro] user's live fetch returned:   ['ModelA/T1', 'ModelB/T2']
-[repro] overlay rows (name, linked-to-canonical): [('ModelA/T1', True), ('ModelB/T2', False)]
-[repro] selectable tables in schema:  ['ModelA/T1']
-AssertionError: model returned by the user's own fetch is not selectable —
-                dropped by the overlay∩canonical intersection
-  assert 'ModelB/T2' in ['ModelA/T1']
+```bash
+export BOW_ENTRA_TENANT_ID=...            # tenant
+export BOW_ENTRA_CLIENT_ID=... BOW_ENTRA_CLIENT_SECRET=...   # OAuth app (user sign-in)
+export BOW_PBI_MASTER_CLIENT_ID=... BOW_PBI_MASTER_CLIENT_SECRET=...  # service principal
 ```
 
-Without `--runxfail` the same run is green (`1 passed, 3 xfailed`) — the
-invariants are recorded as strict xfails so CI stays green until the fix.
+**Observed (2026-07-18):**
 
-## Loop B — live confirmation (optional, real tenant)
+```
+SP get_schemas(): 2 workspaces (BOW, bow-bi); 4 semantic models all discovered
+  SalesPush -> [Sales, Customers]; deals2 -> [...]; leads -> [...]; mySM -> [Docum, D (2)]
+  index_stats(): {}                       # every model readable → no false diagnostics
+_batch_admin_scan(): {} (empty)           # read-only admin API NOT enabled for the SP
+                                          #  → discovery runs entirely on COLUMNSTATISTICS
+                                          #    (the Fix 1 fallthrough path is the active one)
+Delegated ROPC tokens (demo1 AllFabric, demo2 MinimalFabric): both HTTP 200
+  demo1 get_schemas(): 4 models   demo2 get_schemas(): 4 models
+```
 
-Only needed to confirm which mechanism is eating a *specific* model in a real
-tenant. Secrets via env vars only (`BOW_ENTRA_*`, `BOW_PBI_MASTER_*` — same
-set as `fabric-powerbi-obo-creator-zero-tables.md`). Triage per model:
-
-1. Present in `GET /connections/{id}/tables` (canonical, SP view)?
-   - **No**, but visible in app.powerbi.com → mechanism 1/2 on the SP crawl
-     (check backend logs for `COLUMNSTATISTICS failed for dataset …`), or the
-     SP isn't a Member of that workspace (membership scoping).
-   - **Yes**, but missing from a signed-in user's selector → mechanism 3
-     only bites the other direction (user-visible, SP-invisible); check the
-     user's `UserDataSourceTable` rows for `data_source_table_id IS NULL`.
-
-## The fix
-
-Not applied (reproduction requested only). Candidate directions, per
-mechanism:
-
-1. Fall back to COLUMNSTATISTICS whenever the admin scan yielded an **empty**
-   table list for a dataset, not just when the dataset id is absent.
-2. Emit a dataset-level placeholder row (or surface a per-dataset warning in
-   the indexing job) when every introspection path fails, so the model stays
-   visible/selectable instead of disappearing.
-3. Union user-crawled tables into the selector for the overlay identity (or
-   create canonical rows on demand as the `per_user` catalogs already do),
-   instead of intersecting with the SP catalog by name.
-
-When a fix lands: delete the `xfail` markers in the two repro test files and
-re-run Loop A — all four tests must pass.
+**What Loop B proves and what it doesn't.** This tenant's three identities (SP,
+demo1, demo2) are all Members of the same workspace and every model is
+import-mode, so all read cleanly and no divergence appears live — Loop B
+confirms the happy path (auth, discovery, no false diagnostics, delegated
+tokens) and does **not** by itself exercise the three drop mechanisms; Loop A
+covers those deterministically. Crucially, the SP's admin scan being **empty**
+(read-only admin API off) is exactly the configuration under which a customer's
+**DirectLake** models fail COLUMNSTATISTICS — which is why the top operational
+recommendation is to enable the two Fabric admin-portal settings ("Service
+principals can access read-only admin APIs" + "Enhanced admin API responses
+with detailed metadata"); with Fix 1 in place, a schema-less scan entry no
+longer shadows the DAX fallback.
 
 ## What this proves / regression notes
 
-- Datasets are **listed** correctly in every reproduced case — the loss is in
-  table introspection and in the overlay link step, which matches the report
-  ("some are missing from the fetch" while others from the same tenant show
-  up).
-- All three mechanisms are silent by construction: no exception reaches the
-  caller, nothing is surfaced to the UI (mechanism 2 leaves only a
-  `logging.warning`).
-- Pre-existing suites unaffected: `tests/unit/test_powerbi_client.py`
-  (36 passed) on the same run.
-- Sibling loops: `fabric-powerbi-obo-creator-zero-tables.md` (zero tables
-  before first sign-in — different mechanism, already fixed),
+- Datasets are **listed** correctly in every case — the loss was in table
+  introspection and the overlay link step, matching the report.
+- Pre-existing, unrelated failures (reproduce with this change stashed):
+  `tests/unit/test_connection_oauth.py::test_ms_fabric` and
+  `::test_obo_exchange_ms_fabric` assert the old `api.fabric.microsoft.com`
+  OAuth scope — untouched by this change.
+- Sibling loops: `fabric-powerbi-obo-creator-zero-tables.md`,
   `powerbi-dataset-id-resolution.md`.

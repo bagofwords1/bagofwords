@@ -1,31 +1,30 @@
-"""Reproduction: Power BI semantic models silently missing from get_schemas().
+"""Power BI semantic models missing from get_schemas() — reproduction + fix.
 
 Reported symptom: "not all the semantic models are selectable in schema —
 some are missing from the fetch". The selectable catalog is whatever
 PowerBIClient.get_schemas() emits, and a dataset whose table discovery comes
-back empty produces ZERO schema rows — the whole semantic model vanishes with
-no error surfaced (docs/feedback-loops/powerbi-missing-semantic-models.md).
+back empty produced ZERO schema rows AND no signal — the whole semantic model
+vanished (docs/feedback-loops/powerbi-missing-semantic-models.md).
 
-Two drop mechanisms are pinned here, both at the HTTP boundary (the fake
-below stands in for api.powerbi.com only — all client logic runs real):
+Two mechanisms are pinned here, both at the HTTP boundary (the fake below
+stands in for api.powerbi.com only — all client logic runs real):
 
 1. Admin-scan shadowing: _batch_admin_scan records an entry for EVERY dataset
    in the scan result, including ones the Scanner API returned no schema for
    (not refreshed since enhanced-metadata scanning was enabled, DirectLake,
-   all-hidden models). get_schemas() then treats "covered by admin scan" as
-   final and never tries the COLUMNSTATISTICS fallback for those datasets
-   (powerbi_client.py — `if ds_id in admin_scan_results`), even when the
-   fallback would have worked.
+   all-hidden models). get_schemas() used to treat "covered by admin scan" as
+   final and never try the COLUMNSTATISTICS fallback for those datasets.
+   FIX: fall through to COLUMNSTATISTICS on an EMPTY scan result, not just a
+   missing one — the model is discovered.
 
-2. Fallback failure is silent: without admin rights, discovery rests on
+2. Unreadable datasets: without admin rights, discovery rests on
    COLUMNSTATISTICS via executeQueries, which needs Build permission and
-   fails for RLS/DirectLake/Viewer-only models. The failure is swallowed
-   (`([], [])`) and the REST /tables fallback only answers for Push datasets,
-   so the dataset ends up with no rows — invisible in the schema, no signal.
-
-The invariant asserted (and currently violated, hence strict xfail): every
-dataset the identity can LIST must be represented in the emitted schema —
-that is what makes a semantic model selectable at all.
+   fails for RLS/DirectLake/Viewer-only models. This one legitimately yields
+   no columns, so it must NOT become a phantom (column-less, unqueryable)
+   table — but it must ALSO not vanish silently. FIX: record it in
+   `discovery_diagnostics` / `index_stats()` with a reason, so the indexing
+   job can report "found but not readable" instead of dropping it without a
+   trace.
 """
 from __future__ import annotations
 
@@ -36,11 +35,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.data_sources.clients.powerbi_client import PowerBIClient
-
-XFAIL_REASON = (
-    "known bug: datasets with no discoverable tables are silently dropped from "
-    "get_schemas(); see docs/feedback-loops/powerbi-missing-semantic-models.md"
-)
 
 
 def _resp(status: int, payload=None):
@@ -120,10 +114,9 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda *_: None)
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
 def test_admin_scan_entry_without_schema_must_not_shadow_fallback():
-    """A dataset the admin scan covers but returns NO schema for must still be
-    discovered via the COLUMNSTATISTICS fallback (which works for it)."""
+    """Fix 1: a dataset the admin scan covers but returns NO schema for must
+    still be discovered via the COLUMNSTATISTICS fallback (which works for it)."""
     http = _FakePowerBIHttp()
     _wire_tenant(http, [
         {"id": "d1", "name": "CoveredModel"},
@@ -144,28 +137,28 @@ def test_admin_scan_entry_without_schema_must_not_shadow_fallback():
             ],
         }]
     }))
-    # The DAX fallback CAN read d2 — but current code never tries it.
+    # The DAX fallback CAN read d2 — the fix must now try it.
     http.route("POST", "/groups/ws1/datasets/d2/executeQueries", _colstats_resp(["Facts"]))
 
     client = _mk_client(http)
     names = sorted(t.name for t in client.get_schemas())
-    print(f"\n[repro] emitted schema tables: {names}")
-    print(f"[repro] COLUMNSTATISTICS attempted for d2: "
+    print(f"\n[fixed] emitted schema tables: {names}")
+    print(f"[fixed] COLUMNSTATISTICS attempted for d2: "
           f"{http.attempted('POST', 'datasets/d2/executeQueries')}")
 
     assert "ShadowedModel/Facts" in names, (
-        "dataset covered by the admin scan without schema was dropped instead "
-        "of falling back to COLUMNSTATISTICS"
+        "empty admin-scan result must fall through to COLUMNSTATISTICS, not shadow it"
     )
+    assert "CoveredModel/Sales" in names  # the non-empty scan result still works
+    assert http.attempted("POST", "datasets/d2/executeQueries")
 
 
-@pytest.mark.xfail(strict=True, reason=XFAIL_REASON)
-def test_unintrospectable_dataset_is_still_represented_in_schema():
-    """Without admin-scan rights, a dataset whose COLUMNSTATISTICS probe is
-    forbidden (no Build permission / RLS / DirectLake) and that is not a Push
-    dataset must not silently vanish from the schema — it is a semantic model
-    the identity can list, and it should remain visible/selectable (or at
-    minimum the failure surfaced), not disappear without a trace."""
+def test_unintrospectable_dataset_reported_not_dropped_and_not_phantom():
+    """Fix 2: a dataset whose introspection is forbidden (no Build permission /
+    RLS / DirectLake) and that is not a Push dataset must NOT become a
+    phantom column-less table, but must ALSO NOT vanish silently — it is
+    recorded in discovery_diagnostics / index_stats() with a reason so the
+    indexing job can report it."""
     http = _FakePowerBIHttp()
     _wire_tenant(http, [
         {"id": "d1", "name": "UnreadableModel"},
@@ -185,28 +178,51 @@ def test_unintrospectable_dataset_is_still_represented_in_schema():
     client = _mk_client(http)
     tables = client.get_schemas()
     names = sorted(t.name for t in tables)
-    print(f"\n[repro] emitted schema tables: {names}")
+    diagnostics = client.index_stats().get("unreadable_datasets", [])
+    diag_names = sorted(d["datasetName"] for d in diagnostics)
+    print(f"\n[fixed] emitted schema tables: {names}")
+    print(f"[fixed] unreadable diagnostics: {[(d['datasetName'], d['reason']) for d in diagnostics]}")
 
-    # The readable model is fine — proves discovery itself ran.
-    assert any(n.startswith("ReadableModel/") for n in names)
-    # The invariant (currently violated): the listed-but-unintrospectable
-    # semantic model must still be represented in the emitted schema.
-    assert any(n.startswith("UnreadableModel/") for n in names), (
-        "dataset with failed table introspection was silently dropped from the schema"
-    )
+    # The readable model is present.
+    assert names == ["ReadableModel/Orders"]
+    # The unreadable one is NOT a phantom table...
+    assert not any(n.startswith("UnreadableModel/") for n in names)
+    # ...but IS reported with a reason (not silently dropped).
+    assert diag_names == ["UnreadableModel"]
+    assert diagnostics[0]["datasetId"] == "d1"
+    assert diagnostics[0]["reason"]  # a non-empty human-readable reason
+    assert client.index_stats()["unreadable_dataset_count"] == 1
 
 
-def test_current_behavior_drops_are_silent_no_exception():
-    """Pins the 'silent' part of the bug (passes today): both drop mechanisms
-    complete without raising — the caller gets a smaller schema and no signal.
-    If a fix makes get_schemas raise or annotate instead, revisit alongside
-    the xfail tests above."""
+def test_all_readable_leaves_no_diagnostics():
+    """The diagnostics channel stays empty when every dataset introspects —
+    index_stats() must not fabricate noise on a clean crawl."""
     http = _FakePowerBIHttp()
-    _wire_tenant(http, [{"id": "d1", "name": "UnreadableModel"}])
+    _wire_tenant(http, [{"id": "d1", "name": "GoodModel"}])
     http.route("POST", "/admin/workspaces/getInfo", _resp(401, {}))
-    http.route("POST", "/groups/ws1/datasets/d1/executeQueries", _resp(403, {}))
-    http.route("GET", "/groups/ws1/datasets/d1/tables", _resp(404, {}))
+    http.route("POST", "/groups/ws1/datasets/d1/executeQueries", _colstats_resp(["T"]))
 
     client = _mk_client(http)
-    tables = client.get_schemas()  # must not raise
-    assert tables == []  # the only dataset in the tenant is simply gone
+    names = sorted(t.name for t in client.get_schemas())
+    assert names == ["GoodModel/T"]
+    assert client.index_stats() == {}
+
+
+def test_builtin_usage_metrics_models_are_skipped():
+    """Fix 4: Power BI's built-in usage-metrics system models are not real data
+    and must be skipped in discovery (not emitted, not counted as unreadable)."""
+    http = _FakePowerBIHttp()
+    _wire_tenant(http, [
+        {"id": "d1", "name": "Usage Metrics Report"},
+        {"id": "d2", "name": "Report Usage Metrics Model"},
+        {"id": "d3", "name": "RealModel"},
+    ])
+    http.route("POST", "/admin/workspaces/getInfo", _resp(401, {}))
+    http.route("POST", "/groups/ws1/datasets/d3/executeQueries", _colstats_resp(["Sales"]))
+
+    client = _mk_client(http)
+    names = sorted(t.name for t in client.get_schemas())
+    assert names == ["RealModel/Sales"]
+    # System models are skipped entirely — not surfaced as unreadable either.
+    assert client.index_stats() == {}
+    assert not http.attempted("POST", "datasets/d1/executeQueries")

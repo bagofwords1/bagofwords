@@ -528,12 +528,22 @@ class ConnectionIndexingService:
                 item_count = len(items) if items else 0
                 elapsed_s = round(time.perf_counter() - start, 3)
                 count_key = "tool_count" if is_tool_provider else "table_count"
-                fresh.stats_json = {
+                # Datasets/tables that were found but could not be introspected
+                # (e.g. Power BI models with no Build permission / RLS). Captured
+                # by refresh_schema on the service instance; report them on the
+                # job so admins can see what was skipped and why, rather than the
+                # models silently disappearing from the catalog.
+                unreadable = list(getattr(svc, "last_discovery_diagnostics", []) or [])
+                stats_json = {
                     count_key: item_count,
                     "synced_domains": synced_domains,
                     "elapsed_s": elapsed_s,
                     **extra_stats,  # source_bytes / file_count / row_count for file sources
                 }
+                if unreadable:
+                    stats_json["unreadable_datasets"] = unreadable
+                    stats_json["unreadable_dataset_count"] = len(unreadable)
+                fresh.stats_json = stats_json
                 # Ensure progress_done == progress_total so the UI settles at 100%.
                 if fresh.progress_total and fresh.progress_done < fresh.progress_total:
                     fresh.progress_done = fresh.progress_total
@@ -548,6 +558,17 @@ class ConnectionIndexingService:
                     f"Completed: {item_count} {item_label} in {elapsed_s}s{size_note}",
                     done=item_count, total=item_count,
                 )
+                if unreadable:
+                    _names = ", ".join(
+                        str(d.get("datasetName") or d.get("name") or d.get("datasetId"))
+                        for d in unreadable[:5]
+                    )
+                    _more = "" if len(unreadable) <= 5 else f" (+{len(unreadable) - 5} more)"
+                    await _append_event(
+                        "warn", _state_snapshot()["phase"],
+                        f"{len(unreadable)} semantic model(s) found but not readable "
+                        f"(check permissions): {_names}{_more}",
+                    )
 
         except IndexingCancelled:
             # A cancel that surfaced outside the inner handlers — treat as a
