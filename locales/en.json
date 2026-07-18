@@ -110,6 +110,7 @@
     "agent": "Agent",
     "tipOpenAgent": "Open agent",
     "readOnly": "read-only",
+    "sharedManagedElsewhere": "Shared with agents you don't manage — editable only by someone with authority over all of them.",
     "open": "Open",
     "noInlinePreview": "No inline preview for this file type.",
     "openFile": "Open file",
