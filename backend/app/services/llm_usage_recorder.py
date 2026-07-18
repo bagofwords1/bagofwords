@@ -24,6 +24,8 @@ class LLMUsageRecorderService:
         user_id: str | None = None,
         report_id: str | None = None,
         data_source_id: str | None = None,
+        routed: bool = False,
+        baseline_model_id: str | None = None,
     ) -> LLMUsageRecord:
 
         provider_type = llm_model.provider.provider_type if llm_model.provider else ""
@@ -56,6 +58,8 @@ class LLMUsageRecorderService:
             input_cost_usd=input_cost,
             output_cost_usd=output_cost,
             total_cost_usd=input_cost + output_cost,
+            routed=bool(routed),
+            baseline_model_id=baseline_model_id,
         )
         self.db.add(record)
         await self.db.flush()

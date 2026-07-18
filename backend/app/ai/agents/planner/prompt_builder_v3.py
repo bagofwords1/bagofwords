@@ -201,6 +201,26 @@ class PromptBuilderV3:
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
         platform_directives_text = f"{platform_directives}\n\n" if platform_directives else ""
 
+        # Auto model routing: when route_model is in the catalog, the run started
+        # on a small/fast model and the planner is expected to escalate on its
+        # first turn if the task warrants it. Only injected when the tool is
+        # actually available (org setting on + guided candidates exist).
+        _has_route_model = any(
+            getattr(t, "name", None) == "route_model"
+            for t in (planner_input.tool_catalog or [])
+        )
+        routing_directive_text = (
+            (
+                "MODEL ROUTING (you are running on a small, fast model)\n"
+                "- This task started on a small model to save cost. On your FIRST turn, decide if it needs a stronger model.\n"
+                "- If it does — multi-step analysis, multi-source joins, building a dashboard/artifact, or ambiguous/complex reasoning — call route_model FIRST, before any create_data/create_artifact or other user-visible work. Pick the cheapest option whose guidance fits.\n"
+                "- If it is simple — a single metric/lookup, a direct factual question, or a small follow-up (recolor, relabel, tweak a prior result) — do NOT call route_model; stay on the small model.\n"
+                "- Escalation is one-way and sticky for this task and also applies to code generation. Call route_model at most once.\n\n"
+            )
+            if _has_route_model
+            else ""
+        )
+
         # NOTE: do NOT embed wall-clock time in the system prompt — it would
         # invalidate Anthropic's prompt cache on every call. The current date
         # is rendered into the per-turn user message instead (see
@@ -224,7 +244,7 @@ OUTPUT PROTOCOL (native tool calling — no JSON envelope)
 - You MAY also write a short message before a tool call (≤2 sentences) — this becomes your in-progress message to the user explaining the next step.
 - Pick the smallest next action that produces observable progress.
 
-{deep_analytics_text}
+{routing_directive_text}{deep_analytics_text}
 
 AGENT LOOP (single-cycle planning; one tool per iteration)
 1) Analyze events: understand the goal and inputs (organization_instructions, schemas, messages, past_observations, last_observation).

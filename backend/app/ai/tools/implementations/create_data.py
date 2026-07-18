@@ -842,7 +842,13 @@ class CreateDataTool(Tool):
             if isinstance(base_usage_ctx, UsageLimitContext)
             else None
         )
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker, usage_context=usage_ctx)
+        # Visualization inference is a bounded classification pass (pick chart
+        # type + series from a data profile) with deterministic guardrails
+        # downstream — it always runs on the small model when one is configured,
+        # regardless of which model the planner/codegen used. Falls back to the
+        # main model when no small model is set.
+        viz_model = runtime_ctx.get("small_model") or runtime_ctx.get("model")
+        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         # Fetch visualization-specific instructions

@@ -2028,7 +2028,24 @@
       "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
       "contextPlaceholder": "e.g. 100000",
       "contextResetTooltip": "Reset to the catalog default",
-      "modelIdLabel": "Model ID"
+      "modelIdLabel": "Model ID",
+      "colCost": "Cost ($/M)",
+      "colRouting": "Routing",
+      "autoRouter": "Auto router",
+      "autoRouterTooltip": "When a user doesn't pick a model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add routing guidance below to steer the choice.",
+      "autoRouterOn": "Auto router on",
+      "autoRouterOff": "Auto router off",
+      "routingHintPlaceholder": "Add routing guidance…",
+      "routingHintTooltip": "Guidance the auto-router uses to decide when to route a request to this model. A model with guidance becomes an escalation target.",
+      "routingNotAvailable": "not routable",
+      "autoRouterHowTitle": "How the auto router works",
+      "autoRouterHow1": "When a user doesn't pick a model, each request starts on the small (cheap) model.",
+      "autoRouterHow2": "The agent escalates to a stronger model only when the task needs it — the choice propagates to code generation too.",
+      "autoRouterHow3": "Add routing guidance to a model below to make it an escalation target and steer when it is used.",
+      "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
+      "costEditTooltip": "Click to edit input / output price per million tokens (USD).",
+      "costInput": "Input",
+      "costOutput": "Output"
     },
     "licensePage": {
       "title": "License",
@@ -2865,7 +2882,9 @@
       "loading": "Loading cost data...",
       "lockedTitle": "Cost is an enterprise feature",
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
-      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total."
+      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
+      "kpiSaved": "Saved by auto-routing",
+      "kpiSavedSub": "calls routed"
     },
     "cards": {
       "messages": "Messages",
@@ -3447,7 +3466,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routes by difficulty"
   },
   "automations": {
     "title": "Automations",

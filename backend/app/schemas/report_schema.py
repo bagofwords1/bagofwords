@@ -24,6 +24,9 @@ class ReportUpdate(BaseModel):
     cron_schedule: Optional[str] = None
     data_sources: Optional[List[str]] = None
     mode: Optional[Literal["chat", "deep", "training"]] = None
+    # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
+    # model id to set, send "" (empty string) to clear back to user/org default.
+    model_id: Optional[str] = None
 
 class ReportSchema(ReportBase):
     class PublicGeneralSettings(BaseModel):
@@ -50,6 +53,8 @@ class ReportSchema(ReportBase):
     theme_name: Optional[str] = None
     theme_overrides: Optional[dict] = None
     mode: Literal["chat", "deep", "training"] = "chat"
+    # Report-level LLM override (null = user/org default resolves at run time)
+    model_id: Optional[str] = None
     # Conversation sharing
     conversation_share_enabled: bool = False
     conversation_share_token: Optional[str] = None

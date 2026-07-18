@@ -854,8 +854,123 @@ class LLMService:
 
         return {"success": True, "context_window_tokens": model.context_window_tokens}
 
+    async def set_pricing(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        input_cost: float | None,
+        output_cost: float | None,
+    ):
+        """Set a model's per-million-token USD pricing (input/output).
+
+        Powers the cost console and the Auto-router savings math. None leaves a
+        field unchanged; a negative value is rejected. Applies to any model the
+        org owns (preset or custom) — an admin often needs to correct a preset
+        rate or price a self-hosted model the catalog can't.
+        """
+        for label, val in (("input", input_cost), ("output", output_cost)):
+            if val is not None and val < 0:
+                raise HTTPException(status_code=400, detail=f"{label} cost must be non-negative")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if input_cost is not None:
+            model.input_cost_per_million_tokens_usd = float(input_cost)
+        if output_cost is not None:
+            model.output_cost_per_million_tokens_usd = float(output_cost)
+        await db.commit()
+
+        logger.info(
+            "LLM model pricing set: id=%s, model_id=%s, in=%s, out=%s, org_id=%s",
+            model.id, model.model_id,
+            model.input_cost_per_million_tokens_usd,
+            model.output_cost_per_million_tokens_usd, organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.pricing_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={
+                    "model_id": model.model_id,
+                    "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+                    "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
+            "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
+        }
+
+    async def set_routing_hint(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        hint: str | None,
+    ):
+        """Set (or clear) a model's Auto-router guidance.
+
+        Stored on ``LLMModel.config['routing_hint']`` and merged so other config
+        keys (e.g. reasoning_effort) are preserved. A non-empty hint makes the
+        model a routing target the planner can escalate to; clearing it removes
+        the model from the routing set. Empty/whitespace clears.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        clean = (hint or "").strip()
+        if clean:
+            if len(clean) > 500:
+                clean = clean[:500]
+            cfg["routing_hint"] = clean
+        else:
+            cfg.pop("routing_hint", None)
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model routing hint set: id=%s, model_id=%s, has_hint=%s, org_id=%s",
+            model.id, model.model_id, bool(clean), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.routing_hint_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={"model_id": model.model_id, "has_hint": bool(clean)},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "routing_hint": cfg.get("routing_hint")}
+
     async def _create_models(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         provider: LLMProvider,
@@ -1491,7 +1606,80 @@ class LLMService:
         db.add(membership)
         await db.commit()
         return membership.default_llm_model_id
-    
+
+    async def get_default_model_for_report(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        report,
+    ):
+        """Effective default model for a completion run in a given report.
+
+        Precedence: the report-level override wins when it is still enabled, its
+        provider is alive, and the user running the completion can use it (a
+        model can be disabled/restricted after being picked, or set by a
+        teammate with access this user lacks). Anything stale falls back
+        silently to the per-user default, then the org default — a report
+        preference must never break chat. This mirrors
+        get_default_model_for_user, layered one tier above it.
+        """
+        report_model_id = getattr(report, "model_id", None) if report is not None else None
+        if report_model_id:
+            result = await db.execute(
+                select(LLMModel)
+                .join(LLMModel.provider)
+                .filter(LLMModel.id == report_model_id)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(LLMModel.deleted_at == None)
+                .filter(LLMModel.is_enabled == True)
+                .filter(LLMProvider.deleted_at == None)
+                .filter(LLMProvider.is_enabled == True)
+            )
+            model = result.unique().scalar_one_or_none()
+            if model is not None:
+                # No user (system/scheduled path) → honor the report model as-is;
+                # with a user, gate on their access like the user-default path.
+                if user is None:
+                    return model
+                from app.core.permission_resolver import user_can_use_model
+                if await user_can_use_model(db, user.id, organization.id, model):
+                    return model
+        return await self.get_default_model_for_user(db, organization, user)
+
+    async def validate_model_for_user(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        model_id: str,
+    ) -> LLMModel:
+        """Strict validation used when a user *sets* a model reference (e.g. the
+        report-level override). Unlike resolution, this raises: the model must
+        exist in the org, be enabled, and be usable by this user — restricted
+        models require a grant even though defaults bypass that check at read
+        time. Returns the validated model.
+        """
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.id == model_id)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMProvider.is_enabled == True)
+        )
+        model = result.unique().scalar_one_or_none()
+        if model is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if not model.is_enabled:
+            raise HTTPException(status_code=400, detail="Model is not enabled")
+        if user is not None:
+            from app.core.permission_resolver import user_can_use_model
+            if not await user_can_use_model(db, user.id, organization.id, model):
+                raise HTTPException(status_code=403, detail="You do not have access to this model")
+        return model
+
     async def set_default_models_from_config(
         self,
         db: AsyncSession,

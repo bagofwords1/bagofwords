@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.466 (July 18, 2026)
+- **Auto model router** — a new org setting (Settings → LLM, off by default) that routes each request to the cheapest capable model. When a user picks no model, the run starts on the small model and the agent escalates to a stronger one only when the task needs it, via a `route_model` tool whose choices are the models you give routing guidance to; the escalation propagates to code generation too. Explicit per-message picks and report-pinned models always bypass routing.
+- **Realized routing savings on the cost console** — completions made under the router are credited against the model that would otherwise have run, so the LLM Usage Cost card and `/monitoring/cost` show a "Saved by auto-routing" KPI (dollars saved, share of calls routed) over any date range.
+- **Edit per-model pricing** — admins can set a model's input/output price per million tokens inline in Settings → LLM (Cost column). Corrects preset rates or prices a self-hosted model, and feeds both the cost console and the router savings math.
+
 ## Version 0.0.465 (July 18, 2026)
 - **Per-user agent memory (#703)** — the agent can now remember durable facts about you across sessions (preferences, writing style, analyses you liked) via a new `update_user_memory` tool, injected into each conversation as `<user_memory>` and subordinate to org instructions. It's scoped per user and organization, bounded and always-injected, available in chat/deep only, and viewable/editable in the profile's "Instructions & Memory" tab.
 
