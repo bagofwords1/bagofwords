@@ -88,5 +88,11 @@ class RouteModelTool(Tool):
 
         observation = await controller.apply(requested, reason)
         routed = bool(observation.get("routed"))
-        output = {"success": True, "routed": routed, "model": observation.get("model")}
+        output = {
+            "success": True,
+            "routed": routed,
+            "model": observation.get("model"),
+            "model_name": observation.get("model_name"),
+            "provider_type": observation.get("provider_type"),
+        }
         yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
