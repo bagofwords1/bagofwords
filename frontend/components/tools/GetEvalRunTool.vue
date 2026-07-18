@@ -53,7 +53,7 @@
       </li>
     </ul>
 
-    <div v-if="runId" class="mt-1 text-[10px] text-gray-400 ms-1">
+    <div v-if="runId && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
       <NuxtLink :to="`/evals/runs/${runId}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.getEvalRun.openRun') }}
@@ -115,7 +115,7 @@ const compareSummary = computed<any | null>(() => result.value?.compare?.summary
 // per-case rows (and compare row) expand on click. Only offer the toggle when
 // there's actually detail to reveal.
 const expanded = ref(false)
-const canExpand = computed<boolean>(() => success.value && (cases.value.length > 0 || !!compareSummary.value))
+const canExpand = computed<boolean>(() => success.value && (cases.value.length > 0 || !!compareSummary.value || !!runId.value))
 
 // --- Follow a still-running read to completion -----------------------------
 const TERMINAL_RUN = new Set(['success', 'error', 'stopped'])

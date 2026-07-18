@@ -81,8 +81,8 @@
       </li>
     </ul>
 
-    <!-- Run-id link -->
-    <div v-if="progress.run_id" class="mt-1 text-[10px] text-gray-400 ms-1">
+    <!-- Run-id link (part of the expandable detail) -->
+    <div v-if="progress.run_id && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
       <NuxtLink :to="`/evals/runs/${progress.run_id}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         Open run
@@ -179,7 +179,7 @@ const isInProgress = computed(() => {
 
 const failedAny = computed(() => progress.value.failed > 0 || progress.value.status === 'error')
 
-const canExpand = computed(() => progress.value.cases.length > 0)
+const canExpand = computed(() => progress.value.cases.length > 0 || !!progress.value.run_id)
 
 const canStop = computed(() =>
   (isInProgress.value && !!props.systemCompletionId) || isDetachedInProgress.value
