@@ -138,6 +138,10 @@ class PlannerInput(BaseModel):
     # "CFO, focuses on monthly close metrics"). Both are optional.
     user_name: Optional[str] = None
     user_note: Optional[str] = None
+    # Agent-curated durable memory about the asker (Membership.memory), rendered
+    # as <user_memory>. Written by the update_user_memory tool; treated as the
+    # agent's own recollection of the user, subordinate to org instructions.
+    user_memory: Optional[str] = None
 
     # Org-wide limits
     limit_row_count: Optional[int] = None

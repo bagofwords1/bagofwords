@@ -15,6 +15,14 @@ class Membership(BaseSchema):
     # no expiry enforced (legacy rows / non-invite memberships).
     invite_expires_at = Column(DateTime, nullable=True)
     note = Column(String, nullable=True)
+    # Per-user, per-org agent memory — the "MEMORY.md" tier. Small, curated,
+    # agent-written durable facts about this user (preferences, writing style,
+    # analyses they liked). Full-document rewrite via the update_user_memory
+    # tool; the user can view/edit it in their profile. Capped at
+    # MEMORY_MAX_LENGTH chars so it can be always-injected without bloating
+    # context. Distinct from ``note`` (user-authored profile) and from Notes
+    # (per-report scratchpad).
+    memory = Column(String, nullable=True)
     # Per-user default LLM model for this org. Soft reference (no FK): a stale
     # value falls back to the org default at resolve time.
     default_llm_model_id = Column(String(36), nullable=True)

@@ -26,6 +26,7 @@ from .create_doc import CreateDocInput, CreateDocOutput
 from .edit_doc import EditDocInput, EditDocOutput, DocEditOp
 from .create_note import CreateNoteInput, CreateNoteOutput
 from .edit_note import EditNoteInput, EditNoteOutput, NoteEditOp
+from .update_user_memory import UpdateUserMemoryInput, UpdateUserMemoryOutput
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
 from .list_mcp_resources import ListMcpResourcesInput, ListMcpResourcesOutput
