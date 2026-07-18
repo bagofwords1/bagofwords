@@ -32,6 +32,10 @@ _FILE_METADATA_KEYS = ("graph", "google_drive", "network_dir", "s3")
 
 
 class ListFilesTool(Tool):
+    # Capability the resolved connection must expose. Overridden by ListEmailsTool
+    # so the same listing path backs a mailbox (LIST_EMAILS).
+    _required_capability = Capability.LIST_FILES
+
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -120,7 +124,7 @@ class ListFilesTool(Tool):
         # fresher AND correctly scoped to THIS connection, whereas the cache is
         # per-data-source and unions every connection's files together.
         client, _client_err = await resolve_file_client(
-            runtime_ctx, data.connection_id, Capability.LIST_FILES
+            runtime_ctx, data.connection_id, self._required_capability
         )
         # Per-user OAuth sources (SharePoint/OneDrive/Drive) have no cheap live
         # listing, but their catalog is either not centrally indexed (per_user)

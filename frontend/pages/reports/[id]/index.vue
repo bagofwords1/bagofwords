@@ -1637,12 +1637,15 @@ function getToolComponent(toolName: string) {
 		case 'read_excel_as_csv':
 			return ReadExcelAsCsvTool
 		case 'search_files':
+		case 'search_email':
 			return SearchFilesTool
 		case 'grep_files':
 			return GrepFilesTool
 		case 'list_files':
+		case 'list_emails':
 			return ListFilesTool
 		case 'read_file':
+		case 'read_email':
 			return ReadFileTool
 		case 'attach_file':
 			return AttachFileTool

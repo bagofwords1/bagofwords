@@ -33,9 +33,17 @@ def _strip_html(s: str) -> str:
 
 
 class GraphMailClient(GraphDriveClient):
-    """Outlook/Exchange mail over Microsoft Graph, shaped as a file source."""
+    """Outlook/Exchange mail over Microsoft Graph, shaped as a file source.
 
-    capabilities = {Capability.LIST_FILES, Capability.READ_FILE, Capability.SEARCH_FILES}
+    Declares the MAIL capabilities (not the file ones) so the agent surfaces the
+    mail-named tools — ``list_emails`` / ``read_email`` / ``search_email`` —
+    instead of ``list_files`` / ``read_file`` / ``search_files``. The underlying
+    methods keep their file-tool names (``list_files``/``read_file``/
+    ``search_files`` below) since the mail tools delegate straight to them; only
+    the planner-facing tool vocabulary changes.
+    """
+
+    capabilities = {Capability.LIST_EMAILS, Capability.READ_EMAIL, Capability.SEARCH_EMAILS}
 
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("mode", "outlook_mail")

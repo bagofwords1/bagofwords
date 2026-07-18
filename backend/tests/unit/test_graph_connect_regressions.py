@@ -187,3 +187,97 @@ async def test_resolve_file_data_source_accepts_names():
     assert e3 is None and ds3.name == "Employees"
     _, e4 = await fc.resolve_file_data_source(ctx, "nope")
     assert "Invalid file-source selection" in e4 and "NOT a disconnection" in e4
+
+
+# --------------------------------------------------------------------------- D
+#
+# D. Outlook mailboxes exposed the file tools (list_files/read_file/search_files),
+#    so the planner reasoned about "files" on a mailbox and picked the wrong verb.
+#    The mail client now advertises MAIL capabilities and the agent surfaces
+#    mail-named tools (list_emails/read_email/search_email) INSTEAD — a drive/
+#    SharePoint agent is unchanged, a mixed agent sees both vocabularies.
+
+def test_graph_mail_client_advertises_mail_capabilities_only():
+    from app.data_sources.clients.graph_mail_client import GraphMailClient
+    from app.data_sources.clients.base import Capability
+
+    caps = GraphMailClient.capabilities
+    assert caps == {Capability.LIST_EMAILS, Capability.READ_EMAIL, Capability.SEARCH_EMAILS}
+    # Replace semantics: the file capabilities must be gone so file tools are not
+    # offered on a mailbox.
+    assert Capability.READ_FILE not in caps
+    assert Capability.LIST_FILES not in caps
+    assert Capability.SEARCH_FILES not in caps
+
+
+def test_email_tools_registered_with_mail_capability():
+    from app.ai.tools.implementations.email_tools import (
+        ListEmailsTool, ReadEmailTool, SearchEmailsTool,
+    )
+    from app.ai.tools.implementations.list_files import ListFilesTool
+    from app.ai.tools.implementations.read_file import ReadFileTool
+    from app.ai.tools.implementations.search_files import SearchFilesTool
+    from app.data_sources.clients.base import Capability
+
+    # Thin subclasses that only re-point the capability + planner-facing metadata.
+    assert issubclass(ReadEmailTool, ReadFileTool)
+    assert issubclass(ListEmailsTool, ListFilesTool)
+    assert issubclass(SearchEmailsTool, SearchFilesTool)
+    assert ReadEmailTool._required_capability == Capability.READ_EMAIL
+    assert ListEmailsTool._required_capability == Capability.LIST_EMAILS
+    assert SearchEmailsTool._required_capability == Capability.SEARCH_EMAILS
+    assert ReadEmailTool().metadata.name == "read_email"
+    assert ReadEmailTool().metadata.requires_capability == "read_email"
+    assert ListEmailsTool().metadata.name == "list_emails"
+    assert SearchEmailsTool().metadata.name == "search_email"
+
+
+def test_capability_gating_swaps_file_and_email_vocabularies():
+    """A mailbox agent sees only the email tools; a drive agent only the file
+    tools; a mixed agent both — driven entirely by the connection capabilities."""
+    from app.ai.registry import ToolRegistry
+
+    reg = ToolRegistry()
+
+    def catalog(caps):
+        names = set()
+        for plan in ("research", "action"):
+            for c in reg.get_catalog_for_plan_type(plan, available_capabilities=set(caps)):
+                names.add(c["name"])
+        return names
+
+    mail = catalog({"list_emails", "read_email", "search_emails"})
+    drive = catalog({"list_files", "read_file", "search_files"})
+    mixed = catalog({"list_emails", "read_email", "search_emails",
+                     "list_files", "read_file", "search_files"})
+
+    assert {"list_emails", "read_email", "search_email"} <= mail
+    assert not ({"list_files", "read_file", "search_files"} & mail)
+    assert {"list_files", "read_file", "search_files"} <= drive
+    assert not ({"list_emails", "read_email", "search_email"} & drive)
+    assert {"read_email", "read_file"} <= mixed
+
+
+@pytest.mark.asyncio
+async def test_read_email_resolves_mail_client_and_rejects_read_file_verb():
+    """read_email resolves a mailbox (READ_EMAIL); the file verb read_file no
+    longer resolves against a mailbox (replace semantics at runtime too)."""
+    from app.ai.tools.implementations import _file_tool_common as fc
+    from app.data_sources.clients.base import Capability
+
+    mail_conn = _fc_conn("mail-1", "Team Inbox", typ="outlook_mail")
+    report = MagicMock()
+    report.data_sources = [_fc_ds("dsm", "Team Inbox", [mail_conn])]
+    ctx = {"db": MagicMock(), "organization": MagicMock(), "report": report, "user": None}
+
+    mail_client = types.SimpleNamespace(
+        capabilities={Capability.LIST_EMAILS, Capability.READ_EMAIL, Capability.SEARCH_EMAILS}
+    )
+    with patch(
+        "app.services.connection_service.ConnectionService.construct_client",
+        new=AsyncMock(return_value=mail_client),
+    ):
+        ok, err = await fc.resolve_file_client(ctx, "Team Inbox", Capability.READ_EMAIL)
+        assert err is None and ok is mail_client
+        bad, err2 = await fc.resolve_file_client(ctx, "Team Inbox", Capability.READ_FILE)
+        assert bad is None and "does not support read_file" in err2

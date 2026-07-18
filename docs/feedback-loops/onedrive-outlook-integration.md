@@ -149,8 +149,25 @@ the LLM, materialization — ran for real.
   "$567,000" figure and `cfo@bow14.example` sender). Behaviour note: in
   chat-mode completions Claude Sonnet 5 tended to repeat `search_files` and
   conclude rather than chain into `read_file` for a single mail lookup
-  (`assets/onedrive-outlook/outlook-read-05-stream-9.png`) — worth a nudge in
-  the mail tool descriptions, but not a connector defect.
+  (`assets/onedrive-outlook/outlook-read-05-stream-9.png`) — the planner reasoned
+  about "files" on a mailbox and picked the wrong verb.
+
+### Bug D — mailbox exposes file tools, confusing the planner
+
+Because `GraphMailClient` advertised the file capabilities, an Outlook agent was
+offered `list_files` / `read_file` / `search_files`, so the planner reasoned
+about "files" on a mailbox and mis-chained (the `search_files` loop above).
+
+Fix: give mail its own planner vocabulary. `GraphMailClient` now declares
+`Capability.LIST_EMAILS / READ_EMAIL / SEARCH_EMAILS` **instead of** the file
+capabilities, and three thin tool subclasses (`ListEmailsTool` / `ReadEmailTool`
+/ `SearchEmailsTool` in `app/ai/tools/implementations/email_tools.py`) reuse the
+exact file-tool logic (resolution, live fetch, session-file materialization) but
+expose `list_emails` / `read_email` / `search_email`. Via the existing
+capability gate (`registry.py` + `agent_v2.py`): a mailbox agent sees **only**
+the email tools, a drive/SharePoint agent **only** the file tools, and a mixed
+agent both — each scoped to its own connection, so there's no ambiguous
+"files-on-a-mailbox" vocabulary for the planner to trip on.
 
 The connectors' own `test_connection` also passes through the product's real
 credential-resolution path once signed in (Outlook reports `Connected as

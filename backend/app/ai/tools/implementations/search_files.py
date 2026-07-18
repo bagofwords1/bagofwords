@@ -77,6 +77,10 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
 
 
 class SearchFilesTool(Tool):
+    # Capability the resolved connection must expose. Overridden by
+    # SearchEmailsTool so the same search path backs a mailbox (SEARCH_EMAILS).
+    _required_capability = Capability.SEARCH_FILES
+
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -191,7 +195,7 @@ class SearchFilesTool(Tool):
         #    index returned nothing (the term may be deep in a file's body).
         if data.deep or not used_index or not entries:
             client, err = await resolve_file_client(
-                runtime_ctx, data.connection_id, Capability.SEARCH_FILES
+                runtime_ctx, data.connection_id, self._required_capability
             )
             if err:
                 # If the index gave us something, return that rather than erroring.

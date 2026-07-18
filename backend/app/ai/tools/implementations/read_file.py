@@ -25,6 +25,10 @@ from ._file_tool_common import (
 
 
 class ReadFileTool(Tool):
+    # Capability the resolved connection must expose. Overridden by ReadEmailTool
+    # so the same read/materialize path backs a mailbox (READ_EMAIL) as well.
+    _required_capability = Capability.READ_FILE
+
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -66,7 +70,7 @@ class ReadFileTool(Tool):
         })
 
         client, err = await resolve_file_client(
-            runtime_ctx, data.connection_id, Capability.READ_FILE
+            runtime_ctx, data.connection_id, self._required_capability
         )
         if err:
             yield ToolEndEvent(type="tool.end", payload={
