@@ -65,6 +65,16 @@
                 </button>
             </div>
 
+            <!-- Viewer run identity (dashboards only): whose credentials a
+                 viewer's "Run" uses. Results are always stored per viewer. -->
+            <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6">
+                <div class="flex flex-col min-w-0">
+                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
+                    <span class="text-[11px] text-gray-400">{{ $t('share.runOnBehalfDesc') }}</span>
+                </div>
+                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
+            </div>
+
             <!-- Share with people (only when 'shared' selected) -->
             <div v-if="currentVisibility === 'shared'">
                 <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ $t('share.shareWith') }}</label>
@@ -166,6 +176,9 @@ const copied = ref(false)
 
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
+// Whose credentials a shared-dashboard viewer's "Run" uses:
+// off = the viewer's own ('viewer'), on = on behalf of the owner ('creator')
+const runAsCreator = ref(false)
 
 const visibilityOptions = computed(() => [
     { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
@@ -287,6 +300,10 @@ const fetchVisibility = async () => {
         if (res.data.value) {
             const data = res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
+            if (data.shared_run_identity !== undefined) {
+                runAsCreator.value = data.shared_run_identity === 'creator'
+                if (props.report) props.report.shared_run_identity = data.shared_run_identity
+            }
             if (data.conversation_share_token !== undefined) {
                 conversationShareToken.value = data.conversation_share_token
                 if (props.report) props.report.conversation_share_token = data.conversation_share_token
@@ -331,6 +348,27 @@ const saveVisibility = async (visibility: string, userIds?: string[]) => {
             color: 'green',
         })
     } catch {
+        toast.add({ title: t('share.sharingFailed'), color: 'red' })
+    } finally {
+        isSaving.value = false
+    }
+}
+
+const onRunIdentityChange = async (value: boolean) => {
+    const identity = value ? 'creator' : 'viewer'
+    isSaving.value = true
+    try {
+        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
+            method: 'PUT',
+            // Re-sends the current visibility unchanged; omitting
+            // shared_user_ids leaves the recipient list untouched.
+            body: { visibility: currentVisibility.value, run_identity: identity },
+        })
+        if (res.error.value) throw res.error.value
+        if (props.report) props.report.shared_run_identity = identity
+        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
+    } catch {
+        runAsCreator.value = identity !== 'creator'
         toast.add({ title: t('share.sharingFailed'), color: 'red' })
     } finally {
         isSaving.value = false
@@ -393,6 +431,7 @@ const openModal = async () => {
     modalOpen.value = true
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
     conversationShareToken.value = props.report?.conversation_share_token ?? null
+    runAsCreator.value = props.report?.shared_run_identity === 'creator'
     await Promise.all([fetchMembers(), fetchVisibility(), fetchShares()])
 }
 

@@ -1903,6 +1903,8 @@
     "visibilityInternalDesc": "Alla medlemmar i organisationen har åtkomst",
     "visibilityPublic": "Alla med länken",
     "visibilityPublicDesc": "Alla kan se",
+    "runOnBehalf": "Kör för min räkning",
+    "runOnBehalfDesc": "Tittarnas körningar använder dina datauppgifter istället för deras egna. Varje tittare ser fortfarande bara sina egna resultat.",
     "copyLink": "Kopiera länk",
     "copied": "Kopierat!",
     "sharingUpdated": "Delning uppdaterad",

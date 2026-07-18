@@ -132,6 +132,7 @@ async def get_default_step(
         db,
         query_id,
         organization_id=str(organization.id) if organization else None,
+        viewer_user_id=str(current_user.id) if current_user else None,
     )
     if not step:
         return {"step": None}

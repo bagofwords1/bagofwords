@@ -28,6 +28,12 @@ class Step(BaseSchema):
     status_reason = Column(String, nullable=True, default=None)
     prompt = Column(Text, nullable=False, default="")
     code = Column(Text, nullable=False, default="")
+    # SHARED snapshot — materialized under the CREATOR's data-source
+    # credentials. In viewer-identity mode on user-scoped connections this is
+    # credential-differentiated data other users must not see. NEVER serve
+    # step.data directly to a reader: resolve what they may see through
+    # app.services.viewer_data_policy.resolve_step_data (or
+    # report_snapshot_withheld for report-level renders with no user).
     data = Column(JSON, nullable=True, default=dict)
     description = Column(Text, nullable=False, default="")
     type = Column(String, nullable=False, default="table")
@@ -79,8 +85,27 @@ def after_update_step(mapper, connection, target):
     except Exception as e:
         logger.warning("Error in after_update_step: %s", e)
 
+async def _strip_withheld_step_data(data):
+    """A report broadcast reaches every subscriber indiscriminately, so it
+    can't serve per-user rows. In viewer-identity mode on user-scoped
+    connections the shared snapshot is credential-differentiated creator data —
+    strip it from the payload (subscribers load their own via the API)."""
+    try:
+        report_id = data.get("report_id")
+        if not report_id:
+            return data
+        from app.dependencies import async_session_maker
+        from app.services.viewer_data_policy import report_snapshot_withheld
+        async with async_session_maker() as db:
+            if await report_snapshot_withheld(db, str(report_id)):
+                data = {**data, "data": {}, "data_model": {}, "snapshot_withheld": True}
+    except Exception as e:
+        logger.warning("Error checking step broadcast withholding: %s", e)
+    return data
+
 async def broadcast_step_update(data):
     try:
+        data = await _strip_withheld_step_data(data)
         await websocket_manager.broadcast_to_report(
             str(data["report_id"]),
             json.dumps(data)
@@ -90,6 +115,7 @@ async def broadcast_step_update(data):
 
 async def broadcast_step_insert(data):
     try:
+        data = await _strip_withheld_step_data(data)
         await websocket_manager.broadcast_to_report(
             str(data["report_id"]),
             json.dumps(data)

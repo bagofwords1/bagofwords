@@ -1903,6 +1903,8 @@
     "visibilityInternalDesc": "Todos os membros da organização podem acessar",
     "visibilityPublic": "Qualquer pessoa com o link",
     "visibilityPublicDesc": "Qualquer pessoa pode visualizar",
+    "runOnBehalf": "Executar em meu nome",
+    "runOnBehalfDesc": "As execuções dos visualizadores usam suas credenciais de dados em vez das deles. Cada visualizador continua vendo apenas seus próprios resultados.",
     "copyLink": "Copiar link",
     "copied": "Copiado!",
     "sharingUpdated": "Compartilhamento atualizado",

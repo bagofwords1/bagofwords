@@ -2043,6 +2043,8 @@
     "visibilityInternalDesc": "כל חברי הארגון יכולים לגשת",
     "visibilityPublic": "כל מי שיש לו קישור",
     "visibilityPublicDesc": "כל אחד יכול לצפות",
+    "runOnBehalf": "הרצה בשמי",
+    "runOnBehalfDesc": "הרצות של צופים ישתמשו בהרשאות הנתונים שלך במקום בשלהם. כל צופה עדיין רואה רק את התוצאות של עצמו.",
     "copyLink": "העתקת קישור",
     "copied": "הועתק!",
     "sharingUpdated": "הגדרות השיתוף עודכנו",

@@ -65,14 +65,30 @@
 
                     <!-- Refreshed text (hidden on mobile to avoid colliding with
                          the absolute-positioned action cluster) -->
-                    <span v-if="lastRefreshedAt" class="hidden sm:inline text-[11px] text-gray-400">
+                    <span v-if="runError" class="hidden sm:inline text-[11px] text-red-400 truncate max-w-[300px]" :title="runError">
+                        {{ runError }}
+                    </span>
+                    <span v-else-if="lastRefreshedAt" class="hidden sm:inline text-[11px] text-gray-400">
                         Refreshed {{ formatTime(lastRefreshedAt) }}
                     </span>
                 </div>
             </div>
 
-            <!-- Right: Fork + Edit Report + Close (absolute) -->
+            <!-- Right: Run + Fork + Edit Report + Close (absolute) -->
             <div class="absolute end-2 sm:end-4 top-1/2 -translate-y-1/2 flex items-center gap-1 sm:gap-2">
+                <!-- Run button: signed-in non-owner viewers re-run the dashboard's
+                     queries into their own per-user results (whose credentials run
+                     is the owner's share setting; never touches the shared data) -->
+                <button
+                    v-if="canRun"
+                    @click="handleRun"
+                    :disabled="isRunning"
+                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    title="Re-run this dashboard's queries for you"
+                >
+                    <Icon name="heroicons:arrow-path" :class="['w-3.5 h-3.5', isRunning ? 'animate-spin' : '']" />
+                    <span class="hidden sm:inline">{{ isRunning ? 'Running...' : 'Run' }}</span>
+                </button>
                 <!-- Fork button -->
                 <button
                     v-if="forkEligibility?.can_fork"
@@ -119,6 +135,29 @@
         <div class="flex-1 min-h-0 relative">
             <!-- Report Tab: Artifact/Dashboard Content -->
             <template v-if="activeTab === 'report'">
+                <!-- Snapshot withheld: viewer-identity sharing on user-scoped
+                     data sources hides the owner's data — run to load your own -->
+                <div v-if="snapshotWithheld" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
+                    <div class="text-center max-w-sm mx-auto px-6">
+                        <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
+                            This dashboard runs with your credentials
+                        </h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                            The owner's data isn't shared here. Run the queries to load your own data.
+                        </p>
+                        <button v-if="canRun" @click="handleRun" :disabled="isRunning"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                            <Icon name="heroicons:arrow-path" :class="['w-4 h-4', isRunning ? 'animate-spin' : '']" />
+                            {{ isRunning ? 'Running...' : 'Run now' }}
+                        </button>
+                        <a v-else :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                            Sign in to run
+                        </a>
+                    </div>
+                </div>
+
                 <!-- Slides with Preview Images - Use SlideViewer -->
                 <SlideViewer
                     v-if="hasSlidesWithPreviews && artifact"
@@ -221,6 +260,42 @@ const isOwner = computed(() => {
 const showTopBar = ref(true);
 const activeTab = ref<'report' | 'data'>('report');
 const lastRefreshedAt = ref<Date | null>(null);
+
+// Viewer run state ("Run" button — signed-in non-owner viewers only)
+const isRunning = ref(false);
+const runError = ref<string | null>(null);
+// Newest per-viewer result timestamp seen while loading step data
+const viewerLastRunAt = ref<Date | null>(null);
+// True when the backend hid the owner's snapshot from this viewer
+// (viewer-identity sharing on user-scoped data sources)
+const snapshotWithheld = ref(false);
+
+const canRun = computed(() => {
+    const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
+    return !!userId && !isOwner.value && hasArtifacts.value && reportLoaded.value;
+});
+
+async function handleRun() {
+    if (isRunning.value) return;
+    isRunning.value = true;
+    runError.value = null;
+    try {
+        const artifactParam = artifact.value?.id ? `?artifact_id=${artifact.value.id}` : '';
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/run${artifactParam}`, { method: 'POST' });
+        if (fetchError.value) throw fetchError.value;
+        const run = (data.value || {}) as any;
+        await loadVisualizationData(artifact.value?.id);
+        lastRefreshedAt.value = new Date();
+        if ((run.steps_failed ?? 0) > 0 || (run.data_source_errors || []).length > 0) {
+            const dsError = (run.data_source_errors || [])[0]?.error;
+            runError.value = dsError || `${run.steps_failed} of ${run.steps_total} queries failed`;
+        }
+    } catch (e: any) {
+        runError.value = e?.data?.detail || e?.message || 'Run failed';
+    } finally {
+        isRunning.value = false;
+    }
+}
 
 // Fork state
 const forkEligibility = ref<any>(null);
@@ -403,10 +478,21 @@ async function loadVisualizationData(artifactId?: string) {
         );
 
         const vizData = [];
+        let newestViewerRun: Date | null = null;
+        let anyWithheld = false;
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
             // Public step endpoint - returns PublicStepSchema directly
             const { data: step } = stepResults[qi];
+
+            if ((step.value as any)?.snapshot_withheld) anyWithheld = true;
+
+            // Steps the viewer re-ran carry their per-user result timestamp
+            const viewerRun = (step.value as any)?.viewer_result?.last_run_at;
+            if (viewerRun) {
+                const ts = new Date(viewerRun.endsWith('Z') ? viewerRun : viewerRun + 'Z');
+                if (!newestViewerRun || ts > newestViewerRun) newestViewerRun = ts;
+            }
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];
@@ -448,6 +534,8 @@ async function loadVisualizationData(artifactId?: string) {
         } else {
             visualizationsData.value = vizData;
         }
+        viewerLastRunAt.value = newestViewerRun;
+        snapshotWithheld.value = anyWithheld;
     } catch (e) {
         console.error('Failed to load visualization data:', e);
     }
@@ -497,7 +585,10 @@ onMounted(async () => {
     reportLoaded.value = true;
     // Use the report's last_run_at timestamp (when data was actually refreshed)
     // Append 'Z' to treat as UTC since backend stores UTC without timezone info
-    if (report.value.last_run_at) {
+    // — unless the viewer has their own newer per-user run.
+    if (viewerLastRunAt.value) {
+        lastRefreshedAt.value = viewerLastRunAt.value;
+    } else if (report.value.last_run_at) {
         const ts = report.value.last_run_at;
         lastRefreshedAt.value = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
     } else {
