@@ -44,6 +44,20 @@ The sync API already enforces the rule. These paths bypass it:
    session's agents, so it can't stage edits to instructions nobody in that flow
    can approve.
 
+### Status
+
+Implemented on `claude/instruction-sharing-design-issue-v3q1ql`:
+
+- Fixes 1–3 above: `run_for_suggestion` + `_promote_or_pend` cross-agent gate,
+  and the `edit_instruction` tool scope check. Regression tests in
+  `backend/tests/e2e/test_instruction_sharing_authority.py`.
+- Fix 5 (UI read-only) below: the Agents explorer now shows Edit/Delete only to
+  users with authority over every attached agent; others see a read-only lock.
+  `useCanAll()` in `frontend/composables/usePermissions.ts`.
+- Verified end-to-end with a 10-story cross-user/permission/agent harness and
+  Playwright UI evidence (`media/pr/shared-instruction-authority/`).
+- Feedback loop: `docs/feedback-loops/shared-instruction-authority.md`.
+
 ## Pressure valves (so associated managers aren't stuck)
 
 Both reuse existing machinery:
