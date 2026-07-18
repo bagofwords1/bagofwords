@@ -558,6 +558,13 @@ class CompletionService:
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
             last_completion = await self.get_last_completion(db, report.id)
+            # Silent session event: model switched vs the previous turn. Rides
+            # this method's head-completion commit (commit=False).
+            from app.services.session_event_service import SessionEventService
+            await SessionEventService.emit_llm_changed_if_changed(
+                db, report=report, prior_completion=last_completion, new_model=model,
+                user=current_user, commit=False,
+            )
             head_completion = Completion(
                 prompt=prompt_dict or None,
                 model=model.model_id,
@@ -1987,6 +1994,13 @@ class CompletionService:
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
             last_completion = await self.get_last_completion(db, report.id)
+            # Silent session event: model switched vs the previous turn. Rides
+            # the head/system completion transaction below (commit=False).
+            from app.services.session_event_service import SessionEventService
+            await SessionEventService.emit_llm_changed_if_changed(
+                db, report=report, prior_completion=last_completion, new_model=model,
+                user=current_user, commit=False,
+            )
             resolved_ep = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
             completion = Completion(
                 prompt=prompt_dict,

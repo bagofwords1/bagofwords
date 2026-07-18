@@ -301,3 +301,40 @@ async def test_feedback_service_hook_emits_events(db):
     assert kinds == [FEEDBACK_GIVEN, FEEDBACK_CHANGED, FEEDBACK_REMOVED]
     # Each event targets the completion it was about.
     assert all(r.prompt.get("target_id") == str(sys.id) for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_llm_changed_emitted_only_on_change(db):
+    """emit_llm_changed_if_changed compares the resolved model to the prior
+    turn's Completion.model and only fires on an actual change."""
+    from types import SimpleNamespace
+    from app.ai.context.session_events import LLM_CHANGED
+
+    org, report, user = await _seed_report(db)
+    prior = await _add_turn(db, report, user, role="system", content="a", minute=0)
+    prior.model = "gpt-4o"  # Completion.model stores the LLMModel.model_id
+    await db.commit()
+
+    new_model = SimpleNamespace(model_id="claude-opus-4-8", name="Claude Opus 4.8")
+
+    # Unchanged → no event.
+    same = SimpleNamespace(model_id="gpt-4o", name="GPT-4o")
+    await SessionEventService.emit_llm_changed_if_changed(
+        db, report=report, prior_completion=prior, new_model=same, user=user, commit=True)
+    # No prior → no event.
+    await SessionEventService.emit_llm_changed_if_changed(
+        db, report=report, prior_completion=None, new_model=new_model, user=user, commit=True)
+    rows = (await db.execute(select(Completion).where(
+        Completion.report_id == str(report.id), Completion.role == EVENT_ROLE))).scalars().all()
+    assert rows == []
+
+    # Changed → one event with the friendly name + structured from/to.
+    await SessionEventService.emit_llm_changed_if_changed(
+        db, report=report, prior_completion=prior, new_model=new_model, user=user, commit=True)
+    rows = (await db.execute(select(Completion).where(
+        Completion.report_id == str(report.id), Completion.role == EVENT_ROLE))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].message_type == LLM_CHANGED
+    assert rows[0].prompt["content"] == "Model was switched to Claude Opus 4.8"
+    assert rows[0].prompt["meta"]["from"] == "gpt-4o"
+    assert rows[0].prompt["meta"]["to"] == "claude-opus-4-8"

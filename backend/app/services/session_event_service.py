@@ -104,6 +104,31 @@ class SessionEventService:
         return event
 
     @staticmethod
+    async def emit_llm_changed_if_changed(
+        db: AsyncSession, *, report, prior_completion, new_model, user=None, commit: bool = False,
+    ) -> Optional[Completion]:
+        """Emit ``llm_changed`` when the model resolved for a new turn differs
+        from the previous turn's model (``Completion.model`` stores the
+        ``LLMModel.model_id``). Call at completion-creation time with the report's
+        last completion as ``prior_completion``. No-op on the first turn or when
+        unchanged. ``commit=False`` by default so it rides the caller's
+        head-completion transaction rather than committing on its own."""
+        try:
+            prior = getattr(prior_completion, "model", None) if prior_completion is not None else None
+            new_mid = getattr(new_model, "model_id", None)
+            if not prior or not new_mid or prior == new_mid:
+                return None
+            from app.ai.context.session_events import LLM_CHANGED
+            name = getattr(new_model, "name", None) or new_mid
+            return await SessionEventService.emit_safe(
+                db, report=report, kind=LLM_CHANGED, user=user, commit=commit,
+                content=f"Model was switched to {name}",
+                meta={"from": prior, "to": new_mid, "to_name": name},
+            )
+        except Exception:  # pragma: no cover - defensive
+            return None
+
+    @staticmethod
     async def emit_safe(db: AsyncSession, **kwargs) -> Optional[Completion]:
         """Fire-and-forget wrapper: never raises. Use at hook points where a
         failed event write must not break the user action."""
