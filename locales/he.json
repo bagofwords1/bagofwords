@@ -3333,5 +3333,27 @@
   "events": {
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
     "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
+  },
+  "sessionEvents": {
+    "run_stopped": "ההרצה הופסקה",
+    "llm_changed": "המודל הוחלף ל-{to}",
+    "llm_reset": "המודל אופס לברירת המחדל",
+    "file_uploaded": "{name} הועלה",
+    "file_removed": "{name} הוסר",
+    "scope_added": "היקף הסוכן שונה — נוסף {added}",
+    "scope_removed": "היקף הסוכן שונה — הוסר {removed}",
+    "scope_changed": "היקף הסוכן שונה — נוסף {added}; הוסר {removed}",
+    "scope_generic": "היקף הסוכן שונה",
+    "report_shared": "השיחה שותפה עם {who}",
+    "report_shared_generic": "השיחה שותפה",
+    "conversation_share_off": "שיתוף השיחה בוטל",
+    "report_published": "הדוח פורסם",
+    "report_unpublished": "פרסום הדוח בוטל",
+    "artifact_shared": "\"{title}\" שותף עם {who}",
+    "artifact_shared_generic": "\"{title}\" שותף",
+    "artifact_unshared": "\"{title}\" הפך לפרטי",
+    "artifact_schedule_set": "תוזמן רענון עבור \"{title}\"",
+    "artifact_schedule_changed": "תזמון הרענון עבור \"{title}\" שונה",
+    "artifact_schedule_removed": "תזמון הרענון עבור \"{title}\" הוסר"
   }
 }

@@ -3569,5 +3569,27 @@
   "events": {
     "evalRunFinished": "Eval run '{title}' finished — {passed}/{total} passed ({status})",
     "waitResumed": "Wait elapsed — resuming: {reason}"
+  },
+  "sessionEvents": {
+    "run_stopped": "Run was stopped",
+    "llm_changed": "Model was switched to {to}",
+    "llm_reset": "Model was reset to the default",
+    "file_uploaded": "{name} was uploaded",
+    "file_removed": "{name} was removed",
+    "scope_added": "Agent scope changed — added {added}",
+    "scope_removed": "Agent scope changed — removed {removed}",
+    "scope_changed": "Agent scope changed — added {added}; removed {removed}",
+    "scope_generic": "Agent scope changed",
+    "report_shared": "This conversation was shared with {who}",
+    "report_shared_generic": "This conversation was shared",
+    "conversation_share_off": "Conversation sharing was turned off",
+    "report_published": "This report was published",
+    "report_unpublished": "This report was unpublished",
+    "artifact_shared": "\"{title}\" was shared with {who}",
+    "artifact_shared_generic": "\"{title}\" was shared",
+    "artifact_unshared": "\"{title}\" was made private",
+    "artifact_schedule_set": "A refresh was scheduled for \"{title}\"",
+    "artifact_schedule_changed": "The refresh schedule for \"{title}\" was changed",
+    "artifact_schedule_removed": "The refresh schedule for \"{title}\" was removed"
   }
 }
