@@ -3,7 +3,7 @@
     <!-- Header line -->
     <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
       <span v-if="status === 'running' || isInProgress" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-play" class="w-3 h-3 me-1 text-gray-400" />
+        <Spinner class="w-3 h-3 me-1 text-gray-400" />
         {{ t('tools.runEval.running') }}{{ totalLabel }}
       </span>
       <span v-else-if="status === 'stopped' || progress.status === 'stopped'" class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -51,7 +51,12 @@
     <!-- Per-case rows -->
     <ul v-if="progress.cases.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in progress.cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
+        <Spinner
+          v-if="c.status === 'in_progress'"
+          class="w-3 h-3 me-1 flex-shrink-0 text-blue-400"
+        />
         <Icon
+          v-else
           :name="caseIcon(c.status)"
           class="w-3 h-3 me-1 flex-shrink-0"
           :class="caseIconColor(c.status)"
