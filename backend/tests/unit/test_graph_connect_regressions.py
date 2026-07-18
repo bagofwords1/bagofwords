@@ -101,3 +101,89 @@ def test_outlook_mail_is_obo_provisionable():
     assert "outlook_mail" in ENTRA_OBO_CONNECTION_TYPES
     assert "outlook_mail" in _OBO_SCOPES
     assert "graph.microsoft.com" in _OBO_SCOPES["outlook_mail"]
+
+
+# --------------------------------------------------------------------------- C
+#
+# C. A file tool addressed by the connection's *name* on a multi-connection agent
+#    was rejected as "not a file source attached to this agent", which the model
+#    relayed to the user as "SharePoint is disconnected". The resolver must accept
+#    the connection name (not just its id or the data_source name), and a genuine
+#    mismatch must read as an invalid SELECTION — never as a disconnection.
+
+from unittest.mock import AsyncMock, patch  # noqa: E402
+import types  # noqa: E402
+
+
+def _fc_conn(cid, name, typ="sharepoint"):
+    c = MagicMock()
+    c.id, c.name, c.type, c.is_active = cid, name, typ, True
+    return c
+
+
+def _fc_ds(did, name, conns):
+    d = MagicMock()
+    d.id, d.name, d.is_active, d.connections = did, name, True, conns
+    return d
+
+
+def _two_sharepoint_agent_ctx():
+    """An agent (report) with TWO SharePoint connections, so the sole-connection
+    fallback does not apply and the identifier must actually match."""
+    ca = _fc_conn("06697b27-20f8-4b69-bac5-386d5c461513", "Employees SharePoint")
+    cb = _fc_conn("11111111-1111-1111-1111-111111111111", "Finance SharePoint")
+    report = MagicMock()
+    report.data_sources = [_fc_ds("aaaa", "Employees", [ca]), _fc_ds("bbbb", "Finance", [cb])]
+    return {"db": MagicMock(), "organization": MagicMock(), "report": report, "user": None}, ca
+
+
+@pytest.mark.asyncio
+async def test_resolve_file_client_accepts_connection_name():
+    """Addressing a file source by its connection name resolves to that
+    connection (regression: multi-connection agent used to reject the name)."""
+    from app.ai.tools.implementations import _file_tool_common as fc
+    from app.data_sources.clients.base import Capability
+
+    ctx, ca = _two_sharepoint_agent_ctx()
+    fake_client = types.SimpleNamespace(capabilities={Capability.READ_FILE})
+    with patch(
+        "app.services.connection_service.ConnectionService.construct_client",
+        new=AsyncMock(return_value=fake_client),
+    ):
+        client, err = await fc.resolve_file_client(ctx, "Employees SharePoint", Capability.READ_FILE)
+    assert err is None
+    assert str(client._bow_connection.id) == str(ca.id)
+
+
+@pytest.mark.asyncio
+async def test_resolve_file_client_bad_selection_is_not_a_disconnection():
+    """A genuinely unknown identifier reads as an invalid selection (with the
+    valid choices), NOT as a disconnection — so the model retries instead of
+    telling the user to reconnect a source that is still connected."""
+    from app.ai.tools.implementations import _file_tool_common as fc
+    from app.data_sources.clients.base import Capability
+
+    ctx, _ = _two_sharepoint_agent_ctx()
+    client, err = await fc.resolve_file_client(ctx, "Totally Bogus", Capability.READ_FILE)
+    assert client is None
+    assert "Invalid file-source selection" in err
+    assert "NOT a disconnection" in err
+    # Names AND ids are offered so the model can self-correct.
+    assert "Employees SharePoint" in err and "06697b27-20f8-4b69-bac5-386d5c461513" in err
+
+
+@pytest.mark.asyncio
+async def test_resolve_file_data_source_accepts_names():
+    """list_files' resolver accepts the connection name and the data_source name
+    (previously id-only), with the same non-alarming error on a real mismatch."""
+    from app.ai.tools.implementations import _file_tool_common as fc
+
+    ctx, ca = _two_sharepoint_agent_ctx()
+    ds1, e1 = await fc.resolve_file_data_source(ctx, "Employees SharePoint")  # connection name
+    ds2, e2 = await fc.resolve_file_data_source(ctx, "Finance")               # data_source name
+    ds3, e3 = await fc.resolve_file_data_source(ctx, "06697b27-20f8-4b69-bac5-386d5c461513")  # id
+    assert e1 is None and ds1.name == "Employees"
+    assert e2 is None and ds2.name == "Finance"
+    assert e3 is None and ds3.name == "Employees"
+    _, e4 = await fc.resolve_file_data_source(ctx, "nope")
+    assert "Invalid file-source selection" in e4 and "NOT a disconnection" in e4
