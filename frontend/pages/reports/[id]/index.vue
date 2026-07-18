@@ -630,6 +630,7 @@
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
+					@filesChanged="onReportFilesChanged"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
@@ -3111,6 +3112,19 @@ function connectWebhookSocket() {
 			} catch {}
 		}
 	} catch {}
+}
+
+// A report-scoped file upload/removal writes a silent session event on the
+// server. Reload the timeline so the event strip appears (debounced; skipped
+// mid-stream — it'll be picked up by the reload that follows the run). We do
+// NOT depend on the websocket for this.
+let _filesChangedTimer: any = null
+function onReportFilesChanged() {
+	if (_filesChangedTimer) clearTimeout(_filesChangedTimer)
+	_filesChangedTimer = setTimeout(() => {
+		if (isStreaming.value) return
+		loadCompletions({ skipEstimate: true })
+	}, 500)
 }
 
 async function loadCompletions({ skipEstimate = false } = {}) {

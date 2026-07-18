@@ -21,8 +21,8 @@ await page.click('button[type="submit"]');
 await page.waitForTimeout(3000);
 
 await page.goto(`${BASE}/reports/${REPORT_ID}`, { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('li[data-message-id]', { timeout: 30000 });
-await page.waitForTimeout(2500);
+await page.waitForSelector('li[data-message-id]', { timeout: 30000, state: 'attached' });
+await page.waitForTimeout(3000);
 
 async function setTheme(mode) {
   await page.emulateMedia({ colorScheme: mode });
@@ -43,7 +43,7 @@ await page.screenshot({ path: `${OUT}/session-events-dark.png`, fullPage: true }
 console.log('wrote dark');
 
 const body = await page.textContent('body');
-for (const needle of ['uploaded targets_2025.xlsx', 'shared "Revenue vs Targets"', "changed the agent's scope"]) {
+for (const needle of ['was uploaded', 'was shared with finance-team', 'Agent scope changed']) {
   console.log((body.includes(needle) ? 'OK   ' : 'MISS ') + needle);
 }
 

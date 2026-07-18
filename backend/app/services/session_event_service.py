@@ -74,9 +74,11 @@ class SessionEventService:
         if target_id is not None:
             meta.setdefault("target_id", target_id)
         # Record the actor so the UI can render a name/avatar without re-deriving.
+        # The default text itself is an impersonal announcement (see
+        # default_event_content) and does not name the actor.
         meta.setdefault("actor", actor)
 
-        text = content or default_event_content(kind, meta, actor=actor)
+        text = content or default_event_content(kind, meta)
 
         prompt: dict[str, Any] = {"content": text, "summary": text, "meta": meta}
         if target_type is not None:

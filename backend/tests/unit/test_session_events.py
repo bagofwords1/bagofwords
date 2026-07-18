@@ -121,10 +121,9 @@ async def test_emit_inserts_event_without_incrementing_turn(db):
     assert ev.turn_index == sys.turn_index
     assert ev.prompt["meta"]["from"] == "claude-opus"
     assert ev.prompt["meta"]["to"] == "gpt-5"
-    # The actor name is baked into the text and recorded in meta.
+    # The actor is recorded in meta; the text is an impersonal announcement.
     assert ev.prompt["meta"]["actor"] == "U"
-    assert ev.prompt["content"].startswith("U switched model")
-    assert "gpt-5" in ev.prompt["content"]
+    assert ev.prompt["content"] == "Model was switched from claude-opus to gpt-5"
 
 
 # ------------------------------------------------------------------ policy maps
@@ -164,7 +163,7 @@ async def test_event_renders_interleaved_in_context(db):
     text = await builder.build_context(max_messages=20)
     assert "show me revenue" in text
     assert "Event (" in text
-    assert "👎" in text and "wrong window" in text
+    assert "thumbed down" in text and "wrong window" in text
     # Ordering: event sits between the assistant answer and the next ask.
     assert text.index("here it is") < text.index("Event (") < text.index("try by region")
 

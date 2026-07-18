@@ -123,48 +123,52 @@ def is_event_kind_durable(kind: str) -> bool:
     return kind in EVENT_DURABLE
 
 
-def default_event_content(kind: str, meta: dict | None = None, actor: str = "user") -> str:
-    """Human/LLM one-line fallback for an event kind.
-
-    ``actor`` is the display name of the person who took the action (falls back
-    to the generic "user") — in a shared report "Dana thumbed down…" is far less
-    ambiguous than "user thumbed down…". Callers normally pass an explicit
-    ``content`` string to ``SessionEventService.emit`` (it reads better and can
-    be localized); this is the backstop used when they don't, and it keeps the
-    ledger legible for kinds added before a bespoke string exists.
+def default_event_content(kind: str, meta: dict | None = None) -> str:
+    """Human/LLM one-line fallback for an event kind, phrased as an impersonal
+    announcement ("<file> was uploaded", "Artifact was shared", "Model was
+    switched…") rather than naming the actor as the subject. The acting user is
+    still recorded in ``prompt.meta.actor`` (see ``SessionEventService.emit``)
+    for a possible name/avatar in the UI, but the ledger text reads as a neutral
+    event notice. Callers may still pass an explicit ``content`` string to
+    ``emit``; this is the backstop when they don't.
     """
     m = meta or {}
-    who = actor or "user"
+
+    def _dir_word(direction):
+        return "up" if direction == 1 else ("down" if direction == -1 else None)
 
     if kind == RUN_STOPPED:
-        return f"{who} stopped the run"
+        return "Run was stopped"
     if kind == LLM_CHANGED:
         frm, to = m.get("from"), m.get("to")
         if to and frm:
-            return f"{who} switched model from {frm} to {to}"
+            return f"Model was switched from {frm} to {to}"
         if to:
-            return f"{who} switched model to {to}"
-        return f"{who} switched the model"
+            return f"Model was switched to {to}"
+        return "Model was switched"
     if kind == QUEUE_PROMPT_REMOVED:
         txt = str(m.get("text") or "").strip()
-        return f'{who} removed a queued prompt ("{txt[:80]}")' if txt else f"{who} removed a queued prompt"
+        return f'Queued prompt was removed ("{txt[:80]}")' if txt else "Queued prompt was removed"
 
     if kind in (FEEDBACK_GIVEN, FEEDBACK_CHANGED):
-        direction = m.get("direction")
-        thumb = "👍" if direction == 1 else ("👎" if direction == -1 else "feedback")
+        word = _dir_word(m.get("direction"))
         msg = str(m.get("message") or "").strip()
-        verb = "changed feedback to" if kind == FEEDBACK_CHANGED else "gave"
-        base = f"{who} {verb} {thumb} on the assistant's answer"
+        if kind == FEEDBACK_CHANGED:
+            base = f"Feedback on the assistant's answer changed to thumbs {word}" if word \
+                else "Feedback on the assistant's answer was changed"
+        else:
+            base = f"The assistant's answer was thumbed {word}" if word \
+                else "Feedback was given on the assistant's answer"
         return f'{base} ("{msg[:120]}")' if msg else base
     if kind == FEEDBACK_REMOVED:
-        return f"{who} retracted their feedback on the assistant's answer"
+        return "Feedback on the assistant's answer was retracted"
 
     if kind == FILE_UPLOADED:
-        name = m.get("filename") or m.get("file_id") or "a file"
-        return f"{who} uploaded {name}"
+        name = m.get("filename") or m.get("file_id") or "A file"
+        return f"{name} was uploaded"
     if kind == FILE_REMOVED:
-        name = m.get("filename") or m.get("file_id") or "a file"
-        return f"{who} removed {name}"
+        name = m.get("filename") or m.get("file_id") or "A file"
+        return f"{name} was removed"
 
     if kind == AGENT_SCOPE_CHANGED:
         added = m.get("added") or []
@@ -174,66 +178,65 @@ def default_event_content(kind: str, meta: dict | None = None, actor: str = "use
             parts.append("added " + ", ".join(str(x) for x in added[:5]))
         if removed:
             parts.append("removed " + ", ".join(str(x) for x in removed[:5]))
-        detail = "; ".join(parts) if parts else "changed the agent's scope"
-        return f"{who} changed the agent's scope — {detail}" if parts else f"{who} changed the agent's scope"
+        return f"Agent scope changed — {'; '.join(parts)}" if parts else "Agent scope changed"
     if kind == MCP_POLICY_SAVED:
         tool = m.get("tool") or "a tool"
         decision = m.get("decision") or "a policy"
-        return f'{who} saved "always {decision}" for {tool}'
+        return f"Policy saved: always {decision} for {tool}"
 
     if kind == REPORT_SHARED:
         shared = m.get("shared_with") or []
         who_s = ", ".join(str(x) for x in shared[:5]) if isinstance(shared, list) else str(shared)
-        return f"{who} shared this conversation with {who_s}" if who_s else f"{who} shared this conversation"
+        return f"This conversation was shared with {who_s}" if who_s else "This conversation was shared"
     if kind == REPORT_PUBLISHED:
-        return f"{who} published this report"
+        return "This report was published"
     if kind == REPORT_UNPUBLISHED:
-        return f"{who} unpublished this report"
+        return "This report was unpublished"
     if kind == REPORT_RENAMED:
-        return f'{who} renamed the report to "{m.get("to")}"' if m.get("to") else f"{who} renamed the report"
+        return f'Report was renamed to "{m.get("to")}"' if m.get("to") else "Report was renamed"
     if kind == REPORT_FORKED:
-        return f"{who} forked this conversation"
+        return "This conversation was forked"
 
     if kind == ARTIFACT_SHARED:
-        title = m.get("title") or "an artifact"
+        title = m.get("title") or "Artifact"
         shared = m.get("shared_with") or []
         who_s = ", ".join(str(x) for x in shared[:5]) if isinstance(shared, list) else str(shared)
-        return f'{who} shared "{title}"' + (f" with {who_s}" if who_s else "")
+        return f'"{title}" was shared' + (f" with {who_s}" if who_s else "")
     if kind == ARTIFACT_UNSHARED:
-        return f'{who} made "{m.get("title") or "an artifact"}" private'
+        return f'"{m.get("title") or "Artifact"}" was made private'
     if kind == ARTIFACT_USER_EDITED:
-        return f'{who} manually edited "{m.get("title") or "an artifact"}"'
+        return f'"{m.get("title") or "Artifact"}" was edited'
     if kind == ARTIFACT_SCHEDULE_SET:
-        return f'{who} scheduled a refresh for "{m.get("title") or "an artifact"}"'
+        return f'A refresh was scheduled for "{m.get("title") or "Artifact"}"'
     if kind == ARTIFACT_SCHEDULE_CHANGED:
-        return f'{who} changed the refresh schedule for "{m.get("title") or "an artifact"}"'
+        return f'The refresh schedule for "{m.get("title") or "Artifact"}" was changed'
     if kind == ARTIFACT_SCHEDULE_REMOVED:
-        return f'{who} removed the refresh schedule for "{m.get("title") or "an artifact"}"'
+        return f'The refresh schedule for "{m.get("title") or "Artifact"}" was removed'
     if kind == ARTIFACT_DATA_REFRESHED:
-        return f'{who} refreshed the data for "{m.get("title") or "an artifact"}"'
+        return f'Data for "{m.get("title") or "Artifact"}" was refreshed'
 
     if kind == INSTRUCTION_ACCEPTED:
         title = m.get("title")
-        return f'{who} accepted the suggested instruction "{title}"' if title else f"{who} accepted a suggested instruction"
+        return f'Suggested instruction "{title}" was accepted' if title else "A suggested instruction was accepted"
     if kind == INSTRUCTION_REJECTED:
         title = m.get("title") or ""
         snippet = str(m.get("snippet") or "").strip()
-        base = f'{who} rejected the suggested instruction "{title}" — do not re-suggest it'
+        base = f'Suggested instruction "{title}" was rejected — do not re-suggest it'
         return f"{base} ({snippet[:120]})" if snippet else base
     if kind == INSTRUCTION_CREATED:
-        return f'{who} created instruction "{m.get("title") or ""}"'
+        return f'Instruction "{m.get("title") or ""}" was created'
     if kind == INSTRUCTION_EDITED:
-        return f'{who} edited instruction "{m.get("title") or ""}"'
+        return f'Instruction "{m.get("title") or ""}" was edited'
     if kind == INSTRUCTION_DELETED:
-        return f'{who} deleted instruction "{m.get("title") or ""}"'
+        return f'Instruction "{m.get("title") or ""}" was deleted'
     if kind == BUILD_PUBLISHED:
         n = m.get("count")
-        return f"{who} published a knowledge build ({n} instructions)" if n else f"{who} published a knowledge build"
+        return f"A knowledge build was published ({n} instructions)" if n else "A knowledge build was published"
     if kind == BUILD_REJECTED:
-        return f"{who} rejected a knowledge build"
+        return "A knowledge build was rejected"
 
     if kind == EXPORT_DOWNLOADED:
-        return f"{who} exported the report as {m.get('format') or 'a file'}"
+        return f"The report was exported as {m.get('format') or 'a file'}"
 
     # Unknown kind — degrade gracefully to the raw kind name.
     return kind.replace("_", " ")
