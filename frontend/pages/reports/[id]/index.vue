@@ -287,7 +287,13 @@
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 													</div>
 													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
-														<div class="pt-1">{{ s.prompt?.content }}</div>
+														<div v-if="s.prompt?.content" class="pt-1">
+															<InstructionText
+																:text="s.prompt.content"
+																:references="promptMentionsToRefs(s.prompt.mentions)"
+																:prose="true"
+															/>
+														</div>
 													</div>
 												</div>
 											</div>
@@ -386,7 +392,13 @@
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 												</div>
 												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
-													<div class="pt-1">{{ s.prompt?.content }}</div>
+													<div v-if="s.prompt?.content" class="pt-1">
+														<InstructionText
+															:text="s.prompt.content"
+															:references="promptMentionsToRefs(s.prompt.mentions)"
+															:prose="true"
+														/>
+													</div>
 												</div>
 											</div>
 										</div>
