@@ -211,11 +211,13 @@ class RoutingController:
             "[routing] escalated %s -> %s (reason=%s)",
             prev_name, target.name, (reason or "")[:120],
         )
+        provider_type = getattr(getattr(target, "provider", None), "provider_type", None)
         return {
             "summary": f"Routed to {target.name} for the rest of this task.",
             "routed": True,
             "model": target.model_id,
             "model_name": target.name,
+            "provider_type": provider_type,
             "from_model": prev_name,
             "reason": reason,
         }

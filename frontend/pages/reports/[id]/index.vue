@@ -814,6 +814,7 @@ import EditDocTool from '~/components/tools/EditDocTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
 import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
@@ -1813,6 +1814,8 @@ function getToolComponent(toolName: string) {
 			return EditNoteTool
 		case 'update_user_memory':
 			return UpdateUserMemoryTool
+		case 'route_model':
+			return RouteModelTool
 		case 'read_resources':
 			return ReadResourcesTool
 		case 'inspect_data':
