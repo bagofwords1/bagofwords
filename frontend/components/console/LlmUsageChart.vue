@@ -23,6 +23,22 @@
                 · {{ hasEstimatedProvider ? 'Est. cost' : 'Total cost' }}: <span class="font-semibold text-gray-900 dark:text-white">${{ llmUsageData.total_cost_usd.toFixed(2) }}</span>
                 · Tokens: <span class="font-semibold text-gray-900 dark:text-white">{{ (llmUsageData.total_prompt_tokens + llmUsageData.total_completion_tokens).toLocaleString() }}</span>
             </div>
+            <!-- Auto model router savings KPI -->
+            <div
+                v-if="llmUsageData?.routing?.enabled"
+                class="mt-1 inline-flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1.5 self-start"
+                data-testid="routing-savings-kpi"
+            >
+                <UIcon name="i-heroicons-arrow-trending-down" class="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span class="text-sm text-emerald-700 dark:text-emerald-300">
+                    Saved by auto-routing:
+                    <span class="font-semibold">${{ (llmUsageData.routing.savings_usd || 0).toFixed(2) }}</span>
+                    <span class="text-emerald-600/70 dark:text-emerald-400/70">
+                        · {{ llmUsageData.routing.routed_calls.toLocaleString() }} routed call{{ llmUsageData.routing.routed_calls === 1 ? '' : 's' }}
+                        ({{ Math.round((llmUsageData.routing.routed_share || 0) * 100) }}%)
+                    </span>
+                </span>
+            </div>
         </div>
         <div class="p-6">
             <div class="h-80">
@@ -87,12 +103,21 @@ interface LlmUsageItem {
 
 interface DateRange { start: string; end: string }
 
+interface RoutingSavings {
+    enabled: boolean
+    savings_usd: number
+    routed_calls: number
+    total_calls: number
+    routed_share: number
+}
+
 interface LlmUsageMetrics {
     items: LlmUsageItem[]
     total_calls: number
     total_prompt_tokens: number
     total_completion_tokens: number
     total_cost_usd: number
+    routing?: RoutingSavings
     date_range: DateRange
 }
 

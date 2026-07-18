@@ -1854,7 +1854,21 @@
       "contextTooltip": "Máximo de tokens (entrada + salida) que la aplicación presupuesta para este modelo. Redúcelo para ajustarlo a los límites del proveedor, por ejemplo, despliegues de Bedrock limitados a 100k.",
       "contextPlaceholder": "p. ej. 100000",
       "contextResetTooltip": "Restablecer al valor predeterminado del catálogo",
-      "modelIdLabel": "ID del modelo"
+      "modelIdLabel": "ID del modelo",
+      "colCost": "Coste ($/M)",
+      "colRouting": "Enrutamiento",
+      "autoRouter": "Enrutador automático",
+      "autoRouterTooltip": "Cuando un usuario no elige un modelo, cada solicitud empieza en el modelo pequeño y el agente escala a uno más potente solo cuando la tarea lo necesita. Añade una guía de enrutamiento abajo para orientar la elección.",
+      "autoRouterOn": "Enrutador automático activado",
+      "autoRouterOff": "Enrutador automático desactivado",
+      "routingHintPlaceholder": "Añadir guía de enrutamiento…",
+      "routingHintTooltip": "Guía que usa el enrutador automático para decidir cuándo enrutar una solicitud a este modelo. Un modelo con guía se convierte en objetivo de escalado.",
+      "routingNotAvailable": "no enrutable",
+      "autoRouterHowTitle": "Cómo funciona el enrutador automático",
+      "autoRouterHow1": "Cuando un usuario no elige un modelo, cada solicitud empieza en el modelo pequeño (económico).",
+      "autoRouterHow2": "El agente escala a un modelo más potente solo cuando la tarea lo necesita; la elección también se propaga a la generación de código.",
+      "autoRouterHow3": "Añade una guía de enrutamiento a un modelo abajo para convertirlo en objetivo de escalado y orientar cuándo se usa.",
+      "autoRouterHow4": "Las elecciones explícitas de modelo y los modelos fijados al informe siempre omiten el enrutamiento."
     },
     "licensePage": {
       "title": "Licencia",
@@ -3181,7 +3195,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · enruta por dificultad"
   },
   "automations": {
     "title": "Automatizaciones",

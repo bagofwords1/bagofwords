@@ -17,7 +17,10 @@
           @click="() => { select(null); close(); }"
         >
           <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
-          <div class="flex-1 text-start">{{ $t('prompts.modelDefault') }}</div>
+          <div class="flex flex-col flex-1 text-start min-w-0">
+            <span>{{ $t('prompts.modelDefault') }}</span>
+            <span v-if="routingOn" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompts.modelDefaultAuto') }}</span>
+          </div>
           <Icon v-if="!modelValue" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
         </div>
         <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
@@ -65,7 +68,17 @@ async function loadModels() {
     if (Array.isArray(data.value)) models.value = data.value as any[]
   } catch {}
 }
-onMounted(loadModels)
+
+// When the org's Auto router is on, "Default" also routes by difficulty.
+const routingOn = ref(false)
+async function loadRouting() {
+  try {
+    const { data } = await useMyFetch('/api/organization/settings')
+    routingOn.value = !!(data.value as any)?.config?.model_routing?.value
+  } catch {}
+}
+
+onMounted(() => { loadModels(); loadRouting() })
 
 const selectedLabel = computed(() => {
   if (!props.modelValue) return t('prompts.modelDefault')

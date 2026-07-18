@@ -1854,7 +1854,21 @@
       "contextTooltip": "מספר הטוקנים המרבי (קלט + פלט) שהאפליקציה מקצה למודל זה. הקטינו אותו כדי להתאים למגבלות הספק — לדוגמה, פריסות Bedrock המוגבלות ל‑100 אלף.",
       "contextPlaceholder": "לדוגמה 100000",
       "contextResetTooltip": "איפוס לברירת המחדל של הקטלוג",
-      "modelIdLabel": "מזהה מודל"
+      "modelIdLabel": "מזהה מודל",
+      "colCost": "עלות ($/מיליון)",
+      "colRouting": "ניתוב",
+      "autoRouter": "נתב אוטומטי",
+      "autoRouterTooltip": "כשמשתמש לא בוחר מודל, כל בקשה מתחילה במודל הקטן והסוכן מסלים למודל חזק יותר רק כשהמשימה דורשת זאת. הוסיפו הנחיית ניתוב למטה כדי לכוון את הבחירה.",
+      "autoRouterOn": "נתב אוטומטי פעיל",
+      "autoRouterOff": "נתב אוטומטי כבוי",
+      "routingHintPlaceholder": "הוספת הנחיית ניתוב…",
+      "routingHintTooltip": "הנחיה שהנתב האוטומטי משתמש בה כדי להחליט מתי לנתב בקשה למודל הזה. מודל עם הנחיה הופך ליעד הסלמה.",
+      "routingNotAvailable": "לא ניתן לניתוב",
+      "autoRouterHowTitle": "איך הנתב האוטומטי עובד",
+      "autoRouterHow1": "כשמשתמש לא בוחר מודל, כל בקשה מתחילה במודל הקטן (הזול).",
+      "autoRouterHow2": "הסוכן מסלים למודל חזק יותר רק כשהמשימה דורשת זאת — הבחירה מתפשטת גם ליצירת הקוד.",
+      "autoRouterHow3": "הוסיפו הנחיית ניתוב למודל למטה כדי להפוך אותו ליעד הסלמה ולכוון מתי ייעשה בו שימוש.",
+      "autoRouterHow4": "בחירת מודל מפורשת ומודל מוצמד לדוח תמיד עוקפים את הניתוב."
     },
     "licensePage": {
       "title": "רישיון",
@@ -3181,7 +3195,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "אוטומטי · ניתוב לפי מורכבות"
   },
   "automations": {
     "title": "אוטומציות",
