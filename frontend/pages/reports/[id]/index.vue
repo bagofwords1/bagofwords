@@ -177,6 +177,12 @@
 							</div>
 						</div>
 
+						<!-- Silent session event (role='event'): render only UI-visible
+						     kinds as a minimalistic strip; swallow hidden kinds so they
+						     don't fall through to the generic renderer. -->
+						<SessionEvent v-else-if="m.role === 'event' && isEventUiVisible(m)" :m="m" />
+						<template v-else-if="m.role === 'event'"></template>
+
 						<!-- Regular message rendering -->
 						<div
 							v-else
@@ -1491,6 +1497,27 @@ function machineEventLabel(m: any): string {
 	}
 	return m.prompt?.summary || m.prompt?.content
 }
+// Silent session events (role='event'): which kinds render a UI strip. Mirrors
+// backend EVENT_UI_VISIBLE (app/ai/context/session_events.py) — most kinds are
+// LLM-only and stay hidden in the timeline.
+const EVENT_UI_VISIBLE = new Set<string>([
+	'run_stopped',
+	'file_uploaded',
+	'file_removed',
+	'agent_scope_changed',
+	'report_shared',
+	'report_published',
+	'report_unpublished',
+	'artifact_shared',
+	'artifact_unshared',
+	'artifact_schedule_set',
+	'artifact_schedule_changed',
+	'artifact_schedule_removed',
+])
+function isEventUiVisible(m: any): boolean {
+	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
+}
+
 function webhookDecision(m: any): any {
 	return m?.completion?.decision || null
 }
