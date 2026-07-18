@@ -53,6 +53,7 @@ from app.ai.tools.schemas.run_eval import (
     RunEvalInput,
     RunEvalOutput,
 )
+from app.ai.tools.eval_result_view import derive_failure_reason
 from app.core.permission_resolver import resolve_permissions
 from app.models.completion import Completion
 from app.models.eval import (
@@ -554,12 +555,19 @@ class RunEvalTool(Tool):
             )
             rows = (await db.execute(results_stmt)).all()
             for result, case_name in rows:
+                rj = getattr(result, "result_json", None)
                 final_results.append(
                     RunEvalCaseResult(
                         case_id=str(result.case_id),
                         case_name=case_name,
                         status=result.status,
-                        failure_reason=getattr(result, "failure_reason", None),
+                        # Derive from failing rules when no explicit reason was
+                        # stored (a plain `fail` leaves the column null).
+                        failure_reason=derive_failure_reason(
+                            result.status,
+                            getattr(result, "failure_reason", None),
+                            rj if isinstance(rj, dict) else {},
+                        ),
                     )
                 )
             passed = sum(1 for r in final_results if r.status == "pass")

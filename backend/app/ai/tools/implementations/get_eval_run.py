@@ -21,10 +21,16 @@ from app.ai.tools.schemas.events import (
     ToolErrorEvent,
 )
 from app.ai.tools.schemas.get_eval_run import (
+    EvalCaseDetail,
     GetEvalRunInput,
     GetEvalRunOutput,
 )
-from app.ai.tools.schemas.run_eval import RunEvalCaseResult
+from app.ai.tools.eval_result_view import (
+    derive_failure_reason,
+    prompt_text,
+    rule_results_view,
+    rules_view,
+)
 from app.ai.tools.implementations.get_eval_runs import _iso, run_counts
 from app.core.permission_resolver import resolve_permissions
 from app.models.eval import TestCase, TestResult, TestRun, TestSuite
@@ -38,19 +44,23 @@ class GetEvalRunTool(Tool):
         return ToolMetadata(
             name="get_eval_run",
             description=(
-                "RESEARCH: Read one eval TestRun — status, build, counts, and "
-                "per-case pass/fail with failure reasons. Safe while the run is "
-                "still executing (returns a live snapshot). Set "
-                "compare_to_previous=true to also get fixed/regressed flips vs. "
-                "the previous comparable run. Find run ids with get_eval_runs "
-                "or from run_eval's output."
+                "RESEARCH: Read one eval TestRun in detail. Per case you get the "
+                "replay prompt, the expectation rules, and the per-rule verdicts "
+                "(judge messages, expected vs. actual) — so you can see WHY a "
+                "case failed, not just that it did. failure_reason is derived "
+                "from the failing rules when no explicit reason was stored. Safe "
+                "while the run is still executing (live snapshot). "
+                "compare_to_previous=true adds fixed/regressed flips vs. the "
+                "previous comparable run; include_transcript=true attaches the "
+                "agent transcript for failed cases. Find run ids with "
+                "get_eval_runs or from run_eval's output."
             ),
             category="research",
-            version="1.0.0",
+            version="1.1.0",
             input_schema=GetEvalRunInput.model_json_schema(),
             output_schema=GetEvalRunOutput.model_json_schema(),
             max_retries=1,
-            timeout_seconds=20,
+            timeout_seconds=30,
             idempotent=True,
             required_permissions=["manage_evals"],
             tags=["eval", "run", "read"],
@@ -144,22 +154,57 @@ class GetEvalRunTool(Tool):
 
             rows = (
                 await db.execute(
-                    select(TestResult, TestCase.name)
+                    select(TestResult, TestCase.name, TestCase.prompt_json)
                     .join(TestCase, TestCase.id == TestResult.case_id)
                     .where(TestResult.run_id == str(run.id))
                     .execution_options(populate_existing=True)
                 )
             ).all()
-            results = [
-                RunEvalCaseResult(
-                    case_id=str(r.case_id),
-                    case_name=name,
-                    status=r.status,
-                    failure_reason=getattr(r, "failure_reason", None),
+
+            results: list[EvalCaseDetail] = []
+            for r, name, prompt_json in rows:
+                rj = getattr(r, "result_json", None)
+                if not isinstance(rj, dict):
+                    rj = {}
+                results.append(
+                    EvalCaseDetail(
+                        case_id=str(r.case_id),
+                        case_name=name,
+                        status=r.status,
+                        failure_reason=derive_failure_reason(
+                            r.status, getattr(r, "failure_reason", None), rj
+                        ),
+                        prompt=prompt_text(prompt_json),
+                        rules=rules_view(rj),
+                        rule_results=rule_results_view(rj),
+                    )
                 )
-                for r, name in rows
-            ]
-            counts = run_counts(run, [r for r, _ in rows])
+
+            # Optional: attach the agent transcript for failed cases only
+            # (bounded; off by default). Uses the same builder the run detail
+            # page and the agent's own context use.
+            if data.include_transcript:
+                from app.services.test_run_service import TestRunService
+
+                trs = TestRunService()
+                failed_result_ids = {
+                    str(r.id) for r, _, _ in rows if r.status in ("fail", "error")
+                }
+                detail_by_case = {d.case_id: d for d in results}
+                for r, _name, _pj in rows:
+                    if str(r.id) not in failed_result_ids:
+                        continue
+                    try:
+                        transcript = await trs.get_result_transcript(
+                            db, organization, user, str(r.id), max_messages=30
+                        )
+                        d = detail_by_case.get(str(r.case_id))
+                        if d is not None and transcript:
+                            d.transcript = transcript[-4000:]
+                    except Exception as te:
+                        logger.warning(f"get_eval_run transcript for {r.id} failed: {te}")
+
+            counts = run_counts(run, [r for r, _, _ in rows])
 
             compare = None
             if data.compare_to_previous:
@@ -176,6 +221,16 @@ class GetEvalRunTool(Tool):
                         "flips": flips,
                     }
 
+            # Lead the observation summary with the first failing case's reason
+            # so the digest that lands in conversation history is actionable.
+            first_fail = next((d for d in results if d.status in ("fail", "error")), None)
+            summary = (
+                f"Run {run.status}: {counts['passed']}/{counts['total']} passed, "
+                f"{counts['failed']} failed ({counts['finished']}/{counts['total']} finished)"
+            )
+            if first_fail is not None and first_fail.failure_reason:
+                summary += f" — {first_fail.case_name or first_fail.case_id}: {first_fail.failure_reason[:160]}"
+
             output = GetEvalRunOutput(
                 success=True,
                 run_id=str(run.id),
@@ -187,10 +242,7 @@ class GetEvalRunTool(Tool):
                 finished_at=_iso(run.finished_at),
                 results=results,
                 compare=compare,
-                message=(
-                    f"Run {run.status}: {counts['passed']}/{counts['total']} passed, "
-                    f"{counts['failed']} failed ({counts['finished']}/{counts['total']} finished)"
-                ),
+                message=summary,
                 **counts,
             )
             yield ToolEndEvent(
