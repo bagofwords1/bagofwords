@@ -1,6 +1,10 @@
 <template>
   <div class="mt-1">
-    <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+    <div
+      class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400"
+      :class="{ 'cursor-pointer select-none': canExpand }"
+      @click="canExpand && (expanded = !expanded)"
+    >
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
         {{ t('tools.getEvalRun.reading') }}
@@ -20,18 +24,26 @@
         <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-gray-400" />
         <span class="align-middle">{{ message || t('tools.getEvalRun.notFound') }}</span>
       </span>
+
+      <!-- Expand/collapse affordance — only when there are per-case rows to show -->
+      <Icon
+        v-if="canExpand"
+        name="heroicons-chevron-down"
+        class="w-3 h-3 ms-1 text-gray-400 transition-transform duration-200"
+        :class="{ '-rotate-90': !expanded }"
+      />
     </div>
 
     <!-- Compare summary (compare_to_previous=true) -->
-    <div v-if="compareSummary" class="mb-1 ms-1 flex items-center gap-1.5 text-[10px]">
+    <div v-if="compareSummary && expanded" class="mb-1 ms-1 flex items-center gap-1.5 text-[10px]">
       <Icon name="heroicons:arrows-right-left" class="w-3 h-3 text-gray-400" />
       <span class="text-gray-500 dark:text-gray-400">{{ t('tools.getEvalRun.vsPrevious') }}</span>
       <span class="inline-flex px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800">{{ t('tools.getEvalRun.fixed', { count: compareSummary.fixed || 0 }) }}</span>
       <span class="inline-flex px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-800">{{ t('tools.getEvalRun.regressed', { count: compareSummary.regressed || 0 }) }}</span>
     </div>
 
-    <!-- Per-case rows -->
-    <ul v-if="cases.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
+    <!-- Per-case rows (collapsed by default) -->
+    <ul v-if="cases.length && expanded" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
         <Spinner v-if="c.status === 'in_progress'" class="w-3 h-3 me-1 flex-shrink-0 text-blue-400" />
         <Icon v-else :name="caseIcon(c.status)" class="w-3 h-3 me-1 flex-shrink-0" :class="caseIconColor(c.status)" />
@@ -98,6 +110,12 @@ const cases = computed<any[]>(() =>
   polled.value?.cases || (Array.isArray(result.value?.results) ? result.value.results : [])
 )
 const compareSummary = computed<any | null>(() => result.value?.compare?.summary || null)
+
+// Collapsed by default; the header stays a single summary line and the
+// per-case rows (and compare row) expand on click. Only offer the toggle when
+// there's actually detail to reveal.
+const expanded = ref(false)
+const canExpand = computed<boolean>(() => success.value && (cases.value.length > 0 || !!compareSummary.value))
 
 // --- Follow a still-running read to completion -----------------------------
 const TERMINAL_RUN = new Set(['success', 'error', 'stopped'])

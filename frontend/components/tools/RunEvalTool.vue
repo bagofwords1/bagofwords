@@ -1,7 +1,11 @@
 <template>
   <div class="mt-1">
     <!-- Header line -->
-    <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+    <div
+      class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400"
+      :class="{ 'cursor-pointer select-none': canExpand }"
+      @click="canExpand && (expanded = !expanded)"
+    >
       <span v-if="status === 'running' || isInProgress" class="tool-shimmer flex items-center">
         <Spinner class="w-3 h-3 me-1 text-gray-400" />
         {{ t('tools.runEval.running') }}{{ totalLabel }}
@@ -23,11 +27,19 @@
           v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span>
       </span>
 
+      <!-- Expand/collapse affordance — only when there are per-case rows -->
+      <Icon
+        v-if="canExpand"
+        name="heroicons-chevron-down"
+        class="w-3 h-3 ms-1 text-gray-400 transition-transform duration-200"
+        :class="{ '-rotate-90': !expanded }"
+      />
+
       <!-- Stop button (only while in-flight) -->
       <button
         v-if="canStop"
         class="ms-auto inline-flex items-center gap-0.5 text-[10px] text-red-600 hover:text-red-800"
-        @click="stopRun"
+        @click.stop="stopRun"
         :disabled="isStopping"
         :title="t('tools.runEval.stopTitle')"
       >
@@ -39,7 +51,7 @@
     <!-- Progress bar — only while running; once finished the counts + per-case
          rows carry the result, and a solid full-width bar reads as a heavy
          divider. Kept thin and capped in width so it stays subtle. -->
-    <div v-if="progress.total > 0 && isInProgress" class="mb-2">
+    <div v-if="progress.total > 0 && isInProgress && expanded" class="mb-2">
       <div class="h-0.5 w-40 max-w-full bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
         <div
           class="h-full bg-green-400 transition-all duration-300"
@@ -48,8 +60,8 @@
       </div>
     </div>
 
-    <!-- Per-case rows -->
-    <ul v-if="progress.cases.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
+    <!-- Per-case rows (collapsed by default) -->
+    <ul v-if="progress.cases.length && expanded" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in progress.cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
         <Spinner
           v-if="c.status === 'in_progress'"
@@ -120,6 +132,11 @@ const props = defineProps<{
 const status = computed(() => props.toolExecution?.status || '')
 const isStopping = ref(false)
 
+// Collapsed by default: the header carries the live status + counts, and the
+// progress bar + per-case rows expand on click. Only offer the toggle when
+// there are cases to reveal.
+const expanded = ref(false)
+
 // Snapshot fetched from the run API for detached (background) runs — the
 // tool call already ended, so ``tool.progress`` events will never arrive
 // and the run's live state only exists server-side.
@@ -161,6 +178,8 @@ const isInProgress = computed(() => {
 })
 
 const failedAny = computed(() => progress.value.failed > 0 || progress.value.status === 'error')
+
+const canExpand = computed(() => progress.value.cases.length > 0)
 
 const canStop = computed(() =>
   (isInProgress.value && !!props.systemCompletionId) || isDetachedInProgress.value
