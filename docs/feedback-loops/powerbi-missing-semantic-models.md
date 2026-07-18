@@ -113,7 +113,8 @@ Fix 2  test_unintrospectable_dataset_reported_not_dropped_and_not_phantom
        [fixed] unreadable diagnostics: [('UnreadableModel', 'COLUMNSTATISTICS failed: not authorized ...')]
        (no phantom 'UnreadableModel/*' table; index_stats() reports it with a reason)
 
-Fix 4  test_builtin_usage_metrics_models_are_skipped -> only ['RealModel/Sales'] emitted
+Nothing hidden  test_no_models_are_hidden_from_discovery
+       [fixed] both a usage-metrics model and a real model are emitted when readable
 
 Fix 3  test_user_visible_model_missing_from_sp_catalog_is_selectable
        [fixed] user1 selectable: ['ModelA/T1', 'ModelB/T2']    # ModelB was SP-invisible

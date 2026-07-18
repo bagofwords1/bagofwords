@@ -3402,7 +3402,21 @@ class DataSourceService:
                 # Already have a canonical row for this table (by dataset/table
                 # identity first, then by display name)? Reuse it — no dup.
                 if dt_key is not None and dt_key in canonical_by_dataset_table:
-                    canonical_by_name.setdefault(table_name, canonical_by_dataset_table[dt_key])
+                    existing_row = canonical_by_dataset_table[dt_key]
+                    # A dataset/table rename keeps the same (datasetId, tableName)
+                    # identity but a new display name. Refresh the display name so
+                    # the selector (which renders DataSourceTable.name) shows the
+                    # current name instead of the stale one — but only for
+                    # user-discovered (unlinked) rows; an SP-linked row's name is
+                    # owned by the service-principal crawl.
+                    if (
+                        existing_row.connection_table_id is None
+                        and table_name
+                        and existing_row.name != table_name
+                    ):
+                        existing_row.name = table_name
+                        db.add(existing_row)
+                    canonical_by_name.setdefault(table_name, existing_row)
                     continue
                 if table_name in canonical_by_name:
                     continue

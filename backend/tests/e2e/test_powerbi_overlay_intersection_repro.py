@@ -71,6 +71,17 @@ class _FakeDelegatedPBIClient:
         ]
 
 
+class _FakeRenamedModelBClient:
+    """Same datasets, but ModelB's dataset has been RENAMED (same datasetId
+    ds-b, new display name). Identity (datasetId, tableName) is unchanged."""
+
+    async def aget_schemas(self, progress_callback=None, prior_catalog=None):
+        return [
+            _table_payload("ModelA/T1", "ds-a", "T1"),
+            _table_payload("RenamedB/T2", "ds-b", "T2"),
+        ]
+
+
 async def _seed():
     """Direct DB seeding: this state (delegated token present without a real
     OAuth round-trip, SP catalog narrower than the users' access) cannot be
@@ -258,3 +269,40 @@ def test_user_visible_model_missing_from_sp_catalog_is_selectable(monkeypatch):
         f"both users must link to one canonical ModelB row, got {model_b_links}"
     )
     assert next(iter(model_b_links)) == canonical["ModelB/T2"][1]
+
+
+@pytest.mark.e2e
+def test_user_discovered_model_rename_updates_canonical_name(monkeypatch):
+    """A dataset/table rename keeps its (datasetId, tableName) identity but gets
+    a new display name. The user-discovered canonical row must adopt the new
+    name (so the selector shows it), not stay stuck on the old one — while
+    remaining ONE row (matched by identity, no duplicate)."""
+    clients = {"impl": _FakeDelegatedPBIClient()}
+
+    async def _fake_construct_client(self, db, data_source, current_user=None, **kw):
+        return clients["impl"]
+
+    monkeypatch.setattr(DataSourceService, "construct_client", _fake_construct_client)
+
+    ids = _run(_seed())
+    u1 = ids["user_ids"][0]
+
+    # First sign-in: ModelB discovered under its original name.
+    _run(_sync_overlay(ids, u1))
+    assert "ModelB/T2" in _run(_paginate(ids, u1))
+
+    # Dataset renamed upstream; the same user re-syncs.
+    clients["impl"] = _FakeRenamedModelBClient()
+    _run(_sync_overlay(ids, u1))
+
+    selectable = _run(_paginate(ids, u1))
+    canonical, _ = _run(_canonical_snapshot(ids))
+    print(f"\n[fixed] selectable after rename: {selectable}")
+    print(f"[fixed] canonical rows after rename: {sorted(canonical)}")
+
+    # New name is selectable; stale name is gone; still exactly one ModelB-ish row.
+    assert "RenamedB/T2" in selectable
+    assert "ModelB/T2" not in selectable
+    assert "RenamedB/T2" in canonical and "ModelB/T2" not in canonical
+    # ModelA untouched; catalog didn't grow a duplicate for the renamed dataset.
+    assert set(canonical) == {"ModelA/T1", "RenamedB/T2"}
