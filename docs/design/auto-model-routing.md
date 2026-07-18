@@ -80,11 +80,18 @@ Rule: *is the sub-call the deliverable, or plumbing?*
 | Artifact create/edit | follows planner / Coding model | deliverable, but **no server-side verifier** — hence opt-in Coding pin, never a silent cheap default |
 | Viz-inference, title, judge, follow-ups | always small | bounded classification with deterministic guardrails downstream |
 
-Today `runtime_ctx` carries only `"model": self.model` (agent_v2 ~:1197,
-~:3529), so tool-internal calls — including viz-inference at
-`create_data.py:845` — run on the main model. Passing `small_model` through
-`runtime_ctx` and switching viz-inference to it is a standalone, risk-free
-saving that ships first.
+**Propagation is automatic**: `runtime_ctx` is rebuilt for every tool
+invocation and reads the live `self.model` (agent_v2 ~:1197, ~:3529), so
+once `route_model` swaps `self.model`, all subsequent tool calls follow
+with no extra plumbing. Precedence for any tool-internal LLM call:
+pinned-small utility > admin Coding pin > current planner model
+(post-escalation), with codegen's escalate-on-execution-error as the
+recovery path.
+
+Today `runtime_ctx` carries only `"model"`, so tool-internal calls —
+including viz-inference at `create_data.py:845` — run on the main model.
+Passing `small_model` through `runtime_ctx` and switching viz-inference to
+it is a standalone, risk-free saving that ships first.
 
 ## Admin surface (LLM settings page)
 
