@@ -1625,6 +1625,30 @@ class InstructionService:
         ]
         if candidate_ids is not None:
             sug_where.append(BuildContent.instruction_id.in_([str(i) for i in candidate_ids]))
+
+        # A build snapshots EVERY instruction, so the vast majority of a pending
+        # build's contents are unchanged carry-over rows inherited from its base
+        # build. The word-level diff below only cares about rows whose proposed
+        # version differs from the base — exactly the rows the Python pass at
+        # `changed_rows` used to keep AFTER materializing all of them. Push that
+        # skip into SQL: exclude a content row when the base build holds the same
+        # instruction at the same version. (base_build_id NULL -> no match ->
+        # row kept, matching the old behaviour.) This turns an org-wide load of
+        # every pending build's full contents into just the handful of actual
+        # changes, without altering the result set.
+        from sqlalchemy.orm import aliased as _aliased
+        _BaseBC = _aliased(BuildContent)
+        _carryover = (
+            select(_BaseBC.id)
+            .where(and_(
+                _BaseBC.build_id == InstructionBuild.base_build_id,
+                _BaseBC.instruction_id == BuildContent.instruction_id,
+                _BaseBC.instruction_version_id == BuildContent.instruction_version_id,
+            ))
+            .exists()
+        )
+        sug_where.append(~_carryover)
+
         sug_rows = (await db.execute(
             select(
                 BuildContent.instruction_id,

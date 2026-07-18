@@ -143,6 +143,7 @@ class PromptService:
         self, db: AsyncSession, current_user: User, organization: Organization,
         category: Optional[str] = None, starters_only: bool = False,
         data_source_id: Optional[str] = None,
+        data_source_ids: Optional[List[str]] = None,
         created_by: Optional[str] = None, scope: Optional[str] = None,
         search: Optional[str] = None,
         limit: Optional[int] = None,
@@ -156,7 +157,13 @@ class PromptService:
         )
         if starters_only:
             q = q.filter(Prompt.is_starter == True)
-        if data_source_id:
+        # Single-agent (legacy) or multi-agent union filter. `data_source_ids`
+        # returns prompts attached to ANY of the given agents in one query — the
+        # batched form of calling this endpoint once per agent. `.unique()`
+        # below dedups prompts shared across several of them.
+        if data_source_ids:
+            q = q.join(Prompt.data_sources).filter(DataSource.id.in_(data_source_ids))
+        elif data_source_id:
             q = q.join(Prompt.data_sources).filter(DataSource.id == data_source_id)
         if created_by:
             q = q.filter(Prompt.user_id == created_by)
