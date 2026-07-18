@@ -33,7 +33,8 @@
     <!-- Per-case rows -->
     <ul v-if="cases.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
-        <Icon :name="caseIcon(c.status)" class="w-3 h-3 me-1 flex-shrink-0" :class="caseIconColor(c.status)" />
+        <Spinner v-if="c.status === 'in_progress'" class="w-3 h-3 me-1 flex-shrink-0 text-blue-400" />
+        <Icon v-else :name="caseIcon(c.status)" class="w-3 h-3 me-1 flex-shrink-0" :class="caseIconColor(c.status)" />
         <span class="truncate" :title="c.case_name || c.case_id">{{ c.case_name || c.case_id }}</span>
         <span class="ms-2 text-[10px] flex-shrink-0" :class="caseStatusColor(c.status)">{{ c.status }}</span>
         <span v-if="c.failure_reason" class="ms-2 text-[10px] text-gray-400 truncate" :title="c.failure_reason">— {{ c.failure_reason }}</span>
@@ -50,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -63,20 +64,107 @@ interface ToolExecution {
   arguments_json?: any
 }
 
+interface PolledRun {
+  status: string
+  total: number
+  finished: number
+  passed: number
+  failed: number
+  cases: any[]
+}
+
 const props = defineProps<{ toolExecution: ToolExecution }>()
 
 const status = computed(() => props.toolExecution?.status || '')
 const result = computed<any>(() => props.toolExecution?.result_json || {})
 const success = computed<boolean>(() => !!result.value?.success)
 const runId = computed<string>(() => result.value?.run_id || '')
-const runStatus = computed<string>(() => result.value?.status || '')
-const total = computed<number>(() => result.value?.total || 0)
-const finished = computed<number>(() => result.value?.finished || 0)
-const passed = computed<number>(() => result.value?.passed || 0)
-const failed = computed<number>(() => result.value?.failed || 0)
+
+// ``get_eval_run`` returns a point-in-time snapshot: whatever the run's state
+// was when the agent read it. If the agent read the run while it was still
+// executing, that snapshot is frozen at ``in_progress`` and the card would
+// keep showing a spinning "in_progress" forever, even after the run finished.
+// Follow the run to its terminal state (same source as the run detail page)
+// so a stale in-progress read self-heals to the real outcome.
+const polled = ref<PolledRun | null>(null)
+
+const runStatus = computed<string>(() => polled.value?.status || result.value?.status || '')
+const total = computed<number>(() => polled.value?.total ?? result.value?.total ?? 0)
+const finished = computed<number>(() => polled.value?.finished ?? result.value?.finished ?? 0)
+const passed = computed<number>(() => polled.value?.passed ?? result.value?.passed ?? 0)
+const failed = computed<number>(() => polled.value?.failed ?? result.value?.failed ?? 0)
 const message = computed<string>(() => result.value?.message || '')
-const cases = computed<any[]>(() => Array.isArray(result.value?.results) ? result.value.results : [])
+const cases = computed<any[]>(() =>
+  polled.value?.cases || (Array.isArray(result.value?.results) ? result.value.results : [])
+)
 const compareSummary = computed<any | null>(() => result.value?.compare?.summary || null)
+
+// --- Follow a still-running read to completion -----------------------------
+const TERMINAL_RUN = new Set(['success', 'error', 'stopped'])
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const isInProgress = computed<boolean>(() => {
+  if (!success.value || !runId.value) return false
+  const s = polled.value?.status || result.value?.status || ''
+  return !!s && !TERMINAL_RUN.has(s)
+})
+
+async function pollRunOnce() {
+  const rid = runId.value
+  if (!rid) return
+  try {
+    const [runRes, resultsRes]: any[] = await Promise.all([
+      useMyFetch(`/api/tests/runs/${rid}`),
+      useMyFetch(`/api/tests/runs/${rid}/results`),
+    ])
+    const run = runRes?.data?.value
+    const results = (resultsRes?.data?.value || []) as any[]
+    if (!run) return
+    const terminalCase = new Set(['pass', 'fail', 'error', 'stopped'])
+    // Preserve case names from the original snapshot; the results endpoint
+    // only carries ids + statuses.
+    const byCase: Record<string, string> = {}
+    for (const c of (result.value?.results || [])) byCase[c.case_id] = c.case_name || ''
+    const mapped = results.map((r: any) => ({
+      case_id: r.case_id,
+      case_name: byCase[r.case_id] || r.case_id,
+      status: r.status || '',
+      failure_reason: r.failure_reason || null,
+    }))
+    polled.value = {
+      status: run.status || 'in_progress',
+      total: mapped.length || total.value,
+      finished: mapped.filter(c => terminalCase.has(c.status)).length,
+      passed: mapped.filter(c => c.status === 'pass').length,
+      failed: mapped.filter(c => c.status === 'fail' || c.status === 'error').length,
+      cases: mapped,
+    }
+    if (TERMINAL_RUN.has(run.status)) stopPolling()
+  } catch (e) {
+    // Transient — keep polling; the run detail page remains the fallback view.
+  }
+}
+
+function startPolling() {
+  if (pollTimer) return
+  pollRunOnce()
+  pollTimer = setInterval(pollRunOnce, 4000)
+}
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+onMounted(() => {
+  if (isInProgress.value) startPolling()
+})
+watch(isInProgress, (v) => {
+  if (v) startPolling()
+  else stopPolling()
+})
+onBeforeUnmount(stopPolling)
 
 function runStatusClass(s: string): string {
   if (s === 'success') return 'bg-green-100 text-green-800'
