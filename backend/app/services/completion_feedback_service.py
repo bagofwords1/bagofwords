@@ -227,12 +227,52 @@ class CompletionFeedbackService:
             # Never block on attribution failures
             return
 
+    async def _emit_feedback_event(
+        self,
+        db: AsyncSession,
+        completion: Completion,
+        feedback: CompletionFeedback,
+        user: Optional[User],
+        *,
+        changed: bool,
+        removed: bool = False,
+    ) -> None:
+        """Record a silent session event on the report so the agent sees the
+        feedback (and any change of mind) on its next turn. Never blocks the
+        feedback write — fire-and-forget, swallows errors."""
+        try:
+            from types import SimpleNamespace
+            from app.services.session_event_service import SessionEventService
+            from app.ai.context.session_events import (
+                FEEDBACK_GIVEN, FEEDBACK_CHANGED, FEEDBACK_REMOVED,
+            )
+            if removed:
+                kind = FEEDBACK_REMOVED
+            elif changed:
+                kind = FEEDBACK_CHANGED
+            else:
+                kind = FEEDBACK_GIVEN
+            await SessionEventService.emit_safe(
+                db,
+                report=SimpleNamespace(id=completion.report_id),
+                kind=kind,
+                user=user,
+                meta={
+                    "direction": getattr(feedback, "direction", None),
+                    "message": getattr(feedback, "message", None),
+                },
+                target_type="completion",
+                target_id=str(completion.id),
+            )
+        except Exception:
+            return
+
     async def create_or_update_feedback(
-        self, 
-        db: AsyncSession, 
-        completion_id: str, 
-        feedback_data: CompletionFeedbackCreate, 
-        user: User, 
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        feedback_data: CompletionFeedbackCreate,
+        user: User,
         organization: Organization
     ) -> CompletionFeedbackSchema:
         """Create or update feedback for a completion. If user already has feedback, update it."""
@@ -272,10 +312,16 @@ class CompletionFeedbackService:
         
         if existing_feedback:
             # Update existing feedback
+            old_direction = existing_feedback.direction
             existing_feedback.direction = feedback_data.direction
             existing_feedback.message = feedback_data.message
             await db.commit()
             await db.refresh(existing_feedback)
+            # Silent session event: the user changed their mind on a past answer.
+            await self._emit_feedback_event(
+                db, completion, existing_feedback, user,
+                changed=(old_direction != existing_feedback.direction),
+            )
             # Telemetry: feedback updated
             try:
                 await telemetry.capture(
@@ -340,6 +386,9 @@ class CompletionFeedbackService:
             db.add(feedback)
             await db.commit()
             await db.refresh(feedback)
+
+            # Silent session event: user gave feedback on the assistant's answer.
+            await self._emit_feedback_event(db, completion, feedback, user, changed=False)
 
             # Telemetry: feedback created
             try:
@@ -468,9 +517,29 @@ class CompletionFeedbackService:
 
         # Capture details before deletion for audit
         feedback_id = str(feedback.id)
+        removed_report_id = feedback.completion_id  # for the event below
 
         await db.delete(feedback)
         await db.commit()
+
+        # Silent session event: user retracted their feedback. The completion
+        # carries the report the event lands on.
+        try:
+            from types import SimpleNamespace
+            from app.services.session_event_service import SessionEventService
+            from app.ai.context.session_events import FEEDBACK_REMOVED
+            target_completion = await db.get(Completion, completion_id)
+            if target_completion is not None:
+                await SessionEventService.emit_safe(
+                    db,
+                    report=SimpleNamespace(id=target_completion.report_id),
+                    kind=FEEDBACK_REMOVED,
+                    user=user,
+                    target_type="completion",
+                    target_id=str(completion_id),
+                )
+        except Exception:
+            pass
 
         # Audit log
         try:

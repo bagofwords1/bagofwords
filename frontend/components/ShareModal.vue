@@ -318,6 +318,8 @@ const saveVisibility = async (visibility: string, userIds?: string[]) => {
         if (props.report) {
             props.report[visibilityField.value] = visibility
         }
+        // Surface the resulting report_shared / artifact_shared session-event strip.
+        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report?.id, kind: 'share' } }))
 
         const data = res.data.value as any
         if (props.shareType === 'conversation' && data) {

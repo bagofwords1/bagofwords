@@ -192,6 +192,12 @@
 							</div>
 						</div>
 
+						<!-- Silent session event (role='event'): render only UI-visible
+						     kinds as a minimalistic strip; swallow hidden kinds so they
+						     don't fall through to the generic renderer. -->
+						<SessionEvent v-else-if="m.role === 'event' && isEventUiVisible(m)" :m="m" />
+						<template v-else-if="m.role === 'event'"></template>
+
 						<!-- Regular message rendering -->
 						<div
 							v-else
@@ -640,6 +646,7 @@
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
+					@filesChanged="onReportFilesChanged"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
@@ -1509,6 +1516,28 @@ function machineEventLabel(m: any): string {
 	}
 	return m.prompt?.summary || m.prompt?.content
 }
+// Silent session events (role='event'): which kinds render a UI strip. Mirrors
+// backend EVENT_UI_VISIBLE (app/ai/context/session_events.py) — most kinds are
+// LLM-only and stay hidden in the timeline.
+const EVENT_UI_VISIBLE = new Set<string>([
+	'run_stopped',
+	'llm_changed',
+	'file_uploaded',
+	'file_removed',
+	'agent_scope_changed',
+	'report_shared',
+	'report_published',
+	'report_unpublished',
+	'artifact_shared',
+	'artifact_unshared',
+	'artifact_schedule_set',
+	'artifact_schedule_changed',
+	'artifact_schedule_removed',
+])
+function isEventUiVisible(m: any): boolean {
+	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
+}
+
 // Whether an eval-run event reports a passing run. `meta.status === 'success'`
 // means every case passed; any failure/error run is stored as 'error'.
 function evalEventPassed(m: any): boolean {
@@ -3127,6 +3156,19 @@ function connectWebhookSocket() {
 	} catch {}
 }
 
+// A report-scoped file upload/removal writes a silent session event on the
+// server. Reload the timeline so the event strip appears (debounced; skipped
+// mid-stream — it'll be picked up by the reload that follows the run). We do
+// NOT depend on the websocket for this.
+let _filesChangedTimer: any = null
+function onReportFilesChanged() {
+	if (_filesChangedTimer) clearTimeout(_filesChangedTimer)
+	_filesChangedTimer = setTimeout(() => {
+		if (isStreaming.value) return
+		loadCompletions({ skipEstimate: true })
+	}, 500)
+}
+
 async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
@@ -3524,7 +3566,20 @@ onMounted(() => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
     window.addEventListener('message', handleOfficeJsResult)
+    // A report mutation (model / data-source / sharing change) emits a silent
+    // session event server-side — reload the timeline so its strip appears.
+    // Scoped to this report; reuses the debounced, mid-stream-safe reload.
+    window.addEventListener('report:mutated', onReportMutated as EventListener)
     markdownAutoDir.value = useMarkdownAutoDir()
+})
+
+function onReportMutated(ev: CustomEvent) {
+    const rid = ev?.detail?.reportId
+    if (rid && String(rid) !== String(report_id)) return
+    onReportFilesChanged()
+}
+onBeforeUnmount(() => {
+    window.removeEventListener('report:mutated', onReportMutated as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info

@@ -19,6 +19,11 @@ from app.models.file import File
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.tool_execution import ToolExecution
+from app.ai.context.session_events import (
+    EVENT_ROLE,
+    is_event_kind_llm_visible,
+    is_event_kind_durable,
+)
 
 
 def _json_value(value: Any) -> Any:
@@ -723,6 +728,64 @@ class MessageContextBuilder:
         except Exception:
             return {}
 
+    async def _load_window_events(self, since_ts):
+        """Silent session events (role='event') within the rendered window.
+
+        Fetched by time-range — NOT through the max_messages window query — so a
+        burst of events can never push real turns out of the detailed window.
+        Only LLM-visible kinds are returned; pure-audit kinds are dropped."""
+        if since_ts is None:
+            return []
+        try:
+            rows = (await self.db.execute(
+                select(Completion)
+                .filter(Completion.report_id == self.report.id)
+                .filter(Completion.role == EVENT_ROLE)
+                .filter(Completion.created_at >= since_ts)
+                .order_by(Completion.created_at.asc())
+            )).scalars().all()
+        except Exception:
+            return []
+        return [r for r in rows if is_event_kind_llm_visible(getattr(r, 'message_type', '') or '')]
+
+    @staticmethod
+    def _event_text(completion) -> str:
+        """The one-line ledger text for a session event (from prompt.content)."""
+        try:
+            p = completion.prompt or {}
+            if isinstance(p, dict):
+                return str(p.get('content') or p.get('summary') or '').strip()
+            return str(p or '').strip()
+        except Exception:
+            return ''
+
+    @staticmethod
+    def _collapse_event_runs(entries):
+        """Collapse consecutive same-kind events, carrying a ×N count.
+
+        `entries` is a list of dicts each with at least `is_event` and `kind`.
+        Adjacency (after the chronological sort) with no conversational turn
+        between is what a 'run' means — e.g. three model toggles in a row become
+        one line with count=3. The LATEST entry of a run is kept (so the newest
+        value, e.g. the current model, wins); callers append the '(×N)' suffix
+        to their own text field. Text-agnostic so both the string and object
+        builders can reuse it."""
+        out = []
+        for e in entries:
+            if (
+                e.get('is_event')
+                and out
+                and out[-1].get('is_event')
+                and out[-1].get('kind') == e.get('kind')
+            ):
+                cnt = out[-1].get('count', 1) + 1
+                e = dict(e)
+                e['count'] = cnt
+                out[-1] = e  # keep the latest entry of the run
+                continue
+            out.append(dict(e))
+        return out
+
     async def _load_tool_execution_for_context(self, tool_execution_id: str):
         """Load only the tool result fields needed for conversation context.
 
@@ -840,6 +903,9 @@ class MessageContextBuilder:
             .filter(Completion.report_id == self.report.id)
             .filter(Completion.message_type != 'context_compaction')
             .filter(Completion.status != 'queued')
+            # Silent session events don't consume the turn budget — they're
+            # merged back in by timestamp below so a burst can't push out turns.
+            .filter(Completion.role != EVENT_ROLE)
             .order_by(Completion.created_at.desc())
             .limit(max_messages + 1)
         )
@@ -902,8 +968,11 @@ class MessageContextBuilder:
                     atts = attachments_map.get(str(completion.id))
                     if atts:
                         line += "\n[attached: " + "; ".join(atts) + "]"
-                    conversation.append(line)
-                    
+                    conversation.append({
+                        'sort_ts': completion.created_at, 'is_event': False,
+                        'kind': None, 'text': line,
+                    })
+
             elif completion.role == 'system':
                 # System message: get reasoning + assistant from completion blocks + tool executions
                 blocks_result = await self.db.execute(
@@ -1317,10 +1386,40 @@ class MessageContextBuilder:
                         system_parts.append(f"Response: {content.strip()}")
                 
                 if system_parts:
-                    conversation.append(f"Assistant ({timestamp}): {' | '.join(system_parts)}")
-        
+                    conversation.append({
+                        'sort_ts': completion.created_at, 'is_event': False,
+                        'kind': None,
+                        'text': f"Assistant ({timestamp}): {' | '.join(system_parts)}",
+                    })
+
+        # Merge silent session events in by timestamp. Fetched by time-range
+        # (not counted against max_messages) so they interleave chronologically
+        # between the turns they fall between without stealing window slots.
+        since_ts = conversation[0]['sort_ts'] if conversation else None
+        for ev in await self._load_window_events(since_ts):
+            ev_ts = ev.created_at.strftime("%H:%M") if getattr(ev, 'created_at', None) else None
+            text = self._event_text(ev)
+            if not text:
+                continue
+            conversation.append({
+                'sort_ts': ev.created_at, 'is_event': True,
+                'kind': getattr(ev, 'message_type', None),
+                'text': f"Event ({ev_ts}): {text}" if ev_ts else f"Event: {text}",
+            })
+        conversation.sort(key=lambda e: e['sort_ts'])
+        conversation = self._collapse_event_runs(conversation)
+
+        def _line(e):
+            txt = e['text']
+            if e.get('is_event') and e.get('count', 1) > 1:
+                txt += f" (×{e['count']})"
+            return txt
+
         # Join all conversation parts
-        conversation_text = "\n".join(conversation) if conversation else "No conversation history available"
+        conversation_text = (
+            "\n".join(_line(e) for e in conversation)
+            if conversation else "No conversation history available"
+        )
 
         # Only truncate the entire final context if it's too long (like old agent.py approach)
         max_context_length = 8000  # Reasonable limit for LLM context
@@ -1359,6 +1458,9 @@ class MessageContextBuilder:
         from app.models.completion_block import CompletionBlock
 
         items: List[MessageItem] = []
+        # (created_at, MessageItem) tuples so silent events can be merged in by
+        # timestamp before we flatten to `items`.
+        collected: List = []
 
         allow_llm_see_data = True
         if self.organization_settings:
@@ -1386,6 +1488,9 @@ class MessageContextBuilder:
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.message_type != 'context_compaction')
                 .filter(Completion.status != 'queued')
+                # Silent session events are merged in by timestamp below so they
+                # never consume the max_messages turn budget.
+                .filter(Completion.role != EVENT_ROLE)
                 .order_by(Completion.created_at.desc())
                 .limit(max_messages + 1)
             )
@@ -1594,7 +1699,17 @@ class MessageContextBuilder:
                     atts = attachments_map.get(str(getattr(completion, 'id', '')))
                     if atts:
                         text += "\n[attached: " + "; ".join(atts) + "]"
-                    items.append(MessageItem(role="user", timestamp=ts, text=text, mentions=mentions_str))
+                    collected.append((completion.created_at, MessageItem(role="user", timestamp=ts, text=text, mentions=mentions_str)))
+            elif completion.role == EVENT_ROLE:
+                # Only reached on the compaction fold path (completion_ids given);
+                # the live window excludes events from the query and merges them
+                # in by timestamp below. Fold only DURABLE events into the summary
+                # — ephemeral ones fall behind the watermark and vanish, because
+                # the state they describe already lives in another context section.
+                if completion_ids is not None and is_event_kind_durable(getattr(completion, 'message_type', '') or ''):
+                    ev_text = self._event_text(completion)
+                    if ev_text:
+                        collected.append((completion.created_at, MessageItem(role="event", timestamp=ts, text=ev_text)))
             elif completion.role == 'system':
                 # Aggregate blocks like build_context
                 blocks_result = await self.db.execute(
@@ -1944,7 +2059,37 @@ class MessageContextBuilder:
                     if content.strip():
                         system_parts.append(f"Response: {content.strip()}")
                 if system_parts:
-                    items.append(MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts)))
+                    collected.append((completion.created_at, MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts))))
+
+        # Merge silent session events into the live window by timestamp. Fetched
+        # by time-range (not counted against max_messages), LLM-visible kinds
+        # only. On the compaction fold path events were already handled in-loop.
+        if completion_ids is None:
+            since_ts = collected[0][0] if collected else None
+            for ev in await self._load_window_events(since_ts):
+                ev_ts = ev.created_at.strftime("%H:%M") if getattr(ev, 'created_at', None) else None
+                ev_text = self._event_text(ev)
+                if ev_text:
+                    collected.append((ev.created_at, MessageItem(
+                        role="event", timestamp=ev_ts, text=ev_text,
+                        mentions=(getattr(ev, 'message_type', None) or None),
+                    )))
+
+        collected.sort(key=lambda t: t[0])
+        # Collapse consecutive same-kind events (kind carried on `mentions`).
+        entries = [{
+            'sort_ts': ts_, 'is_event': mi.role == 'event',
+            'kind': (mi.mentions if mi.role == 'event' else None), 'mi': mi,
+        } for ts_, mi in collected]
+        merged = self._collapse_event_runs(entries)
+        for e in merged:
+            mi = e['mi']
+            if e.get('is_event'):
+                # Strip the kind we stashed on `mentions`; append any ×N suffix.
+                suffix = f" (×{e['count']})" if e.get('count', 1) > 1 else ""
+                items.append(MessageItem(role="event", timestamp=mi.timestamp, text=mi.text + suffix))
+            else:
+                items.append(mi)
 
         # Protected opening exchange: once a watermark exists those rows sit
         # behind it (excluded by the window query) — prepend them so the first
