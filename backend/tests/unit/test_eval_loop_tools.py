@@ -212,7 +212,9 @@ async def test_cancel_wait_nothing_pending_is_success():
 
 
 def _te(name, output):
-    return SimpleNamespace(tool_name=name, result_json={"output": output})
+    # result_json IS the tool's output dict (persisted directly, no "output"
+    # wrapper) — matching how tool_executions.result_json is actually stored.
+    return SimpleNamespace(tool_name=name, result_json=dict(output))
 
 
 def test_digest_run_eval_detached():
@@ -257,3 +259,27 @@ def test_digest_edit_and_stop():
     assert "changed: status" in d
     d2 = _digest_eval_tool(_te("stop_eval_run", {"success": True, "run_id": "r1", "status": "stopped"}))
     assert "stopped" in d2
+
+
+def test_digest_create_eval_carries_case_id():
+    # Regression: result_json is the output dict directly (no {"output": ...}
+    # wrapper). The digest must surface the case_id so the next turn can run
+    # the case it just created instead of re-searching / re-creating it.
+    from app.ai.context.builders.message_context_builder import _digest_eval_tool
+
+    d = _digest_eval_tool(_te("create_eval", {
+        "success": True, "case_id": "case-abc-123", "name": "Total revenue returns 214",
+        "suite_name": "Drafts", "status": "draft",
+    }))
+    assert "id: case-abc-123" in d
+    assert "Total revenue returns 214" in d
+
+
+def test_digest_search_evals_carries_ids():
+    from app.ai.context.builders.message_context_builder import _digest_eval_tool
+
+    d = _digest_eval_tool(_te("search_evals", {
+        "success": True, "total": 1,
+        "items": [{"id": "case-9", "name": "Total revenue returns 214", "status": "draft"}],
+    }))
+    assert "case-9" in d and "Total revenue returns 214" in d

@@ -36,12 +36,13 @@
       </button>
     </div>
 
-    <!-- Progress bar -->
-    <div v-if="progress.total > 0" class="mb-2">
-      <div class="h-1 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+    <!-- Progress bar — only while running; once finished the counts + per-case
+         rows carry the result, and a solid full-width bar reads as a heavy
+         divider. Kept thin and capped in width so it stays subtle. -->
+    <div v-if="progress.total > 0 && isInProgress" class="mb-2">
+      <div class="h-0.5 w-40 max-w-full bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
         <div
-          class="h-full transition-all duration-300"
-          :class="failedAny ? 'bg-amber-400' : 'bg-green-400'"
+          class="h-full bg-green-400 transition-all duration-300"
           :style="{ width: `${pctFinished}%` }"
         />
       </div>
