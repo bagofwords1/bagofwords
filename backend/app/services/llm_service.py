@@ -854,8 +854,61 @@ class LLMService:
 
         return {"success": True, "context_window_tokens": model.context_window_tokens}
 
+    async def set_routing_hint(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        hint: str | None,
+    ):
+        """Set (or clear) a model's Auto-router guidance.
+
+        Stored on ``LLMModel.config['routing_hint']`` and merged so other config
+        keys (e.g. reasoning_effort) are preserved. A non-empty hint makes the
+        model a routing target the planner can escalate to; clearing it removes
+        the model from the routing set. Empty/whitespace clears.
+        """
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        clean = (hint or "").strip()
+        if clean:
+            if len(clean) > 500:
+                clean = clean[:500]
+            cfg["routing_hint"] = clean
+        else:
+            cfg.pop("routing_hint", None)
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model routing hint set: id=%s, model_id=%s, has_hint=%s, org_id=%s",
+            model.id, model.model_id, bool(clean), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.routing_hint_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={"model_id": model.model_id, "has_hint": bool(clean)},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "routing_hint": cfg.get("routing_hint")}
+
     async def _create_models(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         provider: LLMProvider,

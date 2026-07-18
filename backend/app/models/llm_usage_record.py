@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -36,4 +36,15 @@ class LLMUsageRecord(BaseSchema):
     input_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)
     output_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)
     total_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)
+
+    # Auto model routing (app.ai.model_router): routed=True marks a call made
+    # during a run the Auto router started on the small model; baseline_model_id
+    # is the default model that would have run without routing. Together they let
+    # the cost console compute realized savings. Older rows predate these and
+    # stay routed=False / NULL. baseline_model_id is a soft reference (no DB FK),
+    # same convention as reports.model_id — it avoids a second FK to llm_models
+    # (which would make the llm_model relationship ambiguous) and needs no
+    # cascade since a missing baseline just drops that row from the savings sum.
+    routed = Column(Boolean, nullable=False, default=False, index=True)
+    baseline_model_id = Column(String, nullable=True)
 

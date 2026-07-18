@@ -1012,6 +1012,10 @@ class ConsoleService:
                 )
             )
 
+        routing = await self._compute_routing_savings(
+            db, organization, start_date, end_date, total_calls
+        )
+
         return LLMUsageMetrics(
             items=items,
             total_calls=total_calls,
@@ -1020,7 +1024,60 @@ class ConsoleService:
             total_cache_read_tokens=total_cache_read_tokens,
             total_cache_creation_tokens=total_cache_creation_tokens,
             total_cost_usd=total_cost_usd,
+            routing=routing,
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
+        )
+
+    async def _compute_routing_savings(
+        self, db: AsyncSession, organization: Organization, start_date, end_date, total_calls: int
+    ):
+        """Realized Auto-router savings over the range: baseline-priced tokens
+        minus actual cost across routed usage records. Net of escalation."""
+        from app.schemas.console_schema import RoutingSavings
+        from app.ai.model_router import compute_routing_savings_usd
+
+        enabled = False
+        try:
+            settings = await organization.get_settings(db)
+            enabled = bool(getattr(settings.get_config("model_routing"), "value", False))
+        except Exception:
+            enabled = False
+
+        routed_rows = (await db.execute(
+            select(LLMUsageRecord)
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMUsageRecord.created_at >= start_date,
+                LLMUsageRecord.created_at <= end_date,
+                LLMUsageRecord.routed == True,  # noqa: E712
+            )
+        )).scalars().all()
+
+        # Baseline rates for every baseline model referenced.
+        baseline_ids = {str(r.baseline_model_id) for r in routed_rows if r.baseline_model_id}
+        rates: dict = {}
+        if baseline_ids:
+            models = (await db.execute(
+                select(LLMModel).where(LLMModel.id.in_(baseline_ids))
+            )).scalars().all()
+            for m in models:
+                try:
+                    rates[str(m.id)] = {"in": m.get_input_cost_rate(), "out": m.get_output_cost_rate()}
+                except Exception:
+                    rates[str(m.id)] = {
+                        "in": float(getattr(m, "input_cost_per_million_tokens_usd", 0) or 0),
+                        "out": float(getattr(m, "output_cost_per_million_tokens_usd", 0) or 0),
+                    }
+
+        savings = compute_routing_savings_usd(routed_rows, rates)
+        routed_calls = len(routed_rows)
+        return RoutingSavings(
+            enabled=enabled,
+            savings_usd=round(savings, 6),
+            routed_calls=routed_calls,
+            total_calls=int(total_calls or 0),
+            routed_share=(routed_calls / total_calls) if total_calls else 0.0,
         )
 
     # Providers whose pricing we can only estimate (no first-party price feed):

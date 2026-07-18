@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 from app.ee.audit.service import audit_service
@@ -243,6 +243,24 @@ async def set_default_model(
 ):
     """Set a model as the default model for the organization. Use small=true for small default."""
     return await llm_service.set_default_model(db, current_user, organization, model_id, small=small)
+
+
+class RoutingHintUpdate(BaseModel):
+    hint: Optional[str] = None
+
+
+@router.post("/llm/models/{model_id}/routing_hint")
+@requires_permission('manage_llm')
+async def set_model_routing_hint(
+    model_id: str,
+    body: RoutingHintUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set/clear a model's Auto-router guidance (stored on config.routing_hint).
+    A non-empty hint makes the model a routing target; empty clears it."""
+    return await llm_service.set_routing_hint(db, organization, current_user, model_id, body.hint)
 
 
 # ── Per-model access control (Enterprise) ────────────────────────────────
