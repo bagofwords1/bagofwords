@@ -11,7 +11,7 @@
 //
 // Returns `DataSourceIcon` props ({ type, connectorKey }) or `null` when it
 // can't resolve — callers render their existing fallback glyph on null.
-import { computed, unref, type MaybeRef } from 'vue'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 // File-source connection types — used to scope the sole-connection fallback for
 // the file tools so a mixed (DB + file) agent doesn't misattribute.
@@ -31,15 +31,15 @@ interface ToolExecutionLike {
 }
 
 export function useToolConnectionIcon(
-  toolExecution: MaybeRef<ToolExecutionLike | null | undefined>,
-  dataSources: MaybeRef<any[] | null | undefined>,
+  toolExecution: MaybeRefOrGetter<ToolExecutionLike | null | undefined>,
+  dataSources: MaybeRefOrGetter<any[] | null | undefined>,
   opts: { connectionTypes?: string[] } = {},
 ) {
   const typeFilter = opts.connectionTypes ? new Set(opts.connectionTypes) : null
 
   return computed<ToolIconProps | null>(() => {
-    const dss = unref(dataSources) || []
-    const te = unref(toolExecution) || {}
+    const dss = toValue(dataSources) || []
+    const te = toValue(toolExecution) || {}
     const args = te.arguments_json || {}
     const rj = te.result_json || {}
 
