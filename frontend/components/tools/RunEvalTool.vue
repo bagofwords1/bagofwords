@@ -19,8 +19,11 @@
         <span class="align-middle">{{ t('tools.runEval.finished') }}</span>
       </span>
 
+      <!-- Eval title (single-case runs) so the card says which eval it ran -->
+      <span v-if="evalTitle" class="ms-2 truncate min-w-0 font-medium text-gray-700 dark:text-gray-300" :title="evalTitle">{{ evalTitle }}</span>
+
       <!-- Live counters -->
-      <span v-if="progress.total > 0" class="ms-2 text-[10px] text-gray-500 dark:text-gray-400">
+      <span v-if="progress.total > 0" class="ms-2 flex-shrink-0 text-[10px] text-gray-500 dark:text-gray-400">
         <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
         <span dir="ltr">{{ progress.finished }} / {{ progress.total }}</span>
         <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
@@ -180,6 +183,14 @@ const isInProgress = computed(() => {
 const failedAny = computed(() => progress.value.failed > 0 || progress.value.status === 'error')
 
 const canExpand = computed(() => progress.value.cases.length > 0 || !!progress.value.run_id)
+
+// Single-case runs show the case name in the header so the card says which
+// eval it ran; multi-case runs keep the generic label + count.
+const evalTitle = computed(() => {
+  const cs = progress.value.cases
+  if (cs.length === 1) return cs[0]?.case_name || cs[0]?.case_id || ''
+  return ''
+})
 
 const canStop = computed(() =>
   (isInProgress.value && !!props.systemCompletionId) || isDetachedInProgress.value

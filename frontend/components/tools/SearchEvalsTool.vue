@@ -1,6 +1,10 @@
 <template>
   <div class="mt-1">
-    <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+    <div
+      class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400"
+      :class="{ 'cursor-pointer select-none': canExpand }"
+      @click="canExpand && (expanded = !expanded)"
+    >
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
         {{ queryLabel ? t('tools.searchEvals.searchingFor', { query: queryLabel }) : t('tools.searchEvals.searching') }}
@@ -10,9 +14,17 @@
         <span class="align-middle">{{ queryLabel ? t('tools.searchEvals.searchedFor', { query: queryLabel }) : t('tools.searchEvals.searched') }}</span>
         <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? t('tools.searchEvals.matchSingular', { count: total }) : t('tools.searchEvals.matchPlural', { count: total }) }}</span>
       </span>
+
+      <!-- Expand/collapse affordance — only when there are matches to show -->
+      <Icon
+        v-if="canExpand"
+        name="heroicons-chevron-down"
+        class="w-3 h-3 ms-1 text-gray-400 transition-transform duration-200"
+        :class="{ '-rotate-90': !expanded }"
+      />
     </div>
 
-    <div v-if="items.length" class="text-xs text-gray-600 dark:text-gray-400">
+    <div v-if="items.length && expanded" class="text-xs text-gray-600 dark:text-gray-400">
       <ul class="ms-1 space-y-1 leading-snug">
         <li v-for="item in items" :key="item.id" class="flex items-center py-1 px-1 rounded">
           <Icon name="heroicons-beaker" class="w-3 h-3 me-1 text-purple-400 flex-shrink-0" />
@@ -34,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -66,6 +78,11 @@ const total = computed<number>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return typeof rj.total === 'number' ? rj.total : items.value.length
 })
+
+// Collapsed by default: the header keeps the query + match count and the
+// matched evals expand on click.
+const expanded = ref(false)
+const canExpand = computed<boolean>(() => status.value !== 'running' && items.value.length > 0)
 </script>
 
 <style scoped>

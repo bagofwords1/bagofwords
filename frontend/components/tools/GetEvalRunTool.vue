@@ -9,11 +9,12 @@
         <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
         {{ t('tools.getEvalRun.reading') }}
       </span>
-      <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-purple-400" />
-        <span class="align-middle">{{ t('tools.getEvalRun.read') }}</span>
-        <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span>
-        <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+      <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
+        <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-purple-400 flex-shrink-0" />
+        <span class="align-middle flex-shrink-0">{{ t('tools.getEvalRun.read') }}</span>
+        <span v-if="evalTitle" class="ms-1 truncate font-medium text-gray-700 dark:text-gray-300" :title="evalTitle">{{ evalTitle }}</span>
+        <span class="ms-1.5 flex-shrink-0 inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span>
+        <span v-if="total > 0" class="ms-1.5 flex-shrink-0 text-[10px] text-gray-500 dark:text-gray-400">
           <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
           <span dir="ltr">{{ finished }} / {{ total }}</span>
           <span v-if="passed > 0" class="ms-1 text-green-700">· {{ t('tools.getEvalRun.pass', { count: passed }) }}</span>
@@ -110,6 +111,15 @@ const cases = computed<any[]>(() =>
   polled.value?.cases || (Array.isArray(result.value?.results) ? result.value.results : [])
 )
 const compareSummary = computed<any | null>(() => result.value?.compare?.summary || null)
+
+// The eval under test. For the common single-case run, show that case's name
+// in the header so each card says *which* eval it ran; multi-case runs keep
+// the generic label (the names live in the expanded rows).
+const evalTitle = computed<string>(() => {
+  const cs = cases.value
+  if (cs.length === 1) return cs[0]?.case_name || cs[0]?.case_id || ''
+  return ''
+})
 
 // Collapsed by default; the header stays a single summary line and the
 // per-case rows (and compare row) expand on click. Only offer the toggle when
