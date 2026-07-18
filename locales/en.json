@@ -476,7 +476,9 @@
     "queued": "Queued",
     "steerNow": "Steer into the running completion now",
     "sendNow": "Send now",
-    "removeFromQueue": "Remove from queue"
+    "removeFromQueue": "Remove from queue",
+    "modelAuto": "Auto",
+    "modelAutoHint": "Router picks the best model"
   },
   "reports": {
     "title": "Reports",
@@ -1227,6 +1229,11 @@
       "diff": "diff",
       "rewrite": "rewrite",
       "failed": "Edit failed"
+    },
+    "updateUserMemory": {
+      "updating": "Updating memory…",
+      "updated": "Updated memory",
+      "failed": "Memory update failed"
     }
   },
   "entityCreate": {
@@ -2023,7 +2030,24 @@
       "contextTooltip": "Maximum tokens (prompt + output) the app budgets for this model. Lower it to match provider limits — for example Bedrock deployments capped at 100k.",
       "contextPlaceholder": "e.g. 100000",
       "contextResetTooltip": "Reset to the catalog default",
-      "modelIdLabel": "Model ID"
+      "modelIdLabel": "Model ID",
+      "colCost": "Cost ($/M)",
+      "colRouting": "Routing",
+      "autoRouter": "Auto router",
+      "autoRouterTooltip": "When a user doesn't pick a model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add routing guidance below to steer the choice.",
+      "autoRouterOn": "Auto router on",
+      "autoRouterOff": "Auto router off",
+      "routingHintPlaceholder": "Add routing guidance…",
+      "routingHintTooltip": "Guidance the auto-router uses to decide when to route a request to this model. A model with guidance becomes an escalation target.",
+      "routingNotAvailable": "not routable",
+      "autoRouterHowTitle": "How the auto router works",
+      "autoRouterHow1": "When a user doesn't pick a model, each request starts on the small (cheap) model.",
+      "autoRouterHow2": "The agent escalates to a stronger model only when the task needs it — the choice propagates to code generation too.",
+      "autoRouterHow3": "Add routing guidance to a model below to make it an escalation target and steer when it is used.",
+      "autoRouterHow4": "Explicit model picks and report-pinned models always bypass routing.",
+      "costEditTooltip": "Click to edit input / output price per million tokens (USD).",
+      "costInput": "Input",
+      "costOutput": "Output"
     },
     "licensePage": {
       "title": "License",
@@ -2860,7 +2884,9 @@
       "loading": "Loading cost data...",
       "lockedTitle": "Cost is an enterprise feature",
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
-      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total."
+      "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
+      "kpiSaved": "Saved by auto-routing",
+      "kpiSavedSub": "calls routed"
     },
     "cards": {
       "messages": "Messages",
@@ -3243,7 +3269,7 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Custom Instructions",
+      "instructions": "Instructions & Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -3318,6 +3344,11 @@
       "toastGenerateFailed": "Failed to generate API key",
       "toastDeleted": "API key deleted",
       "toastDeleteFailed": "Failed to delete API key"
+    },
+    "memory": {
+      "title": "Memory",
+      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
+      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
     }
   },
   "agentPage": {
@@ -3437,7 +3468,8 @@
     "detectedParams": "Parameters:",
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
-    "selectAgentsPlaceholder": "Select agents…"
+    "selectAgentsPlaceholder": "Select agents…",
+    "modelDefaultAuto": "Auto · routes by difficulty"
   },
   "automations": {
     "title": "Automations",

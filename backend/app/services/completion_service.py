@@ -246,6 +246,61 @@ class CompletionService:
         main_build = main_build_result.scalar_one_or_none()
         return str(main_build.id) if main_build else None
 
+    async def _resolve_completion_models(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        report,
+        prompt_model_id: str | None,
+    ):
+        """Resolve (model, small_model, routing_meta) for a completion run.
+
+        Precedence: prompt.model_id > report.model_id > user default > org
+        default. The Auto model router only engages when the user picked nothing
+        (no per-message and no report-pinned model), the org's ``model_routing``
+        setting is on, a small model exists and differs from the baseline
+        default, and at least one guided candidate exists to escalate to. In that
+        case the run STARTS on the small model and routing_meta carries the
+        baseline (default) model id so usage records can be credited with
+        savings. Explicit picks always bypass routing.
+        """
+        small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+
+        # Explicit per-message pick — never routed.
+        if prompt_model_id:
+            model = await self.llm_service.get_model_by_id(db, organization, current_user, prompt_model_id)
+            return model, (small_model or model), {}
+
+        # Baseline: what runs today without routing (report/user/org default).
+        baseline = await self.llm_service.get_default_model_for_report(db, organization, current_user, report)
+        if not baseline:
+            return None, small_model, {}
+
+        report_pinned = bool(getattr(report, "model_id", None))
+        can_route = (
+            not report_pinned
+            and small_model is not None
+            and str(small_model.id) != str(baseline.id)
+        )
+        if can_route:
+            try:
+                settings = await organization.get_settings(db)
+                routing_on = bool(getattr(settings.get_config("model_routing"), "value", False))
+            except Exception:
+                routing_on = False
+            if routing_on:
+                try:
+                    from app.ai.model_router import resolve_routing_candidates
+                    candidates = await resolve_routing_candidates(db, organization, current_user)
+                except Exception:
+                    candidates = []
+                if candidates:
+                    # Start small; baseline is the model that would otherwise run.
+                    return small_model, small_model, {"routed": True, "baseline_model_id": str(baseline.id)}
+
+        return baseline, (small_model or baseline), {}
+
     # Short-TTL cache for /completions/estimate. Frontend calls this on every
     # keystroke; without caching, each call does a full prime_static + refresh_warm
     # (schema load + recent messages). Staleness within a few seconds is fine —
@@ -308,21 +363,15 @@ class CompletionService:
             else:
                 step = None
 
-            if completion_data.prompt.model_id:
-                model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
-            else:
-                model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
-
+            model, small_model, routing_meta = await self._resolve_completion_models(
+                db, organization, current_user, report,
+                completion_data.prompt.model_id if completion_data.prompt else None,
+            )
             if not model:
                 raise HTTPException(
                     status_code=400,
                     detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
-
-            small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
-            # Fallback: if no small model configured, use the main model
-            if not small_model:
-                small_model = model
             org_settings = await organization.get_settings(db)
 
             prompt_dict = completion_data.prompt.dict()
@@ -384,6 +433,7 @@ class CompletionService:
                 platform=resolved_platform,
                 platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                 build_id=resolved_build_id,
+                routing_meta=routing_meta,
             )
 
             try:
@@ -535,22 +585,15 @@ class CompletionService:
 
             # Get default model - this is critical
 
-            if completion_data.prompt and completion_data.prompt.model_id:
-                model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
-            else:
-                model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
-
-            small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
-
+            model, small_model, routing_meta = await self._resolve_completion_models(
+                db, organization, current_user, report,
+                completion_data.prompt.model_id if completion_data.prompt else None,
+            )
             if not model:
                 raise HTTPException(
                     status_code=400,
                     detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
-
-            # Fallback: if no small model configured, use the main model
-            if not small_model:
-                small_model = model
 
             span.set_attribute("llm.model_id", model.model_id)
 
@@ -737,6 +780,7 @@ class CompletionService:
                                 mode=(completion_data.prompt.mode if completion_data.prompt else None),
                                 platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 build_id=resolved_build_id,
+                                routing_meta=routing_meta,
                             )
                             await agent.main_execution()
                         except Exception as e:
@@ -817,6 +861,7 @@ class CompletionService:
                         mode=(completion_data.prompt.mode if completion_data.prompt else None),
                         platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                         build_id=resolved_build_id,
+                        routing_meta=routing_meta,
                     )
                     span.add_event("agent_execution_started")
                     with tracer.start_as_current_span("completion.agent_execution"):
@@ -1970,22 +2015,16 @@ class CompletionService:
             _log("validation_done")
 
             # Get default model
-            if completion_data.prompt and completion_data.prompt.model_id:
-                model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
-            else:
-                model = await self.llm_service.get_default_model_for_user(db, organization, current_user)
-
+            model, small_model, routing_meta = await self._resolve_completion_models(
+                db, organization, current_user, report,
+                completion_data.prompt.model_id if completion_data.prompt else None,
+            )
             if not model:
                 raise HTTPException(
                     status_code=400,
                     detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
             _log("model_resolved")
-
-            small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
-            # Fallback: if no small model configured, use the main model
-            if not small_model:
-                small_model = model
             _log("small_model_resolved")
 
             span.set_attribute("llm.model_id", model.model_id)
@@ -2205,6 +2244,7 @@ class CompletionService:
                                 event_queue=event_queue,  # Pass event queue for streaming
                                 clients=clients,
                                 build_id=resolved_build_id,
+                                routing_meta=routing_meta,
                                 session_maker=async_session,
                             )
                             _alog("agent_initialized")

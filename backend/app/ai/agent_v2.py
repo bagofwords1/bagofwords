@@ -286,7 +286,7 @@ class AgentV2:
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
                  messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None,
-                 session_maker=None):
+                 session_maker=None, routing_meta=None):
         self.db = db
         # session_maker lets fragile post-tool / post-decision paths open
         # short-lived sessions instead of leaning on `self.db` (which can
@@ -326,6 +326,14 @@ class AgentV2:
         self.report_type = getattr(report, 'report_type', 'regular')
         self.model = model
         self.small_model = small_model
+        # Auto model routing state (see app.ai.model_router). routing_meta is set
+        # by CompletionService when the run started on the small model under the
+        # org's Auto router: {"routed": bool, "baseline_model_id": str}. The
+        # controller is resolved lazily in the async run path (candidate lookup
+        # is async); until then routing is inert.
+        self._routing_meta = routing_meta or {}
+        self._routing_controller = None
+        self._routing_escalated = False
         self.head_completion = head_completion
         self.system_completion = system_completion
         self.widget = widget
@@ -618,30 +626,36 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
-    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str]]:
-        """Return (user_name, user_note) for the asker.
+    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Return (user_name, user_note, user_memory) for the asker.
 
         ``user_note`` is the per-org admin-managed note on the asker's
-        Membership row — same source of truth as the members table UI.
-        Returns ``(None, None)`` for system/non-user runs.
+        Membership row (same source as the members table UI). ``user_memory``
+        is the agent-curated durable memory on the same row, written by the
+        update_user_memory tool. Returns ``(None, None, None)`` for
+        system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
-            return None, None
+            return None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
+        user_memory = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note).where(
+                select(Membership.note, Membership.memory).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
-            user_note = result.scalar_one_or_none()
+            row = result.first()
+            if row is not None:
+                user_note, user_memory = row[0], row[1]
         except Exception:
             user_note = None
-        return user_name, user_note
+            user_memory = None
+        return user_name, user_note, user_memory
 
     async def _build_available_steps_context(self) -> str:
         """Render this report's loadable steps for the planner prompt.
@@ -1099,7 +1113,7 @@ class AgentV2:
                     break
                 step_count += 1
 
-                user_name, user_note = await self._resolve_user_profile()
+                user_name, user_note, user_memory = await self._resolve_user_profile()
                 planner_input = PlannerInput(
                     organization_name=self.organization.name,
                     organization_ai_analyst_name=self.ai_analyst_name,
@@ -1118,6 +1132,7 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
+                    user_memory=user_memory,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
                 )
@@ -1215,6 +1230,8 @@ class AgentV2:
                     "system_completion": self.system_completion,
                     "project_manager": self.project_manager,
                     "model": self.model,
+                    "small_model": self.small_model,
+                    "routing_controller": self._routing_controller,
                     "sigkill_event": self.sigkill_event,
                     "observation_context": self.context_hub.observation_builder.to_dict(),
                     "context_view": view,
@@ -2033,6 +2050,74 @@ class AgentV2:
                 if t.name not in denied_tools
             ]
 
+    async def _setup_model_routing(self) -> None:
+        """Resolve routing candidates and wire the route_model tool for this run.
+
+        When the org's Auto router is on and guided candidate models exist, the
+        route_model descriptor's schema is replaced with a per-request enum of
+        those models (with the admin's hints), and a RoutingController is bound
+        so the tool can escalate. Otherwise route_model is removed from the
+        planner catalog so it's never advertised or attempted.
+        """
+        from app.ai.model_router import (
+            RoutingController,
+            build_route_model_schema,
+            resolve_routing_candidates,
+        )
+
+        catalog = self.planner.tool_catalog or []
+        has_tool = any(t.name == "route_model" for t in catalog)
+
+        routing_on = False
+        try:
+            cfg = self.organization_settings.get_config("model_routing") if self.organization_settings else None
+            routing_on = bool(getattr(cfg, "value", False))
+        except Exception:
+            routing_on = False
+
+        candidates = []
+        if routing_on and self.db and self.organization:
+            user = getattr(self.head_completion, "user", None)
+            try:
+                candidates = await resolve_routing_candidates(self.db, self.organization, user)
+            except Exception:
+                logger.warning("[routing] candidate resolution failed", exc_info=True)
+                candidates = []
+
+        if routing_on and candidates:
+            self._routing_controller = RoutingController(self, candidates)
+            schema = build_route_model_schema(candidates, current_model_id=str(getattr(self.model, "id", "")))
+            for t in catalog:
+                if t.name == "route_model":
+                    t.schema = schema
+            logger.info(
+                "[routing] active: %d candidate(s), starting model=%s",
+                len(candidates), getattr(self.model, "name", None),
+            )
+        else:
+            # Routing inactive — never advertise the tool.
+            if has_tool:
+                self.planner.tool_catalog = [t for t in catalog if t.name != "route_model"]
+
+    def _apply_routed_model(self, model) -> None:
+        """Swap the model used by the planner and all subsequent tool calls.
+
+        Rebuilds the planner's LLM so the next planner turn uses the new model,
+        and updates self.model so every runtime_ctx built after this (create_data
+        codegen, artifacts, …) propagates the choice. One-way and sticky.
+        """
+        from app.ai.llm import LLM
+        self.model = model
+        self._routing_escalated = True
+        try:
+            self.planner.llm = LLM(
+                model,
+                usage_session_maker=async_session_maker,
+                usage_context=self.usage_limit_context,
+            )
+        except Exception:
+            logger.warning("[routing] failed to rebuild planner LLM on escalation", exc_info=True)
+
     async def _apply_email_availability_filter(self) -> None:
         """Hide ``send_email`` from the planner catalog when no outbound email
         transport resolves for this org.
@@ -2570,12 +2655,19 @@ class AgentV2:
         _attr_report = str(self.report.id) if self.report else None
         _single_ds = self.data_sources[0] if len(self.data_sources) == 1 else None
         _attr_ds = str(getattr(_single_ds, "id", "")) if _single_ds is not None else None
+        # When the run started under the Auto router, stamp every LLM usage
+        # record with routed=True and the baseline (default) model id so the
+        # cost console can compute realized savings (see app.ai.model_router).
+        _attr_routed = bool(self._routing_meta.get("routed"))
+        _attr_baseline = self._routing_meta.get("baseline_model_id") if _attr_routed else None
         _attribution_token = set_usage_attribution(
             {
                 "organization_id": _attr_org,
                 "user_id": _attr_user,
                 "report_id": _attr_report,
                 "data_source_id": _attr_ds,
+                "routed": _attr_routed,
+                "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
             }
         )
         try:
@@ -2825,6 +2917,7 @@ class AgentV2:
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()
             await self._apply_email_availability_filter()
+            await self._setup_model_routing()
             _mlog("loop_starting")
 
             for loop_index in range(step_limit):
@@ -2911,7 +3004,7 @@ class AgentV2:
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images
-                    user_name, user_note = await self._resolve_user_profile()
+                    user_name, user_note, user_memory = await self._resolve_user_profile()
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -2952,6 +3045,7 @@ class AgentV2:
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
+                        user_memory=user_memory,
                         # Org setting drives parallel emission end-to-end: cap > 1
                         # relaxes the one-tool-per-turn prompt rule and lifts the
                         # provider parallel_tool_calls restriction. The knowledge
@@ -3767,6 +3861,8 @@ class AgentV2:
                                     "current_step_id": _inv.current_step_id,
                                     "project_manager": self.project_manager,
                                     "model": self.model,
+                                    "small_model": self.small_model,
+                                    "routing_controller": self._routing_controller,
                                     "sigkill_event": self.sigkill_event,
                                     "observation_context": self.context_hub.observation_builder.to_dict(),
                                     "context_view": _view,
@@ -4646,7 +4742,7 @@ class AgentV2:
 
         active_artifact = await self._get_active_artifact()
 
-        user_name, user_note = await self._resolve_user_profile()
+        user_name, user_note, user_memory = await self._resolve_user_profile()
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
@@ -4684,6 +4780,7 @@ class AgentV2:
             scheduled_context=await self._build_scheduled_context(),
             user_name=user_name,
             user_note=user_note,
+            user_memory=user_memory,
         )
 
         from app.ai.context.context_hub import trim_context_to_budget

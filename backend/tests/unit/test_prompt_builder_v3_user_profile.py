@@ -72,3 +72,48 @@ def test_system_prompt_mentions_user_profile_handling():
     built = PromptBuilderV3.build(planner_input)
     assert "<user_profile>" in built.system  # appears in guidance, not as data
     assert "context" in built.system.lower()
+
+
+# --- <user_memory> injection (agent-curated per-user memory) ---
+
+
+def test_user_memory_injected_in_user_turn_not_system():
+    planner_input = _input(
+        user_memory="Prefers figures in ₪K. Likes cohort breakdowns.",
+    )
+    built = PromptBuilderV3.build(planner_input)
+
+    user_msg = built.messages[0]["content"]
+    assert "<user_memory>" in user_msg
+    assert "Prefers figures in ₪K" in user_msg
+    # Memory is per-user — must not leak into the cached system prefix.
+    assert "cohort breakdowns" not in built.system
+
+
+def test_user_memory_omitted_when_empty():
+    for val in (None, "", "   "):
+        planner_input = _input(user_memory=val)
+        built = PromptBuilderV3.build(planner_input)
+        user_msg = built.messages[0]["content"]
+        assert "<user_memory>" not in user_msg
+
+
+def test_user_memory_and_profile_coexist():
+    planner_input = _input(
+        user_name="Alice",
+        user_note="CFO",
+        user_memory="Wants concise answers, no emoji.",
+    )
+    built = PromptBuilderV3.build(planner_input)
+    user_msg = built.messages[0]["content"]
+    assert "<user_profile>" in user_msg
+    assert "<user_memory>" in user_msg
+    assert "Wants concise answers" in user_msg
+
+
+def test_system_prompt_explains_memory_subordinate_to_instructions():
+    """The system prompt must tell the model memory yields to org instructions."""
+    planner_input = _input(user_memory="Prefers Python")
+    built = PromptBuilderV3.build(planner_input)
+    assert "<user_memory>" in built.system  # guidance mentions the tag
+    assert "update_user_memory" in built.system

@@ -109,7 +109,12 @@ def _digest_eval_tool(tool_execution) -> str:
     if name not in EVAL_TOOL_NAMES:
         return ""
     rj = tool_execution.result_json or {}
-    output = rj.get('output') or {}
+    # ``result_json`` IS the tool's output dict (persisted directly, same
+    # convention as create_data / create_instruction), not a {"output": ...}
+    # wrapper. Reading a non-existent "output" key made every eval digest
+    # empty, so ids (case_id / run_id) never reached the next turn — the agent
+    # would re-search and re-create instead of running the case it just made.
+    output = rj if isinstance(rj, dict) else {}
 
     if name == 'search_evals':
         items = output.get('items') or []

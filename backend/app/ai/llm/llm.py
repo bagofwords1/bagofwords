@@ -756,6 +756,8 @@ class LLM:
                             user_id=attribution.get("user_id"),
                             report_id=attribution.get("report_id"),
                             data_source_id=attribution.get("data_source_id"),
+                            routed=bool(attribution.get("routed")),
+                            baseline_model_id=attribution.get("baseline_model_id"),
                         )
                         await session.commit()
                     return
