@@ -100,6 +100,8 @@ class ReadFileTool(Tool):
     # Capability the resolved connection must expose. Overridden by ReadEmailTool
     # so the same read/materialize path backs a mailbox (READ_EMAIL) as well.
     _required_capability = Capability.READ_FILE
+    _start_noun = "file"
+    _operation_name = "read_file"
 
     @property
     def metadata(self) -> ToolMetadata:
@@ -141,7 +143,7 @@ class ReadFileTool(Tool):
     ) -> AsyncIterator[ToolEvent]:
         data = ReadFileInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
-            "title": f"Reading file {data.file_id}",
+            "title": f"Reading {self._start_noun} {data.file_id}",
             "connection_id": data.connection_id,
         })
 
@@ -190,7 +192,7 @@ class ReadFileTool(Tool):
                     await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
                     err = str(e)
                 else:
-                    err = f"read_file (windowed) failed: {e}"
+                    err = f"{self._operation_name} (windowed) failed: {e}"
                 yield ToolEndEvent(type="tool.end", payload={
                     "output": {
                         "success": False,
@@ -272,7 +274,9 @@ class ReadFileTool(Tool):
                     await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
                     yield self._fail_read(data, str(e))
                 else:
-                    yield self._fail_read(data, f"read_file (page_range) failed: {e}")
+                    yield self._fail_read(
+                        data, f"{self._operation_name} (page_range) failed: {e}"
+                    )
                 return
             if not isinstance(paged, dict) or not paged.get("__doc_pages__"):
                 yield self._fail_read(
@@ -412,7 +416,7 @@ class ReadFileTool(Tool):
                 await audit_file_access_denied(runtime_ctx, data.connection_id, data.file_id, str(e))
                 err = str(e)
             else:
-                err = f"read_file failed: {e}"
+                err = f"{self._operation_name} failed: {e}"
             yield self._fail_read(data, err)
             return
 

@@ -35,6 +35,10 @@ class ListFilesTool(Tool):
     # Capability the resolved connection must expose. Overridden by ListEmailsTool
     # so the same listing path backs a mailbox (LIST_EMAILS).
     _required_capability = Capability.LIST_FILES
+    _item_noun = "file"
+    _start_title = "Listing files"
+    _operation_name = "list_files"
+    _empty_hint_action = "search_files"
 
     @property
     def metadata(self) -> ToolMetadata:
@@ -75,7 +79,7 @@ class ListFilesTool(Tool):
     def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "") -> ToolEndEvent:
         observation = {
             "summary": (
-                f"Listed {len(entries)} file(s) ({source})"
+                f"Listed {len(entries)} {self._item_noun}(s) ({source})"
                 + (f" (capped at {_MAX_RESULTS})" if truncated else "")
                 + hint
             ),
@@ -138,7 +142,7 @@ class ListFilesTool(Tool):
     ) -> AsyncIterator[ToolEvent]:
         data = ListFilesInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
-            "title": "Listing files",
+            "title": self._start_title,
             "connection_id": data.connection_id,
         })
 
@@ -181,7 +185,9 @@ class ListFilesTool(Tool):
                 yield self._end(data.connection_id, entries, truncated, "live")
                 return
             except Exception as e:
-                yield self._fail(data.connection_id, f"live list_files failed: {e}")
+                yield self._fail(
+                    data.connection_id, f"live {self._operation_name} failed: {e}"
+                )
                 return
 
         # --- Cache path ---
@@ -194,7 +200,9 @@ class ListFilesTool(Tool):
                     yield self._end(data.connection_id, entries, truncated, "live")
                     return
                 except Exception as e:
-                    yield self._fail(data.connection_id, f"live list_files failed: {e}")
+                    yield self._fail(
+                        data.connection_id, f"live {self._operation_name} failed: {e}"
+                    )
                     return
             yield self._fail(data.connection_id, err)
             return
@@ -237,5 +245,9 @@ class ListFilesTool(Tool):
             except Exception:
                 pass
 
-        hint = "" if entries else " Catalog is empty — try search_files or run a refresh."
+        hint = (
+            ""
+            if entries
+            else f" Catalog is empty — try {self._empty_hint_action} or run a refresh."
+        )
         yield self._end(data.connection_id, entries, truncated, "cache", hint)

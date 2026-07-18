@@ -110,6 +110,8 @@ from app.schemas.data_sources.configs import (
     OneDriveCredentials,
     GoogleDriveConfig,
     GoogleDriveCredentials,
+    GmailConfig,
+    GmailCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -1131,9 +1133,37 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 ),
             },
         ),
-        # Each email is surfaced as a "file" so the existing list_files /
-        # search_files / read_file tools work over mail with no new tool surface.
+        # Messages reuse the existing file-payload transport internally, while
+        # capability gating exposes the mail-named agent tools.
         client_path="app.data_sources.clients.graph_mail_client.GraphMailClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        requires_license="enterprise",
+    ),
+    "gmail_mail": DataSourceRegistryEntry(
+        type="gmail_mail",
+        category="services",
+        title="Gmail",
+        description="Read and search your Gmail inbox securely using your own Google account.",
+        config_schema=GmailConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Google OAuth Client",
+                    schema=GmailCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Google",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.gmail_mail_client.GmailMailClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="per_user",
@@ -1167,10 +1197,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         requires_license="enterprise",
-        # Superseded by the Google Drive MCP preset (first-party remote MCP).
-        # Hidden from new connections; existing google_drive connections keep
-        # working via this client.
-        deprecated=True,
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -1498,22 +1524,22 @@ MCP_PRESETS: List[McpPreset] = [
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.
-    McpPreset(key="google_drive", title="Google Drive", server_url="https://drivemcp.googleapis.com/mcp/v1",
+    McpPreset(key="google_drive", title="Google Drive (MCP Preview)", server_url="https://drivemcp.googleapis.com/mcp/v1",
               auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GOOGLE_DRIVE, category="files",
               oauth_defaults=McpAuthDefaults(
                   authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
                   scopes="openid, email, https://www.googleapis.com/auth/drive.readonly",
                   audience="https://drivemcp.googleapis.com/mcp/v1",
               ),
-              description="Files in Google Drive (needs a Google OAuth client)."),
-    McpPreset(key="gmail", title="Gmail", server_url="https://gmailmcp.googleapis.com/mcp/v1",
+              description="Google's preview MCP tools for Drive (needs a Google OAuth client)."),
+    McpPreset(key="gmail", title="Gmail (MCP Preview)", server_url="https://gmailmcp.googleapis.com/mcp/v1",
               auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GMAIL,
               oauth_defaults=McpAuthDefaults(
                   authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
                   scopes="openid, email, https://www.googleapis.com/auth/gmail.readonly",
                   audience="https://gmailmcp.googleapis.com/mcp/v1",
               ),
-              description="Gmail messages (needs a Google OAuth client)."),
+              description="Google's preview MCP tools for Gmail (needs a Google OAuth client)."),
     # X's MCP server takes an app-only bearer token from the X Developer Portal
     # (no DCR — verified by live probe 2026-07). App-only auth is read-only:
     # public posts/users/search/trends work; bookmarks and "me" tools 403. It can
@@ -1766,4 +1792,3 @@ def resolve_client_class(ds_type: str):
     class_name = f"{title}Client"
     module = import_module(module_name)
     return getattr(module, class_name)
-

@@ -198,7 +198,7 @@ const connections = computed<string[]>(() => Array.isArray(result.value?.connect
 const unresolved = computed<string[]>(() => Array.isArray(result.value?.unresolved) ? result.value.unresolved : [])
 const requiresConnect = computed<boolean>(() => !!result.value?.requires_user_connect)
 
-const FILE_TYPES = ['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail']
+const FILE_TYPES = ['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail']
 const TOOL_TYPES = ['mcp', 'custom_api']
 
 // Live agent state

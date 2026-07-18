@@ -1484,6 +1484,19 @@ class GoogleDriveConfig(BaseModel):
     pass
 
 
+# Gmail uses the same Google Cloud OAuth application fields as Drive, but keeps
+# a provider-specific schema name so the generated connection form and registry
+# contract remain explicit.
+class GmailCredentials(GoogleDriveCredentials):
+    pass
+
+
+class GmailConfig(BaseModel):
+    """Gmail needs no admin-side configuration — each user's OAuth token
+    determines which mailbox is visible."""
+    pass
+
+
 # Network Directory (local / mounted file share — SMB/NFS/local path)
 class NetworkDirCredentials(BaseModel):
     """A network directory is accessed via the filesystem (a local path or an

@@ -1,35 +1,24 @@
-"""Microsoft Graph (Outlook) mail client — emails surfaced as readable "files".
+"""Microsoft Graph (Outlook) mail client with a mail-named agent surface.
 
 Reuses GraphDriveClient's Entra OAuth (delegated per-user + service-principal
-fallback) and HTTP plumbing. Each email is exposed through the existing
-file-capability surface so the standard tools work over mail with no new
-agent-tool surface:
+fallback) and HTTP plumbing. Message payloads reuse the file transport while
+the client advertises distinct mail capabilities:
 
-  list_files   -> recent messages (id, subject, from, received)
-  search_files -> Graph $search over messages
-  read_file    -> the message rendered as plain text (headers + body)
+  list_emails  -> recent messages (id, subject, from, received)
+  search_email -> Graph $search over messages
+  read_email   -> the message rendered as plain text (headers + body)
 
-The agent searches/reads email exactly like Drive/OneDrive files; the analysis
-stack (read_file -> session file) materializes a message body when needed.
+The shared execution layer still materializes message bodies as session files
+when needed, but the planner and the user see email vocabulary throughout.
 """
 from __future__ import annotations
 
-import html
-import re
 import urllib.parse
 from typing import Any, List, Optional
 
 from app.data_sources.clients.base import Capability
 from app.data_sources.clients.graph_drive_client import GraphDriveClient
-
-_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def _strip_html(s: str) -> str:
-    s = _TAG_RE.sub(" ", s or "")
-    s = html.unescape(s)
-    s = re.sub(r"[ \t]{2,}", " ", s)
-    return re.sub(r"\n{3,}", "\n\n", s).strip()
+from app.data_sources.clients.mail_common import strip_html
 
 
 class GraphMailClient(GraphDriveClient):
@@ -57,9 +46,10 @@ class GraphMailClient(GraphDriveClient):
         return {
             "id": m.get("id"),
             "name": m.get("subject") or "(no subject)",
-            "mimeType": "message/rfc822",
+            "path": m.get("subject") or "(no subject)",
+            "mime_type": "message/rfc822",
             "from": self._addr(m.get("from")),
-            "received": m.get("receivedDateTime"),
+            "modified_at": m.get("receivedDateTime"),
         }
 
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
@@ -84,7 +74,7 @@ class GraphMailClient(GraphDriveClient):
         body = m.get("body") or {}
         content = body.get("content") or m.get("bodyPreview") or ""
         if (body.get("contentType") or "").lower() == "html":
-            content = _strip_html(content)
+            content = strip_html(content)
         header = (
             f"Subject: {m.get('subject') or '(no subject)'}\n"
             f"From: {frm}\nTo: {to}\nDate: {m.get('receivedDateTime') or ''}\n\n"

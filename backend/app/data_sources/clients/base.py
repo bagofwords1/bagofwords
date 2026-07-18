@@ -35,8 +35,8 @@ class Capability(str, Enum):
     GREP_FILES = "grep_files"
     WRITE_FILE = "write_file"
 
-    # Mail capabilities — the mail-over-Graph client (Outlook) declares these
-    # INSTEAD OF the file capabilities so the planner is offered mail-named tools
+    # Mail capabilities — the Outlook and Gmail clients declare these INSTEAD
+    # OF the file capabilities so the planner is offered mail-named tools
     # (list_emails / read_email / search_email) rather than list_files /
     # read_file / search_files. Reasoning about "files" on a mailbox made the
     # planner pick the wrong verb (e.g. loop search_files instead of reading a
