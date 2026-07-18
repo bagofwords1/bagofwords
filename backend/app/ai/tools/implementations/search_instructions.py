@@ -39,14 +39,18 @@ class SearchInstructionsTool(Tool):
                 "keyword OR regex queries (case-insensitive, unioned). Each `query` "
                 "entry can be a plain keyword/phrase (matched as a literal substring) "
                 "or a regex pattern (auto-detected by regex metacharacters, e.g. "
-                "`revenue\\s*>\\s*\\$?\\d+`, `.*cancel.*`). Use BEFORE create_instruction "
-                "to check for duplicates or to find an existing instruction to edit. "
+                "`revenue\\s*>\\s*\\$?\\d+`, `.*cancel.*`). "
+                "In training/knowledge mode: use BEFORE create_instruction to check "
+                "for duplicates or to find an existing instruction to edit (returns "
+                "full text). In chat mode: use when you suspect a rule exists that "
+                "is not loaded and not listed in <available_instructions> — results "
+                "are compact (title + snippet, scoped to this report's data); call "
+                "read_instruction with the id to load the full text. "
                 "Cast a wide net: pass 3-6 queries in ONE call covering different "
-                "angles of the topic. Returns full instruction text so no separate "
-                "read step is needed."
+                "angles of the topic."
             ),
             category="research",
-            version="1.0.0",
+            version="1.1.0",
             input_schema=SearchInstructionsInput.model_json_schema(),
             output_schema=SearchInstructionsOutput.model_json_schema(),
             max_retries=1,
@@ -54,7 +58,7 @@ class SearchInstructionsTool(Tool):
             idempotent=True,
             required_permissions=[],
             tags=["instruction", "search", "knowledge"],
-            allowed_modes=["training", "knowledge"],
+            allowed_modes=["training", "knowledge", "chat"],
             examples=[
                 {
                     "input": {"query": ["revenue"], "limit": 10},
@@ -134,6 +138,33 @@ class SearchInstructionsTool(Tool):
             service = InstructionService()
             categories = [data.category] if data.category else None
 
+            # --- Chat mode: forced report scope, published-only, compact output ---
+            # In chat the agent-supplied data_source_ids are IGNORED — the scope
+            # is the report's data sources (mirroring what the instruction
+            # catalog advertises). Without a report context the tool refuses
+            # rather than searching org-wide.
+            chat_mode = runtime_ctx.get("mode") == "chat"
+            effective_ds_ids = data.data_source_ids
+            if chat_mode:
+                from app.ai.tools.implementations.read_instruction import ReadInstructionTool
+                scope_resolved, scope_ds_ids = ReadInstructionTool._resolve_scope(runtime_ctx)
+                if not scope_resolved:
+                    output = SearchInstructionsOutput(
+                        success=False,
+                        instructions=[],
+                        total=0,
+                        message="search_instructions is only available within a report session.",
+                    )
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": output.model_dump(),
+                            "observation": {"summary": output.message, "artifacts": []},
+                        },
+                    )
+                    return
+                effective_ds_ids = scope_ds_ids
+
             # --- Resolve each query into a compiled pattern ---
             # Mirrors describe_tables: literal substrings are escaped and wrapped
             # as case-insensitive regexes; entries with regex metacharacters are
@@ -173,7 +204,7 @@ class SearchInstructionsTool(Tool):
                 limit=window,
                 status="published",
                 categories=categories,
-                data_source_ids=data.data_source_ids,
+                data_source_ids=effective_ds_ids,
                 search=None,
                 include_global=True,
             )
@@ -181,13 +212,23 @@ class SearchInstructionsTool(Tool):
             candidates = result.get("items", []) if isinstance(result, dict) else []
             candidate_total = result.get("total", len(candidates)) if isinstance(result, dict) else len(candidates)
 
+            # Chat mode never surfaces drafts and applies per-user table
+            # accessibility (readable set == advertisable set).
+            if chat_mode and candidates:
+                from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+                _builder = InstructionContextBuilder(
+                    db, organization, current_user=user, data_source_ids=effective_ds_ids,
+                )
+                candidates = await _builder._filter_items_by_table_accessibility(candidates)
+                candidate_total = len(candidates)
+
             # Also include instructions from the current draft build so the
             # harness can see instructions it created earlier in this session.
             # No status filter here: AI-created instructions are status='draft'
             # until the build is promoted, but the agent still needs to see and
             # edit them within the same session.
             training_build_id = runtime_ctx.get("training_build_id")
-            if training_build_id:
+            if training_build_id and not chat_mode:
                 draft_result = await service.get_instructions(
                     db=db,
                     organization=organization,
@@ -229,13 +270,21 @@ class SearchInstructionsTool(Tool):
                 items = candidates[: data.limit]
                 total = candidate_total
 
+            def _snippet(text: str, max_len: int = 140) -> str:
+                collapsed = " ".join((text or "").split())
+                return collapsed[: max_len - 1] + "…" if len(collapsed) > max_len else collapsed
+
             search_items = []
             for it in items:
+                full_text = getattr(it, "text", "") or ""
                 search_items.append(
                     SearchInstructionsItem(
                         id=str(getattr(it, "id", "")),
                         title=getattr(it, "title", None),
-                        text=getattr(it, "text", "") or "",
+                        # Chat mode is compact (progressive disclosure): title +
+                        # snippet only; the agent calls read_instruction for the
+                        # full text. Training/knowledge keep the full text.
+                        text=_snippet(full_text) if chat_mode else full_text,
                         category=getattr(it, "category", None),
                         load_mode=getattr(it, "load_mode", None),
                         status=getattr(it, "status", None),
@@ -243,6 +292,8 @@ class SearchInstructionsTool(Tool):
                 )
 
             msg = f"Found {len(search_items)} instruction(s) (total matching: {total})"
+            if chat_mode and search_items:
+                msg = f"{msg}. Results are snippets — call read_instruction with an id for full text."
             if pattern_errors:
                 msg = f"{msg}. Invalid regex(es) skipped: {'; '.join(pattern_errors)}"
 

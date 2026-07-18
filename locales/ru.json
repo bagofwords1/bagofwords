@@ -412,6 +412,20 @@
     "contextSizeTokens": "{pct} {tokens} токенов размера контекста",
     "contextSizePct": "{pct} размера контекста",
     "contextSizeShort": "{tokens} токенов размера контекста",
+    "usageThisMonth": "Использование за месяц",
+    "context": "Контекст",
+    "compact": "Сжать",
+    "compacting": "Сжатие…",
+    "compacted": "Сжато",
+    "compactTooltip": "Суммировать старые ходы, чтобы освободить контекст",
+    "compactNothing": "Пока нечего сжимать",
+    "compactedTurns": "Сжато {turns} ходов (~{tokens} токенов)",
+    "compactedHistoryAbove": "Сжатая история выше",
+    "tokens": "Токены",
+    "data": "Данные",
+    "connections": "Подключения",
+    "unlimited": "Без ограничений",
+    "moreConnections": "ещё +{count}",
     "pendingChanges": "Ожидающие изменения",
     "pendingReview": "черновик",
     "changeSingular": "изменение",
@@ -583,7 +597,11 @@
     "analysisCompleted": "Анализ завершён",
     "analysisMarkedComplete": "Анализ отмечен как завершённый.",
     "decisionAnalysisCompleted": "Решение: analysis_completed",
-    "block": "Блок"
+    "block": "Блок",
+    "tokensCount": "{count} токенов",
+    "llmUsageTooltip": "Использование LLM в этом диалоге",
+    "turnTokensTooltip": "Токены LLM планировщика за этот ход",
+    "turnUsageTooltip": "Использование LLM за этот ход"
   },
   "reportView": {
     "tabChat": "Чат",
@@ -854,6 +872,11 @@
       "matchPlural": "{count} совпадений",
       "empty": "Подходящих инструкций не найдено.",
       "untitled": "Без названия"
+    },
+    "readInstruction": {
+      "reading": "Чтение инструкции…",
+      "read": "Инструкция прочитана",
+      "failed": "Не удалось прочитать инструкцию"
     },
     "createEval": {
       "drafting": "Создание черновика оценки",

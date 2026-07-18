@@ -242,6 +242,7 @@ def _resolve_reasoning_effort(
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.agents.notes_context import build_notes_context
 from app.ai.context import ContextHub, ContextBuildSpec
+from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
@@ -418,6 +419,20 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
+        # Steering: user messages injected into this run while it executes
+        # (role='user', message_type='steering', parent_id=system_completion.id
+        # rows). The websocket broadcast is the same-worker fast path; the main
+        # loop also polls the DB each iteration so steers submitted through
+        # another uvicorn worker still land.
+        self._steering_pending: dict[str, str] = {}   # id -> content, from WS fast path
+        self._steering_seen_ids: set[str] = set()     # ids already injected
+        self._steering_texts: list[str] = []          # injected texts, arrival order
+        # Hard steer: set on same-worker steering arrival so the in-flight
+        # planner stream can abort and re-plan immediately instead of waiting
+        # for the current decision to finish. (Cross-worker steers land at the
+        # next loop-top DB poll — they can't interrupt mid-stream.)
+        self._steering_interrupt = asyncio.Event()
+
         # SSE event queue for streaming
         self.event_queue = event_queue
 
@@ -442,6 +457,11 @@ class AgentV2:
         # and spawn a single follow-up after the current one finishes.
         self._rebuild_task: Optional[asyncio.Task] = None
         self._rebuild_pending: bool = False
+        # Rolling context compaction: one background attempt per run, scheduled
+        # by the build-time trigger in _refresh_warm_traced. Strong task ref —
+        # awaited at end of turn so the write/SSE can't be lost to task GC.
+        self._compaction_attempted: bool = False
+        self._compaction_task: Optional[asyncio.Task] = None
 
         # Single dedicated write session for the entire agent run.
         # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
@@ -606,30 +626,36 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
-    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str]]:
-        """Return (user_name, user_note) for the asker.
+    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Return (user_name, user_note, user_memory) for the asker.
 
         ``user_note`` is the per-org admin-managed note on the asker's
-        Membership row — same source of truth as the members table UI.
-        Returns ``(None, None)`` for system/non-user runs.
+        Membership row (same source as the members table UI). ``user_memory``
+        is the agent-curated durable memory on the same row, written by the
+        update_user_memory tool. Returns ``(None, None, None)`` for
+        system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
-            return None, None
+            return None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
+        user_memory = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note).where(
+                select(Membership.note, Membership.memory).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
-            user_note = result.scalar_one_or_none()
+            row = result.first()
+            if row is not None:
+                user_note, user_memory = row[0], row[1]
         except Exception:
             user_note = None
-        return user_name, user_note
+            user_memory = None
+        return user_name, user_note, user_memory
 
     async def _build_available_steps_context(self) -> str:
         """Render this report's loadable steps for the planner prompt.
@@ -987,10 +1013,10 @@ class AgentV2:
         from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator, TriggerCondition
 
         # Budget: 1 search + up to 2 verify (inspect_data/describe_tables) + up to
-        # 4 create/edit + 1 exit. The knowledge prompt biases toward capturing, so
-        # the harness needs enough room to search, optionally verify, then write
-        # one or more instructions.
-        MAX_KNOWLEDGE_HARNESS_STEPS = 10
+        # 2 create/edit + 1 exit. Deliberately tight: a session should yield a
+        # small number of robust, generalizable instructions — not a long tail
+        # of micro-rules (see docs/feedback-loops/instruction-overfitting.md).
+        MAX_KNOWLEDGE_HARNESS_STEPS = 6
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":
@@ -1087,7 +1113,7 @@ class AgentV2:
                     break
                 step_count += 1
 
-                user_name, user_note = await self._resolve_user_profile()
+                user_name, user_note, user_memory = await self._resolve_user_profile()
                 planner_input = PlannerInput(
                     organization_name=self.organization.name,
                     organization_ai_analyst_name=self.ai_analyst_name,
@@ -1106,6 +1132,7 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
+                    user_memory=user_memory,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
                 )
@@ -1213,6 +1240,7 @@ class AgentV2:
                     "usage_limit_context": self.usage_limit_context,
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                    "small_model": self.small_model,
                     "mode": "knowledge",
                     "is_eval_run": self.is_eval_run,
                     "platform": self.platform,
@@ -1544,6 +1572,70 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
+    async def _run_auto_compaction(self):
+        """Background body of the build-time compaction trigger: fold turns
+        older than the protected tail into the report's rolling summary
+        (ContextCompactionService). Runs concurrently with the agent loop in
+        its own DB session (report and organization re-fetched by id —
+        self.report/self.organization may be detached, same pitfall as title
+        generation); later context builds pick up the advanced watermark.
+        Fail-open: any error logs and leaves rendering exactly as today."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            if not self.report:
+                return
+            model = self.small_model or self.model
+            if model is None:
+                return
+            from app.services.context_compaction_service import context_compaction_service
+            from app.models.organization import Organization
+            report_id = str(self.report.id)
+            organization_id = str(self.organization.id) if self.organization else None
+            SessionLocal = self._session_maker
+            async with SessionLocal() as session:
+                from sqlalchemy.orm import lazyload as _lazyload
+                report = (await session.execute(
+                    select(Report).where(Report.id == report_id).options(_lazyload("*"))
+                )).scalar_one_or_none()
+                organization = None
+                if organization_id:
+                    # Organization.settings is lazy='joined', so this re-fetch
+                    # carries the settings the digest path needs.
+                    organization = (await session.execute(
+                        select(Organization).where(Organization.id == organization_id)
+                    )).scalar_one_or_none()
+                if report is None or organization is None:
+                    return
+                result = await context_compaction_service.compact(
+                    session, report, organization, model, force=False,
+                )
+                if result.get("status") == "compacted":
+                    logger.info(
+                        f"Auto-compacted report {report_id}: "
+                        f"{result.get('compacted_turns')} turns, ~{result.get('tokens_compacted')} tokens"
+                    )
+                    # Live visibility: the kickoff SSE stream is still open here
+                    # (event_queue.finish() runs after main_execution returns),
+                    # so the page can move the watermark-anchored divider and
+                    # refresh the usage popover without a reload.
+                    if self.event_queue:
+                        try:
+                            await self.event_queue.put(SSEEvent(
+                                event="context.compacted",
+                                completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                data={
+                                    "covers_until_completion_id": result.get("covers_until_completion_id"),
+                                    "compacted_turns": result.get("compacted_turns"),
+                                    "tokens_compacted": result.get("tokens_compacted"),
+                                    "tokens_compacted_total": result.get("tokens_compacted_total"),
+                                },
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Failed to emit context.compacted event: {e}")
+        except Exception as e:
+            logger.warning(f"Auto compaction skipped: {e}")
+
     def _follow_ups_enabled(self) -> bool:
         """True only for web sessions (platform is None) when the org's
         enable_follow_ups setting is on. Slack/Teams/Email/Excel/scheduled runs
@@ -1742,8 +1834,119 @@ class AgentV2:
                 and data.get("sigkill") is not None
             ):
                 self.sigkill_event.set()
+            # Steering fast path: a steering row targeting this run was
+            # inserted (new message) or updated (queued row promoted to steer).
+            if (
+                data.get("event") in ("insert_completion", "update_completion")
+                and data.get("message_type") == "steering"
+                and str(data.get("parent_id") or "") == str(self.system_completion.id)
+            ):
+                cid = str(data.get("completion_id"))
+                prompt = data.get("prompt")
+                content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                if cid not in self._steering_seen_ids and content.strip():
+                    self._steering_pending[cid] = content.strip()
+                    self._steering_interrupt.set()
         except Exception:
             pass
+
+    async def _collect_steering_messages(self, poll_db: bool = True) -> list[str]:
+        """Drain steering messages that arrived since the last checkpoint.
+
+        Merges the in-process websocket fast path with a DB backstop (needed
+        when the steer request landed on another uvicorn worker), dedupes by
+        completion id, appends new texts to self._steering_texts (which
+        _effective_user_message renders into every subsequent planner input),
+        and acks over SSE so the UI can show "steering applied".
+        """
+        fresh: dict[str, str] = dict(self._steering_pending)
+        self._steering_pending.clear()
+        if poll_db:
+            # Use a dedicated short-lived session: self.db may sit inside a
+            # transaction opened before the steer was committed, whose snapshot
+            # (SQLite WAL, repeatable-read setups) would never show the new row.
+            try:
+                from sqlalchemy import select as _select
+                from app.settings.database import create_async_session_factory as _casf
+                async with _casf()() as _poll_session:
+                    rows = await _poll_session.execute(
+                        _select(Completion.id, Completion.prompt).where(
+                            Completion.parent_id == str(self.system_completion.id),
+                            Completion.role == 'user',
+                            Completion.message_type == 'steering',
+                        )
+                    )
+                    for cid, prompt in rows.all():
+                        cid = str(cid)
+                        if cid in self._steering_seen_ids or cid in fresh:
+                            continue
+                        content = (prompt or {}).get("content", "") if isinstance(prompt, dict) else ""
+                        if content.strip():
+                            fresh[cid] = content.strip()
+            except Exception:
+                logger.exception("steering: DB backstop poll failed")
+
+        new_texts = []
+        new_ids = []
+        for cid, content in fresh.items():
+            if cid in self._steering_seen_ids:
+                continue
+            self._steering_seen_ids.add(cid)
+            self._steering_texts.append(content)
+            new_texts.append(content)
+            new_ids.append(cid)
+
+        if new_texts:
+            try:
+                await self._emit_sse_event(SSEEvent(
+                    event="completion.steering.applied",
+                    completion_id=str(self.system_completion.id),
+                    data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
+                ))
+            except Exception:
+                pass
+        return new_texts
+
+    def _render_steering_context(self) -> str | None:
+        """Rendered <steering_updates> block for PlannerInput.steering_context.
+
+        Placed by the prompt builder AFTER <last_observation> — the position
+        the planner is told to drive from — so steers actually override an
+        in-flight plan instead of being demoted with <original_user_prompt>.
+        """
+        if not self._steering_texts:
+            return None
+        items = "\n".join(f"    - {t}" for t in self._steering_texts)
+        return (
+            "<steering_updates>\n"
+            "    PRIORITY — the user interrupted with these instructions WHILE you were "
+            "working. They override <original_user_prompt> and your current plan/notes "
+            "where they conflict. Re-evaluate your plan against them in THIS decision — "
+            "do not simply continue the previous plan. If you keep a plan note, update "
+            "it to reflect them. Your final answer must visibly address them:\n"
+            f"{items}\n"
+            "  </steering_updates>"
+        )
+
+    def _effective_user_message(self) -> str:
+        """The head prompt plus any steering updates injected mid-run."""
+        base = ""
+        try:
+            base = (self.head_completion.prompt or {}).get("content", "")
+        except Exception:
+            base = ""
+        if not self._steering_texts:
+            return base
+        additions = "\n".join(f"- {t}" for t in self._steering_texts)
+        return (
+            f"{base}\n\n<steering_updates>\n"
+            "URGENT — the user sent these instructions WHILE you were working. "
+            "Do not simply continue your previous plan: re-evaluate it against "
+            "these updates in your VERY NEXT decision and adjust course now. "
+            "Where they conflict with the original request, the steering updates "
+            "take precedence. Your final answer must visibly address them:\n"
+            f"{additions}\n</steering_updates>"
+        )
 
     async def _persist_planning_block_partial(
         self,
@@ -2664,9 +2867,11 @@ class AgentV2:
             except Exception:
                 prev_tool_name_before_last_user = None
 
-            # Use cached instructions from prime_static() - no duplicate build
+            # Use cached instructions from prime_static() - no duplicate build.
+            # The planner can call read_instruction/search_instructions, so it
+            # also gets the <available_instructions> catalog.
             inst_section = view.static.instructions
-            instructions = inst_section.render() if inst_section else ""
+            instructions = inst_section.render(include_catalog=True) if inst_section else ""
 
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
@@ -2719,6 +2924,14 @@ class AgentV2:
                 if self.sigkill_event.is_set():
                     break
 
+                # Pick up any steering messages sent while the previous step ran
+                # — they flow into this iteration's planner input via
+                # _effective_user_message().
+                try:
+                    await self._collect_steering_messages()
+                except Exception:
+                    pass
+
                 # Release the pooled DB connection before this iteration's long
                 # planner LLM call + tool execution so concurrent completions
                 # don't starve the connection pool (idle-in-transaction).
@@ -2750,7 +2963,7 @@ class AgentV2:
                     if loop_index == 0 and view.warm.messages:
                         messages_section = view.warm.messages
                     else:
-                        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+                        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
                     messages_context = messages_section.render() if messages_section else ""
                     # Use cached resources from prime_static() - static, no need to rebuild
                     resources_section = view.static.resources
@@ -2791,7 +3004,7 @@ class AgentV2:
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images
-                    user_name, user_note = await self._resolve_user_profile()
+                    user_name, user_note, user_memory = await self._resolve_user_profile()
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -2799,7 +3012,8 @@ class AgentV2:
                         locale=self.org_locale,
                         week_start=self.org_week_start,
                         instructions=instructions,
-                        user_message=self.head_completion.prompt["content"],
+                        user_message=self._effective_user_message(),
+                        steering_context=self._render_steering_context(),
                         schemas_excerpt=None,
                         schemas_combined=schemas_excerpt,
                         schemas_names_index=None,
@@ -2831,6 +3045,7 @@ class AgentV2:
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
+                        user_memory=user_memory,
                         # Org setting drives parallel emission end-to-end: cap > 1
                         # relaxes the one-tool-per-turn prompt rule and lifts the
                         # provider parallel_tool_calls restriction. The knowledge
@@ -3002,6 +3217,24 @@ class AgentV2:
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
                         break
+
+                    # Hard steer: a steering message arrived while this decision
+                    # was streaming. Abort it and re-plan immediately with the
+                    # steer in context (same contract as the retry flow below:
+                    # set observation, break, outer loop continues).
+                    if self._steering_interrupt.is_set():
+                        self._steering_interrupt.clear()
+                        _steers = await self._collect_steering_messages()
+                        if _steers:
+                            await _cancel_skeleton_block("steering")
+                            observation = {
+                                "summary": (
+                                    "INTERRUPTED: the user sent steering instructions while "
+                                    "you were planning. See <steering_updates> and re-plan "
+                                    "now incorporating them."
+                                ),
+                            }
+                            break
 
                     # Handle typed events
                     if evt.type == "planner.tokens":
@@ -3398,6 +3631,21 @@ class AgentV2:
 
                         # Only treat analysis_complete as terminal if there's NO action
                         if decision.analysis_complete and not action:
+                            # Late steering: a steer may have arrived while this
+                            # final plan streamed. Don't finalize over it — pick
+                            # it up and give the planner another iteration.
+                            try:
+                                _late_steers = await self._collect_steering_messages()
+                            except Exception:
+                                _late_steers = []
+                            if _late_steers:
+                                observation = {
+                                    "summary": (
+                                        "The user sent a steering update while you were "
+                                        "finalizing. Re-plan and incorporate it before finishing."
+                                    ),
+                                }
+                                break
                             # Final answer path (no tool to execute)
                             invalid_retry_count = 0
 
@@ -3623,6 +3871,7 @@ class AgentV2:
                                     "excel_files": self.analysis_files,
                                     "training_build_id": self.training_build_id,  # For training mode instruction creation
                                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                                    "small_model": self.small_model,
                                     "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
                                     "is_eval_run": self.is_eval_run,
                                     "platform": self.platform,
@@ -4350,7 +4599,20 @@ class AgentV2:
                     self._drain_bg_writes(),
                     name="agent.post_finished_drain",
                 )
-            
+
+            # If a build-time trigger scheduled a background compaction this
+            # run, let it land before the stream closes: the context.compacted
+            # SSE must beat [DONE], and dropping the reference here would risk
+            # GC'ing the task mid-write. It overlapped the run, so this await
+            # is usually a no-op; the timeout keeps a stuck summarizer from
+            # pinning the turn open.
+            _compaction_task = getattr(self, "_compaction_task", None)
+            if _compaction_task is not None and not _compaction_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(_compaction_task), timeout=45)
+                except Exception as e:
+                    logger.warning(f"Background compaction still pending at turn end: {e}")
+
         except Exception as e:
             # Handle errors and finish execution with error status
             if self.current_execution:
@@ -4446,7 +4708,7 @@ class AgentV2:
             view = self.context_hub.get_view()
 
         instructions_section = await self.context_hub.instruction_builder.build()
-        instructions = instructions_section.render()
+        instructions = instructions_section.render(include_catalog=True)
 
         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -4458,7 +4720,7 @@ class AgentV2:
         except Exception:
             schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
 
-        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+        messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
         messages_context = messages_section.render()
 
         resources_section = await self.context_hub.resource_builder.build()
@@ -4480,7 +4742,7 @@ class AgentV2:
 
         active_artifact = await self._get_active_artifact()
 
-        user_name, user_note = await self._resolve_user_profile()
+        user_name, user_note, user_memory = await self._resolve_user_profile()
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
@@ -4518,6 +4780,7 @@ class AgentV2:
             scheduled_context=await self._build_scheduled_context(),
             user_name=user_name,
             user_note=user_note,
+            user_memory=user_memory,
         )
 
         from app.ai.context.context_hub import trim_context_to_budget
@@ -4580,7 +4843,41 @@ class AgentV2:
             if self.report is not None:
                 span.set_attribute("report.id", str(self.report.id))
             await self.context_hub.refresh_warm()
-            return self.context_hub.get_view()
+            view = self.context_hub.get_view()
+            # Compaction rides on context assembly: every agent-path warm build
+            # checks the window against the token budget and, at most once per
+            # run, schedules a background fold. Detection only — the build
+            # returns the uncompacted view; a later build picks up the
+            # advanced watermark. (Passive builds — estimate endpoint, title,
+            # follow-ups — never come through here, so they can't trigger.)
+            self._maybe_schedule_compaction(view)
+            return view
+
+    def _maybe_schedule_compaction(self, view) -> None:
+        """Threshold check + background scheduling, once per run. Fail-open."""
+        if getattr(self, "_compaction_attempted", False):
+            return
+        try:
+            from app.services.context_compaction_service import (
+                compaction_budgets, MESSAGES_WINDOW,
+            )
+            messages = getattr(getattr(view, "warm", None), "messages", None)
+            if messages is None:
+                return
+            rendered = messages.render() or ""
+            item_count = len(getattr(messages, "items", []) or [])
+            budgets = compaction_budgets(self.small_model or self.model)
+            if (len(rendered) // 4) < budgets["trigger_tokens"] and item_count < MESSAGES_WINDOW:
+                return
+            self._compaction_attempted = True
+            # Strong reference on self — a bare create_task is only weakly
+            # held by the loop and can be GC'd mid-flight (the title-generation
+            # lesson). main_execution awaits it before the stream closes.
+            self._compaction_task = asyncio.create_task(
+                self._run_auto_compaction(), name="agent.context_compaction"
+            )
+        except Exception as e:
+            logger.debug(f"Compaction trigger check skipped: {e}")
 
     async def _build_context_traced(self, phase: str, *, loop_index: int | None = None):
         with tracer.start_as_current_span("agent.context_build") as span:
