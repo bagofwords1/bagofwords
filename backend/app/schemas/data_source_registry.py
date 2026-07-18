@@ -1493,9 +1493,6 @@ _TOOLS_GOOGLE_DRIVE = [
     "search_files", "list_recent_files", "read_file_content", "download_file_content",
     "get_file_metadata", "get_file_permissions", "create_file",
 ]
-_TOOLS_GMAIL = [
-    "search_threads", "get_thread", "list_labels", "list_drafts", "create_draft",
-]
 
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
@@ -1532,14 +1529,10 @@ MCP_PRESETS: List[McpPreset] = [
                   audience="https://drivemcp.googleapis.com/mcp/v1",
               ),
               description="Google's preview MCP tools for Drive (needs a Google OAuth client)."),
-    McpPreset(key="gmail", title="Gmail (MCP Preview)", server_url="https://gmailmcp.googleapis.com/mcp/v1",
-              auth="oauth_app", allowed_auth=["oauth_app"], sample_tools=_TOOLS_GMAIL,
-              oauth_defaults=McpAuthDefaults(
-                  authorize_url=_GOOGLE_AUTHORIZE, token_url=_GOOGLE_TOKEN,
-                  scopes="openid, email, https://www.googleapis.com/auth/gmail.readonly",
-                  audience="https://gmailmcp.googleapis.com/mcp/v1",
-              ),
-              description="Google's preview MCP tools for Gmail (needs a Google OAuth client)."),
+    # Gmail is served by the native `gmail_mail` connector (per-user OAuth,
+    # gmail.readonly) — the old "Gmail (MCP Preview)" preset was removed once the
+    # native connector shipped. Existing MCP-based Gmail connections keep working;
+    # they're just no longer offered in the catalog.
     # X's MCP server takes an app-only bearer token from the X Developer Portal
     # (no DCR — verified by live probe 2026-07). App-only auth is read-only:
     # public posts/users/search/trends work; bookmarks and "me" tools 403. It can

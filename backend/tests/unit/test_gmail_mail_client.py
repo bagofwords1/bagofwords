@@ -200,7 +200,7 @@ async def test_admin_oauth_app_validation_accepts_mail_inventory_without_user_to
     assert "signing in" in result["message"]
 
 
-def test_native_gmail_and_drive_are_visible_and_mcp_variants_are_labeled_preview():
+def test_native_gmail_visible_and_gmail_mcp_preset_removed():
     from app.schemas.data_source_registry import (
         REGISTRY,
         list_available_data_sources,
@@ -213,7 +213,9 @@ def test_native_gmail_and_drive_are_visible_and_mcp_variants_are_labeled_preview
     assert REGISTRY["gmail_mail"].data_shape == "files"
     assert REGISTRY["gmail_mail"].catalog_ownership == "per_user"
     assert resolve_client_class("gmail_mail") is GmailMailClient
-    assert mcp_preset("gmail").title.endswith("(MCP Preview)")
+    # Gmail is now served solely by the native connector — the MCP preview preset
+    # was removed once it shipped. Drive keeps its MCP preview alongside native.
+    assert mcp_preset("gmail") is None
     assert mcp_preset("google_drive").title.endswith("(MCP Preview)")
 
 
