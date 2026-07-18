@@ -40,10 +40,12 @@ async def _turn(db, report, user_id, role, content, minute):
 async def main(user_id: str, org_id: str):
     from app.services.session_event_service import SessionEventService
     from app.ai.context import session_events as SE
+    from app.models.user import User
 
     engine = create_async_engine(DB_URL)
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as db:
+        user_obj = await db.get(User, str(user_id))  # so events carry the actor's name
         report = Report(
             title="Revenue analysis (session events demo)",
             slug=f"events-demo-{uuid.uuid4().hex[:8]}",
@@ -54,7 +56,7 @@ async def main(user_id: str, org_id: str):
         await db.commit()
 
         async def ev(kind, minute, meta):
-            e = await SessionEventService.emit(db, report=report, user_id=str(user_id), kind=kind, meta=meta)
+            e = await SessionEventService.emit(db, report=report, user=user_obj, user_id=str(user_id), kind=kind, meta=meta)
             e.created_at = BASE + timedelta(minutes=minute)
             await db.commit()
 

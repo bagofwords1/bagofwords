@@ -119,7 +119,11 @@ async def test_emit_inserts_event_without_incrementing_turn(db):
     assert ev.completion == {"content": ""}
     # turn_index is the last turn's index — NOT incremented past it.
     assert ev.turn_index == sys.turn_index
-    assert ev.prompt["meta"] == {"from": "claude-opus", "to": "gpt-5"}
+    assert ev.prompt["meta"]["from"] == "claude-opus"
+    assert ev.prompt["meta"]["to"] == "gpt-5"
+    # The actor name is baked into the text and recorded in meta.
+    assert ev.prompt["meta"]["actor"] == "U"
+    assert ev.prompt["content"].startswith("U switched model")
     assert "gpt-5" in ev.prompt["content"]
 
 

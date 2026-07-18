@@ -32,6 +32,7 @@ class SessionEventService:
         kind: str,
         user=None,
         user_id: Optional[str] = None,
+        actor_name: Optional[str] = None,
         content: Optional[str] = None,
         meta: Optional[dict] = None,
         target_type: Optional[str] = None,
@@ -45,9 +46,17 @@ class SessionEventService:
         by ``created_at`` (which is what both the context builder and the UI
         sort on). ``content`` is the human/LLM fallback string; ``meta`` carries
         the structured, per-kind payload consumed by the UI component and by the
-        builder's displaced-target reference.
+        builder's displaced-target reference. ``actor_name`` (or the passed
+        ``user``'s name) is baked into the default text — "Dana thumbed down…"
+        rather than the ambiguous "user thumbed down…" in a shared report.
         """
         uid = user_id or (str(user.id) if user is not None else None)
+        actor = (
+            actor_name
+            or getattr(user, "name", None)
+            or getattr(user, "email", None)
+            or "user"
+        )
 
         last_turn = (
             await db.execute(
@@ -64,8 +73,10 @@ class SessionEventService:
             meta.setdefault("target_type", target_type)
         if target_id is not None:
             meta.setdefault("target_id", target_id)
+        # Record the actor so the UI can render a name/avatar without re-deriving.
+        meta.setdefault("actor", actor)
 
-        text = content or default_event_content(kind, meta)
+        text = content or default_event_content(kind, meta, actor=actor)
 
         prompt: dict[str, Any] = {"content": text, "summary": text, "meta": meta}
         if target_type is not None:
