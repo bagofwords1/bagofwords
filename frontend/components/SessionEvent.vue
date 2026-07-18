@@ -22,6 +22,7 @@ const props = defineProps<{ m: any }>()
 // component registry but intentionally lighter (one component, an icon map).
 const ICONS: Record<string, string> = {
   run_stopped: 'heroicons-stop-circle',
+  llm_changed: 'heroicons-cpu-chip',
   file_uploaded: 'heroicons-paper-clip',
   file_removed: 'heroicons-x-mark',
   agent_scope_changed: 'heroicons-adjustments-horizontal',

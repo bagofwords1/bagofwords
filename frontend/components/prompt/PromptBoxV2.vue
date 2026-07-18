@@ -1249,6 +1249,8 @@ async function persistModel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model_id: modelIdForPayload.value || '' })
         })
+        // Surface the resulting llm_changed session-event strip (no websocket).
+        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report_id, kind: 'model' } }))
     } catch (e) {
         console.error('Failed to persist model:', e)
     }

@@ -79,6 +79,7 @@ EXPORT_DOWNLOADED = "export_downloaded"
 # Kinds that render as a strip in the report timeline. Default: hidden.
 EVENT_UI_VISIBLE = {
     RUN_STOPPED,
+    LLM_CHANGED,
     FILE_UPLOADED,
     FILE_REMOVED,
     AGENT_SCOPE_CHANGED,

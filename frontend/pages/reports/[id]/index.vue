@@ -1521,6 +1521,7 @@ function machineEventLabel(m: any): string {
 // LLM-only and stay hidden in the timeline.
 const EVENT_UI_VISIBLE = new Set<string>([
 	'run_stopped',
+	'llm_changed',
 	'file_uploaded',
 	'file_removed',
 	'agent_scope_changed',
@@ -3565,7 +3566,20 @@ onMounted(() => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
     window.addEventListener('message', handleOfficeJsResult)
+    // A report mutation (model / data-source / sharing change) emits a silent
+    // session event server-side — reload the timeline so its strip appears.
+    // Scoped to this report; reuses the debounced, mid-stream-safe reload.
+    window.addEventListener('report:mutated', onReportMutated as EventListener)
     markdownAutoDir.value = useMarkdownAutoDir()
+})
+
+function onReportMutated(ev: CustomEvent) {
+    const rid = ev?.detail?.reportId
+    if (rid && String(rid) !== String(report_id)) return
+    onReportFilesChanged()
+}
+onBeforeUnmount(() => {
+    window.removeEventListener('report:mutated', onReportMutated as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info

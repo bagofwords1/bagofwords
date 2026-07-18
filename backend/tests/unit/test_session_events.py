@@ -129,9 +129,9 @@ async def test_emit_inserts_event_without_incrementing_turn(db):
 # ------------------------------------------------------------------ policy maps
 
 def test_policy_maps():
-    # UI: files & shares visible; model change & feedback hidden.
+    # UI: files, shares & model change visible; feedback hidden.
     assert is_event_kind_ui_visible(FILE_UPLOADED) is True
-    assert is_event_kind_ui_visible(LLM_CHANGED) is False
+    assert is_event_kind_ui_visible(LLM_CHANGED) is True
     assert is_event_kind_ui_visible(FEEDBACK_GIVEN) is False
     # LLM: everything except pure audit.
     assert is_event_kind_llm_visible(FEEDBACK_GIVEN) is True
