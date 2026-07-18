@@ -2208,8 +2208,11 @@ function promptMentionsToRefs(mentions?: Array<{ name: string; items: any[] }>) 
 			refs.push({
 				id: item.id,
 				type,
+				// `icon_type` is what the mention items actually carry (set to the
+				// data source's type); include it so the chip renders the correct
+				// data-source icon instead of the generic fallback glyph.
+				data_source_type: item.connection_type || item.data_source_type || item.icon_type || undefined,
 				name,
-				data_source_type: item.connection_type || item.data_source_type || undefined,
 			})
 		}
 	}
@@ -4018,11 +4021,14 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	const text = data.text.trim()
 	if (!text) return
 
-	// Append user message with attached files (for immediate display)
+	// Append user message with attached files (for immediate display).
+	// Carry the mentions through so the optimistic bubble resolves mention chips
+	// (e.g. multi-word data-source names like "@Elbit Demo") immediately instead
+	// of falling back to the word-only parser until the server reloads the row.
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,
 		role: 'user',
-		prompt: { content: text },
+		prompt: { content: text, mentions: data.mentions || [] },
 		files: data.files || [],
 		created_at: new Date().toISOString()
 	}
