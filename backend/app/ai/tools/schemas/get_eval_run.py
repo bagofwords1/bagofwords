@@ -1,8 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
-from app.ai.tools.schemas.run_eval import RunEvalCaseResult
-
 
 class GetEvalRunsInput(BaseModel):
     """Input schema for ``get_eval_runs`` (list mode — cheap summaries only)."""
@@ -47,6 +45,44 @@ class GetEvalRunInput(BaseModel):
             "fix it?' in one call (fixed / regressed / same per case)."
         ),
     )
+    include_transcript: bool = Field(
+        default=False,
+        description=(
+            "Attach the agent's execution transcript for FAILED cases (tool "
+            "calls, data digests). Off by default to keep reads small; turn on "
+            "to debug *why* the agent produced a failing answer beyond the rule "
+            "verdicts."
+        ),
+    )
+
+
+class EvalRuleView(BaseModel):
+    """A compact expectation rule (what the case asserts)."""
+    type: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class EvalRuleResultView(BaseModel):
+    """The verdict for one rule — the judge's message / expected-vs-actual."""
+    rule: Optional[str] = None
+    status: str
+    message: Optional[str] = None
+    actual: Optional[Any] = None
+
+
+class EvalCaseDetail(BaseModel):
+    """Per-case detail: enough to see why a case passed or failed without a
+    second lookup. ``failure_reason`` is derived from failing rules when the
+    persisted column is null (the common case for a plain ``fail``)."""
+    case_id: str
+    case_name: Optional[str] = None
+    status: str
+    failure_reason: Optional[str] = None
+    prompt: Optional[str] = None
+    rules: List[EvalRuleView] = Field(default_factory=list)
+    rule_results: List[EvalRuleResultView] = Field(default_factory=list)
+    # Populated only when include_transcript=true and the case failed.
+    transcript: Optional[str] = None
 
 
 class GetEvalRunOutput(BaseModel):
@@ -62,7 +98,7 @@ class GetEvalRunOutput(BaseModel):
     finished: int = 0
     passed: int = 0
     failed: int = 0
-    results: List[RunEvalCaseResult] = Field(default_factory=list)
+    results: List[EvalCaseDetail] = Field(default_factory=list)
     # Present only when compare_to_previous=true and a baseline run exists:
     # {against_run: {...}, summary: {fixed, regressed, same, added, removed},
     #  flips: [{case_id, case_name, base_status, status, flip}, ...]}
