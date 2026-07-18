@@ -1227,6 +1227,11 @@
       "diff": "diff",
       "rewrite": "rewrite",
       "failed": "Edit failed"
+    },
+    "updateUserMemory": {
+      "updating": "Updating memory…",
+      "updated": "Updated memory",
+      "failed": "Memory update failed"
     }
   },
   "entityCreate": {
@@ -3243,7 +3248,7 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Custom Instructions",
+      "instructions": "Instructions & Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -3318,6 +3323,11 @@
       "toastGenerateFailed": "Failed to generate API key",
       "toastDeleted": "API key deleted",
       "toastDeleteFailed": "Failed to delete API key"
+    },
+    "memory": {
+      "title": "Memory",
+      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
+      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
     }
   },
   "agentPage": {

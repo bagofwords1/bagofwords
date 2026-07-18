@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.465 (July 18, 2026)
+- **Per-user agent memory (#703)** — the agent can now remember durable facts about you across sessions (preferences, writing style, analyses you liked) via a new `update_user_memory` tool, injected into each conversation as `<user_memory>` and subordinate to org instructions. It's scoped per user and organization, bounded and always-injected, available in chat/deep only, and viewable/editable in the profile's "Instructions & Memory" tab.
+
 ## Version 0.0.464 (July 17, 2026)
 - **Rolling context compaction for Agent v2 (#689)** — long conversations no longer hit the context ceiling: the agent compacts older turns into a rolling summary automatically when the window fills (and on demand), keeps answering past the watermark, and the report chat shows a subtle "compacted" divider where the fold happened. Compaction is visible live via a `context.compacted` SSE and the context-usage estimate refreshes immediately.
 - **Queue and steer prompts during a run (#690)** — typing while the agent is working no longer means waiting: **Queue** holds the prompt (shown as removable chips under the thinking indicator) and runs it when the current completion finishes, while **Steer** injects it into the running completion at the next observation point — hard-interrupting in-flight planning — with a visible acknowledgment on the message once the agent picks it up. Queued prompts stay out of the model's conversation window until they actually run.
