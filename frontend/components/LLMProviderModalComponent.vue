@@ -197,7 +197,7 @@
                                             <span>{{ $t('settings.llms.colContext') }}</span>
                                             <input
                                                 v-model.number="model.context_window_tokens"
-                                                type="number" min="1" step="1000"
+                                                type="number" min="1" step="1"
                                                 :placeholder="$t('settings.llms.contextPlaceholder')"
                                                 class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
                                                 @change="onContextWindowChange(model)"
@@ -236,7 +236,7 @@
                                             <span>{{ $t('settings.llms.colContext') }}</span>
                                             <input
                                                 v-model.number="customModel.context_window_tokens"
-                                                type="number" min="1" step="1000"
+                                                type="number" min="1" step="1"
                                                 :placeholder="$t('settings.llms.contextPlaceholder')"
                                                 class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
                                             />
@@ -432,7 +432,7 @@
                                                 <span>{{ $t('settings.llms.colContext') }}</span>
                                                 <input
                                                     v-model.number="model.context_window_tokens"
-                                                    type="number" min="1" step="1000"
+                                                    type="number" min="1" step="1"
                                                     :placeholder="$t('settings.llms.contextPlaceholder')"
                                                     class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
                                                     @change="onContextWindowChange(model)"
@@ -467,7 +467,7 @@
                                             <span>{{ $t('settings.llms.colContext') }}</span>
                                             <input
                                                 v-model.number="customModel.context_window_tokens"
-                                                type="number" min="1" step="1000"
+                                                type="number" min="1" step="1"
                                                 :placeholder="$t('settings.llms.contextPlaceholder')"
                                                 class="w-24 text-xs border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
                                             />
