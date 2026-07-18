@@ -71,6 +71,12 @@ class PlannerInput(BaseModel):
     schemas_excerpt: Optional[str] = None
     # Combined schema context (per data source: sample Top-K + names index)
     schemas_combined: Optional[str] = None
+    # Thin <available_agents> roster: every attached agent (data source) listed
+    # by name + one-liner + item count + status, marking which are "focused"
+    # (full schema present in schemas_combined). Only populated when the report
+    # has more agents than the index threshold; None means all agents are fully
+    # rendered (schemas_combined carries them all), as before.
+    agents_roster: Optional[str] = None
     # Optional: legacy split fields (unused by default)
     schemas_names_index: Optional[str] = None
     # Files context rendered from uploaded report files (schemas/metadata)

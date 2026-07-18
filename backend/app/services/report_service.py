@@ -426,6 +426,8 @@ class ReportService:
             mode=getattr(report, "mode", "chat"),
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
+            # Agent focus (subset of attached agents whose full schema is in context)
+            focused_data_source_ids=getattr(report, "focused_data_source_ids", None) or [],
             # Conversation sharing
             conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
             conversation_share_token=getattr(report, "conversation_share_token", None),
@@ -739,7 +741,19 @@ class ReportService:
                     )
             except Exception:
                 pass
-        
+
+        # Agent focus: the subset of attached agents whose FULL schema renders.
+        #   None  -> field omitted, leave the current focus untouched
+        #   []    -> clear the focus (revert to auto roster/seed behavior)
+        #   [ids] -> set focus; ids are intersected with the currently-attached
+        #            agents (an id that isn't attached is silently dropped rather
+        #            than erroring, so a stale UI selection never breaks the save)
+        if hasattr(report_data, 'focused_data_source_ids') and report_data.focused_data_source_ids is not None:
+            attached_ids = {str(ds.id) for ds in (report.data_sources or [])}
+            focus = [str(x) for x in report_data.focused_data_source_ids if str(x) in attached_ids]
+            report.focused_data_source_ids = focus or None
+            db.add(report)
+
         #await self._set_slug_for_report(db, report)
 
         await db.commit()

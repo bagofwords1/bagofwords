@@ -23,6 +23,9 @@ class ReportUpdate(BaseModel):
     theme_overrides: Optional[dict] = None
     cron_schedule: Optional[str] = None
     data_sources: Optional[List[str]] = None
+    # Agent focus: subset of attached data_sources whose full schema is rendered.
+    # Omit to leave unchanged; send [] to clear (revert to auto roster/seed).
+    focused_data_source_ids: Optional[List[str]] = None
     mode: Optional[Literal["chat", "deep", "training"]] = None
     # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
     # model id to set, send "" (empty string) to clear back to user/org default.
@@ -55,6 +58,9 @@ class ReportSchema(ReportBase):
     mode: Literal["chat", "deep", "training"] = "chat"
     # Report-level LLM override (null = user/org default resolves at run time)
     model_id: Optional[str] = None
+    # Agent focus: subset of attached agents whose full schema is in context.
+    # null/empty = no explicit focus (planner renders all when few / auto-seeds when many).
+    focused_data_source_ids: Optional[List[str]] = None
     # Conversation sharing
     conversation_share_enabled: bool = False
     conversation_share_token: Optional[str] = None

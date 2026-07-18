@@ -657,6 +657,60 @@ class AgentV2:
             user_memory = None
         return user_name, user_note, user_memory
 
+    async def _render_schemas_with_roster(self, schemas_ctx):
+        """Render the schema block, applying the agent roster/focus policy.
+
+        Returns ``(schemas_excerpt, agents_roster)``:
+          - Few agents attached (≤ threshold) and no explicit focus → render
+            every agent's full schema; ``agents_roster`` is None. Identical to
+            the pre-focus behavior.
+          - Many agents (or an explicit ``report.focused_data_source_ids``) →
+            render full schema ONLY for the focused subset, and return a thin
+            ``<available_agents>`` roster listing every attached agent so the
+            model still knows what exists and can pull others in via
+            search_agents.
+
+        Focus is re-resolved every planner turn so a mid-run set_report_agents
+        call takes effect on the next iteration.
+        """
+        def _plain():
+            try:
+                return schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
+            except Exception:
+                return schemas_ctx.render() if schemas_ctx else ""
+
+        if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None):
+            return _plain(), None
+
+        try:
+            import copy as _copy
+            from app.ai.context.agent_roster import build_focus_and_roster
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            report_focus = list(getattr(self.report, "focused_data_source_ids", None) or []) if self.report else []
+            focus_ids, roster_xml, _mode = await build_focus_and_roster(
+                self.db,
+                self.organization,
+                user,
+                list(self.data_sources or []),
+                schemas_ctx.data_sources,
+                report_focus,
+            )
+            if not focus_ids:
+                return _plain(), None
+            focus_set = {str(x) for x in focus_ids}
+            focused_ctx = _copy.copy(schemas_ctx)
+            focused_ctx.data_sources = [
+                s for s in schemas_ctx.data_sources if str(s.info.id) in focus_set
+            ]
+            try:
+                schemas_excerpt = focused_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+            except Exception:
+                schemas_excerpt = focused_ctx.render()
+            return schemas_excerpt, roster_xml
+        except Exception:
+            logger.exception("agent roster/focus rendering failed; falling back to full schema")
+            return _plain(), None
+
     async def _build_available_steps_context(self) -> str:
         """Render this report's loadable steps for the planner prompt.
 
@@ -2824,13 +2878,13 @@ class AgentV2:
                     prompt_text=prompt_text,
                 ))
             
-            # Use cached schemas from prime_static() - no duplicate build
+            # Use cached schemas from prime_static() - no duplicate build.
+            # When the report has many agents, render full schema only for the
+            # focused subset and a thin roster of all agents (agents_roster);
+            # otherwise render everything as before (agents_roster is None).
             schemas_ctx = view.static.schemas
-            try:
-                schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
-            except Exception:
-                schemas_excerpt = schemas_ctx.render() if schemas_ctx else ""
-            _mlog(f"schemas_rendered len={len(schemas_excerpt)}")
+            schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
+            _mlog(f"schemas_rendered len={len(schemas_excerpt)} roster={'y' if agents_roster else 'n'}")
 
             # Use cached resources from prime_static() - no duplicate build
             resources_ctx = view.static.resources
@@ -3016,6 +3070,7 @@ class AgentV2:
                         steering_context=self._render_steering_context(),
                         schemas_excerpt=None,
                         schemas_combined=schemas_excerpt,
+                        agents_roster=agents_roster,
                         schemas_names_index=None,
                         files_context=files_context,
                         mentions_context=mentions_context,
@@ -4712,11 +4767,12 @@ class AgentV2:
 
         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
+        agents_roster = None
         try:
             schemas_ctx = await self.context_hub.schema_builder.build(
                 with_stats=True,
             )
-            schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+            schemas_combined, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
         except Exception:
             schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
 
@@ -4753,6 +4809,7 @@ class AgentV2:
             user_message=user_message,
             schemas_excerpt=None,
             schemas_combined=schemas_combined,
+            agents_roster=agents_roster,
             schemas_names_index=None,
             files_context=files_context,
             mentions_context=mentions_context,
